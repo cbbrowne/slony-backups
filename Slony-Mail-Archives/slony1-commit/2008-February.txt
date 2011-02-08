@@ -1,0 +1,4149 @@
+From cbbrowne at lists.slony.info  Mon Feb  4 12:56:25 2008
+From: cbbrowne at lists.slony.info (Chris Browne)
+Date: Mon Feb  4 12:56:26 2008
+Subject: [Slony1-commit] slony1-engine/doc/adminguide defineset.sgml
+Message-ID: <20080204205625.11DAA29025A@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/doc/adminguide
+In directory main.slony.info:/tmp/cvs-serv22520
+
+Modified Files:
+	defineset.sgml 
+Log Message:
+Comment on another reason (CONNECTION TIMEOUT) to separate a large
+replication set into multiple pieces.
+
+
+Index: defineset.sgml
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/doc/adminguide/defineset.sgml,v
+retrieving revision 1.28
+retrieving revision 1.29
+diff -C2 -d -r1.28 -r1.29
+*** defineset.sgml	11 Jun 2007 16:02:50 -0000	1.28
+--- defineset.sgml	4 Feb 2008 20:56:22 -0000	1.29
+***************
+*** 121,124 ****
+--- 121,134 ----
+  the degree of the <quote>injury</quote> to performance.</para>
+  
++ <para> Another issue comes up particularly frequently when replicating
++ across a WAN; sometimes the network connection is a little bit
++ unstable, such that there is a risk that a connection held open for
++ several hours will lead to <command>CONNECTION TIMEOUT.</command> If
++ that happens when 95% done copying a 50-table replication set
++ consisting of 250GB of data, that could ruin your whole day.  If the
++ tables were, instead, associated with separate replication sets, that
++ failure at the 95% point might only interrupt, temporarily, the
++ copying of <emphasis>one</emphasis> of those tables.  </para>
++ 
+  <para> These <quote>negative effects</quote> tend to emerge when the
+  database being subscribed to is many gigabytes in size and where it
+
+From cbbrowne at lists.slony.info  Wed Feb  6 10:04:04 2008
+From: cbbrowne at lists.slony.info (Chris Browne)
+Date: Wed Feb  6 10:04:06 2008
+Subject: [Slony1-commit] slony1-engine/src/slon slon.h
+Message-ID: <20080206180404.B8F94290CF8@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/src/slon
+In directory main.slony.info:/tmp/cvs-serv637
+
+Modified Files:
+	slon.h 
+Log Message:
+Increase SLON_DATA_FETCH_SIZE from 10 to 50, which was found to improve
+performance on Large Update Data Sets.
+
+
+Index: slon.h
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/src/slon/slon.h,v
+retrieving revision 1.66
+retrieving revision 1.67
+diff -C2 -d -r1.66 -r1.67
+*** slon.h	2 Jan 2008 19:00:27 -0000	1.66
+--- slon.h	6 Feb 2008 18:04:02 -0000	1.67
+***************
+*** 39,43 ****
+  #else
+  #define SLON_COMMANDS_PER_LINE		10
+! #define SLON_DATA_FETCH_SIZE		10
+  #define SLON_WORKLINES_PER_HELPER	(SLON_DATA_FETCH_SIZE * 5)
+  #endif
+--- 39,43 ----
+  #else
+  #define SLON_COMMANDS_PER_LINE		10
+! #define SLON_DATA_FETCH_SIZE		50
+  #define SLON_WORKLINES_PER_HELPER	(SLON_DATA_FETCH_SIZE * 5)
+  #endif
+
+From cbbrowne at lists.slony.info  Wed Feb  6 12:20:52 2008
+From: cbbrowne at lists.slony.info (Chris Browne)
+Date: Wed Feb  6 12:20:54 2008
+Subject: [Slony1-commit] slony1-engine/src/slon remote_listen.c
+	remote_worker.c
+Message-ID: <20080206202052.D8607290D2D@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/src/slon
+In directory main.slony.info:/tmp/cvs-serv4431
+
+Modified Files:
+	remote_listen.c remote_worker.c 
+Log Message:
+Clean out code that used to generate "Confirm" events; the code was generally
+commented out in the 1.2 branch; removing it now altogether.
+
+Also, dropping out the "NOTIFY _%s_Confirm;" requests, as this may have been
+causing extra unneccessary work.
+
+
+Index: remote_worker.c
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/src/slon/remote_worker.c,v
+retrieving revision 1.163
+retrieving revision 1.164
+diff -C2 -d -r1.163 -r1.164
+*** remote_worker.c	21 Jan 2008 18:54:11 -0000	1.163
+--- remote_worker.c	6 Feb 2008 20:20:50 -0000	1.164
+***************
+*** 2131,2141 ****
+  
+  	slon_appendquery(dsp,
+! 					 "notify \"_%s_Event\"; "
+! 					 "notify \"_%s_Confirm\"; "
+! 					 "insert into %s.sl_event "
+! 					 "    (ev_origin, ev_seqno, ev_timestamp, "
+! 					 "     ev_snapshot, ev_type ",
+! 					 rtcfg_cluster_name, rtcfg_cluster_name,
+! 					 rtcfg_namespace);
+  	if (event->ev_data1 != NULL)
+  		dstring_append(dsp, ", ev_data1");
+--- 2131,2140 ----
+  
+  	slon_appendquery(dsp,
+! 			 "notify \"_%s_Event\"; "
+! 			 "insert into %s.sl_event "
+! 			 "    (ev_origin, ev_seqno, ev_timestamp, "
+! 			 "     ev_snapshot, ev_type ",
+! 			 rtcfg_cluster_name,
+! 			 rtcfg_namespace);
+  	if (event->ev_data1 != NULL)
+  		dstring_append(dsp, ", ev_data1");
+***************
+*** 2155,2162 ****
+  		dstring_append(dsp, ", ev_data8");
+  	slon_appendquery(dsp,
+! 					 "    ) values ('%d', '%s', '%s', '%s', '%s'",
+! 					 event->ev_origin, seqbuf, event->ev_timestamp_c,
+! 					 event->ev_snapshot_c, 
+! 					 event->ev_type);
+  	if (event->ev_data1 != NULL)
+  		slon_appendquery(dsp, ", '%q'", event->ev_data1);
+--- 2154,2161 ----
+  		dstring_append(dsp, ", ev_data8");
+  	slon_appendquery(dsp,
+! 			 "    ) values ('%d', '%s', '%s', '%s', '%s'",
+! 			 event->ev_origin, seqbuf, event->ev_timestamp_c,
+! 			 event->ev_snapshot_c, 
+! 			 event->ev_type);
+  	if (event->ev_data1 != NULL)
+  		slon_appendquery(dsp, ", '%q'", event->ev_data1);
+***************
+*** 2176,2185 ****
+  		slon_appendquery(dsp, ", '%q'", event->ev_data8);
+  	slon_appendquery(dsp,
+! 					 "); "
+! 					 "insert into %s.sl_confirm "
+! 					 "	(con_origin, con_received, con_seqno, con_timestamp) "
+! 					 "   values (%d, %d, '%s', now()); ",
+! 					 rtcfg_namespace,
+! 					 event->ev_origin, rtcfg_nodeid, seqbuf);
+  }
+  
+--- 2175,2184 ----
+  		slon_appendquery(dsp, ", '%q'", event->ev_data8);
+  	slon_appendquery(dsp,
+! 			 "); "
+! 			 "insert into %s.sl_confirm "
+! 			 "	(con_origin, con_received, con_seqno, con_timestamp) "
+! 			 "   values (%d, %d, '%s', now()); ",
+! 			 rtcfg_namespace,
+! 			 event->ev_origin, rtcfg_nodeid, seqbuf);
+  }
+  
+
+Index: remote_listen.c
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/src/slon/remote_listen.c,v
+retrieving revision 1.39
+retrieving revision 1.40
+diff -C2 -d -r1.39 -r1.40
+*** remote_listen.c	29 Jan 2008 15:56:15 -0000	1.39
+--- remote_listen.c	6 Feb 2008 20:20:50 -0000	1.40
+***************
+*** 84,92 ****
+  	PGconn	   *dbconn = NULL;
+  	PGresult   *res;
+- 	/* Don't bother doing anything about CONFIRM notifications
+- 	PGnotify   *notification;
+- 	int			forward_confirm = true;
+- 	*/
+- 	char		notify_confirm[256];
+  	
+  	struct listat *listat_head;
+--- 84,87 ----
+***************
+*** 112,116 ****
+  
+  	sprintf(conn_symname, "node_%d_listen", node->no_id);
+- 	sprintf(notify_confirm, "_%s_Confirm", rtcfg_cluster_name);
+  
+  	/*
+--- 107,110 ----
+***************
+*** 396,402 ****
+  				continue;
+  		}
+- 		/* forward_confirm = false; */
+- 		/* } */
+- 
+  		/*
+  		 * Wait for notification.
+--- 390,393 ----
+***************
+*** 408,424 ****
+  			break;
+  
+- 		/*
+- 		 * Set the forward_confirm flag if there was any Confirm notification
+- 		 * sent.
+- 		 */
+- /* Don't bother doing anything about CONFIRM notifications 
+- 		PQconsumeInput(dbconn);
+- 		while ((notification = PQnotifies(dbconn)) != NULL)
+- 		{
+- 			if (strcmp(notification->relname, notify_confirm) == 0)
+- 				forward_confirm = true;
+- 			PQfreemem(notification);
+- 		}
+- */
+  	}
+  
+--- 399,402 ----
+
+From cbbrowne at lists.slony.info  Wed Feb  6 12:23:54 2008
+From: cbbrowne at lists.slony.info (Chris Browne)
+Date: Wed Feb  6 12:23:55 2008
+Subject: [Slony1-commit] slony1-engine/src/slon remote_worker.c
+Message-ID: <20080206202354.524C7290CB0@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/src/slon
+In directory main.slony.info:/tmp/cvs-serv4617
+
+Modified Files:
+      Tag: REL_1_2_STABLE
+	remote_worker.c 
+Log Message:
+Remove  "notify \"_%s_Confirm\"; " requests; these are entirely spurious,
+as there is nothing listening for this, as of the 1.2 branch.
+
+There was a problem reported where this *might* conceivably be a
+contributing factor.
+
+<http://www.slony.info/bugzilla/show_bug.cgi?id=32>
+
+
+Index: remote_worker.c
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/src/slon/remote_worker.c,v
+retrieving revision 1.124.2.30
+retrieving revision 1.124.2.31
+diff -C2 -d -r1.124.2.30 -r1.124.2.31
+*** remote_worker.c	13 Dec 2007 17:19:17 -0000	1.124.2.30
+--- remote_worker.c	6 Feb 2008 20:23:52 -0000	1.124.2.31
+***************
+*** 2144,2154 ****
+  
+  	slon_appendquery(dsp,
+! 					 "notify \"_%s_Event\"; "
+! 					 "notify \"_%s_Confirm\"; "
+! 					 "insert into %s.sl_event "
+! 					 "    (ev_origin, ev_seqno, ev_timestamp, "
+! 					 "     ev_minxid, ev_maxxid, ev_xip, ev_type ",
+! 					 rtcfg_cluster_name, rtcfg_cluster_name,
+! 					 rtcfg_namespace);
+  	if (event->ev_data1 != NULL)
+  		dstring_append(dsp, ", ev_data1");
+--- 2144,2153 ----
+  
+  	slon_appendquery(dsp,
+! 			 "notify \"_%s_Event\"; "
+! 			 "insert into %s.sl_event "
+! 			 "    (ev_origin, ev_seqno, ev_timestamp, "
+! 			 "     ev_minxid, ev_maxxid, ev_xip, ev_type ",
+! 			 rtcfg_cluster_name,
+! 			 rtcfg_namespace);
+  	if (event->ev_data1 != NULL)
+  		dstring_append(dsp, ", ev_data1");
+***************
+*** 2168,2175 ****
+  		dstring_append(dsp, ", ev_data8");
+  	slon_appendquery(dsp,
+! 					 "    ) values ('%d', '%s', '%s', '%s', '%s', '%q', '%s'",
+! 					 event->ev_origin, seqbuf, event->ev_timestamp_c,
+! 					 event->ev_minxid_c, event->ev_maxxid_c, event->ev_xip,
+! 					 event->ev_type);
+  	if (event->ev_data1 != NULL)
+  		slon_appendquery(dsp, ", '%q'", event->ev_data1);
+--- 2167,2174 ----
+  		dstring_append(dsp, ", ev_data8");
+  	slon_appendquery(dsp,
+! 			 "    ) values ('%d', '%s', '%s', '%s', '%s', '%q', '%s'",
+! 			 event->ev_origin, seqbuf, event->ev_timestamp_c,
+! 			 event->ev_minxid_c, event->ev_maxxid_c, event->ev_xip,
+! 			 event->ev_type);
+  	if (event->ev_data1 != NULL)
+  		slon_appendquery(dsp, ", '%q'", event->ev_data1);
+***************
+*** 2189,2198 ****
+  		slon_appendquery(dsp, ", '%q'", event->ev_data8);
+  	slon_appendquery(dsp,
+! 					 "); "
+! 					 "insert into %s.sl_confirm "
+! 					 "	(con_origin, con_received, con_seqno, con_timestamp) "
+! 					 "   values (%d, %d, '%s', now()); ",
+! 					 rtcfg_namespace,
+! 					 event->ev_origin, rtcfg_nodeid, seqbuf);
+  }
+  
+--- 2188,2197 ----
+  		slon_appendquery(dsp, ", '%q'", event->ev_data8);
+  	slon_appendquery(dsp,
+! 			 "); "
+! 			 "insert into %s.sl_confirm "
+! 			 "	(con_origin, con_received, con_seqno, con_timestamp) "
+! 			 "   values (%d, %d, '%s', now()); ",
+! 			 rtcfg_namespace,
+! 			 event->ev_origin, rtcfg_nodeid, seqbuf);
+  }
+  
+
+From cbbrowne at lists.slony.info  Wed Feb  6 12:28:36 2008
+From: cbbrowne at lists.slony.info (Chris Browne)
+Date: Wed Feb  6 12:28:38 2008
+Subject: [Slony1-commit] slony1-engine RELEASE
+Message-ID: <20080206202836.DAB82290D60@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine
+In directory main.slony.info:/tmp/cvs-serv4744
+
+Modified Files:
+      Tag: REL_1_2_STABLE
+	RELEASE 
+Log Message:
+Release notes change - fix that was found because of bug #32.
+
+
+Index: RELEASE
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/RELEASE,v
+retrieving revision 1.1.2.25
+retrieving revision 1.1.2.26
+diff -C2 -d -r1.1.2.25 -r1.1.2.26
+*** RELEASE	8 Jan 2008 20:46:30 -0000	1.1.2.25
+--- RELEASE	6 Feb 2008 20:28:34 -0000	1.1.2.26
+***************
+*** 14,17 ****
+--- 14,21 ----
+    Postgres for the share directory at runtime - per Dave Page
+  
++ - Removed spurious NOTIFY on "_%s_Confirm"; this is no longer needed
++   in the 1.2 branch, as there is no LISTEN on this notification.
++   Noted in bug #32 - http://www.slony.info/bugzilla/show_bug.cgi?id=32
++ 
+  RELEASE 1.2.12
+  - Fixed problem with DDL SCRIPT parser where C-style comments were
+
+From cbbrowne at lists.slony.info  Wed Feb  6 12:51:58 2008
+From: cbbrowne at lists.slony.info (Chris Browne)
+Date: Wed Feb  6 12:51:59 2008
+Subject: [Slony1-commit] slony1-engine/src/slon remote_worker.c
+Message-ID: <20080206205158.8112B290D82@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/src/slon
+In directory main.slony.info:/tmp/cvs-serv5306/src/slon
+
+Modified Files:
+	remote_worker.c 
+Log Message:
+Suppress NOTIFY _%s_Event for subsequent SYNCs in a SYNC group
+
+
+Index: remote_worker.c
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/src/slon/remote_worker.c,v
+retrieving revision 1.164
+retrieving revision 1.165
+diff -C2 -d -r1.164 -r1.165
+*** remote_worker.c	6 Feb 2008 20:20:50 -0000	1.164
+--- remote_worker.c	6 Feb 2008 20:51:56 -0000	1.165
+***************
+*** 242,246 ****
+  			  SlonDString * dsp);
+  static void query_append_event(SlonDString * dsp,
+! 				   SlonWorkMsg_event * event);
+  static void store_confirm_forward(SlonNode * node, SlonConn * conn,
+  					  SlonWorkMsg_confirm * confirm);
+--- 242,246 ----
+  			  SlonDString * dsp);
+  static void query_append_event(SlonDString * dsp,
+! 			       SlonWorkMsg_event * event, bool suppress_notify);
+  static void store_confirm_forward(SlonNode * node, SlonConn * conn,
+  					  SlonWorkMsg_confirm * confirm);
+***************
+*** 290,294 ****
+  	bool			event_ok;
+  	bool			need_reloadListen = false;
+! 
+  	slon_log(SLON_INFO,
+  			 "remoteWorkerThread_%d: thread starts\n",
+--- 290,294 ----
+  	bool			event_ok;
+  	bool			need_reloadListen = false;
+! 	bool suppress_notify;
+  	slon_log(SLON_INFO,
+  			 "remoteWorkerThread_%d: thread starts\n",
+***************
+*** 658,667 ****
+  			dstring_reset(&query1);
+  			last_sync_group_size = 0;
+  			for (i = 0; i < sync_group_size; i++)
+  			{
+! 				query_append_event(&query1, sync_group[i]);
+  				if (i < (sync_group_size - 1))
+  					free(sync_group[i]);
+  				last_sync_group_size++;
+  			}
+  			slon_appendquery(&query1, "commit transaction;");
+--- 658,669 ----
+  			dstring_reset(&query1);
+  			last_sync_group_size = 0;
++ 			suppress_notify = FALSE;
+  			for (i = 0; i < sync_group_size; i++)
+  			{
+! 				query_append_event(&query1, sync_group[i], suppress_notify);
+  				if (i < (sync_group_size - 1))
+  					free(sync_group[i]);
+  				last_sync_group_size++;
++ 				suppress_notify = TRUE;
+  			}
+  			slon_appendquery(&query1, "commit transaction;");
+***************
+*** 1035,1039 ****
+  									 "notify \"_%s_Restart\"; ",
+  									 rtcfg_cluster_name);
+! 					query_append_event(&query1, event);
+  					slon_appendquery(&query1, "commit transaction;");
+  					query_execute(node, local_dbconn, &query1);
+--- 1037,1041 ----
+  									 "notify \"_%s_Restart\"; ",
+  									 rtcfg_cluster_name);
+! 					query_append_event(&query1, event, FALSE);
+  					slon_appendquery(&query1, "commit transaction;");
+  					query_execute(node, local_dbconn, &query1);
+***************
+*** 1401,1405 ****
+  			if (event_ok)
+  			{
+! 				query_append_event(&query1, event);
+  				slon_appendquery(&query1, "commit transaction;");
+  				if (archive_close(node) < 0)
+--- 1403,1407 ----
+  			if (event_ok)
+  			{
+! 				query_append_event(&query1, event, FALSE);
+  				slon_appendquery(&query1, "commit transaction;");
+  				if (archive_close(node) < 0)
+***************
+*** 2121,2139 ****
+   * Add queries to a dstring that notify for Event and Confirm and that insert a
+   * duplicate of an event record as well as the confirmation for it.
+   * ----------
+   */
+  static void
+! query_append_event(SlonDString * dsp, SlonWorkMsg_event * event)
+  {
+  	char		seqbuf[64];
+  
+  	sprintf(seqbuf, INT64_FORMAT, event->ev_seqno);
+! 
+  	slon_appendquery(dsp,
+- 			 "notify \"_%s_Event\"; "
+  			 "insert into %s.sl_event "
+  			 "    (ev_origin, ev_seqno, ev_timestamp, "
+  			 "     ev_snapshot, ev_type ",
+- 			 rtcfg_cluster_name,
+  			 rtcfg_namespace);
+  	if (event->ev_data1 != NULL)
+--- 2123,2145 ----
+   * Add queries to a dstring that notify for Event and Confirm and that insert a
+   * duplicate of an event record as well as the confirmation for it.
++  * "suppress_notify" parm permits omitting the notify request if running this many times
+   * ----------
+   */
+  static void
+! query_append_event(SlonDString * dsp, SlonWorkMsg_event * event, bool suppress_notify)
+  {
+  	char		seqbuf[64];
+  
+  	sprintf(seqbuf, INT64_FORMAT, event->ev_seqno);
+! 	if (!suppress_notify) {
+! 		slon_appendquery(dsp,
+! 				 "notify \"_%s_Event\"; ",
+! 				 rtcfg_cluster_name);
+! 		
+! 	}
+  	slon_appendquery(dsp,
+  			 "insert into %s.sl_event "
+  			 "    (ev_origin, ev_seqno, ev_timestamp, "
+  			 "     ev_snapshot, ev_type ",
+  			 rtcfg_namespace);
+  	if (event->ev_data1 != NULL)
+
+From cbbrowne at lists.slony.info  Wed Feb  6 12:51:58 2008
+From: cbbrowne at lists.slony.info (Chris Browne)
+Date: Wed Feb  6 12:51:59 2008
+Subject: [Slony1-commit] slony1-engine RELEASE-2.0
+Message-ID: <20080206205158.70383290CD9@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine
+In directory main.slony.info:/tmp/cvs-serv5306
+
+Modified Files:
+	RELEASE-2.0 
+Log Message:
+Suppress NOTIFY _%s_Event for subsequent SYNCs in a SYNC group
+
+
+Index: RELEASE-2.0
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/RELEASE-2.0,v
+retrieving revision 1.13
+retrieving revision 1.14
+diff -C2 -d -r1.13 -r1.14
+*** RELEASE-2.0	21 Jan 2008 19:27:37 -0000	1.13
+--- RELEASE-2.0	6 Feb 2008 20:51:56 -0000	1.14
+***************
+*** 166,168 ****
+  - New slonik "CLONE PREPARE" and "CLONE FINISH" command to assist in
+    creating duplicate nodes based on taking a copy of some existing
+!   subscriber node.
+\ No newline at end of file
+--- 166,172 ----
+  - New slonik "CLONE PREPARE" and "CLONE FINISH" command to assist in
+    creating duplicate nodes based on taking a copy of some existing
+!   subscriber node.
+! 
+! - remote_worker suppresses generating "NOTIFY _%s_Event;" for other
+!   than the first SYNC in a SYNC group, as the extra notifications are
+!   redundant.
+
+From cbbrowne at lists.slony.info  Sat Feb  9 15:39:14 2008
+From: cbbrowne at lists.slony.info (Chris Browne)
+Date: Sat Feb  9 15:39:15 2008
+Subject: [Slony1-commit] slony1-www/content frontpage.txt news.txt
+Message-ID: <20080209233914.497B0290C2E@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-www/content
+In directory main.slony.info:/tmp/cvs-serv20297/content
+
+Modified Files:
+	frontpage.txt news.txt 
+Log Message:
+Notes for 1.2.13
+
+
+Index: frontpage.txt
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-www/content/frontpage.txt,v
+retrieving revision 1.24
+retrieving revision 1.25
+diff -C2 -d -r1.24 -r1.25
+*** frontpage.txt	12 Nov 2007 23:00:55 -0000	1.24
+--- frontpage.txt	9 Feb 2008 23:39:12 -0000	1.25
+***************
+*** 1,7 ****
+  ---
+! Slony-I 1.2.12 available
+  
+! <P> Version 1.2.12 is now <a
+! href="http://slony.info/downloads/1.2/source/slony1-1.2.12.tar.bz2">
+  available.</a>
+  
+--- 1,7 ----
+  ---
+! Slony-I 1.2.13 available
+  
+! <P> Version 1.2.13 is now <a
+! href="http://slony.info/downloads/1.2/source/slony1-1.2.13.tar.bz2">
+  available.</a>
+  
+
+Index: news.txt
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-www/content/news.txt,v
+retrieving revision 1.39
+retrieving revision 1.40
+diff -C2 -d -r1.39 -r1.40
+*** news.txt	13 Nov 2007 21:00:29 -0000	1.39
+--- news.txt	9 Feb 2008 23:39:12 -0000	1.40
+***************
+*** 5,14 ****
+  Chris Browne
+  
+! Slony-1 1.2.12 <a href="http://main.slony.info/downloads/1.2/source/slony1-1.2.12.tar.bz2">engine</a>
+! <a href="http://main.slony.info/downloads/1.2/source/slony1-1.2.12-docs.tar.bz2">documentation</a>
+  <br/>
+  Slony-1 1.1.9 <a href="http://main.slony.info/downloads/1.1/source/slony1-1.1.9.tar.bz2">engine</a>
+  <!-- Please keep this item at the top of the news list -->
+  ---
+  Slony-I Bugzilla available
+  http://bugs.slony.info/bugzilla/
+--- 5,38 ----
+  Chris Browne
+  
+! Slony-1 1.2.13 <a href="http://main.slony.info/downloads/1.2/source/slony1-1.2.13.tar.bz2">engine</a>
+! <a href="http://main.slony.info/downloads/1.2/source/slony1-1.2.13-docs.tar.bz2">documentation</a>
+  <br/>
+  Slony-1 1.1.9 <a href="http://main.slony.info/downloads/1.1/source/slony1-1.1.9.tar.bz2">engine</a>
+  <!-- Please keep this item at the top of the news list -->
+  ---
++ Slony-I 1.2.13 available
++ http://main.slony.info/downloads/1.2/source/slony1-1.2.13.tar.bz2
++ 2008-02-09
++ Chris Browne
++ 
++ <li> Fixed problem with compatibility with PostgreSQL 8.3; function
++   typenameTypeId() has 3 arguments as of 8.3.
++ 
++   <p> This now allows Slony-I to work with the PostgreSQL 8.3.0 release.
++ 
++ <li> Added in logic to ensure that max # of SYNCs grouped together is
++   actually constrained by config parameter sync_group_maxsize.
++ 
++ <li> Fix to show_slony_configuration - point to proper directory where
++   slon/slonik are actually installed.
++ 
++ <li> Fix to slonik Makefile + slonik.c - Change slonik build to query
++   Postgres for the share directory at runtime - per Dave Page
++ 
++ <li> Removed spurious NOTIFY on "_%s_Confirm"; this is no longer needed
++   in the 1.2 branch, as there is no LISTEN on this notification.
++   Noted in <a href="http://www.slony.info/bugzilla/show_bug.cgi?id=32"> bug #32</a>
++ </ul>
++ ---
+  Slony-I Bugzilla available
+  http://bugs.slony.info/bugzilla/
+
+From cbbrowne at lists.slony.info  Sat Feb  9 15:43:34 2008
+From: cbbrowne at lists.slony.info (Chris Browne)
+Date: Sat Feb  9 15:43:35 2008
+Subject: [Slony1-commit] slony1-www/content news.txt
+Message-ID: <20080209234334.282A72900A4@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-www/content
+In directory main.slony.info:/home/community/slony/htdocs/content
+
+Modified Files:
+	news.txt 
+Log Message:
+Fix missing <ul> tagZZ
+
+
+
+
+
+
+
+
+
+Z
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Index: news.txt
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-www/content/news.txt,v
+retrieving revision 1.40
+retrieving revision 1.41
+diff -C2 -d -r1.40 -r1.41
+*** news.txt	9 Feb 2008 23:39:12 -0000	1.40
+--- news.txt	9 Feb 2008 23:43:32 -0000	1.41
+***************
+*** 16,19 ****
+--- 16,20 ----
+  Chris Browne
+  
++ <ul>
+  <li> Fixed problem with compatibility with PostgreSQL 8.3; function
+    typenameTypeId() has 3 arguments as of 8.3.
+
+From devrim at lists.slony.info  Sun Feb 10 12:38:10 2008
+From: devrim at lists.slony.info (Devrim GUNDUZ)
+Date: Sun Feb 10 12:38:13 2008
+Subject: [Slony1-commit] slony1-engine/redhat postgresql-slony1.specfile
+Message-ID: <20080210203810.A5F29290088@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/redhat
+In directory main.slony.info:/tmp/cvs-serv9081/redhat
+
+Modified Files:
+      Tag: REL_1_2_STABLE
+	postgresql-slony1.specfile 
+Log Message:
+- Update to 1.2.13
+
+
+
+Index: postgresql-slony1.specfile
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/redhat/Attic/postgresql-slony1.specfile,v
+retrieving revision 1.1.2.1
+retrieving revision 1.1.2.2
+diff -C2 -d -r1.1.2.1 -r1.1.2.2
+*** postgresql-slony1.specfile	29 Aug 2007 05:47:28 -0000	1.1.2.1
+--- postgresql-slony1.specfile	10 Feb 2008 20:38:08 -0000	1.1.2.2
+***************
+*** 5,9 ****
+  Summary:	A "master to multiple slaves" replication system with cascading and failover
+  Name:		postgresql-slony1
+! Version:	1.2.11
+  Release:	1%{?dist}
+  License:	BSD
+--- 5,9 ----
+  Summary:	A "master to multiple slaves" replication system with cascading and failover
+  Name:		postgresql-slony1
+! Version:	1.2.13
+  Release:	1%{?dist}
+  License:	BSD
+***************
+*** 12,16 ****
+  Source0:	http://main.slony.info/downloads/1.2/source/postgresql-slony1-%{version}.tar.bz2
+  BuildRoot:	%{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
+! BuildRequires:	postgresql-devel, postgresql-server, initscripts
+  Requires:	postgresql-server 
+  
+--- 12,16 ----
+  Source0:	http://main.slony.info/downloads/1.2/source/postgresql-slony1-%{version}.tar.bz2
+  BuildRoot:	%{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
+! BuildRequires:	postgresql-devel, postgresql-server, initscripts, byacc, flex
+  Requires:	postgresql-server 
+  
+***************
+*** 141,144 ****
+--- 141,153 ----
+  
+  %changelog
++ * Sun Feb 10 2008 Devrim Gunduz <devrim@CommandPrompt.com> 1.2.13-1
++ - Update to 1.2.13
++ 
++ * Mon Dec 17 2007 Devrim Gunduz <devrim@CommandPrompt.com> 1.2.12-2
++ - Add flex and byacc to buildrequires, per Michael Best
++ 
++ * Tue Nov 13 2007 Devrim Gunduz <devrim@CommandPrompt.com> 1.2.12-1
++ - Update to 1.2.12
++ 
+  * Wed Aug 29 2007 Devrim Gunduz <devrim@CommandPrompt.com> 1.2.11-1
+  - Update to 1.2.11
+
+From devrim at lists.slony.info  Sun Feb 10 12:38:10 2008
+From: devrim at lists.slony.info (Devrim GUNDUZ)
+Date: Sun Feb 10 12:38:13 2008
+Subject: [Slony1-commit] slony1-engine postgresql-slony1.spec.in
+Message-ID: <20080210203810.9A698290086@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine
+In directory main.slony.info:/tmp/cvs-serv9081
+
+Modified Files:
+      Tag: REL_1_2_STABLE
+	postgresql-slony1.spec.in 
+Log Message:
+- Update to 1.2.13
+
+
+
+Index: postgresql-slony1.spec.in
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/Attic/postgresql-slony1.spec.in,v
+retrieving revision 1.1.2.3
+retrieving revision 1.1.2.4
+diff -C2 -d -r1.1.2.3 -r1.1.2.4
+*** postgresql-slony1.spec.in	17 Jan 2008 03:34:22 -0000	1.1.2.3
+--- postgresql-slony1.spec.in	10 Feb 2008 20:38:08 -0000	1.1.2.4
+***************
+*** 6,10 ****
+  Name:		@PACKAGE_NAME@
+  Version:	@PACKAGE_VERSION@
+! Release:	2%{?dist}
+  License:	BSD
+  Group:		Applications/Databases
+--- 6,10 ----
+  Name:		@PACKAGE_NAME@
+  Version:	@PACKAGE_VERSION@
+! Release:	1%{?dist}
+  License:	BSD
+  Group:		Applications/Databases
+***************
+*** 141,144 ****
+--- 141,147 ----
+  
+  %changelog
++ * Sun Feb 10 2008 Devrim Gunduz <devrim@CommandPrompt.com> 1.2.13-1
++ - Update to 1.2.13
++ 
+  * Mon Dec 17 2007 Devrim Gunduz <devrim@CommandPrompt.com> 1.2.12-2
+  - Add flex and byacc to buildrequires, per Michael Best
+
+From cbbrowne at lists.slony.info  Wed Feb 13 10:39:20 2008
+From: cbbrowne at lists.slony.info (Chris Browne)
+Date: Wed Feb 13 10:39:22 2008
+Subject: [Slony1-commit] slony1-engine/tests/test1 README generate_dml.sh
+Message-ID: <20080213183920.157DE29027E@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/tests/test1
+In directory main.slony.info:/tmp/cvs-serv22853
+
+Modified Files:
+	README generate_dml.sh 
+Log Message:
+test1 runs "cleanupEvent()" function by hand
+
+
+Index: README
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/tests/test1/README,v
+retrieving revision 1.11
+retrieving revision 1.12
+diff -C2 -d -r1.11 -r1.12
+*** README	11 Dec 2007 20:37:39 -0000	1.11
+--- README	13 Feb 2008 18:39:17 -0000	1.12
+***************
+*** 30,31 ****
+--- 30,33 ----
+  8.  It uses a slon.conf file for node #2 to make sure that the logic
+  of the config file parser gets exercised.
++ 
++ 9.  It runs the cleanupEvent() function by hand
+
+Index: generate_dml.sh
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/tests/test1/generate_dml.sh,v
+retrieving revision 1.15
+retrieving revision 1.16
+diff -C2 -d -r1.15 -r1.16
+*** generate_dml.sh	11 Dec 2007 20:37:39 -0000	1.15
+--- generate_dml.sh	13 Feb 2008 18:39:17 -0000	1.16
+***************
+*** 84,87 ****
+--- 84,96 ----
+    fi
+    status "completed generate_sync_event() test"
++ 
++   pint="1 second"
++   dellogs="true"
++   $pgbindir/psql -h $host -p $port -d $db -U $user -c "select \"_${CLUSTER1}\".cleanupEvent('${pint}'::interval,'${dellogs}'::boolean);" 1> $mktmp/cleanupevent.log.1 2> $mktmp/cleanupevent.log
++   rc=$?
++   if [ $rc -ne 0 ]; then
++       warn 3 "cleanupEvent() failed - rc=${rc} see $mktmp/cleanupevent.log* for details"
++   fi
++   status "completed cleanupEevent(${pint},${dellogs}) test"
+    status "done"
+  }
+
+From cbbrowne at lists.slony.info  Wed Feb 13 10:40:31 2008
+From: cbbrowne at lists.slony.info (Chris Browne)
+Date: Wed Feb 13 10:40:32 2008
+Subject: [Slony1-commit] slony1-engine/src/backend slony1_funcs.sql
+Message-ID: <20080213184031.F00322903B5@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/src/backend
+In directory main.slony.info:/tmp/cvs-serv22905
+
+Modified Files:
+	slony1_funcs.sql 
+Log Message:
+change conditional in logswitch function to fold it into IF statement, and
+eliminate the need to hide a SELECT.
+
+
+Index: slony1_funcs.sql
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/src/backend/slony1_funcs.sql,v
+retrieving revision 1.129
+retrieving revision 1.130
+diff -C2 -d -r1.129 -r1.130
+*** slony1_funcs.sql	29 Jan 2008 15:57:17 -0000	1.129
+--- slony1_funcs.sql	13 Feb 2008 18:40:29 -0000	1.130
+***************
+*** 5305,5310 ****
+  	          where (ev_origin, ev_seqno) in (select ev_origin, min(ev_seqno) from @NAMESPACE@.sl_event where ev_type = ''SYNC'' group by ev_origin)
+  		loop
+! 			select 1 from @NAMESPACE@.sl_log_1 where log_origin = v_origin and log_txid < v_xmin limit 1;		
+! 			if exists then
+  				v_purgeable := ''false'';
+  			end if;
+--- 5305,5309 ----
+  	          where (ev_origin, ev_seqno) in (select ev_origin, min(ev_seqno) from @NAMESPACE@.sl_event where ev_type = ''SYNC'' group by ev_origin)
+  		loop
+! 			if exists select 1 from @NAMESPACE@.sl_log_1 where log_origin = v_origin and log_txid < v_xmin limit 1 then
+  				v_purgeable := ''false'';
+  			end if;
+
+From cbbrowne at lists.slony.info  Wed Feb 13 15:02:42 2008
+From: cbbrowne at lists.slony.info (Chris Browne)
+Date: Wed Feb 13 15:02:44 2008
+Subject: [Slony1-commit] slony1-engine/src/slonik slonik.c
+Message-ID: <20080213230242.5E8B629027E@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/src/slonik
+In directory main.slony.info:/tmp/cvs-serv26228/slonik
+
+Modified Files:
+	slonik.c 
+Log Message:
+Replace some lingering references to old xxid functions to use the new
+8.3 built-ins.
+
+
+Index: slonik.c
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/src/slonik/slonik.c,v
+retrieving revision 1.85
+retrieving revision 1.86
+diff -C2 -d -r1.85 -r1.86
+*** slonik.c	21 Jan 2008 18:54:11 -0000	1.85
+--- slonik.c	13 Feb 2008 23:02:40 -0000	1.86
+***************
+*** 3507,3515 ****
+  	dstring_init(&query);
+  	slon_mkquery(&query,
+! 				 "select \"_%s\".lockSet(%d); "
+! 				 "select \"_%s\".getMaxXid(); ",
+! 				 stmt->hdr.script->clustername,
+! 				 stmt->set_id,
+! 				 stmt->hdr.script->clustername);
+  	res1 = db_exec_select((SlonikStmt *) stmt, adminfo1, &query);
+  	if (res1 == NULL)
+--- 3507,3514 ----
+  	dstring_init(&query);
+  	slon_mkquery(&query,
+! 		     "select \"_%s\".lockSet(%d); "
+! 		     "select pg_catalog.txid_snapshot_xmax(pg_catalog.txid_current_snapshot());",
+! 		     stmt->hdr.script->clustername,
+! 		     stmt->set_id);
+  	res1 = db_exec_select((SlonikStmt *) stmt, adminfo1, &query);
+  	if (res1 == NULL)
+***************
+*** 3531,3536 ****
+  
+  	slon_mkquery(&query,
+! 				 "select \"_%s\".getMinXid() >= '%s'; ",
+! 				 stmt->hdr.script->clustername, maxxid_lock);
+  
+  	while (true)
+--- 3530,3535 ----
+  
+  	slon_mkquery(&query,
+! 		     "select pg_catalog.txid_snapshot_xmin(pg_catalog.txid_current_snapshot()) >= '%s'; ",
+! 		     maxxid_lock);
+  
+  	while (true)
+
+From cbbrowne at lists.slony.info  Wed Feb 13 15:02:42 2008
+From: cbbrowne at lists.slony.info (Chris Browne)
+Date: Wed Feb 13 15:02:44 2008
+Subject: [Slony1-commit] slony1-engine/src/slon cleanup_thread.c
+Message-ID: <20080213230242.4C17E290080@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/src/slon
+In directory main.slony.info:/tmp/cvs-serv26228/slon
+
+Modified Files:
+	cleanup_thread.c 
+Log Message:
+Replace some lingering references to old xxid functions to use the new
+8.3 built-ins.
+
+
+Index: cleanup_thread.c
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/src/slon/cleanup_thread.c,v
+retrieving revision 1.41
+retrieving revision 1.42
+diff -C2 -d -r1.41 -r1.42
+*** cleanup_thread.c	2 Jan 2008 19:00:27 -0000	1.41
+--- cleanup_thread.c	13 Feb 2008 23:02:40 -0000	1.42
+***************
+*** 270,278 ****
+  
+  	dstring_init(&query);
+! 	(void) slon_mkquery(&query, "select %s.getMinXid();", rtcfg_namespace);
+  	res = PQexec(dbconn, dstring_data(&query));
+  	if (PQresultStatus(res) != PGRES_TUPLES_OK)
+  	{
+! 		slon_log(SLON_FATAL, "cleanupThread: could not getMinXid()!\n");
+  		PQclear(res);
+  		slon_retry();
+--- 270,278 ----
+  
+  	dstring_init(&query);
+! 	(void) slon_mkquery(&query, "select pg_catalog.txid_snapshot_xmin(pg_catalog.txid_current_snapshot());");
+  	res = PQexec(dbconn, dstring_data(&query));
+  	if (PQresultStatus(res) != PGRES_TUPLES_OK)
+  	{
+! 		slon_log(SLON_FATAL, "cleanupThread: could not txid_snapshot_xmin()!\n");
+  		PQclear(res);
+  		slon_retry();
+
+From cbbrowne at lists.slony.info  Thu Feb 14 08:38:10 2008
+From: cbbrowne at lists.slony.info (Chris Browne)
+Date: Thu Feb 14 08:38:12 2008
+Subject: [Slony1-commit] slony1-engine/doc/adminguide slonik_ref.sgml
+Message-ID: <20080214163810.CC434290CF4@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/doc/adminguide
+In directory main.slony.info:/tmp/cvs-serv12663
+
+Modified Files:
+	slonik_ref.sgml 
+Log Message:
+Mikhail Kolesnik pointed out some typos in slonik documentation.
+
+
+Index: slonik_ref.sgml
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/doc/adminguide/slonik_ref.sgml,v
+retrieving revision 1.78
+retrieving revision 1.79
+diff -C2 -d -r1.78 -r1.79
+*** slonik_ref.sgml	28 Jan 2008 19:34:25 -0000	1.78
+--- slonik_ref.sgml	14 Feb 2008 16:38:08 -0000	1.79
+***************
+*** 223,227 ****
+      <cmdsynopsis>
+       <command>CLUSTER NAME = </command>
+!      <arg><replaceable class="parameter"> clustername;</replaceable></arg>
+      </cmdsynopsis>
+     </refsynopsisdiv>
+--- 223,227 ----
+      <cmdsynopsis>
+       <command>CLUSTER NAME = </command>
+!      <arg><replaceable class="parameter">clustername;</replaceable></arg>
+      </cmdsynopsis>
+     </refsynopsisdiv>
+***************
+*** 704,708 ****
+     <refsynopsisdiv>
+      <cmdsynopsis>
+!      <command>RESTART NODE (options);</command>
+      </cmdsynopsis>
+     </refsynopsisdiv>
+--- 704,708 ----
+     <refsynopsisdiv>
+      <cmdsynopsis>
+!      <command>RESTART NODE options;</command>
+      </cmdsynopsis>
+     </refsynopsisdiv>
+***************
+*** 1286,1293 ****
+       SUBSCRIBE SET (ID = 999, PROVIDER = 1, RECEIVER = 2);
+       SYNC (ID=1);
+!      WAIT FOR EVENT (ORIGIN = 1, CONFIRMED = 2, WAIT FOR=1);
+       SUBSCRIBE SET (ID = 999, PROVIDER = 1, RECEIVER = 3);
+       SYNC (ID=1);
+!      WAIT FOR EVENT (ORIGIN = 1, CONFIRMED = 3, WAIT FOR=1);
+       MERGE SET ( ID = 1, ADD ID = 999, ORIGIN = 1 );
+      </programlisting>
+--- 1286,1293 ----
+       SUBSCRIBE SET (ID = 999, PROVIDER = 1, RECEIVER = 2);
+       SYNC (ID=1);
+!      WAIT FOR EVENT (ORIGIN = 1, CONFIRMED = 2, WAIT ON=1);
+       SUBSCRIBE SET (ID = 999, PROVIDER = 1, RECEIVER = 3);
+       SYNC (ID=1);
+!      WAIT FOR EVENT (ORIGIN = 1, CONFIRMED = 3, WAIT ON=1);
+       MERGE SET ( ID = 1, ADD ID = 999, ORIGIN = 1 );
+      </programlisting>
+***************
+*** 2864,2871 ****
+       SUBSCRIBE SET (ID = 999, PROVIDER = 1, RECEIVER = 2);
+       SYNC (ID=1);
+!      WAIT FOR EVENT (ORIGIN = 1, CONFIRMED = 2, WAIT FOR=1);
+       SUBSCRIBE SET (ID = 999, PROVIDER = 1, RECEIVER = 3);
+       SYNC (ID=1);
+!      WAIT FOR EVENT (ORIGIN = 1, CONFIRMED = 3, WAIT FOR=1);
+       MERGE SET ( ID = 1, ADD ID = 999, ORIGIN = 1 );
+      </programlisting>
+--- 2864,2871 ----
+       SUBSCRIBE SET (ID = 999, PROVIDER = 1, RECEIVER = 2);
+       SYNC (ID=1);
+!      WAIT FOR EVENT (ORIGIN = 1, CONFIRMED = 2, WAIT ON=1);
+       SUBSCRIBE SET (ID = 999, PROVIDER = 1, RECEIVER = 3);
+       SYNC (ID=1);
+!      WAIT FOR EVENT (ORIGIN = 1, CONFIRMED = 3, WAIT ON=1);
+       MERGE SET ( ID = 1, ADD ID = 999, ORIGIN = 1 );
+      </programlisting>
+
+From cbbrowne at lists.slony.info  Thu Feb 14 08:41:37 2008
+From: cbbrowne at lists.slony.info (Chris Browne)
+Date: Thu Feb 14 08:41:38 2008
+Subject: [Slony1-commit] slony1-engine/tools/altperl Makefile slon_kill.pl
+	slon_start.pl slon_watchdog.pl slon_watchdog2.pl
+	slonik_create_set.pl slonik_drop_node.pl slonik_drop_set.pl
+	slonik_drop_table.pl slonik_execute_script.pl
+	slonik_failover.pl slonik_init_cluster.pl
+	slonik_merge_sets.pl slonik_move_set.pl
+	slonik_print_preamble.pl slonik_restart_node.pl
+	slonik_store_node.pl slonik_subscribe_set.pl
+	slonik_uninstall_nodes.pl slonik_unsubscribe_set.pl
+	slonik_update_nodes.pl slony_show_configuration.pl
+Message-ID: <20080214164137.A4C87290D1C@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/tools/altperl
+In directory main.slony.info:/tmp/cvs-serv12849
+
+Modified Files:
+	Makefile slon_kill.pl slon_start.pl slon_watchdog.pl 
+	slon_watchdog2.pl slonik_create_set.pl slonik_drop_node.pl 
+	slonik_drop_set.pl slonik_drop_table.pl 
+	slonik_execute_script.pl slonik_failover.pl 
+	slonik_init_cluster.pl slonik_merge_sets.pl slonik_move_set.pl 
+	slonik_print_preamble.pl slonik_restart_node.pl 
+	slonik_store_node.pl slonik_subscribe_set.pl 
+	slonik_uninstall_nodes.pl slonik_unsubscribe_set.pl 
+	slonik_update_nodes.pl slony_show_configuration.pl 
+Log Message:
+Apply changes for bug #31...
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=31
+
+changes over to use PERLSHAREDIR in all of the scripts, and substitutes
+that consistently across the various .pl files
+
+
+
+Index: slon_start.pl
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/tools/altperl/slon_start.pl,v
+retrieving revision 1.14
+retrieving revision 1.15
+diff -C2 -d -r1.14 -r1.15
+*** slon_start.pl	22 Feb 2005 17:11:18 -0000	1.14
+--- slon_start.pl	14 Feb 2008 16:41:35 -0000	1.15
+***************
+*** 38,42 ****
+  }
+  
+! require '@@PGLIBDIR@@/slon-tools.pm';
+  require $CONFIG_FILE;
+  
+--- 38,42 ----
+  }
+  
+! require '@@PERLSHAREDIR@@/slon-tools.pm';
+  require $CONFIG_FILE;
+  
+
+Index: slon_watchdog.pl
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/tools/altperl/slon_watchdog.pl,v
+retrieving revision 1.13
+retrieving revision 1.14
+diff -C2 -d -r1.13 -r1.14
+*** slon_watchdog.pl	6 Dec 2006 18:37:58 -0000	1.13
+--- slon_watchdog.pl	14 Feb 2008 16:41:35 -0000	1.14
+***************
+*** 28,32 ****
+  }
+  
+! require '@@PGLIBDIR@@/slon-tools.pm';
+  require $CONFIG_FILE;
+  
+--- 28,32 ----
+  }
+  
+! require '@@PERLSHAREDIR@@/slon-tools.pm';
+  require $CONFIG_FILE;
+  
+
+Index: slonik_store_node.pl
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/tools/altperl/slonik_store_node.pl,v
+retrieving revision 1.4
+retrieving revision 1.5
+diff -C2 -d -r1.4 -r1.5
+*** slonik_store_node.pl	28 Nov 2006 21:41:37 -0000	1.4
+--- slonik_store_node.pl	14 Feb 2008 16:41:35 -0000	1.5
+***************
+*** 28,32 ****
+  }
+  
+! require '@@PGLIBDIR@@/slon-tools.pm';
+  require $CONFIG_FILE;
+  
+--- 28,32 ----
+  }
+  
+! require '@@PERLSHAREDIR@@/slon-tools.pm';
+  require $CONFIG_FILE;
+  
+
+Index: Makefile
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/tools/altperl/Makefile,v
+retrieving revision 1.16
+retrieving revision 1.17
+diff -C2 -d -r1.16 -r1.17
+*** Makefile	4 Jul 2007 15:10:40 -0000	1.16
+--- Makefile	14 Feb 2008 16:41:35 -0000	1.17
+***************
+*** 27,31 ****
+  		$(SED) -e "s#@@PERL@@#$(PERL)#;" \
+                         -e "s#@@SYSCONFDIR@@#$(sysconfdir)#;" \
+!                        -e "s#@@PGLIBDIR@@#$(pgsharedir)#;" \
+                         -e "s#@@PGBINDIR@@#$(pgbindir)#;" \
+                         -e "s#@@SLONBINDIR@@#$(slonbindir)#;" \
+--- 27,31 ----
+  		$(SED) -e "s#@@PERL@@#$(PERL)#;" \
+                         -e "s#@@SYSCONFDIR@@#$(sysconfdir)#;" \
+!                        -e "s#@@PERLSHAREDIR@@#$(perlsharedir)#;" \
+                         -e "s#@@PGBINDIR@@#$(pgbindir)#;" \
+                         -e "s#@@SLONBINDIR@@#$(slonbindir)#;" \
+
+Index: slonik_execute_script.pl
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/tools/altperl/slonik_execute_script.pl,v
+retrieving revision 1.3
+retrieving revision 1.4
+diff -C2 -d -r1.3 -r1.4
+*** slonik_execute_script.pl	13 Mar 2007 15:35:13 -0000	1.3
+--- slonik_execute_script.pl	14 Feb 2008 16:41:35 -0000	1.4
+***************
+*** 51,55 ****
+  }
+  
+! require '@@PGLIBDIR@@/slon-tools.pm';
+  require $CONFIG_FILE;
+  
+--- 51,55 ----
+  }
+  
+! require '@@PERLSHAREDIR@@/slon-tools.pm';
+  require $CONFIG_FILE;
+  
+
+Index: slonik_drop_table.pl
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/tools/altperl/slonik_drop_table.pl,v
+retrieving revision 1.3
+retrieving revision 1.4
+diff -C2 -d -r1.3 -r1.4
+*** slonik_drop_table.pl	27 Oct 2006 17:52:10 -0000	1.3
+--- slonik_drop_table.pl	14 Feb 2008 16:41:35 -0000	1.4
+***************
+*** 32,36 ****
+  }
+  
+! require '@@PGLIBDIR@@/slon-tools.pm';
+  require $CONFIG_FILE;
+  
+--- 32,36 ----
+  }
+  
+! require '@@PERLSHAREDIR@@/slon-tools.pm';
+  require $CONFIG_FILE;
+  
+
+Index: slonik_update_nodes.pl
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/tools/altperl/slonik_update_nodes.pl,v
+retrieving revision 1.2
+retrieving revision 1.3
+diff -C2 -d -r1.2 -r1.3
+*** slonik_update_nodes.pl	27 Oct 2006 17:52:10 -0000	1.2
+--- slonik_update_nodes.pl	14 Feb 2008 16:41:35 -0000	1.3
+***************
+*** 26,30 ****
+  }
+  
+! require '@@PGLIBDIR@@/slon-tools.pm';
+  require $CONFIG_FILE;
+  
+--- 26,30 ----
+  }
+  
+! require '@@PERLSHAREDIR@@/slon-tools.pm';
+  require $CONFIG_FILE;
+  
+
+Index: slonik_subscribe_set.pl
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/tools/altperl/slonik_subscribe_set.pl,v
+retrieving revision 1.2
+retrieving revision 1.3
+diff -C2 -d -r1.2 -r1.3
+*** slonik_subscribe_set.pl	27 Oct 2006 15:24:12 -0000	1.2
+--- slonik_subscribe_set.pl	14 Feb 2008 16:41:35 -0000	1.3
+***************
+*** 26,30 ****
+  }
+  
+! require '@@PGLIBDIR@@/slon-tools.pm';
+  require $CONFIG_FILE;
+  
+--- 26,30 ----
+  }
+  
+! require '@@PERLSHAREDIR@@/slon-tools.pm';
+  require $CONFIG_FILE;
+  
+
+Index: slonik_failover.pl
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/tools/altperl/slonik_failover.pl,v
+retrieving revision 1.2
+retrieving revision 1.3
+diff -C2 -d -r1.2 -r1.3
+*** slonik_failover.pl	27 Oct 2006 17:52:10 -0000	1.2
+--- slonik_failover.pl	14 Feb 2008 16:41:35 -0000	1.3
+***************
+*** 30,34 ****
+  }
+  
+! require '@@PGLIBDIR@@/slon-tools.pm';
+  require $CONFIG_FILE;
+  
+--- 30,34 ----
+  }
+  
+! require '@@PERLSHAREDIR@@/slon-tools.pm';
+  require $CONFIG_FILE;
+  
+
+Index: slonik_print_preamble.pl
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/tools/altperl/slonik_print_preamble.pl,v
+retrieving revision 1.3
+retrieving revision 1.4
+diff -C2 -d -r1.3 -r1.4
+*** slonik_print_preamble.pl	27 Oct 2006 17:52:10 -0000	1.3
+--- slonik_print_preamble.pl	14 Feb 2008 16:41:35 -0000	1.4
+***************
+*** 30,34 ****
+  }
+  
+! require '@@PGLIBDIR@@/slon-tools.pm';
+  require $CONFIG_FILE;
+  
+--- 30,34 ----
+  }
+  
+! require '@@PERLSHAREDIR@@/slon-tools.pm';
+  require $CONFIG_FILE;
+  
+
+Index: slonik_drop_set.pl
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/tools/altperl/slonik_drop_set.pl,v
+retrieving revision 1.3
+retrieving revision 1.4
+diff -C2 -d -r1.3 -r1.4
+*** slonik_drop_set.pl	2 Jan 2007 17:12:33 -0000	1.3
+--- slonik_drop_set.pl	14 Feb 2008 16:41:35 -0000	1.4
+***************
+*** 38,42 ****
+  }
+  
+! require '@@PGLIBDIR@@/slon-tools.pm';
+  require $CONFIG_FILE;
+  
+--- 38,42 ----
+  }
+  
+! require '@@PERLSHAREDIR@@/slon-tools.pm';
+  require $CONFIG_FILE;
+  
+
+Index: slon_kill.pl
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/tools/altperl/slon_kill.pl,v
+retrieving revision 1.12
+retrieving revision 1.13
+diff -C2 -d -r1.12 -r1.13
+*** slon_kill.pl	16 Mar 2005 20:37:54 -0000	1.12
+--- slon_kill.pl	14 Feb 2008 16:41:35 -0000	1.13
+***************
+*** 35,39 ****
+  }
+  
+! require '@@PGLIBDIR@@/slon-tools.pm';
+  require $CONFIG_FILE;
+  
+--- 35,39 ----
+  }
+  
+! require '@@PERLSHAREDIR@@/slon-tools.pm';
+  require $CONFIG_FILE;
+  
+
+Index: slonik_init_cluster.pl
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/tools/altperl/slonik_init_cluster.pl,v
+retrieving revision 1.6
+retrieving revision 1.7
+diff -C2 -d -r1.6 -r1.7
+*** slonik_init_cluster.pl	28 Nov 2006 21:41:37 -0000	1.6
+--- slonik_init_cluster.pl	14 Feb 2008 16:41:35 -0000	1.7
+***************
+*** 28,32 ****
+  }
+  
+! require '@@PGLIBDIR@@/slon-tools.pm';
+  require $CONFIG_FILE;
+  
+--- 28,32 ----
+  }
+  
+! require '@@PERLSHAREDIR@@/slon-tools.pm';
+  require $CONFIG_FILE;
+  
+
+Index: slonik_unsubscribe_set.pl
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/tools/altperl/slonik_unsubscribe_set.pl,v
+retrieving revision 1.2
+retrieving revision 1.3
+diff -C2 -d -r1.2 -r1.3
+*** slonik_unsubscribe_set.pl	27 Oct 2006 17:52:10 -0000	1.2
+--- slonik_unsubscribe_set.pl	14 Feb 2008 16:41:35 -0000	1.3
+***************
+*** 26,30 ****
+  }
+  
+! require '@@PGLIBDIR@@/slon-tools.pm';
+  require $CONFIG_FILE;
+  
+--- 26,30 ----
+  }
+  
+! require '@@PERLSHAREDIR@@/slon-tools.pm';
+  require $CONFIG_FILE;
+  
+
+Index: slonik_move_set.pl
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/tools/altperl/slonik_move_set.pl,v
+retrieving revision 1.2
+retrieving revision 1.3
+diff -C2 -d -r1.2 -r1.3
+*** slonik_move_set.pl	27 Oct 2006 17:52:10 -0000	1.2
+--- slonik_move_set.pl	14 Feb 2008 16:41:35 -0000	1.3
+***************
+*** 26,30 ****
+  }
+  
+! require '@@PGLIBDIR@@/slon-tools.pm';
+  require $CONFIG_FILE;
+  
+--- 26,30 ----
+  }
+  
+! require '@@PERLSHAREDIR@@/slon-tools.pm';
+  require $CONFIG_FILE;
+  
+
+Index: slonik_uninstall_nodes.pl
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/tools/altperl/slonik_uninstall_nodes.pl,v
+retrieving revision 1.3
+retrieving revision 1.4
+diff -C2 -d -r1.3 -r1.4
+*** slonik_uninstall_nodes.pl	2 Jan 2007 17:12:33 -0000	1.3
+--- slonik_uninstall_nodes.pl	14 Feb 2008 16:41:35 -0000	1.4
+***************
+*** 35,39 ****
+  }
+  
+! require '@@PGLIBDIR@@/slon-tools.pm';
+  require $CONFIG_FILE;
+  
+--- 35,39 ----
+  }
+  
+! require '@@PERLSHAREDIR@@/slon-tools.pm';
+  require $CONFIG_FILE;
+  
+
+Index: slonik_merge_sets.pl
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/tools/altperl/slonik_merge_sets.pl,v
+retrieving revision 1.2
+retrieving revision 1.3
+diff -C2 -d -r1.2 -r1.3
+*** slonik_merge_sets.pl	27 Oct 2006 17:52:10 -0000	1.2
+--- slonik_merge_sets.pl	14 Feb 2008 16:41:35 -0000	1.3
+***************
+*** 26,30 ****
+  }
+  
+! require '@@PGLIBDIR@@/slon-tools.pm';
+  require $CONFIG_FILE;
+  
+--- 26,30 ----
+  }
+  
+! require '@@PERLSHAREDIR@@/slon-tools.pm';
+  require $CONFIG_FILE;
+  
+
+Index: slonik_restart_node.pl
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/tools/altperl/slonik_restart_node.pl,v
+retrieving revision 1.2
+retrieving revision 1.3
+diff -C2 -d -r1.2 -r1.3
+*** slonik_restart_node.pl	27 Oct 2006 17:52:10 -0000	1.2
+--- slonik_restart_node.pl	14 Feb 2008 16:41:35 -0000	1.3
+***************
+*** 28,32 ****
+  }
+  
+! require '@@PGLIBDIR@@/slon-tools.pm';
+  require $CONFIG_FILE;
+  
+--- 28,32 ----
+  }
+  
+! require '@@PERLSHAREDIR@@/slon-tools.pm';
+  require $CONFIG_FILE;
+  
+
+Index: slonik_drop_node.pl
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/tools/altperl/slonik_drop_node.pl,v
+retrieving revision 1.3
+retrieving revision 1.4
+diff -C2 -d -r1.3 -r1.4
+*** slonik_drop_node.pl	2 Jan 2007 17:12:33 -0000	1.3
+--- slonik_drop_node.pl	14 Feb 2008 16:41:35 -0000	1.4
+***************
+*** 40,44 ****
+  }
+  
+! require '@@PGLIBDIR@@/slon-tools.pm';
+  require $CONFIG_FILE;
+  
+--- 40,44 ----
+  }
+  
+! require '@@PERLSHAREDIR@@/slon-tools.pm';
+  require $CONFIG_FILE;
+  
+
+Index: slon_watchdog2.pl
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/tools/altperl/slon_watchdog2.pl,v
+retrieving revision 1.10
+retrieving revision 1.11
+diff -C2 -d -r1.10 -r1.11
+*** slon_watchdog2.pl	6 Dec 2006 18:37:58 -0000	1.10
+--- slon_watchdog2.pl	14 Feb 2008 16:41:35 -0000	1.11
+***************
+*** 4,8 ****
+  # Copyright 2004 Afilias Canada
+  
+! require '@@PGLIBDIR@@/slon-tools.pm';
+  require '@@SYSCONFDIR@@/slon_tools.conf';
+  
+--- 4,8 ----
+  # Copyright 2004 Afilias Canada
+  
+! require '@@PERLSHAREDIR@@/slon-tools.pm';
+  require '@@SYSCONFDIR@@/slon_tools.conf';
+  
+
+Index: slonik_create_set.pl
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/tools/altperl/slonik_create_set.pl,v
+retrieving revision 1.5
+retrieving revision 1.6
+diff -C2 -d -r1.5 -r1.6
+*** slonik_create_set.pl	2 Jan 2007 17:12:33 -0000	1.5
+--- slonik_create_set.pl	14 Feb 2008 16:41:35 -0000	1.6
+***************
+*** 28,32 ****
+  }
+  
+! require '@@PGLIBDIR@@/slon-tools.pm';
+  require $CONFIG_FILE;
+  
+--- 28,32 ----
+  }
+  
+! require '@@PERLSHAREDIR@@/slon-tools.pm';
+  require $CONFIG_FILE;
+  
+
+Index: slony_show_configuration.pl
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/tools/altperl/slony_show_configuration.pl,v
+retrieving revision 1.2
+retrieving revision 1.3
+diff -C2 -d -r1.2 -r1.3
+*** slony_show_configuration.pl	4 Jan 2008 19:52:35 -0000	1.2
+--- slony_show_configuration.pl	14 Feb 2008 16:41:35 -0000	1.3
+***************
+*** 27,31 ****
+  }
+  
+! require '@@PGLIBDIR@@/slon-tools.pm';
+  require $CONFIG_FILE;
+  
+--- 27,31 ----
+  }
+  
+! require '@@PERLSHAREDIR@@/slon-tools.pm';
+  require $CONFIG_FILE;
+  
+
+From cbbrowne at lists.slony.info  Thu Feb 14 12:46:10 2008
+From: cbbrowne at lists.slony.info (Chris Browne)
+Date: Thu Feb 14 12:46:12 2008
+Subject: [Slony1-commit] slony1-engine/src/slonik slonik.c
+Message-ID: <20080214204610.F028F290CDA@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/src/slonik
+In directory main.slony.info:/tmp/cvs-serv17187
+
+Modified Files:
+      Tag: REL_1_2_STABLE
+	slonik.c 
+Log Message:
+Put in a proper error message to report if someone sets SPOOLNODE=true in
+a STORE NODE request.
+
+
+Index: slonik.c
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/src/slonik/slonik.c,v
+retrieving revision 1.67.2.13
+retrieving revision 1.67.2.14
+diff -C2 -d -r1.67.2.13 -r1.67.2.14
+*** slonik.c	8 Jan 2008 20:42:41 -0000	1.67.2.13
+--- slonik.c	14 Feb 2008 20:46:08 -0000	1.67.2.14
+***************
+*** 328,331 ****
+--- 328,335 ----
+  					if (!stmt->no_spool)
+  					{
++ 						printf("Slonik command STORE NODE does not "
++ 						       "support the SPOOLNODE argument being set "
++ 						       "to TRUE.\n  See logshipping.html for "
++ 						       "documentation on setting up log shipping.\n");
+  						if (script_check_adminfo(hdr, stmt->no_id) < 0)
+  							errors++;
+
+From cbbrowne at lists.slony.info  Thu Feb 14 13:51:09 2008
+From: cbbrowne at lists.slony.info (Chris Browne)
+Date: Thu Feb 14 13:51:11 2008
+Subject: [Slony1-commit] slony1-engine/src/slonik slonik.c
+Message-ID: <20080214215109.D2D17290D22@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/src/slonik
+In directory main.slony.info:/tmp/cvs-serv18113
+
+Modified Files:
+      Tag: REL_1_2_STABLE
+	slonik.c 
+Log Message:
+Previous patch was wrong; we complain if no_spool is TRUE, not if it
+is FALSE
+
+
+Index: slonik.c
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/src/slonik/slonik.c,v
+retrieving revision 1.67.2.14
+retrieving revision 1.67.2.15
+diff -C2 -d -r1.67.2.14 -r1.67.2.15
+*** slonik.c	14 Feb 2008 20:46:08 -0000	1.67.2.14
+--- slonik.c	14 Feb 2008 21:51:07 -0000	1.67.2.15
+***************
+*** 326,330 ****
+  					}
+  
+! 					if (!stmt->no_spool)
+  					{
+  						printf("Slonik command STORE NODE does not "
+--- 326,330 ----
+  					}
+  
+! 					if (stmt->no_spool)
+  					{
+  						printf("Slonik command STORE NODE does not "
+***************
+*** 332,338 ****
+  						       "to TRUE.\n  See logshipping.html for "
+  						       "documentation on setting up log shipping.\n");
+- 						if (script_check_adminfo(hdr, stmt->no_id) < 0)
+  							errors++;
+  					}
+  					if (script_check_adminfo(hdr, stmt->ev_origin) < 0)
+  						errors++;
+--- 332,339 ----
+  						       "to TRUE.\n  See logshipping.html for "
+  						       "documentation on setting up log shipping.\n");
+  							errors++;
+  					}
++ 					if (script_check_adminfo(hdr, stmt->no_id) < 0)
++ 						errors++;
+  					if (script_check_adminfo(hdr, stmt->ev_origin) < 0)
+  						errors++;
+
+From cbbrowne at lists.slony.info  Thu Feb 14 14:19:18 2008
+From: cbbrowne at lists.slony.info (Chris Browne)
+Date: Thu Feb 14 14:19:19 2008
+Subject: [Slony1-commit] slony1-engine/src/slon confoptions.c
+Message-ID: <20080214221918.48009290D22@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/src/slon
+In directory main.slony.info:/tmp/cvs-serv18526/slon
+
+Modified Files:
+	confoptions.c 
+Log Message:
+Added real descriptions for options that were undocumented
+
+
+Index: confoptions.c
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/src/slon/confoptions.c,v
+retrieving revision 1.27
+retrieving revision 1.28
+diff -C2 -d -r1.27 -r1.28
+*** confoptions.c	3 Jan 2008 15:47:21 -0000	1.27
+--- confoptions.c	14 Feb 2008 22:19:16 -0000	1.28
+***************
+*** 727,732 ****
+  		{
+  			(const char *)"log_pid",	/* conf name */
+! 			gettext_noop("place holder"),		/* short desc */
+! 			gettext_noop("place holder"),		/* long desc */
+  			SLON_C_BOOL			/* config type */
+  		},
+--- 727,732 ----
+  		{
+  			(const char *)"log_pid",	/* conf name */
+! 			gettext_noop("Should logs include PID?"),		/* short desc */
+! 			gettext_noop("Should logs include PID?"),		/* long desc */
+  			SLON_C_BOOL			/* config type */
+  		},
+***************
+*** 737,742 ****
+  		{
+  			(const char *)"log_timestamp",
+! 			gettext_noop("place holder"),
+! 			gettext_noop("place holder"),
+  			SLON_C_BOOL
+  		},
+--- 737,742 ----
+  		{
+  			(const char *)"log_timestamp",
+! 			gettext_noop("Should logs include timestamp?"),
+! 			gettext_noop("Should logs include timestamp?"),
+  			SLON_C_BOOL
+  		},
+
+From cbbrowne at lists.slony.info  Thu Feb 14 14:21:44 2008
+From: cbbrowne at lists.slony.info (Chris Browne)
+Date: Thu Feb 14 14:21:46 2008
+Subject: [Slony1-commit] slony1-engine/src/backend slony1_base.sql
+	slony1_funcs.sql
+Message-ID: <20080214222144.E54BD290D52@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/src/backend
+In directory main.slony.info:/tmp/cvs-serv18563/backend
+
+Modified Files:
+	slony1_base.sql slony1_funcs.sql 
+Log Message:
+Expunge "SPOOLNODE" attribute that we had thought we would need for
+log shipping.  It expresses itself several ways:
+
+ 1.  sl_node.no_spool (in tables)
+ 2.  SPOOLNODE (in slonik grammars)
+ 3.  In various places, as an extra function argument
+
+
+Index: slony1_base.sql
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/src/backend/slony1_base.sql,v
+retrieving revision 1.38
+retrieving revision 1.39
+diff -C2 -d -r1.38 -r1.39
+*** slony1_base.sql	11 Dec 2007 19:30:29 -0000	1.38
+--- slony1_base.sql	14 Feb 2008 22:21:42 -0000	1.39
+***************
+*** 23,28 ****
+  	no_active			bool,
+  	no_comment			text,
+- 	no_spool			boolean,
+- 
+  	CONSTRAINT "sl_node-pkey"
+  		PRIMARY KEY (no_id)
+--- 23,26 ----
+***************
+*** 32,36 ****
+  comment on column @NAMESPACE@.sl_node.no_active is 'Is the node active in replication yet?';  
+  comment on column @NAMESPACE@.sl_node.no_comment is 'A human-oriented description of the node';
+- comment on column @NAMESPACE@.sl_node.no_spool is 'Is the node being used for log shipping?';  
+  
+  
+--- 30,33 ----
+
+Index: slony1_funcs.sql
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/src/backend/slony1_funcs.sql,v
+retrieving revision 1.130
+retrieving revision 1.131
+diff -C2 -d -r1.130 -r1.131
+*** slony1_funcs.sql	13 Feb 2008 18:40:29 -0000	1.130
+--- slony1_funcs.sql	14 Feb 2008 22:21:42 -0000	1.131
+***************
+*** 696,700 ****
+  	-- ----
+  	perform setval(''@NAMESPACE@.sl_local_node_id'', p_local_node_id);
+! 	perform @NAMESPACE@.storeNode_int (p_local_node_id, p_comment, false);
+  
+  	if (pg_catalog.current_setting(''max_identifier_length'')::integer - pg_catalog.length(''@NAMESPACE@'')) < 5 then
+--- 696,700 ----
+  	-- ----
+  	perform setval(''@NAMESPACE@.sl_local_node_id'', p_local_node_id);
+! 	perform @NAMESPACE@.storeNode_int (p_local_node_id, p_comment);
+  
+  	if (pg_catalog.current_setting(''max_identifier_length'')::integer - pg_catalog.length(''@NAMESPACE@'')) < 5 then
+***************
+*** 715,723 ****
+  
+  -- ----------------------------------------------------------------------
+! -- FUNCTION storeNode (no_id, no_comment, no_spool)
+  --
+  --	Generate the STORE_NODE event.
+  -- ----------------------------------------------------------------------
+! create or replace function @NAMESPACE@.storeNode (int4, text, boolean)
+  returns bigint
+  as '
+--- 715,723 ----
+  
+  -- ----------------------------------------------------------------------
+! -- FUNCTION storeNode (no_id, no_comment)
+  --
+  --	Generate the STORE_NODE event.
+  -- ----------------------------------------------------------------------
+! create or replace function @NAMESPACE@.storeNode (int4, text)
+  returns bigint
+  as '
+***************
+*** 725,757 ****
+  	p_no_id			alias for $1;
+  	p_no_comment	alias for $2;
+- 	p_no_spool		alias for $3;
+- 	v_no_spool_txt	text;
+  begin
+! 	if p_no_spool then
+! 		v_no_spool_txt = ''t'';
+! 	else
+! 		v_no_spool_txt = ''f'';
+! 	end if;
+! 	perform @NAMESPACE@.storeNode_int (p_no_id, p_no_comment, p_no_spool);
+  	return  @NAMESPACE@.createEvent(''_@CLUSTERNAME@'', ''STORE_NODE'',
+! 									p_no_id::text, p_no_comment::text, 
+! 									v_no_spool_txt::text);
+  end;
+  ' language plpgsql
+  	called on null input;
+  
+! comment on function @NAMESPACE@.storeNode(int4, text, boolean) is
+  'no_id - Node ID #
+  no_comment - Human-oriented comment
+- no_spool - Flag for virtual spool nodes
+  
+  Generate the STORE_NODE event for node no_id';
+  
+  -- ----------------------------------------------------------------------
+! -- FUNCTION storeNode_int (no_id, no_comment, no_spool)
+  --
+  --	Process the STORE_NODE event.
+  -- ----------------------------------------------------------------------
+! create or replace function @NAMESPACE@.storeNode_int (int4, text, boolean)
+  returns int4
+  as '
+--- 725,748 ----
+  	p_no_id			alias for $1;
+  	p_no_comment	alias for $2;
+  begin
+! 	perform @NAMESPACE@.storeNode_int (p_no_id, p_no_comment);
+  	return  @NAMESPACE@.createEvent(''_@CLUSTERNAME@'', ''STORE_NODE'',
+! 									p_no_id::text, p_no_comment::text);
+  end;
+  ' language plpgsql
+  	called on null input;
+  
+! comment on function @NAMESPACE@.storeNode(int4, text) is
+  'no_id - Node ID #
+  no_comment - Human-oriented comment
+  
+  Generate the STORE_NODE event for node no_id';
+  
+  -- ----------------------------------------------------------------------
+! -- FUNCTION storeNode_int (no_id, no_comment)
+  --
+  --	Process the STORE_NODE event.
+  -- ----------------------------------------------------------------------
+! create or replace function @NAMESPACE@.storeNode_int (int4, text)
+  returns int4
+  as '
+***************
+*** 759,763 ****
+  	p_no_id			alias for $1;
+  	p_no_comment	alias for $2;
+- 	p_no_spool		alias for $3;
+  	v_old_row		record;
+  begin
+--- 750,753 ----
+***************
+*** 779,784 ****
+  		-- ----
+  		update @NAMESPACE@.sl_node
+! 				set no_comment = p_no_comment,
+! 				no_spool = p_no_spool
+  				where no_id = p_no_id;
+  	else
+--- 769,773 ----
+  		-- ----
+  		update @NAMESPACE@.sl_node
+! 				set no_comment = p_no_comment
+  				where no_id = p_no_id;
+  	else
+***************
+*** 787,792 ****
+  		-- ----
+  		insert into @NAMESPACE@.sl_node
+! 				(no_id, no_active, no_comment, no_spool) values
+! 				(p_no_id, ''f'', p_no_comment, p_no_spool);
+  	end if;
+  
+--- 776,781 ----
+  		-- ----
+  		insert into @NAMESPACE@.sl_node
+! 				(no_id, no_active, no_comment) values
+! 				(p_no_id, ''f'', p_no_comment);
+  	end if;
+  
+***************
+*** 795,802 ****
+  ' language plpgsql;
+  
+! comment on function @NAMESPACE@.storeNode_int(int4, text, boolean) is
+  'no_id - Node ID #
+  no_comment - Human-oriented comment
+- no_spool - Flag for virtual spool nodes
+  
+  Internal function to process the STORE_NODE event for node no_id';
+--- 784,790 ----
+  ' language plpgsql;
+  
+! comment on function @NAMESPACE@.storeNode_int(int4, text) is
+  'no_id - Node ID #
+  no_comment - Human-oriented comment
+  
+  Internal function to process the STORE_NODE event for node no_id';
+***************
+*** 1504,1509 ****
+  begin
+  	insert into @NAMESPACE@.sl_node
+! 		(no_id, no_active, no_comment, no_spool)
+! 		select p_no_id, no_active, p_no_comment, no_spool
+  		from @NAMESPACE@.sl_node
+  		where no_id = p_no_provider;
+--- 1492,1497 ----
+  begin
+  	insert into @NAMESPACE@.sl_node
+! 		(no_id, no_active, no_comment)
+! 		select p_no_id, no_active, p_no_comment
+  		from @NAMESPACE@.sl_node
+  		where no_id = p_no_provider;
+***************
+*** 5305,5309 ****
+  	          where (ev_origin, ev_seqno) in (select ev_origin, min(ev_seqno) from @NAMESPACE@.sl_event where ev_type = ''SYNC'' group by ev_origin)
+  		loop
+! 			if exists select 1 from @NAMESPACE@.sl_log_1 where log_origin = v_origin and log_txid < v_xmin limit 1 then
+  				v_purgeable := ''false'';
+  			end if;
+--- 5293,5297 ----
+  	          where (ev_origin, ev_seqno) in (select ev_origin, min(ev_seqno) from @NAMESPACE@.sl_event where ev_type = ''SYNC'' group by ev_origin)
+  		loop
+! 			if (exists (select 1 from @NAMESPACE@.sl_log_1 where log_origin = v_origin and log_txid < v_xmin limit 1)) then
+  				v_purgeable := ''false'';
+  			end if;
+***************
+*** 5495,5498 ****
+--- 5483,5491 ----
+  
+  		-- ----
++ 		-- Drop no_spool from sl_node
++ 		-- ----
++ 		execute ''alter table @NAMESPACE@.sl_node drop column no_spool;'';
++ 
++ 		-- ----
+  		-- create new type - vactables - used by TablesToVacuum()
+  		-- ----
+
+From cbbrowne at lists.slony.info  Thu Feb 14 14:21:44 2008
+From: cbbrowne at lists.slony.info (Chris Browne)
+Date: Thu Feb 14 14:21:47 2008
+Subject: [Slony1-commit] slony1-engine/src/slon remote_worker.c
+Message-ID: <20080214222145.0054D290D59@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/src/slon
+In directory main.slony.info:/tmp/cvs-serv18563/slon
+
+Modified Files:
+	remote_worker.c 
+Log Message:
+Expunge "SPOOLNODE" attribute that we had thought we would need for
+log shipping.  It expresses itself several ways:
+
+ 1.  sl_node.no_spool (in tables)
+ 2.  SPOOLNODE (in slonik grammars)
+ 3.  In various places, as an extra function argument
+
+
+Index: remote_worker.c
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/src/slon/remote_worker.c,v
+retrieving revision 1.165
+retrieving revision 1.166
+diff -C2 -d -r1.165 -r1.166
+*** remote_worker.c	6 Feb 2008 20:51:56 -0000	1.165
+--- remote_worker.c	14 Feb 2008 22:21:42 -0000	1.166
+***************
+*** 714,718 ****
+  				int			no_id = (int)strtol(event->ev_data1, NULL, 10);
+  				char	   *no_comment = event->ev_data2;
+- 				char	   *no_spool = event->ev_data3;
+  
+  				if (no_id != rtcfg_nodeid)
+--- 714,717 ----
+***************
+*** 720,726 ****
+  
+  				slon_appendquery(&query1,
+! 								 "select %s.storeNode_int(%d, '%q', '%s'); ",
+  								 rtcfg_namespace,
+! 								 no_id, no_comment, no_spool);
+  
+  				need_reloadListen = true;
+--- 719,725 ----
+  
+  				slon_appendquery(&query1,
+! 								 "select %s.storeNode_int(%d, '%q'); ",
+  								 rtcfg_namespace,
+! 								 no_id, no_comment);
+  
+  				need_reloadListen = true;
+
+From cbbrowne at lists.slony.info  Thu Feb 14 14:21:45 2008
+From: cbbrowne at lists.slony.info (Chris Browne)
+Date: Thu Feb 14 14:21:47 2008
+Subject: [Slony1-commit] slony1-engine/src/slonik parser.y scan.l slonik.c
+	slonik.h
+Message-ID: <20080214222145.85E64290D59@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/src/slonik
+In directory main.slony.info:/tmp/cvs-serv18563/slonik
+
+Modified Files:
+	parser.y scan.l slonik.c slonik.h 
+Log Message:
+Expunge "SPOOLNODE" attribute that we had thought we would need for
+log shipping.  It expresses itself several ways:
+
+ 1.  sl_node.no_spool (in tables)
+ 2.  SPOOLNODE (in slonik grammars)
+ 3.  In various places, as an extra function argument
+
+
+Index: slonik.h
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/src/slonik/slonik.h,v
+retrieving revision 1.33
+retrieving revision 1.34
+diff -C2 -d -r1.33 -r1.34
+*** slonik.h	21 Jan 2008 18:54:11 -0000	1.33
+--- slonik.h	14 Feb 2008 22:21:42 -0000	1.34
+***************
+*** 181,185 ****
+  	int			no_id;
+  	char	   *no_comment;
+- 	int			no_spool;
+  	int			ev_origin;
+  };
+--- 181,184 ----
+
+Index: parser.y
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/src/slonik/parser.y,v
+retrieving revision 1.30
+retrieving revision 1.31
+diff -C2 -d -r1.30 -r1.31
+*** parser.y	21 Jan 2008 18:54:11 -0000	1.30
+--- parser.y	14 Feb 2008 22:21:42 -0000	1.31
+***************
+*** 43,47 ****
+  	O_SERVER,
+  	O_SET_ID,
+- 	O_SPOOLNODE,
+  	O_TAB_ID,
+  	O_TIMEOUT,
+--- 43,46 ----
+***************
+*** 229,233 ****
+  %token	K_SERVER
+  %token	K_SET
+- %token	K_SPOOLNODE
+  %token	K_STORE
+  %token	K_SUBSCRIBE
+--- 228,231 ----
+***************
+*** 598,602 ****
+  							STMT_OPTION_INT( O_ID, -1 ),
+  							STMT_OPTION_STR( O_COMMENT, NULL ),
+- 							STMT_OPTION_YN( O_SPOOLNODE, 0 ),
+  							STMT_OPTION_INT( O_EVENT_NODE, 1 ),
+  							STMT_OPTION_END
+--- 596,599 ----
+***************
+*** 614,619 ****
+  							new->no_id			= opt[0].ival;
+  							new->no_comment		= opt[1].str;
+! 							new->no_spool		= opt[2].ival;
+! 							new->ev_origin		= opt[3].ival;
+  						}
+  						else
+--- 611,615 ----
+  							new->no_id			= opt[0].ival;
+  							new->no_comment		= opt[1].str;
+! 							new->ev_origin		= opt[2].ival;
+  						}
+  						else
+***************
+*** 1670,1678 ****
+  						$$ = $5;
+  					}
+- 					| K_SPOOLNODE '=' option_item_yn
+- 					{
+- 						$3->opt_code	= O_SPOOLNODE;
+- 						$$ = $3;
+- 					}
+  					| K_SECONDS '=' option_item_id
+  					{
+--- 1666,1669 ----
+***************
+*** 1816,1820 ****
+  		case O_SERVER:			return "server";
+  		case O_SET_ID:			return "set id";
+- 		case O_SPOOLNODE:		return "spoolnode";
+  		case O_TAB_ID:			return "table id";
+  		case O_TIMEOUT:			return "timeout";
+--- 1807,1810 ----
+
+Index: slonik.c
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/src/slonik/slonik.c,v
+retrieving revision 1.86
+retrieving revision 1.87
+diff -C2 -d -r1.86 -r1.87
+*** slonik.c	13 Feb 2008 23:02:40 -0000	1.86
+--- slonik.c	14 Feb 2008 22:21:42 -0000	1.87
+***************
+*** 326,334 ****
+  					}
+  
+- 					if (!stmt->no_spool)
+- 					{
+- 						if (script_check_adminfo(hdr, stmt->no_id) < 0)
+- 							errors++;
+- 					}
+  					if (script_check_adminfo(hdr, stmt->ev_origin) < 0)
+  						errors++;
+--- 326,329 ----
+***************
+*** 1993,2002 ****
+  	int			tupno;
+  
+! 	if (!stmt->no_spool)
+! 	{
+! 		adminfo1 = get_active_adminfo((SlonikStmt *) stmt, stmt->no_id);
+! 		if (adminfo1 == NULL)
+! 			return -1;
+! 	}
+  
+  	adminfo2 = get_checked_adminfo((SlonikStmt *) stmt, stmt->ev_origin);
+--- 1988,1995 ----
+  	int			tupno;
+  
+! 	adminfo1 = get_active_adminfo((SlonikStmt *) stmt, stmt->no_id);
+! 	if (adminfo1 == NULL)
+! 		return -1;
+! 	
+  
+  	adminfo2 = get_checked_adminfo((SlonikStmt *) stmt, stmt->ev_origin);
+***************
+*** 2009,2014 ****
+  	dstring_init(&query);
+  
+-         /* Eliminate no_spool evaluation - all nodes are "real nodes" */  /* if (!stmt->no_spool) */
+- 		
+  	if (db_begin_xact((SlonikStmt *) stmt, adminfo1) < 0)
+  	{
+--- 2002,2005 ----
+***************
+*** 2041,2045 ****
+  	 */
+  	slon_mkquery(&query,
+! 		     "select no_id, no_active, no_comment, no_spool "
+  		     "from \"_%s\".sl_node; ",
+  		     stmt->hdr.script->clustername);
+--- 2032,2036 ----
+  	 */
+  	slon_mkquery(&query,
+! 		     "select no_id, no_active, no_comment "
+  		     "from \"_%s\".sl_node; ",
+  		     stmt->hdr.script->clustername);
+***************
+*** 2056,2064 ****
+  		char	   *no_active = PQgetvalue(res, tupno, 1);
+  		char	   *no_comment = PQgetvalue(res, tupno, 2);
+- 		char	   *no_spool = PQgetvalue(res, tupno, 3);
+  		
+  		slon_mkquery(&query,
+! 			     "select \"_%s\".storeNode_int(%s, '%q', '%s'); ",
+! 			     stmt->hdr.script->clustername, no_id, no_comment, no_spool);
+  		if (*no_active == 't')
+  		{
+--- 2047,2054 ----
+  		char	   *no_active = PQgetvalue(res, tupno, 1);
+  		char	   *no_comment = PQgetvalue(res, tupno, 2);
+  		
+  		slon_mkquery(&query,
+! 			     "select \"_%s\".storeNode_int(%s, '%q'); ",
+! 			     stmt->hdr.script->clustername, no_id, no_comment);
+  		if (*no_active == 't')
+  		{
+***************
+*** 2274,2281 ****
+  	/* On the existing node, call storeNode() and enableNode() */
+  	slon_mkquery(&query,
+! 				 "select \"_%s\".storeNode(%d, '%q', '%s'); "
+  				 "select \"_%s\".enableNode(%d); ",
+  				 stmt->hdr.script->clustername, stmt->no_id, stmt->no_comment,
+- 				 (stmt->no_spool != 0) ? "t" : "f",
+  				 stmt->hdr.script->clustername, stmt->no_id);
+  	if (db_exec_evcommand((SlonikStmt *) stmt, adminfo2, &query) < 0)
+--- 2264,2270 ----
+  	/* On the existing node, call storeNode() and enableNode() */
+  	slon_mkquery(&query,
+! 				 "select \"_%s\".storeNode(%d, '%q'); "
+  				 "select \"_%s\".enableNode(%d); ",
+  				 stmt->hdr.script->clustername, stmt->no_id, stmt->no_comment,
+  				 stmt->hdr.script->clustername, stmt->no_id);
+  	if (db_exec_evcommand((SlonikStmt *) stmt, adminfo2, &query) < 0)
+***************
+*** 2285,2306 ****
+  	}
+  
+- 	/* If the new node is a spool node, produce confirm rows for it */
+- 	if (stmt->no_spool)
+- 	{
+- 		slon_mkquery(&query,
+- 					 "insert into \"_%s\".sl_confirm select "
+- 					 "    ev_origin, %d, max(ev_seqno), CURRENT_TIMESTAMP "
+- 					 "    from \"_%s\".sl_event group by 1, 2, 4; ",
+- 					 stmt->hdr.script->clustername,
+- 					 stmt->no_id,
+- 					 stmt->hdr.script->clustername);
+- 
+- 		if (db_exec_command((SlonikStmt *) stmt, adminfo2, &query) < 0)
+- 		{
+- 			dstring_free(&query);
+- 			return -1;
+- 		}
+- 	}
+- 
+  	dstring_free(&query);
+  	return 0;
+--- 2274,2277 ----
+
+Index: scan.l
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/src/slonik/scan.l,v
+retrieving revision 1.29
+retrieving revision 1.30
+diff -C2 -d -r1.29 -r1.30
+*** scan.l	21 Jan 2008 18:54:11 -0000	1.29
+--- scan.l	14 Feb 2008 22:21:42 -0000	1.30
+***************
+*** 125,129 ****
+  set				{ return K_SET;				}
+  sleep			{ return K_SLEEP;			}
+- spoolnode		{ return K_SPOOLNODE;		}
+  store			{ return K_STORE;			}
+  subscribe		{ return K_SUBSCRIBE;		}
+--- 125,128 ----
+
+From cbbrowne at lists.slony.info  Thu Feb 14 14:36:00 2008
+From: cbbrowne at lists.slony.info (Chris Browne)
+Date: Thu Feb 14 14:36:02 2008
+Subject: [Slony1-commit] slony1-engine/src/slonik Makefile
+Message-ID: <20080214223600.E9C65290D52@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/src/slonik
+In directory main.slony.info:/tmp/cvs-serv19489
+
+Modified Files:
+	Makefile 
+Log Message:
+Per Bug #36, -lpgport is only germaine to win/win32 platforms
+
+
+Index: Makefile
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/src/slonik/Makefile,v
+retrieving revision 1.26
+retrieving revision 1.27
+diff -C2 -d -r1.26 -r1.27
+*** Makefile	8 Jan 2008 20:43:24 -0000	1.26
+--- Makefile	14 Feb 2008 22:35:58 -0000	1.27
+***************
+*** 18,22 ****
+  
+  CFLAGS += -I$(slony_top_builddir) -DPGSHARE="\"$(pgsharedir)\"" 
+- LDFLAGS += -lpgport
+  
+  PROG		= slonik
+--- 18,21 ----
+***************
+*** 24,30 ****
+--- 23,31 ----
+  ifeq ($(PORTNAME), win)
+  PROG            = slonik.exe
++ LDFLAGS += -lpgport
+  endif
+  ifeq ($(PORTNAME), win32)
+  PROG            = slonik.exe
++ LDFLAGS += -lpgport
+  endif
+  
+
+From cbbrowne at lists.slony.info  Mon Feb 25 07:31:27 2008
+From: cbbrowne at lists.slony.info (Chris Browne)
+Date: Mon Feb 25 07:31:28 2008
+Subject: [Slony1-commit] slony1-engine/doc/adminguide slonconf.sgml
+Message-ID: <20080225153127.B88F7290CDE@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/doc/adminguide
+In directory main.slony.info:/tmp/cvs-serv1990
+
+Modified Files:
+	slonconf.sgml 
+Log Message:
+Elaborate on SYNC parameters to show a bit better how they interact with one
+another
+
+
+Index: slonconf.sgml
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/doc/adminguide/slonconf.sgml,v
+retrieving revision 1.19
+retrieving revision 1.20
+diff -C2 -d -r1.19 -r1.20
+*** slonconf.sgml	2 Jan 2008 19:12:42 -0000	1.19
+--- slonconf.sgml	25 Feb 2008 15:31:25 -0000	1.20
+***************
+*** 272,275 ****
+--- 272,282 ----
+            Range: [10-60000], default 100
+          </para>
++ 
++         <para> This parameter is primarily of concern on nodes that
++           originate replication sets.  On a non-origin node, there
++           will never be update activity that would induce a SYNC;
++           instead, the timeout value described below will induce a
++           SYNC every so often <emphasis>despite absence of changes to
++           replicate.</emphasis> </para>
+        </listitem>
+      </varlistentry>
+***************
+*** 298,301 ****
+--- 305,343 ----
+            default 1000
+          </para>
++ 
++         <para> This parameter is likely to be primarily of concern on
++           nodes that originate replication sets, though it does affect
++           how often events are generated on other nodes.</para>
++ 
++ 	<para>
++           On a non-origin node, there never is activity to cause a
++           SYNC to get generated; as a result, there will be a SYNC
++           generated every <envar>sync_interval_timeout</envar>
++           milliseconds.  There are no subscribers looking for those
++           SYNCs, so these events do not lead to any replication
++           activity.  They will, however, clutter sl_event up a little,
++           so it would be undesirable for this timeout value to be set
++           too terribly low.  120000ms represents 2 minutes, which is
++           not a terrible value.
++         </para>
++ 
++ 	<para> The two values function together in varying ways: </para>
++ 
++ 	<para> On an origin node, <envar>sync_interval</envar> is
++ 	the <emphasis>minimum</emphasis> time period that will be
++ 	covered by a SYNC, and during periods of heavy application
++ 	activity, it may be that a SYNC is being generated
++ 	every <envar>sync_interval</envar> milliseconds. </para>
++ 
++ 	<para> On that same origin node, there may be quiet intervals,
++ 	when no replicatable changes are being submitted.  A SYNC will
++ 	be induced, anyways,
++ 	every <envar>sync_interval_timeout</envar>
++ 	milliseconds. </para>
++ 
++ 	<para> On a subscriber node that does not originate any sets,
++ 	only the <quote>timeout-induced</quote> SYNCs will
++ 	occur.  </para>
++ 
+        </listitem>
+      </varlistentry>
+***************
+*** 307,322 ****
+        </indexterm>
+        <listitem>
+          <para>
+!           Maximum number of <command>SYNC</command> events to group
+!           together when/if a subscriber falls behind.
+!           <command>SYNC</command>s are batched only if there are that
+!           many available and if they are contiguous. Every other event
+!           type in between leads to a smaller batch.  And if there is
+!           only one <command>SYNC</command> available, even
+!           <option>-g60</option> will apply just that one. As soon as a
+!           subscriber catches up, it will apply every single
+!           <command>SYNC</command> by itself.  Range: [0,10000], default:
+!           20
+          </para>
+        </listitem>
+      </varlistentry>
+--- 349,369 ----
+        </indexterm>
+        <listitem>
++ 
+          <para>
+!           Maximum number of <command>SYNC</command> events that a
+!           subscriber node will group together when/if a subscriber
+!           falls behind.  <command>SYNC</command>s are batched only if
+!           there are that many available and if they are
+!           contiguous.  Every other event type in between leads to a
+!           smaller batch.  And if there is only
+!           one <command>SYNC</command> available, even though you used
+!           <option>-g600</option>, the &lslon; will apply just the one
+!           that is available.  As soon as a subscriber catches up, it
+!           will tend to apply each
+!           <command>SYNC</command> by itself, as a singleton, unless
+!           processing should fall behind for some reason.  Range:
+!           [0,10000], default: 20
+          </para>
++ 
+        </listitem>
+      </varlistentry>
+
+From cbbrowne at lists.slony.info  Mon Feb 25 07:38:00 2008
+From: cbbrowne at lists.slony.info (Chris Browne)
+Date: Mon Feb 25 07:38:02 2008
+Subject: [Slony1-commit] slony1-engine/doc/adminguide Makefile
+	bestpractices.sgml cluster.sgml concepts.sgml defineset.sgml
+	failover.sgml faq.sgml intro.sgml listenpaths.sgml
+	maintenance.sgml monitoring.sgml slonik_ref.sgml slony.sgml
+Message-ID: <20080225153800.76AA72900A7@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/doc/adminguide
+In directory main.slony.info:/tmp/cvs-serv2382
+
+Modified Files:
+	Makefile bestpractices.sgml cluster.sgml concepts.sgml 
+	defineset.sgml failover.sgml faq.sgml intro.sgml 
+	listenpaths.sgml maintenance.sgml monitoring.sgml 
+	slonik_ref.sgml slony.sgml 
+Log Message:
+Changed over to using entity references to point to sl_log_[12], sl_seqlog
+
+
+Index: cluster.sgml
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/doc/adminguide/cluster.sgml,v
+retrieving revision 1.13
+retrieving revision 1.14
+diff -C2 -d -r1.13 -r1.14
+*** cluster.sgml	2 Aug 2006 18:34:57 -0000	1.13
+--- cluster.sgml	25 Feb 2008 15:37:58 -0000	1.14
+***************
+*** 13,20 ****
+  tables that store &slony1; configuration and replication state
+  information.  See <xref linkend="schema"> for more documentation about
+! what is stored in that schema.  More specifically, the tables <xref
+! linkend="table.sl-log-1"> and <xref linkend="table.sl-log-2"> log
+! changes collected on the origin node as they are replicated to
+! subscribers.  </para>
+  
+  <para>Each database instance in which replication is to take place is
+--- 13,19 ----
+  tables that store &slony1; configuration and replication state
+  information.  See <xref linkend="schema"> for more documentation about
+! what is stored in that schema.  More specifically, the tables &sllog1;
+! and &sllog2; log changes collected on the origin node as they are
+! replicated to subscribers.  </para>
+  
+  <para>Each database instance in which replication is to take place is
+
+Index: defineset.sgml
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/doc/adminguide/defineset.sgml,v
+retrieving revision 1.29
+retrieving revision 1.30
+diff -C2 -d -r1.29 -r1.30
+*** defineset.sgml	4 Feb 2008 20:56:22 -0000	1.29
+--- defineset.sgml	25 Feb 2008 15:37:58 -0000	1.30
+***************
+*** 173,178 ****
+  <para> Each time a SYNC is processed, values are recorded for
+  <emphasis>all</emphasis> of the sequences in the set.  If there are a
+! lot of sequences, this can cause <xref linkend="table.sl-seqlog"> to
+! grow rather large.</para>
+  
+  <para> This points to an important difference between tables and
+--- 173,178 ----
+  <para> Each time a SYNC is processed, values are recorded for
+  <emphasis>all</emphasis> of the sequences in the set.  If there are a
+! lot of sequences, this can cause &slseqlog; to grow rather
+! large.</para>
+  
+  <para> This points to an important difference between tables and
+***************
+*** 189,204 ****
+  
+  <para> If it is not updated, the trigger on the table on the origin
+! never fires, and no entries are added to <xref
+!        linkend="table.sl-log-1">.  The table never appears in any of the
+  further replication queries (<emphasis>e.g.</emphasis> in the
+  <command>FETCH 100 FROM LOG</command> queries used to find
+  replicatable data) as they only look for tables for which there are
+! entries in <xref linkend="table.sl-log-1">.</para></listitem>
+  
+  <listitem><para> In contrast, a fixed amount of work is introduced to
+  each SYNC by each sequence that is replicated.</para>
+  
+! <para> Replicate 300 sequence and 300 rows need to be added to <xref
+!        linkend="table.sl-seqlog"> on a regular basis.</para>
+  
+  <para> It is more than likely that if the value of a particular
+--- 189,205 ----
+  
+  <para> If it is not updated, the trigger on the table on the origin
+! never fires, and no entries are added to &sllog1;/&sllog2;.  The table never appears in any of the
+  further replication queries (<emphasis>e.g.</emphasis> in the
+  <command>FETCH 100 FROM LOG</command> queries used to find
+  replicatable data) as they only look for tables for which there are
+! entries in &sllog1;/&sllog2;.</para></listitem>
+  
+  <listitem><para> In contrast, a fixed amount of work is introduced to
+  each SYNC by each sequence that is replicated.</para>
+  
+! <para> Replicate 300 sequence and 300 rows need to be added to
+! &slseqlog; on a regular basis, at least, thru until the 2.0 branch,
+! where updates are only applied when the value of a given sequence is
+! seen to change.</para>
+  
+  <para> It is more than likely that if the value of a particular
+
+Index: intro.sgml
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/doc/adminguide/intro.sgml,v
+retrieving revision 1.28
+retrieving revision 1.29
+diff -C2 -d -r1.28 -r1.29
+*** intro.sgml	11 Jun 2007 16:02:50 -0000	1.28
+--- intro.sgml	25 Feb 2008 15:37:58 -0000	1.29
+***************
+*** 297,307 ****
+  <listitem><para> Each SYNC applied needs to be reported back to all of
+  the other nodes participating in the set so that the nodes all know
+! that it is safe to purge <xref linkend="table.sl-log-1"> and <xref
+! linkend="table.sl-log-2"> data, as any <quote>forwarding</quote> node
+! could potentially take over as <quote>master</quote> at any time.  One
+! might expect SYNC messages to need to travel through n/2 nodes to get
+! propagated to their destinations; this means that each SYNC is
+! expected to get transmitted n(n/2) times.  Again, this points to a
+! quadratic growth in communications costs as the number of nodes
+  increases.</para></listitem>
+  
+--- 297,307 ----
+  <listitem><para> Each SYNC applied needs to be reported back to all of
+  the other nodes participating in the set so that the nodes all know
+! that it is safe to purge &sllog1; and &sllog2; data, as
+! any <quote>forwarding</quote> node could potentially take over
+! as <quote>master</quote> at any time.  One might expect SYNC messages
+! to need to travel through n/2 nodes to get propagated to their
+! destinations; this means that each SYNC is expected to get transmitted
+! n(n/2) times.  Again, this points to a quadratic growth in
+! communications costs as the number of nodes
+  increases.</para></listitem>
+  
+
+Index: failover.sgml
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/doc/adminguide/failover.sgml,v
+retrieving revision 1.24
+retrieving revision 1.25
+diff -C2 -d -r1.24 -r1.25
+*** failover.sgml	17 Dec 2007 20:18:31 -0000	1.24
+--- failover.sgml	25 Feb 2008 15:37:58 -0000	1.25
+***************
+*** 195,203 ****
+  set of references to node 1 in <xref linkend="table.sl-node">, as well
+  as in referring tables such as <xref linkend="table.sl-confirm">;
+! since data in <xref linkend="table.sl-log-1"> is still present,
+! &slony1; cannot immediately purge out the node. </para>
+  
+! <para> After the failover is complete and node2 accepts
+! write operations against the tables, remove all remnants of node1's
+  configuration information with the <xref linkend="stmtdropnode">
+  command:
+--- 195,203 ----
+  set of references to node 1 in <xref linkend="table.sl-node">, as well
+  as in referring tables such as <xref linkend="table.sl-confirm">;
+! since data in &sllog1;/&sllog2; is still present, &slony1; cannot
+! immediately purge out the node. </para>
+  
+! <para> After the failover is complete and node2 accepts write
+! operations against the tables, remove all remnants of node1's
+  configuration information with the <xref linkend="stmtdropnode">
+  command:
+
+Index: monitoring.sgml
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/doc/adminguide/monitoring.sgml,v
+retrieving revision 1.40
+retrieving revision 1.41
+diff -C2 -d -r1.40 -r1.41
+*** monitoring.sgml	22 Aug 2007 22:05:00 -0000	1.40
+--- monitoring.sgml	25 Feb 2008 15:37:58 -0000	1.41
+***************
+*** 174,180 ****
+  
+  <para> If one or another of the nodes in the cluster hasn't reported
+! back recently, that tends to lead to cleanups of tables like <xref
+! linkend="table.sl-log-1"> and <xref linkend="table.sl-seqlog"> not
+! taking place.</para></listitem>
+  
+  <listitem><para> Summarizes what transactions have been running for a
+--- 174,179 ----
+  
+  <para> If one or another of the nodes in the cluster hasn't reported
+! back recently, that tends to lead to cleanups of tables like &sllog1;,
+! &sllog2; and &slseqlog; not taking place.</para></listitem>
+  
+  <listitem><para> Summarizes what transactions have been running for a
+
+Index: Makefile
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/doc/adminguide/Makefile,v
+retrieving revision 1.19
+retrieving revision 1.20
+diff -C2 -d -r1.19 -r1.20
+*** Makefile	2 Aug 2006 15:32:01 -0000	1.19
+--- Makefile	25 Feb 2008 15:37:58 -0000	1.20
+***************
+*** 252,255 ****
+--- 252,256 ----
+  TEMPSCHEMA=schemadoc
+  CREATELANG=$(pgbindir)/createlang   # That's how it is for me...
++ PGAUTODOC=/usr/bin/postgresql_autodoc
+  
+  schemadoc.xml: $(BASESQL) $(BASEFUNS) $(XIDDIR)
+***************
+*** 259,264 ****
+  	cat $(XIDSQL) $(BASEFUNS) $(BASESQL) |  sed -e "s/@NAMESPACE@/$(TEMPSCHEMA)/g"  -e "s/@CLUSTERNAME@/$(TEMPSCHEMA)/g" | $(pgbindir)/psql $(TEMPDB) && \
+  	$(PGAUTODOC) -d $(TEMPDB) -s $(TEMPSCHEMA) -t xml -f schemadoc ;\
+! 	sed -i.bak -e "s/$(TEMPSCHEMA)\.//g" \
+! 	  -e "s@<book.*>@@g" -e "s@</book.*>@@g" schemadoc.xml ;\
+  	rm  schemadoc.xml.bak ;\
+  	$(pgbindir)/dropdb $(TEMPDB) >/dev/null 2>&1 \
+--- 260,264 ----
+  	cat $(XIDSQL) $(BASEFUNS) $(BASESQL) |  sed -e "s/@NAMESPACE@/$(TEMPSCHEMA)/g"  -e "s/@CLUSTERNAME@/$(TEMPSCHEMA)/g" | $(pgbindir)/psql $(TEMPDB) && \
+  	$(PGAUTODOC) -d $(TEMPDB) -s $(TEMPSCHEMA) -t xml -f schemadoc ;\
+! 	sed -i.bak -e "s/$(TEMPSCHEMA)\.//g" -e "s@<book.*>@@g" -e "s@</book.*>@@g" schemadoc.xml ;\
+  	rm  schemadoc.xml.bak ;\
+  	$(pgbindir)/dropdb $(TEMPDB) >/dev/null 2>&1 \
+
+Index: bestpractices.sgml
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/doc/adminguide/bestpractices.sgml,v
+retrieving revision 1.29
+retrieving revision 1.30
+diff -C2 -d -r1.29 -r1.30
+*** bestpractices.sgml	2 Jan 2008 19:12:42 -0000	1.29
+--- bestpractices.sgml	25 Feb 2008 15:37:58 -0000	1.30
+***************
+*** 104,110 ****
+  <listitem><para> The system will periodically rotate (using
+  <command>TRUNCATE</command> to clean out the old table) between the
+! two log tables, <xref linkend="table.sl-log-1"> and <xref
+! linkend="table.sl-log-2">, preventing unbounded growth of dead space
+! there.  </para></listitem>
+  </itemizedlist>
+  
+--- 104,109 ----
+  <listitem><para> The system will periodically rotate (using
+  <command>TRUNCATE</command> to clean out the old table) between the
+! two log tables, &sllog1; and &sllog2;, preventing unbounded growth of
+! dead space there.  </para></listitem>
+  </itemizedlist>
+  
+***************
+*** 590,595 ****
+  
+  <para> There will correspondingly be an <emphasis>enormous</emphasis>
+! growth of <xref linkend="table.sl-log-1"> and <xref
+! linkend="table.sl-seqlog">.  Unfortunately, once the
+  <command>COPY_SET</command> completes, users have found that the
+  queries against these tables wind up reverting to <command>Seq
+--- 589,593 ----
+  
+  <para> There will correspondingly be an <emphasis>enormous</emphasis>
+! growth of &sllog1;, &sllog2;, and &slseqlog;.  Unfortunately, once the
+  <command>COPY_SET</command> completes, users have found that the
+  queries against these tables wind up reverting to <command>Seq
+
+Index: listenpaths.sgml
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/doc/adminguide/listenpaths.sgml,v
+retrieving revision 1.20
+retrieving revision 1.21
+diff -C2 -d -r1.20 -r1.21
+*** listenpaths.sgml	11 Jun 2007 16:02:50 -0000	1.20
+--- listenpaths.sgml	25 Feb 2008 15:37:58 -0000	1.21
+***************
+*** 26,32 ****
+  <emphasis>all</emphasis> nodes in order to be able to conclude that
+  <command>sync</command>s have been received everywhere, and that,
+! therefore, entries in <xref linkend="table.sl-log-1"> and <xref
+! linkend="table.sl-log-2"> have been applied everywhere, and can
+! therefore be purged.  this extra communication is needful so
+  <productname>Slony-I</productname> is able to shift origins to other
+  locations.</para>
+--- 26,32 ----
+  <emphasis>all</emphasis> nodes in order to be able to conclude that
+  <command>sync</command>s have been received everywhere, and that,
+! therefore, entries in &sllog1; and &sllog2; have been applied
+! everywhere, and can therefore be purged.  this extra communication is
+! needful so
+  <productname>Slony-I</productname> is able to shift origins to other
+  locations.</para>
+
+Index: slony.sgml
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/doc/adminguide/slony.sgml,v
+retrieving revision 1.39
+retrieving revision 1.40
+diff -C2 -d -r1.39 -r1.40
+*** slony.sgml	28 Jan 2008 19:35:21 -0000	1.39
+--- slony.sgml	25 Feb 2008 15:37:58 -0000	1.40
+***************
+*** 45,48 ****
+--- 45,49 ----
+  <!ENTITY sllog1 "<xref linkend=table.sl-log-1>">
+  <!ENTITY sllog2 "<xref linkend=table.sl-log-2>">
++ <!ENTITY slseqlog "<xref linkend=table.sl-seqlog>">
+  <!ENTITY slconfirm "<xref linkend=table.sl-confirm>">
+  <!ENTITY rplainpaths "<xref linkend=plainpaths>">
+
+Index: concepts.sgml
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/doc/adminguide/concepts.sgml,v
+retrieving revision 1.20
+retrieving revision 1.21
+diff -C2 -d -r1.20 -r1.21
+*** concepts.sgml	2 Aug 2006 18:34:57 -0000	1.20
+--- concepts.sgml	25 Feb 2008 15:37:58 -0000	1.21
+***************
+*** 41,45 ****
+  <para>The cluster name is specified in each and every Slonik script via the directive:</para>
+  <programlisting>
+! cluster name = 'something';
+  </programlisting>
+  
+--- 41,45 ----
+  <para>The cluster name is specified in each and every Slonik script via the directive:</para>
+  <programlisting>
+! cluster name = something;
+  </programlisting>
+  
+
+Index: slonik_ref.sgml
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/doc/adminguide/slonik_ref.sgml,v
+retrieving revision 1.79
+retrieving revision 1.80
+diff -C2 -d -r1.79 -r1.80
+*** slonik_ref.sgml	14 Feb 2008 16:38:08 -0000	1.79
+--- slonik_ref.sgml	25 Feb 2008 15:37:58 -0000	1.80
+***************
+*** 525,529 ****
+         <application>slonik</application> will not attempt to
+         initialize a database with the replication
+!        schema.</para></listitem>
+         
+        </varlistentry>
+--- 525,535 ----
+         <application>slonik</application> will not attempt to
+         initialize a database with the replication
+!        schema.</para>
+! 
+!        <warning><para> Never use the SPOOLNODE value - no released
+!        version of &slony1; has ever behaved in the fashion described
+!        in the preceding fashion.  Log shipping, as it finally emerged
+!        in 1.2.11, does not require initializing <quote>spool
+!        nodes</quote>.</para> </warning> </listitem>
+         
+        </varlistentry>
+***************
+*** 555,559 ****
+     parameter was introduced in version 1.1, but was vestigal in that
+     version.  The described functionality for <envar>SPOOLNODE</envar>
+!    arrives in version 1.2. </para>
+     </refsect1>
+    </Refentry>
+--- 561,567 ----
+     parameter was introduced in version 1.1, but was vestigal in that
+     version.  The described functionality for <envar>SPOOLNODE</envar>
+!    arrived in version 1.2, but <envar>SPOOLNODE</envar> was not used
+!    for this purpose.  In later versions, hopefully
+!    <envar>SPOOLNODE</envar> will be unavailable. </para>
+     </refsect1>
+    </Refentry>
+
+Index: faq.sgml
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/doc/adminguide/faq.sgml,v
+retrieving revision 1.73
+retrieving revision 1.74
+diff -C2 -d -r1.73 -r1.74
+*** faq.sgml	4 Jan 2008 23:05:50 -0000	1.73
+--- faq.sgml	25 Feb 2008 15:37:58 -0000	1.74
+***************
+*** 759,775 ****
+  
+  <qandaentry>
+! <question> <para> Replication has fallen behind, and it appears that the
+! queries to draw data from <xref linkend="table.sl-log-1">/<xref
+! linkend="table.sl-log-2"> are taking a long time to pull just a few
+  <command>SYNC</command>s. </para>
+  </question>
+  
+! <answer> <para> Until version 1.1.1, there was only one index on <xref
+! linkend="table.sl-log-1">/<xref linkend="table.sl-log-2">, and if
+! there were multiple replication sets, some of the columns on the index
+! would not provide meaningful selectivity.  If there is no index on
+! column <function> log_xid</function>, consider adding it.  See
+! <filename>slony1_base.sql</filename> for an example of how to create
+! the index.
+  </para>
+  </answer>
+--- 759,774 ----
+  
+  <qandaentry>
+! <question> <para> Replication has fallen behind, and it appears that
+! the queries to draw data from &sllog1;/&sllog2; are taking a long time
+! to pull just a few
+  <command>SYNC</command>s. </para>
+  </question>
+  
+! <answer> <para> Until version 1.1.1, there was only one index on
+! &sllog1;/&sllog2;, and if there were multiple replication sets, some
+! of the columns on the index would not provide meaningful selectivity.
+! If there is no index on column <function> log_xid</function>, consider
+! adding it.  See <filename>slony1_base.sql</filename> for an example of
+! how to create the index.
+  </para>
+  </answer>
+***************
+*** 1155,1160 ****
+  <question><para> Replication has been slowing down, I'm seeing
+  <command> FETCH 100 FROM LOG </command> queries running for a long
+! time, <xref linkend="table.sl-log-1"> is growing, and performance is,
+! well, generally getting steadily worse. </para>
+  </question>
+  
+--- 1154,1159 ----
+  <question><para> Replication has been slowing down, I'm seeing
+  <command> FETCH 100 FROM LOG </command> queries running for a long
+! time, &sllog1;/&sllog2; is growing, and performance is, well,
+! generally getting steadily worse. </para>
+  </question>
+  
+***************
+*** 1179,1185 ****
+  
+  <listitem><para> The cleanup thread will be unable to clean out
+! entries in <xref linkend="table.sl-log-1"> and <xref
+! linkend="table.sl-seqlog">, with the result that these tables will
+! grow, ceaselessly, until the transaction is closed. </para>
+  </listitem>
+  </itemizedlist>
+--- 1178,1184 ----
+  
+  <listitem><para> The cleanup thread will be unable to clean out
+! entries in &sllog1;, &sllog2;, and &slseqlog;, with the result that
+! these tables will grow, ceaselessly, until the transaction is
+! closed. </para>
+  </listitem>
+  </itemizedlist>
+***************
+*** 1220,1225 ****
+  
+  <qandaentry id="faq17">
+! <question><para>After dropping a node, <xref linkend="table.sl-log-1">
+! isn't getting purged out anymore.</para></question>
+  
+  <answer><para> This is a common scenario in versions before 1.0.5, as
+--- 1219,1224 ----
+  
+  <qandaentry id="faq17">
+! <question><para>After dropping a node, &sllog1;/&sllog2;
+! aren't getting purged out anymore.</para></question>
+  
+  <answer><para> This is a common scenario in versions before 1.0.5, as
+***************
+*** 1285,1290 ****
+  <listitem><para> At the start of each
+  <function>cleanupEvent</function> run, which is the event in which old
+! data is purged from <xref linkend="table.sl-log-1"> and <xref
+! linkend="table.sl-seqlog"></para></listitem> </itemizedlist></para>
+  </answer>
+  </qandaentry>
+--- 1284,1289 ----
+  <listitem><para> At the start of each
+  <function>cleanupEvent</function> run, which is the event in which old
+! data is purged from &sllog1;, &sllog2;, and
+! &slseqlog;</para></listitem> </itemizedlist></para>
+  </answer>
+  </qandaentry>
+***************
+*** 1296,1306 ****
+  sync through.</para></question>
+  
+! <answer><para> You might want to take a look at the <xref
+! linkend="table.sl-log-1">/<xref linkend="table.sl-log-2"> tables, and
+! do a summary to see if there are any really enormous &slony1;
+! transactions in there.  Up until at least 1.0.2, there needs to be a
+! &lslon; connected to the origin in order for
+  <command>SYNC</command> events to be generated.</para>
+  
+  <para>If none are being generated, then all of the updates until the
+  next one is generated will collect into one rather enormous &slony1;
+--- 1295,1308 ----
+  sync through.</para></question>
+  
+! <answer><para> You might want to take a look at the tables &sllog1;
+! and &sllog2; and do a summary to see if there are any really enormous
+! &slony1; transactions in there.  Up until at least 1.0.2, there needs
+! to be a &lslon; connected to the origin in order for
+  <command>SYNC</command> events to be generated.</para>
+  
++ <note><para> As of 1.0.2,
++ function <function>generate_sync_event()</function> provides an
++ alternative as backup...</para> </note>
++ 
+  <para>If none are being generated, then all of the updates until the
+  next one is generated will collect into one rather enormous &slony1;
+***************
+*** 1523,1529 ****
+  nodes.  I am discovering that confirmations for set 1 never get to the
+  nodes subscribing to set 2, and that confirmations for set 2 never get
+! to nodes subscribing to set 1.  As a result, <xref
+! linkend="table.sl-log-1"> grows and grows and is never purged.  This
+! was reported as &slony1; <ulink
+  url="http://gborg.postgresql.org/project/slony1/bugs/bugupdate.php?1485">
+  bug 1485 </ulink>.
+--- 1525,1531 ----
+  nodes.  I am discovering that confirmations for set 1 never get to the
+  nodes subscribing to set 2, and that confirmations for set 2 never get
+! to nodes subscribing to set 1.  As a result, &sllog1;/&sllog2; grow
+! and grow, and are never purged.  This was reported as
+! &slony1; <ulink
+  url="http://gborg.postgresql.org/project/slony1/bugs/bugupdate.php?1485">
+  bug 1485 </ulink>.
+***************
+*** 1577,1582 ****
+  subscriber to a particular provider are for
+  <quote>sequence-only</quote> sets.  If a node gets into that state,
+! replication will fail, as the query that looks for data from <xref
+! linkend="table.sl-log-1"> has no tables to find, and the query will be
+  malformed, and fail.  If a replication set <emphasis>with</emphasis>
+  tables is added back to the mix, everything will work out fine; it
+--- 1579,1584 ----
+  subscriber to a particular provider are for
+  <quote>sequence-only</quote> sets.  If a node gets into that state,
+! replication will fail, as the query that looks for data from
+! &sllog1;/&sllog2; has no tables to find, and the query will be
+  malformed, and fail.  If a replication set <emphasis>with</emphasis>
+  tables is added back to the mix, everything will work out fine; it
+***************
+*** 1880,1899 ****
+  
+  <para>By the time we notice that there is a problem, the seemingly
+! missed delete transaction has been cleaned out of <xref
+! linkend="table.sl-log-1">, so there appears to be no recovery
+! possible.  What has seemed necessary, at this point, is to drop the
+! replication set (or even the node), and restart replication from
+! scratch on that node.</para>
+  
+! <para>In &slony1; 1.0.5, the handling of purges of <xref
+! linkend="table.sl-log-1"> became more conservative, refusing to purge
+! entries that haven't been successfully synced for at least 10 minutes
+! on all nodes.  It was not certain that that would prevent the
+! <quote>glitch</quote> from taking place, but it seemed plausible that
+! it might leave enough <xref linkend="table.sl-log-1"> data to be able
+! to do something about recovering from the condition or at least
+! diagnosing it more exactly.  And perhaps the problem was that <xref
+! linkend="table.sl-log-1"> was being purged too aggressively, and this
+! would resolve the issue completely.</para>
+  
+  <para> It is a shame to have to reconstruct a large replication node
+--- 1882,1899 ----
+  
+  <para>By the time we notice that there is a problem, the seemingly
+! missed delete transaction has been cleaned out of &sllog1;, so there
+! appears to be no recovery possible.  What has seemed necessary, at
+! this point, is to drop the replication set (or even the node), and
+! restart replication from scratch on that node.</para>
+  
+! <para>In &slony1; 1.0.5, the handling of purges of &sllog1; became
+! more conservative, refusing to purge entries that haven't been
+! successfully synced for at least 10 minutes on all nodes.  It was not
+! certain that that would prevent the <quote>glitch</quote> from taking
+! place, but it seemed plausible that it might leave enough &sllog1;
+! data to be able to do something about recovering from the condition or
+! at least diagnosing it more exactly.  And perhaps the problem was that
+! &sllog1; was being purged too aggressively, and this would resolve the
+! issue completely.</para>
+  
+  <para> It is a shame to have to reconstruct a large replication node
+***************
+*** 1906,1912 ****
+  <para> In one case we found two lines in the SQL error message in the
+  log file that contained <emphasis> identical </emphasis> insertions
+! into <xref linkend="table.sl-log-1">.  This <emphasis> ought
+! </emphasis> to be impossible as is a primary key on <xref
+! linkend="table.sl-log-1">.  The latest (somewhat) punctured theory
+  that comes from <emphasis>that</emphasis> was that perhaps this PK
+  index has been corrupted (representing a &postgres; bug), and that
+--- 1906,1911 ----
+  <para> In one case we found two lines in the SQL error message in the
+  log file that contained <emphasis> identical </emphasis> insertions
+! into &sllog1;.  This <emphasis> ought </emphasis> to be impossible as
+! is a primary key on &sllog1;.  The latest (somewhat) punctured theory
+  that comes from <emphasis>that</emphasis> was that perhaps this PK
+  index has been corrupted (representing a &postgres; bug), and that
+***************
+*** 2013,2018 ****
+  
+  <para> That trigger initiates the action of logging all updates to the
+! table to &slony1; <xref linkend="table.sl-log-1">
+! tables.</para></listitem>
+  
+  <listitem><para> On a subscriber node, this involves disabling
+--- 2012,2016 ----
+  
+  <para> That trigger initiates the action of logging all updates to the
+! table to &slony1; &sllog1;/&sllog2; tables.</para></listitem>
+  
+  <listitem><para> On a subscriber node, this involves disabling
+***************
+*** 2130,2134 ****
+  
+  <para>The solution is to rebuild the trigger on the affected table and
+! fix the entries in <xref linkend="table.sl-log-1"> by hand.</para>
+  
+  <itemizedlist>
+--- 2128,2132 ----
+  
+  <para>The solution is to rebuild the trigger on the affected table and
+! fix the entries in &sllog1;/&sllog2; by hand.</para>
+  
+  <itemizedlist>
+***************
+*** 2149,2158 ****
+  </screen>
+  
+! <para>You then need to find the rows in <xref
+! linkend="table.sl-log-1"> that have bad 
+! entries and fix them.  You may
+! want to take down the slon daemons for all nodes except the master;
+! that way, if you make a mistake, it won't immediately propagate
+! through to the subscribers.</para>
+  
+  <para> Here is an example:</para>
+--- 2147,2154 ----
+  </screen>
+  
+! <para>You then need to find the rows in &sllog1;/&sllog2; that have
+! bad entries and fix them.  You may want to take down the slon daemons
+! for all nodes except the master; that way, if you make a mistake, it
+! won't immediately propagate through to the subscribers.</para>
+  
+  <para> Here is an example:</para>
+
+Index: maintenance.sgml
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/doc/adminguide/maintenance.sgml,v
+retrieving revision 1.28
+retrieving revision 1.29
+diff -C2 -d -r1.28 -r1.29
+*** maintenance.sgml	2 Jan 2008 19:12:42 -0000	1.28
+--- maintenance.sgml	25 Feb 2008 15:37:58 -0000	1.29
+***************
+*** 11,17 ****
+  <listitem><para> Deletes old data from various tables in the
+  <productname>Slony-I</productname> cluster's namespace, notably
+! entries in <xref linkend="table.sl-log-1">, <xref
+! linkend="table.sl-log-2">, and <xref
+! linkend="table.sl-seqlog">.</para></listitem>
+  
+  <listitem><para> Vacuum certain tables used by &slony1;.  As of 1.0.5,
+--- 11,15 ----
+  <listitem><para> Deletes old data from various tables in the
+  <productname>Slony-I</productname> cluster's namespace, notably
+! entries in &sllog1;, &sllog2;, and &slseqlog;.</para></listitem>
+  
+  <listitem><para> Vacuum certain tables used by &slony1;.  As of 1.0.5,
+***************
+*** 37,52 ****
+  
+  <listitem> <para> The <link linkend="dupkey"> Duplicate Key Violation
+! </link> bug has helped track down some &postgres; race conditions.
+! One remaining issue is that it appears that is a case where
+! <command>VACUUM</command> is not reclaiming space correctly, leading
+! to corruption of B-trees. </para>
+! 
+! <para> It may be helpful to run the command <command> REINDEX TABLE
+! sl_log_1;</command> periodically to avoid the problem
+! occurring. </para> </listitem>
+  
+  <listitem><para> As of version 1.2, <quote>log switching</quote>
+! functionality is in place; every so often, it seeks to switch between
+! storing data in &sllog1; and &sllog2; so that it may seek
+  to <command>TRUNCATE</command> the <quote>elder</quote> data.</para>
+  
+--- 35,48 ----
+  
+  <listitem> <para> The <link linkend="dupkey"> Duplicate Key Violation
+! </link> bug has helped track down a number of rather obscure
+! &postgres; race conditions, so that in modern versions of &slony1; and &postgres;, there should be little to worry about.
+! </para>
+! </listitem>
+  
+  <listitem><para> As of version 1.2, <quote>log switching</quote>
+! functionality is in place; every so often (by default, once per week,
+! though you may induce it by calling the stored
+! function <function>logswitch_start()</function>), it seeks to switch
+! between storing data in &sllog1; and &sllog2; so that it may seek
+  to <command>TRUNCATE</command> the <quote>elder</quote> data.</para>
+  
+***************
+*** 54,58 ****
+  cleared out, so that you will not suffer from them having grown to
+  some significant size, due to heavy load, after which they are
+! incapable of shrinking back down </para> </listitem>
+  
+  </itemizedlist>
+--- 50,63 ----
+  cleared out, so that you will not suffer from them having grown to
+  some significant size, due to heavy load, after which they are
+! incapable of shrinking back down </para> 
+! 
+! <para> In version 2.0, <command>DELETE</command> is no longer used to
+! clear out data in &sllog1; and &sllog2;; instead, the log switch logic
+! is induced frequently, every time the cleanup loop does not find a
+! switch in progress, and these tables are purely cleared out
+! via <command>TRUNCATE</command>.  This eliminates the need to vacuum
+! these tables. </para>
+! 
+! </listitem>
+  
+  </itemizedlist>
+
+From cbbrowne at lists.slony.info  Mon Feb 25 07:40:09 2008
+From: cbbrowne at lists.slony.info (Chris Browne)
+Date: Mon Feb 25 07:40:11 2008
+Subject: [Slony1-commit] slony1-engine/config acx_libpq.m4
+Message-ID: <20080225154009.5432B2900A7@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/config
+In directory main.slony.info:/tmp/cvs-serv2462
+
+Modified Files:
+	acx_libpq.m4 
+Log Message:
+Detect 3-argument version of typenameTypeId()
+
+
+Index: acx_libpq.m4
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/config/acx_libpq.m4,v
+retrieving revision 1.28
+retrieving revision 1.29
+diff -C2 -d -r1.28 -r1.29
+*** acx_libpq.m4	29 Nov 2007 15:57:56 -0000	1.28
+--- acx_libpq.m4	25 Feb 2008 15:40:07 -0000	1.29
+***************
+*** 354,358 ****
+  fi
+  
+! 
+  AC_MSG_CHECKING(for typenameTypeId)
+  if test -z "$ac_cv_typenameTypeId_args"; then
+--- 354,365 ----
+  fi
+  
+! AC_MSG_CHECKING(for typenameTypeId)
+! if test -z "$ac_cv_typenameTypeId_args"; then
+!   AC_TRY_COMPILE(
+!     [#include "postgres.h"
+!      #include "parser/parse_type.h"],
+!     [typenameTypeId(NULL, NULL, NULL); ],
+!     ac_cv_typenameTypeId_args=3)
+! fi
+  AC_MSG_CHECKING(for typenameTypeId)
+  if test -z "$ac_cv_typenameTypeId_args"; then
+***************
+*** 373,377 ****
+    AC_MSG_RESULT(no)
+  else
+!   if test "$ac_cv_typenameTypeId_args" = 2; then
+      AC_DEFINE(HAVE_TYPENAMETYPEID_2)
+    elif test "$ac_cv_typenameTypeId_args" = 1; then
+--- 380,386 ----
+    AC_MSG_RESULT(no)
+  else
+!   if test "$ac_cv_typenameTypeId_args" = 3; then
+!     AC_DEFINE(HAVE_TYPENAMETYPEID_3)
+!   elif test "$ac_cv_typenameTypeId_args" = 2; then
+      AC_DEFINE(HAVE_TYPENAMETYPEID_2)
+    elif test "$ac_cv_typenameTypeId_args" = 1; then
+
+From cbbrowne at lists.slony.info  Mon Feb 25 07:42:34 2008
+From: cbbrowne at lists.slony.info (Chris Browne)
+Date: Mon Feb 25 07:42:36 2008
+Subject: [Slony1-commit] slony1-engine/src/backend slony1_funcs.sql
+Message-ID: <20080225154234.73611290CDE@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/src/backend
+In directory main.slony.info:/tmp/cvs-serv2834
+
+Modified Files:
+	slony1_funcs.sql 
+Log Message:
+remove function logswitch_weekly() as we are now switching logs more or
+less as often as possible
+
+
+Index: slony1_funcs.sql
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/src/backend/slony1_funcs.sql,v
+retrieving revision 1.131
+retrieving revision 1.132
+diff -C2 -d -r1.131 -r1.132
+*** slony1_funcs.sql	14 Feb 2008 22:21:42 -0000	1.131
+--- slony1_funcs.sql	25 Feb 2008 15:42:32 -0000	1.132
+***************
+*** 5130,5208 ****
+  Initiate a log table switch if none is in progress';
+  
+- 
+- -- ----------------------------------------------------------------------
+- -- FUNCTION logswitch_weekly()
+- --
+- --	Called by slonik to ensure that a logswitch is done at least
+- --  once a week. The default time is Sunday 2am.
+- -- ----------------------------------------------------------------------
+- create or replace function @NAMESPACE@.logswitch_weekly()
+- returns int4 as '
+- DECLARE
+- 	v_now			timestamp;
+- 	v_now_dow		int4;
+- 	v_auto_dow		int4;
+- 	v_auto_time		time;
+- 	v_auto_ts		timestamp;
+- 	v_lastrun		timestamp;
+- 	v_laststart		timestamp;
+- 	v_days_since	int4;
+- BEGIN
+- 	-- ----
+- 	-- Check that today is the day to run at all
+- 	-- ----
+- 	v_auto_dow := @NAMESPACE@.registry_get_int4(
+- 			''logswitch_weekly.dow'', 0);
+- 	v_now := "pg_catalog".now();
+- 	v_now_dow := extract (DOW from v_now);
+- 	if v_now_dow <> v_auto_dow then
+- 		perform @NAMESPACE@.registry_set_timestamp(
+- 				''logswitch_weekly.lastrun'', v_now);
+- 		return 0;
+- 	end if;
+- 
+- 	-- ----
+- 	-- Check that the last run of this procedure was before and now is
+- 	-- after the time we should automatically switch logs.
+- 	-- ----
+- 	v_auto_time := @NAMESPACE@.registry_get_text(
+- 			''logswitch_weekly.time'', ''02:00'');
+- 	v_auto_ts := current_date + v_auto_time;
+- 	v_lastrun := @NAMESPACE@.registry_get_timestamp(
+- 			''logswitch_weekly.lastrun'', ''epoch'');
+- 	if v_lastrun >= v_auto_ts or v_now < v_auto_ts then
+- 		perform @NAMESPACE@.registry_set_timestamp(
+- 				''logswitch_weekly.lastrun'', v_now);
+- 		return 0;
+- 	end if;
+- 
+- 	-- ----
+- 	-- This is the moment configured in dow+time. Check that the
+- 	-- last logswitch was done more than 2 days ago.
+- 	-- ----
+- 	v_laststart := @NAMESPACE@.registry_get_timestamp(
+- 			''logswitch.laststart'', ''epoch'');
+- 	v_days_since := extract (days from (v_now - v_laststart));
+- 	if v_days_since < 2 then
+- 		perform @NAMESPACE@.registry_set_timestamp(
+- 				''logswitch_weekly.lastrun'', v_now);
+- 		return 0;
+- 	end if;
+- 
+- 	-- ----
+- 	-- Fire off an automatic logswitch
+- 	-- ----
+- 	perform @NAMESPACE@.logswitch_start();
+- 	perform @NAMESPACE@.registry_set_timestamp(
+- 			''logswitch_weekly.lastrun'', v_now);
+- 	return 1;
+- END;
+- ' language plpgsql;
+- comment on function @NAMESPACE@.logswitch_weekly() is
+- 'logswitch_weekly()
+- 
+- Ensure a logswitch is done at least weekly';
+- 
+- 
+  -- ----------------------------------------------------------------------
+  -- FUNCTION logswitch_finish()
+--- 5130,5133 ----
+
+From cbbrowne at lists.slony.info  Mon Feb 25 07:43:40 2008
+From: cbbrowne at lists.slony.info (Chris Browne)
+Date: Mon Feb 25 07:43:42 2008
+Subject: [Slony1-commit] slony1-engine/src/slon cleanup_thread.c
+Message-ID: <20080225154340.E9A012902C8@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/src/slon
+In directory main.slony.info:/tmp/cvs-serv2886
+
+Modified Files:
+	cleanup_thread.c 
+Log Message:
+Remove call to SP logswitch_weekly(), as we are now doing log switches
+rather more frequently
+
+
+Index: cleanup_thread.c
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/src/slon/cleanup_thread.c,v
+retrieving revision 1.42
+retrieving revision 1.43
+diff -C2 -d -r1.42 -r1.43
+*** cleanup_thread.c	13 Feb 2008 23:02:40 -0000	1.42
+--- cleanup_thread.c	25 Feb 2008 15:43:38 -0000	1.43
+***************
+*** 132,146 ****
+  				 TIMEVAL_DIFF(&tv_start, &tv_end));
+  
+- 		slon_mkquery(&query2,
+- 			     "select %s.logswitch_weekly(); ",
+- 			     rtcfg_namespace);
+- 		res2 = PQexec(dbconn, dstring_data(&query2));
+- 		if (PQresultStatus(res2) != PGRES_TUPLES_OK)
+- 		{
+- 			slon_log(SLON_WARN,
+- 				 "cleanupThread: \"%s\" - %s",
+- 				 dstring_data(&query2), PQresultErrorMessage(res2));
+- 		}
+- 		PQclear(res2);
+  		/*
+  		 * Detain the usual suspects (vacuum event and log data)
+--- 132,135 ----
+
+From cbbrowne at lists.slony.info  Mon Feb 25 09:42:21 2008
+From: cbbrowne at lists.slony.info (Chris Browne)
+Date: Mon Feb 25 09:42:22 2008
+Subject: [Slony1-commit] slony1-engine/tools/altperl slonik_move_set.pl
+Message-ID: <20080225174221.30406290D76@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/tools/altperl
+In directory main.slony.info:/tmp/cvs-serv12157
+
+Modified Files:
+	slonik_move_set.pl 
+Log Message:
+Per bug #37, add in a WAIT FOR EVENT in between the LOCK SET and
+MOVE SET requests.
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=37
+
+
+Index: slonik_move_set.pl
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/tools/altperl/slonik_move_set.pl,v
+retrieving revision 1.3
+retrieving revision 1.4
+diff -C2 -d -r1.3 -r1.4
+*** slonik_move_set.pl	14 Feb 2008 16:41:35 -0000	1.3
+--- slonik_move_set.pl	25 Feb 2008 17:42:19 -0000	1.4
+***************
+*** 57,60 ****
+--- 57,62 ----
+  $slonik .= "  echo 'Locking down set $set on node $node1';\n";
+  $slonik .= "  lock set (id = $set, origin = $node1);\n";
++ $slonik .= "  sync (id = $node1);\n";
++ $slonik .= "  wait for event (origin = $node1, confirmed = $node2);\n";
+  $slonik .= "  echo 'Locked down - moving it';\n";
+  $slonik .= "  move set (id = $set, old origin = $node1, new origin = $node2);\n";
+
+From cbbrowne at lists.slony.info  Wed Feb 27 11:37:05 2008
+From: cbbrowne at lists.slony.info (Chris Browne)
+Date: Wed Feb 27 11:37:07 2008
+Subject: [Slony1-commit] slony1-engine/doc/adminguide adminscripts.sgml
+	bestpractices.sgml failover.sgml slonik_ref.sgml
+Message-ID: <20080227193705.97972290CC6@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/doc/adminguide
+In directory main.slony.info:/tmp/cvs-serv16748
+
+Modified Files:
+	adminscripts.sgml bestpractices.sgml failover.sgml 
+	slonik_ref.sgml 
+Log Message:
+Modifications to address things noted as unclear this week on the 
+Slony-I list:
+
+1.  Why is FORWARDING=yes typically needed on a subscriber node?
+
+[because otherwise, you can't fail over to that node!]
+
+2.  RESTART NODE is a bit too strongly worded in claiming it is
+useless after Slony-I 1.0.5.
+
+
+Index: failover.sgml
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/doc/adminguide/failover.sgml,v
+retrieving revision 1.25
+retrieving revision 1.26
+diff -C2 -d -r1.25 -r1.26
+*** failover.sgml	25 Feb 2008 15:37:58 -0000	1.25
+--- failover.sgml	27 Feb 2008 19:37:03 -0000	1.26
+***************
+*** 184,187 ****
+--- 184,195 ----
+  will receive anything from node1 any more.</para>
+  
++ <note><para> Note that in order for node 2 to be considered as a
++ candidate for failover, it must have been set up with the <xref
++ linkend="stmtsubscribeset"> option <command>forwarding =
++ yes</command>, which has the effect that replication log data is
++ collected in &sllog1;/&sllog2; on node 2.  If replication log data is
++ <emphasis>not</emphasis> being collected, then failover to that node
++ is not possible. </para></note>
++ 
+  </listitem>
+  
+
+Index: adminscripts.sgml
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/doc/adminguide/adminscripts.sgml,v
+retrieving revision 1.49
+retrieving revision 1.50
+diff -C2 -d -r1.49 -r1.50
+*** adminscripts.sgml	24 Sep 2007 21:07:45 -0000	1.49
+--- adminscripts.sgml	27 Feb 2008 19:37:03 -0000	1.50
+***************
+*** 135,147 ****
+  replicated.</para>
+  </sect3>
+! <sect3><title>slonik_drop_node</title>
+  
+- <para>Generates Slonik script to drop a node from a &slony1; cluster.</para>
+  </sect3>
+! <sect3><title>slonik_drop_set</title>
+  
+  <para>Generates Slonik script to drop a replication set
+  (<emphasis>e.g.</emphasis> - set of tables and sequences) from a
+  &slony1; cluster.</para>
+  </sect3>
+  
+--- 135,162 ----
+  replicated.</para>
+  </sect3>
+! <sect3 id="slonik-drop-node"><title>slonik_drop_node</title>
+! 
+! <para>Generates Slonik script to drop a node from a &slony1;
+! cluster.</para>
+  
+  </sect3>
+! <sect3 id="slonik-drop-set"><title>slonik_drop_set</title>
+  
+  <para>Generates Slonik script to drop a replication set
+  (<emphasis>e.g.</emphasis> - set of tables and sequences) from a
+  &slony1; cluster.</para>
++ 
++ <para> This represents a pretty big potential <quote>foot gun</quote>
++ as this eliminates a replication set all at once.  A typo that points
++ it to the wrong set could be rather damaging.  Compare to <xref
++ linkend="slonik-unsubscribe-set"> and <xref
++ linkend="slonik-drop-node">; with both of those, attempting to drop a
++ subscription or a node that is vital to your operations will be
++ blocked (via a foreign key constraint violation) if there exists a
++ downstream subscriber that would be adversely affected.  In contrast,
++ there will be no warnings or errors if you drop a set; the set will
++ simply disappear from replication.
++ </para>
++ 
+  </sect3>
+  
+***************
+*** 232,239 ****
+  
+  <para>This goes through and drops the &slony1; schema from each node;
+! use this if you want to destroy replication throughout a cluster.
+! This is a <emphasis>VERY</emphasis> unsafe script!</para>
+  
+! </sect3><sect3><title>slonik_unsubscribe_set</title>
+  
+  <para>Generates Slonik script to unsubscribe a node from a replication set.</para>
+--- 247,257 ----
+  
+  <para>This goes through and drops the &slony1; schema from each node;
+! use this if you want to destroy replication throughout a cluster.  As
+! its effects are necessarily rather destructive, this has the potential
+! to be pretty unsafe.</para>
+  
+! </sect3>
+! 
+! <sect3 id="slonik-unsubscribe-set"><title>slonik_unsubscribe_set</title>
+  
+  <para>Generates Slonik script to unsubscribe a node from a replication set.</para>
+
+Index: slonik_ref.sgml
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/doc/adminguide/slonik_ref.sgml,v
+retrieving revision 1.80
+retrieving revision 1.81
+diff -C2 -d -r1.80 -r1.81
+*** slonik_ref.sgml	25 Feb 2008 15:37:58 -0000	1.80
+--- slonik_ref.sgml	27 Feb 2008 19:37:03 -0000	1.81
+***************
+*** 718,727 ****
+      <title>Description</title>
+      
+!     <para> Causes an eventually running replication daemon on the
+!     specified node to shutdown and restart itself.  Theoretically,
+!     this command should be obsolete. In practice, TCP timeouts can
+!     delay critical configuration changes to actually happen in the
+!     case where a former forwarding node failed and needs to be
+!     bypassed by subscribers.
+       
+       <variablelist>
+--- 718,728 ----
+      <title>Description</title>
+      
+!     <para> Causes an eventually running replication daemon
+!     (<application>slon</application> process) on the specified node to
+!     shutdown and restart itself.  Theoretically, this command should
+!     be obsolete. In practice, TCP timeouts can delay critical
+!     configuration changes to actually happen in the case where a
+!     former forwarding node failed and needs to be bypassed by
+!     subscribers.
+       
+       <variablelist>
+***************
+*** 742,747 ****
+      <para> No application-visible locking should take place. </para>
+     </refsect1>
+!    <refsect1> <title> Version Information </title>
+!     <para> This command was introduced in &slony1; 1.0; its use should be unnecessary as of version 1.0.5. </para>
+     </refsect1>
+    </refentry>
+--- 743,751 ----
+      <para> No application-visible locking should take place. </para>
+     </refsect1>
+!    <refsect1> <title> Version Information </title> <para> This command
+!    was introduced in &slony1; 1.0; frequent use became unnecessary as
+!    of version 1.0.5.  There are, however, occasional cases where it is
+!    necessary to interrupt a <application>slon</application> process,
+!    and this allows this to be scripted via slonik. </para>
+     </refsect1>
+    </refentry>
+***************
+*** 2075,2081 ****
+         
+         <listitem><para> Flag whether or not the new subscriber should
+! 	 store the log information during replication to make it
+! 	 possible candidate for the provider role for future
+! 	 nodes.</para></listitem>
+  
+        </varlistentry>
+--- 2079,2087 ----
+         
+         <listitem><para> Flag whether or not the new subscriber should
+!        store the log information during replication to make it
+!        possible candidate for the provider role for future nodes.  Any
+!        node that is intended to be a candidate for FAILOVER
+!        <emphasis>must</emphasis> have <command>FORWARD =
+!        yes</command>.</para></listitem>
+  
+        </varlistentry>
+
+Index: bestpractices.sgml
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/doc/adminguide/bestpractices.sgml,v
+retrieving revision 1.30
+retrieving revision 1.31
+diff -C2 -d -r1.30 -r1.31
+*** bestpractices.sgml	25 Feb 2008 15:37:58 -0000	1.30
+--- bestpractices.sgml	27 Feb 2008 19:37:03 -0000	1.31
+***************
+*** 114,117 ****
+--- 114,122 ----
+  should be planned for ahead of time.  </para>
+  
++ <para> Most pointedly, any node that is expected to be a failover
++ target must have its subscription(s) set up with the option
++ <command>FORWARD = YES</command>.  Otherwise, that node is not a
++ candidate for being promoted to origin node. </para>
++ 
+  <para> This may simply involve thinking about what the priority lists
+  should be of what should fail to what, as opposed to trying to
+
+From cbbrowne at lists.slony.info  Thu Feb 28 11:23:03 2008
+From: cbbrowne at lists.slony.info (Chris Browne)
+Date: Thu Feb 28 11:23:04 2008
+Subject: [Slony1-commit] slony1-engine/src/backend slony1_funcs.sql
+Message-ID: <20080228192303.6CD07290361@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/src/backend
+In directory main.slony.info:/tmp/cvs-serv7592
+
+Modified Files:
+	slony1_funcs.sql 
+Log Message:
+Fixes needed to get "testpartition" to work on HEAD. The issue was that
+with the new handling of triggers, it is no longer appropriate to run
+the "restore table" function, as that function was only apropos for 1.2
+and earlier, and has become deprecated in HEAD.
+
+
+Index: slony1_funcs.sql
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/src/backend/slony1_funcs.sql,v
+retrieving revision 1.132
+retrieving revision 1.133
+diff -C2 -d -r1.132 -r1.133
+*** slony1_funcs.sql	25 Feb 2008 15:42:32 -0000	1.132
+--- slony1_funcs.sql	28 Feb 2008 19:23:01 -0000	1.133
+***************
+*** 4054,4057 ****
+--- 4054,4064 ----
+  'alterTableRestore (tab_id)
+  
++ Note: This function only functions properly when used on pre-2.0
++ systems being converted into 2.0 form.  In Slony-I 2.0, the trigger
++ handling has changed substantially, such that:
++ 
++ - There are *two* triggers on each table, created at "creation time", and
++ - There is no need to run "restore" as part of the DDL/EXECUTE SCRIPT process.
++ 
+  Restores table tab_id from being replicated.
+  
+***************
+*** 5782,5787 ****
+  	v_idxname := p_idxname;
+     end if;
+!    perform @NAMESPACE@.setAddTable_int(p_set_id, p_tab_id, v_fqname, v_idxname, p_comment);
+!    return @NAMESPACE@.alterTableRestore(p_tab_id);
+  end
+  ' language plpgsql;
+--- 5789,5793 ----
+  	v_idxname := p_idxname;
+     end if;
+!    return @NAMESPACE@.setAddTable_int(p_set_id, p_tab_id, v_fqname, v_idxname, p_comment);
+  end
+  ' language plpgsql;
+
+From cbbrowne at lists.slony.info  Thu Feb 28 11:39:00 2008
+From: cbbrowne at lists.slony.info (Chris Browne)
+Date: Thu Feb 28 11:39:02 2008
+Subject: [Slony1-commit] slony1-engine/src/backend slony1_funcs.sql
+Message-ID: <20080228193901.0455129000E@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/src/backend
+In directory main.slony.info:/tmp/cvs-serv8747
+
+Modified Files:
+	slony1_funcs.sql 
+Log Message:
+Fixes found in testing out "testmultipaths"; there were several
+references to storenode_int() that were using the old function signature
+where nodes had an attribute indicating involvement in logshipping.
+Removed the now-spurious boolean parameter.
+
+
+Index: slony1_funcs.sql
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/src/backend/slony1_funcs.sql,v
+retrieving revision 1.133
+retrieving revision 1.134
+diff -C2 -d -r1.133 -r1.134
+*** slony1_funcs.sql	28 Feb 2008 19:23:01 -0000	1.133
+--- slony1_funcs.sql	28 Feb 2008 19:38:58 -0000	1.134
+***************
+*** 1648,1656 ****
+  		if not exists (select 1 from @NAMESPACE@.sl_node
+  						where no_id = p_pa_server) then
+! 			perform @NAMESPACE@.storeNode_int (p_pa_server, ''<event pending>'', ''f'');
+  		end if;
+  		if not exists (select 1 from @NAMESPACE@.sl_node
+  						where no_id = p_pa_client) then
+! 			perform @NAMESPACE@.storeNode_int (p_pa_client, ''<event pending>'', ''f'');
+  		end if;
+  		insert into @NAMESPACE@.sl_path
+--- 1648,1656 ----
+  		if not exists (select 1 from @NAMESPACE@.sl_node
+  						where no_id = p_pa_server) then
+! 			perform @NAMESPACE@.storeNode_int (p_pa_server, ''<event pending>'');
+  		end if;
+  		if not exists (select 1 from @NAMESPACE@.sl_node
+  						where no_id = p_pa_client) then
+! 			perform @NAMESPACE@.storeNode_int (p_pa_client, ''<event pending>'');
+  		end if;
+  		insert into @NAMESPACE@.sl_path
+***************
+*** 1837,1849 ****
+  		if not exists (select 1 from @NAMESPACE@.sl_node
+  						where no_id = p_li_origin) then
+! 			perform @NAMESPACE@.storeNode_int (p_li_origin, ''<event pending>'', ''f'');
+  		end if;
+  		if not exists (select 1 from @NAMESPACE@.sl_node
+  						where no_id = p_li_provider) then
+! 			perform @NAMESPACE@.storeNode_int (p_li_provider, ''<event pending>'', ''f'');
+  		end if;
+  		if not exists (select 1 from @NAMESPACE@.sl_node
+  						where no_id = p_li_receiver) then
+! 			perform @NAMESPACE@.storeNode_int (p_li_receiver, ''<event pending>'', ''f'');
+  		end if;
+  
+--- 1837,1849 ----
+  		if not exists (select 1 from @NAMESPACE@.sl_node
+  						where no_id = p_li_origin) then
+! 			perform @NAMESPACE@.storeNode_int (p_li_origin, ''<event pending>'');
+  		end if;
+  		if not exists (select 1 from @NAMESPACE@.sl_node
+  						where no_id = p_li_provider) then
+! 			perform @NAMESPACE@.storeNode_int (p_li_provider, ''<event pending>'');
+  		end if;
+  		if not exists (select 1 from @NAMESPACE@.sl_node
+  						where no_id = p_li_receiver) then
+! 			perform @NAMESPACE@.storeNode_int (p_li_receiver, ''<event pending>'');
+  		end if;
+  
+***************
+*** 1988,1992 ****
+  		if not exists (select 1 from @NAMESPACE@.sl_node
+  						where no_id = p_set_origin) then
+! 			perform @NAMESPACE@.storeNode_int (p_set_origin, ''<event pending>'', ''f'');
+  		end if;
+  		insert into @NAMESPACE@.sl_set
+--- 1988,1992 ----
+  		if not exists (select 1 from @NAMESPACE@.sl_node
+  						where no_id = p_set_origin) then
+! 			perform @NAMESPACE@.storeNode_int (p_set_origin, ''<event pending>'');
+  		end if;
+  		insert into @NAMESPACE@.sl_set
+
+From cbbrowne at lists.slony.info  Fri Feb 29 13:14:39 2008
+From: cbbrowne at lists.slony.info (Chris Browne)
+Date: Fri Feb 29 13:14:41 2008
+Subject: [Slony1-commit] slony1-www/content news.txt
+Message-ID: <20080229211439.4D5A2290CD9@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-www/content
+In directory main.slony.info:/home/community/slony/htdocs/content
+
+Modified Files:
+	news.txt 
+Log Message:
+Indicate re-release of 1.2.13 docs tarball
+
+
+
+Index: news.txt
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-www/content/news.txt,v
+retrieving revision 1.41
+retrieving revision 1.42
+diff -C2 -d -r1.41 -r1.42
+*** news.txt	9 Feb 2008 23:43:32 -0000	1.41
+--- news.txt	29 Feb 2008 21:14:37 -0000	1.42
+***************
+*** 11,14 ****
+--- 11,24 ----
+  <!-- Please keep this item at the top of the news list -->
+  ---
++ Docs for 1.2.13 updated to include png, man pages
++ http://main.slony.info/downloads/1.2/source/slony1-1.2.13-docs.tar.bz2
++ 2008-02-29
++ Chris Browne
++ 
++ Vivek Khera observed that the documentation tarball did not include
++ .png files or man pages; added this in, and rebuilt the tarball.
++ 
++ <P>There is no change to the source code tarball.
++ ---
+  Slony-I 1.2.13 available
+  http://main.slony.info/downloads/1.2/source/slony1-1.2.13.tar.bz2
+
+From devrim at lists.slony.info  Fri Feb 29 18:47:49 2008
+From: devrim at lists.slony.info (Devrim GUNDUZ)
+Date: Fri Feb 29 18:47:51 2008
+Subject: [Slony1-commit] slony1-engine/doc/adminguide installation.sgml
+Message-ID: <20080301024749.E3D2B290C69@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/doc/adminguide
+In directory main.slony.info:/tmp/cvs-serv29177
+
+Modified Files:
+      Tag: REL_1_2_STABLE
+	installation.sgml 
+Log Message:
+Update RPM installation text
+
+
+Index: installation.sgml
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/doc/adminguide/installation.sgml,v
+retrieving revision 1.28.2.3
+retrieving revision 1.28.2.4
+diff -C2 -d -r1.28.2.3 -r1.28.2.4
+*** installation.sgml	29 Aug 2007 05:44:58 -0000	1.28.2.3
+--- installation.sgml	1 Mar 2008 02:47:47 -0000	1.28.2.4
+***************
+*** 226,230 ****
+  indicates that there is intent to address the issue by bumping up the
+  value of NAMELEN in some future release of Red Hat Enterprise Linux,
+! but that won't likely help you in 2005.  Fedora Core 4 should have the
+  issue addressed somewhat sooner. </para>
+  
+--- 226,230 ----
+  indicates that there is intent to address the issue by bumping up the
+  value of NAMELEN in some future release of Red Hat Enterprise Linux,
+! but that won't likely help you in 2005.  Fedora 4 should have the
+  issue addressed somewhat sooner. </para>
+  
+***************
+*** 254,263 ****
+  distributions, it is also possible to install &slony1; using binary
+  packages. Slony Global Development Team provides official RPMs and
+! SRPMs for many versions or Red Hat ana Fedora Core.</para>
+  
+  <para>The RPMs are available at <ulink
+! url="http://pgfoundry.org/projects/slony1/"> &slony1; at pgFoundry.org
+! </ulink>. Please read <command> CURRENT_MAINTAINER</command> file for
+! the details of the RPMs. Please note that the RPMs will look for RPM
+  installation of &postgres;, so if you install &postgres; from source,
+  you should manually ignore the RPM dependencies related to
+--- 254,263 ----
+  distributions, it is also possible to install &slony1; using binary
+  packages. Slony Global Development Team provides official RPMs and
+! SRPMs for many versions or Red Hat and Fedora .</para>
+  
+  <para>The RPMs are available at <ulink
+! url="http://yum.pgsqlrpms.org"> &postgres RPM Repository 
+! </ulink>. Please read the howto provided in the website for configuring
+! yum to use that repository. Please note that the RPMs will look for RPM
+  installation of &postgres;, so if you install &postgres; from source,
+  you should manually ignore the RPM dependencies related to
+***************
+*** 267,275 ****
+  installing any RPM.</para>
+  
+! <screen>rpm -ivh postgresql-slony1-....rpm</screen>
+  
+! <para>If you want to upgrade the previous version, just use 
+! <command>rpm -Uvh</command> to upgrade it. But please remember to follow 
+! the usual upgrade procedure, too.</para>
+  
+  <para>The RPM installs the files into their usual places. The
+--- 267,274 ----
+  installing any RPM.</para>
+  
+! <screen>yum install slony1</screen>
+  
+! <para>yum will pick up dependencies. This repository provides Slony-I binaries
+! built against every supported &postgres version.</para>
+  
+  <para>The RPM installs the files into their usual places. The
+***************
+*** 278,282 ****
+  are installed in <filename>/usr/lib/pgsql</filename>, and finally the
+  docs are installed in
+! <filename>/usr/share/doc/postgresql-slony1</filename>.</para>
+  
+  </sect2>
+--- 277,281 ----
+  are installed in <filename>/usr/lib/pgsql</filename>, and finally the
+  docs are installed in
+! <filename>/usr/share/doc/slony1</filename>.</para>
+  
+  </sect2>
+
+From devrim at lists.slony.info  Fri Feb 29 18:50:11 2008
+From: devrim at lists.slony.info (Devrim GUNDUZ)
+Date: Fri Feb 29 18:50:12 2008
+Subject: [Slony1-commit] slony1-engine/doc/adminguide installation.sgml
+Message-ID: <20080301025011.D50E5290C69@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/doc/adminguide
+In directory main.slony.info:/tmp/cvs-serv29244
+
+Modified Files:
+	installation.sgml 
+Log Message:
+Update RPM installation text
+
+
+Index: installation.sgml
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/doc/adminguide/installation.sgml,v
+retrieving revision 1.33
+retrieving revision 1.34
+diff -C2 -d -r1.33 -r1.34
+*** installation.sgml	20 Dec 2007 00:56:46 -0000	1.33
+--- installation.sgml	1 Mar 2008 02:50:09 -0000	1.34
+***************
+*** 226,230 ****
+  indicates that there is intent to address the issue by bumping up the
+  value of NAMELEN in some future release of Red Hat Enterprise Linux,
+! but that won't likely help you in 2008.  Fedora Core 4 should have the
+  issue addressed somewhat sooner. </para>
+  
+--- 226,230 ----
+  indicates that there is intent to address the issue by bumping up the
+  value of NAMELEN in some future release of Red Hat Enterprise Linux,
+! but that won't likely help you in 2008.  Fedora 4 should have the
+  issue addressed somewhat sooner. </para>
+  
+***************
+*** 254,275 ****
+  distributions, it is also possible to install &slony1; using binary
+  packages. Slony Global Development Team provides official RPMs and
+! SRPMs for many versions or Red Hat ana Fedora Core.</para>
+  
+  <para>The RPMs are available at <ulink
+! url="http://pgfoundry.org/projects/slony1/"> &slony1; at pgFoundry.org
+! </ulink>. Please read <command> CURRENT_MAINTAINER</command> file for
+! the details of the RPMs. Please note that the RPMs will look for RPM
+  installation of &postgres;, so if you install &postgres; from source,
+  you should manually ignore the RPM dependencies related to
+  &postgres;.</para>
+  
+! <para>Installing &slony1; using these RPMs is as easy as 
+  installing any RPM.</para>
+  
+! <screen>rpm -ivh postgresql-slony1-engine-....rpm</screen>
+  
+! <para>If you want to upgrade the previous version, just use 
+! <command>rpm -Uvh</command> to upgrade it. But please remember to follow 
+! the usual upgrade procedure, too.</para>
+  
+  <para>The RPM installs the files into their usual places. The
+--- 254,274 ----
+  distributions, it is also possible to install &slony1; using binary
+  packages. Slony Global Development Team provides official RPMs and
+! SRPMs for many versions or Red Hat and Fedora .</para>
+  
+  <para>The RPMs are available at <ulink
+! url="http://yum.pgsqlrpms.org"> &postgres RPM Repository
+! </ulink>. Please read the howto provided in the website for configuring
+! yum to use that repository. Please note that the RPMs will look for RPM
+  installation of &postgres;, so if you install &postgres; from source,
+  you should manually ignore the RPM dependencies related to
+  &postgres;.</para>
+  
+! <para>Installing &slony1; using these RPMs is as easy as
+  installing any RPM.</para>
+  
+! <screen>yum install slony1</screen>
+  
+! <para>yum will pick up dependencies. This repository provides Slony-I binaries
+! built against every supported &postgres version.</para>
+  
+  <para>The RPM installs the files into their usual places. The
+***************
+*** 278,282 ****
+  are installed in <filename>/usr/lib/pgsql</filename>, and finally the
+  docs are installed in
+! <filename>/usr/share/doc/postgresql-slony1-engine</filename>.</para>
+  
+  </sect2>
+--- 277,281 ----
+  are installed in <filename>/usr/lib/pgsql</filename>, and finally the
+  docs are installed in
+! <filename>/usr/share/doc/slony1</filename>.</para>
+  
+  </sect2>
+
+From devrim at lists.slony.info  Fri Feb 29 18:53:42 2008
+From: devrim at lists.slony.info (Devrim GUNDUZ)
+Date: Fri Feb 29 18:53:43 2008
+Subject: [Slony1-commit] slony1-engine/doc/adminguide installation.sgml
+Message-ID: <20080301025342.A314B290DA1@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/doc/adminguide
+In directory main.slony.info:/tmp/cvs-serv29643
+
+Modified Files:
+	installation.sgml 
+Log Message:
+Update info about NAMELEN issue.
+
+
+Index: installation.sgml
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/doc/adminguide/installation.sgml,v
+retrieving revision 1.34
+retrieving revision 1.35
+diff -C2 -d -r1.34 -r1.35
+*** installation.sgml	1 Mar 2008 02:50:09 -0000	1.34
+--- installation.sgml	1 Mar 2008 02:53:40 -0000	1.35
+***************
+*** 226,231 ****
+  indicates that there is intent to address the issue by bumping up the
+  value of NAMELEN in some future release of Red Hat Enterprise Linux,
+! but that won't likely help you in 2008.  Fedora 4 should have the
+! issue addressed somewhat sooner. </para>
+  
+  <para>
+--- 226,231 ----
+  indicates that there is intent to address the issue by bumping up the
+  value of NAMELEN in some future release of Red Hat Enterprise Linux,
+! but that won't likely help you in 2008. Current Fedora releases have already 
+! addressed this issue. </para>
+  
+  <para>
+
+From devrim at lists.slony.info  Fri Feb 29 18:53:49 2008
+From: devrim at lists.slony.info (Devrim GUNDUZ)
+Date: Fri Feb 29 18:53:49 2008
+Subject: [Slony1-commit] slony1-engine/doc/adminguide installation.sgml
+Message-ID: <20080301025349.23771290DAC@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/doc/adminguide
+In directory main.slony.info:/tmp/cvs-serv29661
+
+Modified Files:
+      Tag: REL_1_2_STABLE
+	installation.sgml 
+Log Message:
+Update info about NAMELEN issue.
+
+
+
+Index: installation.sgml
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/doc/adminguide/installation.sgml,v
+retrieving revision 1.28.2.4
+retrieving revision 1.28.2.5
+diff -C2 -d -r1.28.2.4 -r1.28.2.5
+*** installation.sgml	1 Mar 2008 02:47:47 -0000	1.28.2.4
+--- installation.sgml	1 Mar 2008 02:53:47 -0000	1.28.2.5
+***************
+*** 226,231 ****
+  indicates that there is intent to address the issue by bumping up the
+  value of NAMELEN in some future release of Red Hat Enterprise Linux,
+! but that won't likely help you in 2005.  Fedora 4 should have the
+! issue addressed somewhat sooner. </para>
+  
+  <para>
+--- 226,231 ----
+  indicates that there is intent to address the issue by bumping up the
+  value of NAMELEN in some future release of Red Hat Enterprise Linux,
+! but that won't likely help you in 2005. Current Fedora releases have already
+! addressed this issue. </para>
+  
+  <para>
+

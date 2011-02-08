@@ -1,0 +1,123 @@
+From Sergey.Potapov at mobido.ru  Thu Apr 12 03:47:32 2007
+From: Sergey.Potapov at mobido.ru (Sergey.Potapov@mobido.ru)
+Date: Fri Apr 13 08:46:06 2007
+Subject: [Slony1-bugs] Problem with Slony 1.2.9
+Message-ID: <OF8D0F1252.74A4EB7D-ONC32572BB.003B48A1-C32572BB.003B48B2@docgroup.ru>
+
+
+Hello!
+I have two PostresQL on different servers.
+The first(Master) - postgres (PostgreSQL) 8.2.3 on Red Hat 4.1.1 with Slony
+1.2.9
+The second(Slave) - postgres (PostgreSQL) 8.2.3 on Red Hat 3.2.2 with Slony
+1.2.9
+
+When I start script:
+slonik <<EOF
+cluster name = $CLUSTER;
+
+node 1 admin conninfo = 'dbname=$DBNAME1 host=$HOST1 port=$PORT1
+user=$SLONY_USER password=$PASSWORD';
+node 2 admin conninfo = 'dbname=$DBNAME2 host=$HOST2 port=$PORT2
+user=$SLONY_USER password=$PASSWORD';
+
+init cluster ( id = 1, comment = 'Master Babylon ' );
+
+echo 'Create set';
+
+create set ( id = 1, origin = 1, comment = 'Babylon DB replication set' );
+
+echo 'Adding tables to the subscription set';
+
+echo ' Adding table public.country...';
+
+set add table ( set id = 1, origin = 1, id = 2, full qualified name =
+'public.country', key = 'country_pkey', comment = '' );
+
+echo 'done';
+
+
+echo 'Adding table public.territory...';
+
+set add table ( set id = 1, origin = 1, id = 3, full qualified name =
+'public.territory', key = 'territory_pkey', comment = '' );
+
+echo 'done';
+
+echo 'done adding';
+
+store node ( id = 2, comment = 'Slave Babylon , $HOST1' );
+echo 'stored node';
+
+store path ( server = 1, client = 2, conninfo = 'dbname=$DBNAME1
+host=$HOST1 port=$PORT1 user=$SLONY_USER password=$PASSWORD' );
+echo 'stored path';
+
+store path ( server = 2, client = 1, conninfo = 'dbname=$DBNAME2
+host=$HOST2 port=$PORT2 user=$SLONY_USER password=$PASSWORD' );
+
+store listen ( origin = 1, provider = 1, receiver = 2 );
+store listen ( origin = 2, provider = 2, receiver = 1 );
+EOF
+
+I get error:
+
+<stdin>:6: Possible unsupported PostgreSQL version 8.2
+<stdin>:6: loading of file /usr/share/pgsql//slony1_funcs.sql:
+PGRES_FATAL_ERROR ERROR: current transaction is aborted, commands ignored
+until end of transaction block
+ERROR: current transaction is aborted, commands ignored until end of
+transaction block
+<stdin>:6: ERROR: no admin conninfo for node 134650552
+
+
+How to solve this problem?
+
+Sergey Potapov,
+Mobiteh LTD, Russia
+mobile:+79181202625
+icq: 298835091
+skype:bratsever
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-bugs/attachments/20070412/a567d0a3/attachment.htm
+From cbbrowne at ca.afilias.info  Mon Apr 16 15:01:05 2007
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Mon Apr 16 15:01:18 2007
+Subject: [Slony1-bugs] Problem with Slony 1.2.9
+In-Reply-To: <OF8D0F1252.74A4EB7D-ONC32572BB.003B48A1-C32572BB.003B48B2@docgroup.ru>
+	(Sergey Potapov's message of "Thu, 12 Apr 2007 14:47:32 +0400")
+References: <OF8D0F1252.74A4EB7D-ONC32572BB.003B48A1-C32572BB.003B48B2@docgroup.ru>
+Message-ID: <604pngc732.fsf@dba2.int.libertyrms.com>
+
+Sergey.Potapov@mobido.ru writes:
+> I get error:
+> <stdin>:6: Possible unsupported PostgreSQL version 8.2
+> <stdin>:6: loading of file /usr/share/pgsql//slony1_funcs.sql: PGRES_FATAL_ERROR ERROR: current transaction is
+> aborted, commands ignored until end of transaction block
+> ERROR: current transaction is aborted, commands ignored until end of transaction block
+> <stdin>:6: ERROR: no admin conninfo for node 134650552
+> How to solve this problem?
+
+You might take a peek in the PostgreSQL logs to see what it complained
+about when trying to load /usr/share/pgsql//slony1_funcs.sql.
+
+It seems rather curious that it reported your PostgreSQL version as
+being an "Possible unsupported" version; there were some repairs in
+1.2.8 to the handling of version numbers.  Indeed, based on the above
+message, you can't be running 1.2.9, because the form of the error
+message should be:
+
+<stdin>:6: Possible unsupported PostgreSQL version (%d) %d.%d, defaulting to 8.1 support
+
+Take a look in slony1_funcs.sql for functions slonyVersionMajor(),
+slonyVersionMinor(), and slonyVersionPatchlevel(); I suspect you're
+actually looking at some earlier version.
+
+The error message is consistent with something we ran into with about
+1.2.6 or 1.2.7 when a function wasn't properly commented on...
+-- 
+(reverse (concatenate 'string "ofni.sailifa.ac" "@" "enworbbc"))
+<http://dba2.int.libertyrms.com/>
+Christopher Browne
+(416) 673-4124 (land)

@@ -1,0 +1,410 @@
+From slony1-bugs at lists.slony.info  Wed Apr  2 08:23:38 2008
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Wed Apr  2 08:23:41 2008
+Subject: [Slony1-bugs] [Bug 47] New: EXECUTE SCRIPT runs on ALL nodes
+Message-ID: <bug-47-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=47
+
+           Summary: EXECUTE SCRIPT runs on ALL nodes
+           Product: Slony-I
+           Version: 1.2
+          Platform: PC
+        OS/Version: Linux
+            Status: NEW
+          Severity: normal
+          Priority: medium
+         Component: stored procedures
+        AssignedTo: slony1-bugs@lists.slony.info
+        ReportedBy: johan@headweb.com
+                CC: slony1-bugs@lists.slony.info
+   Estimated Hours: 0.0
+
+
+Hello
+
+I'm running 1.2.9 (altough this seems to be accurate for CVS too) against pg
+1.2. I just did an EXECUTE SCRIPT with a simple ALTER command. I have two sets,
+three nodes. Two masteres (1 and 2), with one set each, replicates each set to
+the one single slave (101).
+The ALTER was performed on set 1, with no "EXECUTE ONLY ON" parameter.
+So, what I expected here was that the ALTER command should be executed on node
+1 and node 101, and node2 not touched. But instead the slon running against
+node2 borked. Looking at the logs, it showed that it was trying to run the
+ALTER TABLE command against that database. Which ofcourse failed since that
+database did not have set 1 (this one was master for set 2).
+
+Looking closer I found
+http://slony.info/documentation/function.ddlscript-prepare-int-integer-integer.html
+and in particular this part:
+
+        if v_set_origin <> v_no_id
+                        and not exists (select 1 from sl_subscribe
+                                                where sub_set = p_set_id
+                                                and sub_receiver = v_no_id)
+        then
+                return 0;
+        end if;
+
+
+Now if im right here, that would be pseudocode :
+
+IF the origin node for this set is not me, AND i dont subscribe to this set,
+then abort without errors..
+
+Now.. that sounds wrong? Shouldnt that be 
+
+
+IF the origin node for this set is not me, OR i dont subscribe to this set,
+then abort without errors..
+
+
+Do I just need to sleep and check my subscription setups (which looks fine to
+me in sl_subscribe, node 2 is not a subscriber of ANYTHING), or is this wrong?
+
+In the meantime I guess one can run EXECUTE ONLY ON=101, which isnt very much
+problem here in my dev setup, but more of a problem when you have many slaves i
+guess.
+
+Otherwise, thanks for a, even if somewhat tricky to administer, product! :) 
+
+Regards
+Johan
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Mon Apr  7 20:18:08 2008
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Mon Apr  7 20:18:10 2008
+Subject: [Slony1-bugs] [Bug 47] EXECUTE SCRIPT runs on ALL nodes
+In-Reply-To: <bug-47-4@http.www.slony.info/bugzilla/>
+Message-ID: <20080408031808.A6F80290DD0@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=47
+
+
+M O'Shea <m.oshea@murdoch.edu.au> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+                 CC|                            |m.oshea@murdoch.edu.au
+
+
+
+
+--- Comment #1 from M O'Shea <m.oshea@murdoch.edu.au>  2008-04-07 20:18:08 ---
+I don't have any more information about your problem.  However your question
+about whether an OR or an AND is required in the code you quoted I can answer. 
+It is definitely AND that you want there.  Using OR would lead to the query
+never being executed on any of the slaves (as they would all answer yes to "Am
+I not the origin of this set").
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Mon Apr  7 22:46:45 2008
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Mon Apr  7 22:46:47 2008
+Subject: [Slony1-bugs] [Bug 47] EXECUTE SCRIPT runs on ALL nodes
+In-Reply-To: <bug-47-4@http.www.slony.info/bugzilla/>
+Message-ID: <20080408054645.90E592903A9@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=47
+
+
+
+
+
+--- Comment #2 from Johan Str?m <johan@headweb.com>  2008-04-07 22:46:45 ---
+Yes, good point. I guess if it should be an OR it should read:
+
+IF the origin node for this set IS me, OR i dont subscribe to this set,
+then abort without errors..
+
+or in sql:
+
+        if v_set_origin = v_no_id
+                        or not exists (select 1 from sl_subscribe
+                                                where sub_set = p_set_id
+                                                and sub_receiver = v_no_id)
+        then
+                return 0;
+        end if;
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Mon Apr  7 23:36:04 2008
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Mon Apr  7 23:36:06 2008
+Subject: [Slony1-bugs] [Bug 47] EXECUTE SCRIPT runs on ALL nodes
+In-Reply-To: <bug-47-4@http.www.slony.info/bugzilla/>
+Message-ID: <20080408063604.13511290D91@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=47
+
+
+
+
+
+--- Comment #3 from M O'Shea <m.oshea@murdoch.edu.au>  2008-04-07 23:36:04 ---
+No, that logic would lead to execution on the slaves that are subscribed to
+that set only.  The origin would exit as well as any other nodes in the
+cluster.
+
+I believe that the original logic is correct.  So that means that either this
+piece of code is not the cause of your problem or there is another bug in there
+somewhere.
+
+If you are still not sure can you try executing some of the code in
+ddlscript_prepare_int (with your real values) and check that it all follows.
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Tue Apr  8 00:07:11 2008
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Tue Apr  8 00:07:13 2008
+Subject: [Slony1-bugs] [Bug 47] EXECUTE SCRIPT runs on ALL nodes
+In-Reply-To: <bug-47-4@http.www.slony.info/bugzilla/>
+Message-ID: <20080408070711.37CE72903A9@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=47
+
+
+
+
+
+--- Comment #4 from Johan Str?m <johan@headweb.com>  2008-04-08 00:07:11 ---
+Ah, the masters execute this way to, then it makes sense. I guess I just needed
+to sleep hehe. 
+
+Well, I tried the ddlscript_prepare_int(1, -1); and it gave the expected
+results.. So I guess the problem lies somewhere else... I don't really have
+time to dig too deep in this right now though :/
+If anyone else might try, or if you got some quick pointers to what I could
+test?
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Fri Apr 18 06:08:29 2008
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Fri Apr 18 06:08:31 2008
+Subject: [Slony1-bugs] [Bug 48] New: Small error in documentation
+Message-ID: <bug-48-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=48
+
+           Summary: Small error in documentation
+           Product: Slony-I
+           Version: 1.2
+          Platform: PC
+               URL: http://www.slony.info/documentation/firstdb.html
+        OS/Version: Windows
+            Status: NEW
+          Severity: minor
+          Priority: low
+         Component: website
+        AssignedTo: slony1-bugs@lists.slony.info
+        ReportedBy: devilio@gmail.com
+                CC: slony1-bugs@lists.slony.info
+   Estimated Hours: 0.05
+
+
+Created an attachment (id=14)
+ --> (http://www.slony.info/bugzilla/attachment.cgi?id=14)
+Corrected web page
+
+In part 2.3.1. (Using the altperl scripts), sample code should be
+
+# Initialize cluster:
+$ slonik_init_cluster  | slonik 
+
+# Start slon  (here 1 and 2 are node numbers)
+$ slon_start 1    
+$ slon_start 2
+
+# Create Sets (here 1 is a set number)
+$ slonik_create_set 1 | slonik
+
+# subscribe set to second node (1= set ID, 2= node ID)
+$ slonik_subscribe_set  2 | slonik
+
+
+
+
+In place of
+
+
+
+
+# Initialize cluster:
+$ slonik_init_cluster  | slonik 
+
+# Start slon  (here 1 and 2 are node numbers)
+$ slon_start 1    
+$ slon_start 2
+
+# Create Sets (here 1 is a set number)
+$ slonik_create_set 1             
+
+# subscribe set to second node (1= set ID, 2= node ID)
+$ slonik_subscribe_set  2 | slonik
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Fri Apr 18 06:09:59 2008
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Fri Apr 18 06:10:01 2008
+Subject: [Slony1-bugs] [Bug 48] Small error in documentation
+In-Reply-To: <bug-48-4@http.www.slony.info/bugzilla/>
+Message-ID: <20080418130959.B2BB8290145@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=48
+
+
+Sebastien Baguette <devilio@gmail.com> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+           Platform|PC                          |All
+         OS/Version|Windows                     |All
+
+
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Fri Apr 18 09:15:42 2008
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Fri Apr 18 09:15:43 2008
+Subject: [Slony1-bugs] [Bug 48] Small error in documentation
+In-Reply-To: <bug-48-4@http.www.slony.info/bugzilla/>
+Message-ID: <20080418161542.66A01290141@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=48
+
+
+Christopher Browne <cbbrowne@ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         Resolution|                            |FIXED
+    Remaining Hours|0.05                        |0.0
+             Status|NEW                         |RESOLVED
+
+
+
+
+--- Comment #1 from Christopher Browne <cbbrowne@ca.afilias.info>  2008-04-18 09:15:42 ---
+Applied to CVS HEAD, with:
+
+- A shift of the section to *after* the section that does things using 'raw'
+slonik scripts
+
+- Some rewording
+
+http://lists.slony.info/pipermail/slony1-commit/2008-April/002252.html
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Tue Apr 22 13:31:36 2008
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Tue Apr 22 13:31:38 2008
+Subject: [Slony1-bugs] [Bug 46] New 8.4 #include - utils/snapmgr.h
+In-Reply-To: <bug-46-4@http.www.slony.info/bugzilla/>
+Message-ID: <20080422203136.55DA529010E@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=46
+
+
+
+
+
+--- Comment #2 from Christopher Browne <cbbrowne@ca.afilias.info>  2008-04-22 13:31:36 ---
+According to the following patch that is likely to be applied...
+
+http://archives.postgresql.org/pgsql-patches/2008-04/msg00425.php
+
+SerializableSnapshot, as global symbols, are no more.  This will require a
+further change to slony1_funcs.c
+
+Note that the change to src/xxid/xxid.c is unnecessary as the whole
+src/xxid/xxid.c "tree" has been eliminated from CVS HEAD as equivalent
+functionality is in the PostgreSQL core in v8.3+.
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From gersom at streamtech.nl  Tue Apr  8 05:30:23 2008
+From: gersom at streamtech.nl (Gersom van de Bunt)
+Date: Thu Sep 25 08:15:24 2008
+Subject: [Slony1-bugs] Cache lookup failure when starting slony
+Message-ID: <47FB6578.9060006@streamtech.nl>
+
+Hi,
+
+We are in the process of testing slony for replicating master-> single 
+slave for now.
+While testing it on static backup versions of our live database  we 
+never ran into  problems.  Also while running it with postgresql-8.1 and 
+slony1-bin 1.2.1-1 we experienced no strange behavior.
+We are running debian etch and recently upgraded to postgresql-8.3 with 
+slony1-bin 1.2.13-1 from debian sid.
+By using the "by-hand" method of running slony we suddenly got this 
+error in our frontend from postgresql:
+
+
+[Mon Apr 07 13:00:59 2008] [error] [Hunchentoot] Database error XX000: 
+cache lookup failed for type 76787
+
+
+This was instantly fixed by stopping slony and using slonik to uninstall 
+both nodes. To try to replicate the error i've set up a test again where 
+the master db is static and not processing any queries. by inserting it 
+with the query that caused the above error message nothing strange 
+happend...
+We also didn't see any messages in the slony logs that could be related.
+
+I would like to test slony once more on our live db server but we can't 
+really afford to run into this bug again. Looking at the replication 
+solutions for pg we think slony would be the best solution for us, hope 
+someone has a clue:)
+
+
+Regards,
+
+Gersom
+
+

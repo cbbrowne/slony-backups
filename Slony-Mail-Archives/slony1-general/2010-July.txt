@@ -1,0 +1,3868 @@
+From glynastill at yahoo.co.uk  Fri Jul  2 03:11:34 2010
+From: glynastill at yahoo.co.uk (Glyn Astill)
+Date: Fri, 2 Jul 2010 10:11:34 +0000 (GMT)
+Subject: [Slony1-general] Dropping table with lots of entries in sl_log
+Message-ID: <242157.33117.qm@web23603.mail.ird.yahoo.com>
+
+Hi Guys,
+
+We have a replicated table that stores errors from an application that recently went mad and logged about 650000 records each about 75kb in size.
+
+Our local replication is fine, but we have servers on the end of a vpn that are now lagging massively.
+
+If I drop the table from replication will the entries in sl_log be cleared out and replication cease for that table - or will the drop wait until the tables are in sync?
+
+Thanks
+Glyn
+
+
+      
+
+
+From cbbrowne at ca.afilias.info  Fri Jul  2 10:55:48 2010
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Fri, 02 Jul 2010 13:55:48 -0400
+Subject: [Slony1-general] Dropping table with lots of entries in sl_log
+In-Reply-To: <242157.33117.qm@web23603.mail.ird.yahoo.com> (Glyn Astill's
+	message of "Fri, 2 Jul 2010 10:11:34 +0000 (GMT)")
+References: <242157.33117.qm@web23603.mail.ird.yahoo.com>
+Message-ID: <87r5jlzs2j.fsf@cbbrowne.afilias-int.info>
+
+Glyn Astill <glynastill at yahoo.co.uk> writes:
+> We have a replicated table that stores errors from an application that recently went mad and logged about 650000 records each about 75kb in size.
+>
+> Our local replication is fine, but we have servers on the end of a vpn that are now lagging massively.
+>
+> If I drop the table from replication will the entries in sl_log be cleared out and replication cease for that table - or will the drop wait until the tables are in sync?
+
+SET DROP TABLE does not clear out the entries from sl_log_*, so you'd
+find that the DROP would wait until the tables get into sync :-(.
+
+I suppose that what you could do, if you plan to nuke the table, is to
+delete those records from sl_log_* by hand.
+
+That is...  If the table's ID is 17...
+   delete from _my_schema.sl_log_1 where log_tableid = 17;
+   delete from _my_schema.sl_log_2 where log_tableid = 17;
+
+I think I'd want to order it thus...
+
+0.  Back up the table some place where it contains the data that you think it ought to have
+
+    e.g. - use "pg_dump -t my_log_table > my_log_table.sql" to
+    preserve you from losing contents.
+    
+1.  Slonik script to drop table #17
+
+2.  delete from sl_log_* against all the nodes
+
+3.  Replication should then fairly quickly catch up.
+
+4.  You probably want to induce log rotations everywhere because
+    sl_log_* will be pretty bloated after all this.
+
+     select _my_schema.logswitch_start()
+
+    wait 10-ish minutes for the log switch to complete
+
+    Do it again...
+
+     select _my_schema.logswitch_start()
+
+Be very very careful about step #2, that you're deleting the right
+data, as picking the wrong table could rather ruin your day!  I'd not
+call this "notably safe," but it's not heinously dangerous.
+-- 
+"cbbrowne","@","ca.afilias.info"
+Christopher Browne
+"Bother,"  said Pooh,  "Eeyore, ready  two photon  torpedoes  and lock
+phasers on the Heffalump, Piglet, meet me in transporter room three"
+
+From cdave at ca.afilias.info  Fri Jul  2 11:02:18 2010
+From: cdave at ca.afilias.info (Chirag Dave)
+Date: Fri, 02 Jul 2010 14:02:18 -0400
+Subject: [Slony1-general] Dropping table with lots of entries in sl_log
+In-Reply-To: <242157.33117.qm@web23603.mail.ird.yahoo.com>
+References: <242157.33117.qm@web23603.mail.ird.yahoo.com>
+Message-ID: <4C2E29AA.1060900@ca.afilias.info>
+
+Glyn Astill wrote:
+> Hi Guys,
+>
+> We have a replicated table that stores errors from an application that recently went mad and logged about 650000 records each about 75kb in size.
+>
+> Our local replication is fine, but we have servers on the end of a vpn that are now lagging massively.
+>
+> If I drop the table from replication will the entries in sl_log be cleared out and replication cease for that table - or will the drop wait until the tables are in sync?
+>   
+
+Correct, drop table event will be in the queue and will not get 
+processed until all the events before that get processed. you have an 
+option to drop the node and re-subscribe the node.
+
+> Thanks
+> Glyn
+>
+>
+>       
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+>   
+
+
+From glynastill at yahoo.co.uk  Mon Jul  5 01:32:46 2010
+From: glynastill at yahoo.co.uk (Glyn Astill)
+Date: Mon, 5 Jul 2010 08:32:46 +0000 (GMT)
+Subject: [Slony1-general] Dropping table with lots of entries in sl_log
+In-Reply-To: <87r5jlzs2j.fsf@cbbrowne.afilias-int.info>
+Message-ID: <725177.65026.qm@web23602.mail.ird.yahoo.com>
+
+> From: Christopher Browne <cbbrowne at ca.afilias.info>
+> Subject: Re: [Slony1-general] Dropping table with lots of entries in sl_log
+> To: "Glyn Astill" <glynastill at yahoo.co.uk>
+> Cc: slony1-general at lists.slony.info
+> Date: Friday, 2 July, 2010, 18:55
+> Glyn Astill <glynastill at yahoo.co.uk>
+> writes:
+> > We have a replicated table that stores errors from an
+> application that recently went mad and logged about 650000
+> records each about 75kb in size.
+> >
+> > Our local replication is fine, but we have servers on
+> the end of a vpn that are now lagging massively.
+> >
+> > If I drop the table from replication will the entries
+> in sl_log be cleared out and replication cease for that
+> table - or will the drop wait until the tables are in sync?
+> 
+> SET DROP TABLE does not clear out the entries from
+> sl_log_*, so you'd
+> find that the DROP would wait until the tables get into
+> sync :-(.
+> 
+> I suppose that what you could do, if you plan to nuke the
+> table, is to
+> delete those records from sl_log_* by hand.
+> 
+> That is...? If the table's ID is 17...
+> ???delete from _my_schema.sl_log_1 where
+> log_tableid = 17;
+> ???delete from _my_schema.sl_log_2 where
+> log_tableid = 17;
+> 
+> I think I'd want to order it thus...
+> 
+> 0.? Back up the table some place where it contains the
+> data that you think it ought to have
+> 
+> ? ? e.g. - use "pg_dump -t my_log_table >
+> my_log_table.sql" to
+> ? ? preserve you from losing contents.
+> ? ? 
+> 1.? Slonik script to drop table #17
+> 
+> 2.? delete from sl_log_* against all the nodes
+> 
+> 3.? Replication should then fairly quickly catch up.
+> 
+> 4.? You probably want to induce log rotations
+> everywhere because
+> ? ? sl_log_* will be pretty bloated after all
+> this.
+> 
+> ? ???select
+> _my_schema.logswitch_start()
+> 
+> ? ? wait 10-ish minutes for the log switch to
+> complete
+> 
+> ? ? Do it again...
+> 
+> ? ???select
+> _my_schema.logswitch_start()
+> 
+> Be very very careful about step #2, that you're deleting
+> the right
+> data, as picking the wrong table could rather ruin your
+> day!? I'd not
+> call this "notably safe," but it's not heinously
+> dangerous.
+
+Thanks Chris,
+
+In the end I just took the laissez-faire option, and everything caught up nicely in a much shorter space of time than I thought it would.
+
+Nice to know for the future though.
+
+Glyn
+
+
+      
+
+
+From jansen at fumarium.de  Mon Jul  5 08:45:48 2010
+From: jansen at fumarium.de (Frank Jansen)
+Date: Mon, 05 Jul 2010 17:45:48 +0200
+Subject: [Slony1-general] Upgrade Question
+Message-ID: <4C31FE2C.8030801@fumarium.de>
+
+  Hi folks,
+
+we want to upgrade our Slony 2.0.2 to 2.0.4. The documentation states it 
+is very straightforward: just compile, install on all nodes and execute 
+a slonik script with the command "update functions".
+In the binary directory of slony i found a script called 
+"slonik_update_nodes" which contains at the end:
+run_slonik_script($slonik, 'UPDATE FUNCTIONS');
+
+My 2 Questions are:
+1. Can I use this slonik_update_nodes script to update the function on 
+our nodes?
+2. Do I have to invoke the script at the master with the id of the nodes 
+as argument (e.g. slonik_update_node 1; slonik_update_node 2 and so on) 
+or do i have it to run on each node itself? The docs and google dont say 
+much about this (certainly dumb) question :(
+
+Thanks and kind regards
+
+Frank Jansen
+
+-- 
+
+
+
+From JanWieck at Yahoo.com  Mon Jul  5 09:32:05 2010
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Mon, 05 Jul 2010 12:32:05 -0400
+Subject: [Slony1-general] [Slony1-patches] [rangerrick@befunk.com: slony
+ patch for osx]
+In-Reply-To: <4BFE9A69.6060502@ca.afilias.info>
+References: <20100423160654.GA18954@fetter.org>	<4BDC9C8D.104@ca.afilias.info>	<4BDC3FA2.1070703@Yahoo.com>	<4BE18607.70202@ca.afilias.info>	<20100505152058.GB32707@fetter.org>	<4BE1970D.6050400@ca.afilias.info>
+	<4BE1CD3B.6000304@ca.afilias.info>
+	<4BFE9A69.6060502@ca.afilias.info>
+Message-ID: <4C320905.1020302@Yahoo.com>
+
+On 5/27/2010 12:14 PM, Christopher Browne wrote:
+> Steve Singer wrote:
+>> Steve Singer wrote:
+>>> David Fetter wrote:
+>>>
+>>>
+>>> I think I can replace our direct use of yyleng with calls to 
+>>> yyget_len() to avoid this issue
+>> 
+>> 
+>> David, does this patch (in addition to the autoconf changes) get things 
+>> working on your version of OSX? I've replaced uses of yyleng with 
+>> yyget_len() and am having flex generate a proper prototype for it.
+>> 
+>> 
+>> 
+>> http://github.com/ssinger/slony/commit/0febbf93046600e3fd7c59e37ca3b14cc137eb64 
+> 
+> FYI, result of some discussion that should get exposed on list...
+> 
+> yyget_len() is available on modern versions of flex (at least as far 
+> back as 2.5.31, which is what PostgreSQL requires, of late).
+> 
+> So, I'm suggesting that configure be modified to check for 2.5.31 (or 
+> later), for which a sample test may be gotten from config/programs.m4 in 
+> the PostgreSQL tree.  Given that, it'll be very clear to people that 
+> have any difficulties that they're using a too-old flex.
+
+Has this been done? If not, I'm in favor of this solution.
+
+
+Jan
+
+
+> 
+> I don't feel badly about going back as far as PostgreSQL does ;-).
+> 
+> I could do this change; it may be opportunity for Steve to improve his 
+> configure-foo.
+> 
+> That's better than putting some documentation somewhere saying "oh, by 
+> the way, you need to use version X of flex".
+
+
+-- 
+Anyone who trades liberty for security deserves neither
+liberty nor security. -- Benjamin Franklin
+
+From ssinger at ca.afilias.info  Tue Jul  6 05:56:47 2010
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Tue, 06 Jul 2010 08:56:47 -0400
+Subject: [Slony1-general] Upgrade Question
+In-Reply-To: <4C31FE2C.8030801@fumarium.de>
+References: <4C31FE2C.8030801@fumarium.de>
+Message-ID: <4C33280F.6080101@ca.afilias.info>
+
+Frank Jansen wrote:
+>   Hi folks,
+> 
+> we want to upgrade our Slony 2.0.2 to 2.0.4. The documentation states it 
+> is very straightforward: just compile, install on all nodes and execute 
+> a slonik script with the command "update functions".
+> In the binary directory of slony i found a script called 
+> "slonik_update_nodes" which contains at the end:
+> run_slonik_script($slonik, 'UPDATE FUNCTIONS');
+> 
+> My 2 Questions are:
+> 1. Can I use this slonik_update_nodes script to update the function on 
+> our nodes?
+
+Yes that is the purpose of the script. It should work.
+
+> 2. Do I have to invoke the script at the master with the id of the nodes 
+> as argument (e.g. slonik_update_node 1; slonik_update_node 2 and so on) 
+> or do i have it to run on each node itself? The docs and google dont say 
+> much about this (certainly dumb) question :(
+> 
+
+The slonik_update_node script will invoke slonik which will then connect 
+to the node being updated.  It doesn't matter what machine you run the 
+script on as long as it is able to connect through the network to the 
+database your trying to update.   So if your master can connect to all 
+of your nodes then you should be fine running the script on the master. 
+  (The perl script should loop through each of the nodes in your .conf 
+file and update them).
+
+
+
+> Thanks and kind regards
+> 
+> Frank Jansen
+> 
+
+
+-- 
+Steve Singer
+Afilias Canada
+Data Services Developer
+416-673-1142
+
+From community at chronicdb.com  Tue Jul  6 07:51:24 2010
+From: community at chronicdb.com (ChronicDB Community Team)
+Date: Tue, 6 Jul 2010 07:51:24 -0700
+Subject: [Slony1-general] Feedback on live schema changes and updates for
+	PostgreSQL
+Message-ID: <82725b59a2ef6f8ec2c16761dbd6880f@vpn.chronicdb.com>
+
+Hello,
+
+We have been developing a high-availability and
+version control solution for Postgres, called
+ChronicDB[1], that aims to combine live schema
+changes, replication, live connection migration,
+and scalability in a cohesive manner. We are
+requesting feedback[2] on the most desireable
+features Postgres users would like to have in such
+a solution.
+
+ChronicDB is available for Postgres 7.4, 8.x, and
+9, and can already apply live schema changes with
+zero downtime through live query-rewritting and
+live connection migration. The vision for
+ChronicDB is to eventually be able to apply:
+
+Complex live schema changes:
+- Partition operations such as vertical and
+horizontal splitting
+- Field merge and splitting operations
+- Field renaming
+- Field relocation to a different table
+- Table renaming
+- All these operations applied together
+atomically, without downtime
+- Allowing an old version and a new version of an
+application to run concurrently, indefinitely
+- Reversing schema changes
+
+Replication:
+- Master/slave replication, with an unlimited
+number of slaves
+- Not having to restart replication when 95% of a
+database is replicated over a WAN link and a
+timeout interrupts replication
+- Synchronous replication between a master and a
+primary backup
+- Hot swap of master with primary backup without
+downtime
+- Simple configuration
+
+Live connection migration:
+- The client applications will not be interrupted,
+and won't need to reconnect; downtime will be
+eliminated
+
+Scalability:
+- Live query inspection and routing to read-only
+replicas. This assumes the application is capable
+of handling such a weaker consistency model.
+
+
+We would like to invite you to learn more about
+ChronicDB, to download it and to request new
+features. We would like to ask:
+(1) What are the major types of schema changes you
+need to be able to apply ?
+ (2) If it was possible for us to fix a single (or
+two) frustrating, database update problems, which
+problems would those be? 
+ (3) What is the major cause of downtime in your
+database applications ?
+ 
+References:
+[1] http://chronicdb.com
+[2] http://chronicdb.com/request_new_features
+
+Sincerely,
+
+ChronicDB Community Team
+
+http://chronicdb.com/benefits_of_chronicdb
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20100706/9a04a071/attachment.htm 
+
+From richyen at iparadigms.com  Tue Jul  6 18:10:10 2010
+From: richyen at iparadigms.com (Richard Yen)
+Date: Tue, 6 Jul 2010 18:10:10 -0700
+Subject: [Slony1-general] WAL partition overloaded--by autovacuum?
+Message-ID: <03D2C5F0-F222-4088-B5E4-8DA688565B70@iparadigms.com>
+
+Hi everyone,
+
+I'm running 8.4.2 on a CentOS machine, and postgres recently died with signal 6 because the pg_xlog partition filled up (33GB) on 7/4/10 10:34:23 (perfect timing, as I was hiking in the mountains in the remotest parts of our country).  I did some digging and found the following:
+
+-- The current state of /db/data/pg_xlog (after postgres died on 7/4/10) indicates there are 2056 files, all created between 7/4/10 10:01 and 7/4/10 10:34, and a quick bash-kung-fu check shows that these files were created anywhere from 3 per minute (10:22) to 106 per minute (10:12)
+-- wal_buffers=8MB; commit_siblings=200; commit_delay=0; checkpoint_segments=16
+-- All other WAL-related parameters are either defaults or commented out
+
+-- syslog shows that on 7/2/10 from 10:16:11 to 10:21:51, messages similar to this occurred 29 times:
+> Jul  2 10:16:11 db4.sac postgres[20526]: [56-1] 2010-07-02 10:16:11.117 PDT [user=,db=  PID:20526 XID:0]LOG:  checkpoints are occurring too frequently (4 seconds apart)
+> Jul  2 10:16:11 db4.sac postgres[20526]: [56-2] 2010-07-02 10:16:11.117 PDT [user=,db=  PID:20526 XID:0]HINT:  Consider increasing the configuration parameter "checkpoint_segments".
+
+-- On 7/4/10 from 09:09:02 to 09:10:08, the same type of messages occurred 21 times in syslog
+-- This message did not occur on 7/3/10 at all
+
+-- Preceding the "checkpoints are occurring too frequently" syslog entries are autovacuum entries:
+> Jul  2 10:16:04 db4.sac postgres[11357]: [7-1] 2010-07-02 10:16:04.576 PDT [user=,db=  PID:11357 XID:0]LOG:  automatic vacuum of table "tii._sac_global.sl_event": index scans: 1
+> Jul  2 10:16:04 db4.sac postgres[11357]: [7-2]     pages: 0 removed, 25 remain
+> Jul  2 10:16:04 db4.sac postgres[11357]: [7-3]     tuples: 676 removed, 955 remain
+> Jul  2 10:16:04 db4.sac postgres[11357]: [7-4]     system usage: CPU 0.01s/0.00u sec elapsed 0.02 sec
+> Jul  2 10:16:04 db4.sac postgres[11357]: [8-1] 2010-07-02 10:16:04.580 PDT [user=,db=  PID:11357 XID:197431667]LOG:  automatic analyze of table "tii._sac_global.sl_event" system usage: CPU 0.00s/0.00u sec elapsed 0.00 sec
+> Jul  2 10:16:04 db4.sac postgres[11357]: [9-1] 2010-07-02 10:16:04.965 PDT [user=,db=  PID:11357 XID:0]LOG:  automatic vacuum of table "tii._sac_global.sl_confirm": index scans: 1
+> Jul  2 10:16:04 db4.sac postgres[11357]: [9-2]     pages: 0 removed, 154 remain
+> Jul  2 10:16:04 db4.sac postgres[11357]: [9-3]     tuples: 1834 removed, 8385 remain
+> Jul  2 10:16:04 db4.sac postgres[11357]: [9-4]     system usage: CPU 0.32s/0.04u sec elapsed 0.37 sec
+
+> Jul  4 09:08:56 db4.sac postgres[21798]: [13-1] 2010-07-04 09:08:56.107 PDT [user=,db=  PID:21798 XID:0]LOG:  automatic vacuum of table "tii.public.city": index scans: 0
+> Jul  4 09:08:56 db4.sac postgres[21798]: [13-2]    pages: 0 removed, 151 remain
+> Jul  4 09:08:56 db4.sac postgres[21798]: [13-3]    tuples: 0 removed, 20223 remain
+> Jul  4 09:08:56 db4.sac postgres[21798]: [13-4]    system usage: CPU 0.00s/0.00u sec elapsed 0.01 sec
+> Jul  4 09:08:56 db4.sac postgres[21798]: [14-1] 2010-07-04 09:08:56.118 PDT [user=,db=  PID:21798 XID:0]LOG:  automatic vacuum of table "tii.public.country": index scans: 1
+> Jul  4 09:08:56 db4.sac postgres[21798]: [14-2]    pages: 0 removed, 2 remain
+> Jul  4 09:08:56 db4.sac postgres[21798]: [14-3]    tuples: 77 removed, 185 remain
+> Jul  4 09:08:56 db4.sac postgres[21798]: [14-4]    system usage: CPU 0.00s/0.00u sec elapsed 0.00 sec
+> Jul  4 09:08:56 db4.sac postgres[21798]: [15-1] 2010-07-04 09:08:56.335 PDT [user=,db=  PID:21798 XID:0]LOG:  automatic vacuum of table "tii.public.gm3_clipboard": index scans: 1
+> Jul  4 09:08:56 db4.sac postgres[21798]: [15-2]    pages: 0 removed, 897 remain
+> Jul  4 09:08:56 db4.sac postgres[21798]: [15-3]    tuples: 2 removed, 121594 remain
+> Jul  4 09:08:56 db4.sac postgres[21798]: [15-4]    system usage: CPU 0.07s/0.08u sec elapsed 0.20 sec
+...snip...
+> Jul  4 09:10:25 db4.sac postgres[22066]: [23-1] 2010-07-04 09:10:25.921 PDT [user=,db=  PID:22066 XID:0]LOG:  automatic vacuum of table "tii.public.pm_assignment": index scans: 1
+> Jul  4 09:10:25 db4.sac postgres[22066]: [23-2]    pages: 0 removed, 995 remain
+> Jul  4 09:10:25 db4.sac postgres[22066]: [23-3]    tuples: 323 removed, 83964 remain
+> Jul  4 09:10:25 db4.sac postgres[22066]: [23-4]    system usage: CPU 0.01s/0.09u sec elapsed 0.52 sec
+> Jul  4 09:10:25 db4.sac postgres[22073]: [7-1] 2010-07-04 09:10:25.978 PDT [user=,db=  PID:22073 XID:0]LOG:  automatic vacuum of table "tii.public.pm_question_type": index scans: 0
+> Jul  4 09:10:25 db4.sac postgres[22073]: [7-2]     pages: 0 removed, 1 remain
+> Jul  4 09:10:25 db4.sac postgres[22073]: [7-3]     tuples: 0 removed, 2 remain
+> Jul  4 09:10:25 db4.sac postgres[22073]: [7-4]     system usage: CPU 0.00s/0.00u sec elapsed 0.00 sec
+> Jul  4 09:10:26 db4.sac postgres[22066]: [24-1] 2010-07-04 09:10:26.301 PDT [user=,db=  PID:22066 XID:0]LOG:  automatic vacuum of table "tii.public.pm_association_rule": index scans: 1
+> Jul  4 09:10:26 db4.sac postgres[22066]: [24-2]    pages: 0 removed, 286 remain
+> Jul  4 09:10:26 db4.sac postgres[22066]: [24-3]    tuples: 46 removed, 51321 remain
+> Jul  4 09:10:26 db4.sac postgres[22066]: [24-4]    system usage: CPU 0.00s/0.03u sec elapsed 0.34 sec
+> Jul  4 09:10:26 db4.sac postgres[22066]: [25-1] 2010-07-04 09:10:26.328 PDT [user=,db=  PID:22066 XID:0]LOG:  automatic vacuum of table "tii.public.role": index scans: 0
+> Jul  4 09:10:26 db4.sac postgres[22066]: [25-2]    pages: 0 removed, 1 remain
+> Jul  4 09:10:26 db4.sac postgres[22066]: [25-3]    tuples: 0 removed, 5 remain
+> Jul  4 09:10:26 db4.sac postgres[22066]: [25-4]    system usage: CPU 0.00s/0.00u sec elapsed 0.00 sec
+> Jul  4 09:10:26 db4.sac postgres[22066]: [26-1] 2010-07-04 09:10:26.373 PDT [user=,db=  PID:22066 XID:0]LOG:  automatic vacuum of table "tii.public.pm_review_type": index scans: 0
+> Jul  4 09:10:26 db4.sac postgres[22066]: [26-2]    pages: 0 removed, 1 remain
+> Jul  4 09:10:26 db4.sac postgres[22066]: [26-3]    tuples: 0 removed, 4 remain
+> Jul  4 09:10:26 db4.sac postgres[22066]: [26-4]    system usage: CPU 0.00s/0.00u sec elapsed 0.00 sec
+> Jul  4 09:10:26 db4.sac postgres[22066]: [27-1] 2010-07-04 09:10:26.428 PDT [user=,db=  PID:22066 XID:0]LOG:  automatic vacuum of table "tii.public.permission": index scans: 0
+> Jul  4 09:10:26 db4.sac postgres[22066]: [27-2]    pages: 0 removed, 1 remain
+> Jul  4 09:10:26 db4.sac postgres[22066]: [27-3]    tuples: 0 removed, 8 remain
+> Jul  4 09:10:26 db4.sac postgres[22066]: [27-4]    system usage: CPU 0.00s/0.00u sec elapsed 0.01 sec
+
+-- min_duration_statement=1000, so there is a chance that the volume of really-fast write traffic might be masked, but I'm doubtful as this is our low-usage season (we run a web service for the education sector).
+
+-- Another tidbit of information is that I am using slony 2.0.3 for replication, and my sync_interval is 500.  However, I'm doubtful that slony traffic is responsible because my other nodes use the exact same config and hardware, and none of them had this issue.
+
+-- My last administrative action on this machine was to SIGHUP this machine to push changes to pg_hba.conf on 6/29/10.  Just now, I diff-ed my postgresql.conf file with a copy that I keep in svn--no changes at all.
+
+This leads me to believe that there was a sudden flurry of write activity that occurred, and the process that would flush WAL files to /db/data/ couldn't keep up, thereby filling up the disk.  I'm wondering if anyone else out there might be able to give me some insight or comments to my assessment--is it accurate?  Any input would be helpful, and I'll try to make necessary architectural changes to keep this from happening again.
+
+Your help is much appreciated!
+--Richard
+
+From scott.marlowe at gmail.com  Tue Jul  6 20:25:28 2010
+From: scott.marlowe at gmail.com (Scott Marlowe)
+Date: Tue, 6 Jul 2010 21:25:28 -0600
+Subject: [Slony1-general] [PERFORM] WAL partition overloaded--by
+	autovacuum?
+In-Reply-To: <03D2C5F0-F222-4088-B5E4-8DA688565B70@iparadigms.com>
+References: <03D2C5F0-F222-4088-B5E4-8DA688565B70@iparadigms.com>
+Message-ID: <AANLkTik1oR2fMBp9pzpeYUgrANXKpK0B23scXONQEK1z@mail.gmail.com>
+
+On Tue, Jul 6, 2010 at 7:10 PM, Richard Yen <richyen at iparadigms.com> wrote:
+> This leads me to believe that there was a sudden flurry of write activity that occurred, and the process that would flush WAL files to /db/data/ couldn't keep up, thereby filling up the disk. ?I'm wondering if anyone else out there might be able to give me some insight or comments to my assessment--is it accurate? ?Any input would be helpful, and I'll try to make necessary architectural changes to keep this from happening again.
+
+I tend to agree.  What kind of disk setup is under your data store?
+If it's RAID-5 or RAID-6 is it possibly degraded?
+
+I'd run iostat -xd 10 while the write load it high to see how your
+xlog partition %util compares to the main data store partition.
+
+Do you have your main data store partition under a battery backed
+caching RAID controller?  Tell us what you can about your hardware
+setup.
+
+From scott.marlowe at gmail.com  Tue Jul  6 20:27:10 2010
+From: scott.marlowe at gmail.com (Scott Marlowe)
+Date: Tue, 6 Jul 2010 21:27:10 -0600
+Subject: [Slony1-general] [PERFORM] WAL partition overloaded--by
+	autovacuum?
+In-Reply-To: <03D2C5F0-F222-4088-B5E4-8DA688565B70@iparadigms.com>
+References: <03D2C5F0-F222-4088-B5E4-8DA688565B70@iparadigms.com>
+Message-ID: <AANLkTimSf2bZMYDyOuWWdzUJSZNKu1iWPV-IaG21orVX@mail.gmail.com>
+
+On Tue, Jul 6, 2010 at 7:10 PM, Richard Yen <richyen at iparadigms.com> wrote:
+
+One more thing, do you have long running transactions during these periods?
+
+From mark.kirkwood at catalyst.net.nz  Tue Jul  6 21:06:30 2010
+From: mark.kirkwood at catalyst.net.nz (Mark Kirkwood)
+Date: Wed, 07 Jul 2010 16:06:30 +1200
+Subject: [Slony1-general] WAL partition overloaded--by autovacuum?
+In-Reply-To: <03D2C5F0-F222-4088-B5E4-8DA688565B70@iparadigms.com>
+References: <03D2C5F0-F222-4088-B5E4-8DA688565B70@iparadigms.com>
+Message-ID: <4C33FD46.6080306@catalyst.net.nz>
+
+On 07/07/10 13:10, Richard Yen wrote:
+>
+> This leads me to believe that there was a sudden flurry of write activity that occurred, and the process that would flush WAL files to /db/data/ couldn't keep up, thereby filling up the disk.  I'm wondering if anyone else out there might be able to give me some insight or comments to my assessment--is it accurate?  Any input would be helpful, and I'll try to make necessary architectural changes to keep this from happening again.
+>    
+
+Do you have wal archiving enabled? (if so lets see your archive_command).
+
+Cheers
+
+Mark
+
+From scott.marlowe at gmail.com  Tue Jul  6 21:13:53 2010
+From: scott.marlowe at gmail.com (Scott Marlowe)
+Date: Tue, 6 Jul 2010 22:13:53 -0600
+Subject: [Slony1-general] [PERFORM] WAL partition overloaded--by
+	autovacuum?
+In-Reply-To: <03D2C5F0-F222-4088-B5E4-8DA688565B70@iparadigms.com>
+References: <03D2C5F0-F222-4088-B5E4-8DA688565B70@iparadigms.com>
+Message-ID: <AANLkTimmdCGMo5PxVfmjbuHbzTg8hFfAJM-8JPdhkN4H@mail.gmail.com>
+
+And, read this:
+
+http://wiki.postgresql.org/wiki/Guide_to_reporting_problems
+
+From raghuchennuru at gmail.com  Wed Jul  7 00:35:51 2010
+From: raghuchennuru at gmail.com (raghu ram)
+Date: Wed, 7 Jul 2010 13:05:51 +0530
+Subject: [Slony1-general] Drop column issue using Slonik_execute_script
+Message-ID: <AANLkTinTjuuNkaSnmfbRv68g1CL9JRhHkRWbnP-SpVQX@mail.gmail.com>
+
+Hi,
+
+
+We setup the Slony replication b/w master and salve. We are trying to drop a
+column of the replication table.
+
+
+We are facing the errors, while executing the execute script to drop a
+column::
+
+
+
+
+<stdin>:6: PGRES_FATAL_ERROR select "_testreplica".ddlScript_prepare(1, -1);
+- ERROR: Slony-I: alterTableRestore(): Table with id 206 not found
+
+CONTEXT: SQL statement "SELECT "_testreplica".alterTableRestore(tab_id) from
+"_testreplica".sl_table where tab_set in (select set_id from
+"_testreplica".sl_set where set_origin =
+"_testreplica".getLocalNodeId('_testreplica'))"
+
+PL/pgSQL function "ddlscript_prepare" line 34 at perform
+
+
+Here,slonik_execute_script referring table id is 206 but where as my table
+id is different in slony schema. i.e 139 and also we tried for another
+tables, getting the same error.
+
+
+Slony version:: 1.2.11
+
+
+Could you please provide suggestions on this issue.
+
+
+Regards
+
+Raghu
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20100707/37816006/attachment.htm 
+
+From Kevin.Grittner at wicourts.gov  Wed Jul  7 04:58:25 2010
+From: Kevin.Grittner at wicourts.gov (Kevin Grittner)
+Date: Wed, 07 Jul 2010 06:58:25 -0500
+Subject: [Slony1-general] [PERFORM] WAL partition overloaded--by
+	autovacuum?
+Message-ID: <4C34259102000025000330B6@gw.wicourts.gov>
+
+Richard Yen wrote:
+ 
+> the pg_xlog partition filled up (33GB)
+ 
+> checkpoint_segments=16
+ 
+> a sudden flurry of write activity
+ 
+Was this database bulk-loaded in some way (like by restoring the
+output of pg_dump, for example)?  If so, all rows inserted into all
+tables would have the same (or very nearly the same) xmin value. At
+some later time, virtually all tuples would need to be rewritten to
+freeze them. This would be a logged operation, so WAL files would be
+getting created rapidly.  If you have WAL archiving turned on, and
+you can't copy the files out as fast as they're being created, this
+might happen.
+ 
+To avoid such a crushing mass freeze at an unpredictable time, we
+always run VACUUM FREEZE ANALYZE on a bulk-loaded database before
+turning on WAL archiving.
+ 
+Of course, if this database wasn't bulk-loaded, this can't be your
+problem....
+ 
+-Kevin
+
+
+From ssinger at ca.afilias.info  Wed Jul  7 05:54:58 2010
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Wed, 07 Jul 2010 08:54:58 -0400
+Subject: [Slony1-general] Drop column issue using Slonik_execute_script
+In-Reply-To: <AANLkTinTjuuNkaSnmfbRv68g1CL9JRhHkRWbnP-SpVQX@mail.gmail.com>
+References: <AANLkTinTjuuNkaSnmfbRv68g1CL9JRhHkRWbnP-SpVQX@mail.gmail.com>
+Message-ID: <4C347922.5060206@ca.afilias.info>
+
+raghu ram wrote:
+> Hi,
+> 
+> 
+> We setup the Slony replication b/w master and salve. We are trying to 
+> drop a column of the replication table.
+> 
+> 
+> We are facing the errors, while executing the execute script to drop a 
+> column::
+> 
+>  
+> 
+
+Is it possible that you did a 'DROP TABLE' of a replicated table without 
+first removing the table from slony ('set drop table')
+
+Also 1.2.11 is fairly out of date, the 1.2 stream is up to 1.2.21.  You 
+should familiarize yourself with the issues that have been addressed 
+since then.
+
+
+> 
+> <stdin>:6: PGRES_FATAL_ERROR select "_testreplica".ddlScript_prepare(1, 
+> -1); - ERROR: Slony-I: alterTableRestore(): Table with id 206 not found
+> 
+> CONTEXT: SQL statement "SELECT "_testreplica".alterTableRestore(tab_id) 
+> from "_testreplica".sl_table where tab_set in (select set_id from 
+> "_testreplica".sl_set where set_origin = 
+> "_testreplica".getLocalNodeId('_testreplica'))"
+> 
+> PL/pgSQL function "ddlscript_prepare" line 34 at perform
+> 
+> 
+> Here,slonik_execute_script referring table id is 206 but where as my 
+> table id is different in slony schema. i.e 139 and also we tried for 
+> another tables, getting the same error.
+> 
+> 
+> Slony version:: 1.2.11
+> 
+> 
+> Could you please provide suggestions on this issue.
+> 
+> 
+> Regards
+> 
+> Raghu
+> 
+> 
+> ------------------------------------------------------------------------
+> 
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+
+
+-- 
+Steve Singer
+Afilias Canada
+Data Services Developer
+416-673-1142
+
+From stephane.schildknecht at postgresql.fr  Thu Jul  8 03:08:51 2010
+From: stephane.schildknecht at postgresql.fr (=?ISO-8859-15?Q?=22St=E9phane_A=2E_Schildknecht=22?=)
+Date: Thu, 08 Jul 2010 12:08:51 +0200
+Subject: [Slony1-general] Drop column issue using Slonik_execute_script
+In-Reply-To: <AANLkTinTjuuNkaSnmfbRv68g1CL9JRhHkRWbnP-SpVQX@mail.gmail.com>
+References: <AANLkTinTjuuNkaSnmfbRv68g1CL9JRhHkRWbnP-SpVQX@mail.gmail.com>
+Message-ID: <4C35A3B3.7050704@postgresql.fr>
+
+-----BEGIN PGP SIGNED MESSAGE-----
+Hash: SHA1
+
+Le 07/07/2010 09:35, raghu ram a ?crit :
+> Hi,
+> 
+> 
+> We setup the Slony replication b/w master and salve. We are trying to
+> drop a column of the replication table.
+> 
+> 
+> We are facing the errors, while executing the execute script to drop a
+> column::
+> 
+>  
+> 
+> 
+> <stdin>:6: PGRES_FATAL_ERROR select "_testreplica".ddlScript_prepare(1,
+> -1); - ERROR: Slony-I: alterTableRestore(): Table with id 206 not found
+> 
+> CONTEXT: SQL statement "SELECT "_testreplica".alterTableRestore(tab_id)
+> from "_testreplica".sl_table where tab_set in (select set_id from
+> "_testreplica".sl_set where set_origin =
+> "_testreplica".getLocalNodeId('_testreplica'))"
+> 
+> PL/pgSQL function "ddlscript_prepare" line 34 at perform
+> 
+> 
+> Here,slonik_execute_script referring table id is 206 but where as my
+> table id is different in slony schema. i.e 139 and also we tried for
+> another tables, getting the same error.
+> 
+> 
+> Slony version:: 1.2.11
+> 
+> 
+> Could you please provide suggestions on this issue.
+
+Hi,
+
+First of all, I'd suggest you upgrade to the latest version of Slony in the 1.2
+branch. It does not require any downtime, and will let you use a version that
+has been cleared of known bugs.
+
+Concerning the id of your table, is there any table with this idea in your
+replication schema ? Are your sure all your tables and sequences have the same
+id in all your nodes ?
+What's more, what does the sl_status view report ?
+
+Best regards,
+- -- 
+St?phane Schildknecht
+-----BEGIN PGP SIGNATURE-----
+Version: GnuPG v1.4.10 (GNU/Linux)
+Comment: Using GnuPG with Mozilla - http://enigmail.mozdev.org/
+
+iEYEARECAAYFAkw1o7MACgkQA+REPKWGI0GGYQCfQW79A5fJRrEEfUpjUvxzfj5d
+jicAn0qGv+Xzk06a+hPY+6eLpbq7PYt0
+=ijrA
+-----END PGP SIGNATURE-----
+
+From ssinger at ca.afilias.info  Thu Jul  8 08:47:44 2010
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Thu, 08 Jul 2010 11:47:44 -0400
+Subject: [Slony1-general] slony + win32
+Message-ID: <4C35F320.7040800@ca.afilias.info>
+
+Has anyone compiled a recent version of slony on win32?  Do we still 
+compile against win32? If so with what compiler?
+
+I have no way of testing if we build against win32 but I'm hoping 
+someone else has periodically been doing this.
+
+
+
+
+-- 
+Steve Singer
+Afilias Canada
+Data Services Developer
+416-673-1142
+
+From peter.geoghegan86 at gmail.com  Thu Jul  8 10:00:06 2010
+From: peter.geoghegan86 at gmail.com (Peter Geoghegan)
+Date: Thu, 8 Jul 2010 18:00:06 +0100
+Subject: [Slony1-general] slony + win32
+In-Reply-To: <4C35F320.7040800@ca.afilias.info>
+References: <4C35F320.7040800@ca.afilias.info>
+Message-ID: <AANLkTin2bdulKR_8HX7TjqqILjM4XHwIOqRJ_tHKxPNT@mail.gmail.com>
+
+Dave Page (who produces by far the most popular slony package for
+windows) has told me that "Unless there's a security or a data
+integrity issue, then the upgrade will be made available as part of
+our next quarterly update cycle, towards the end of June." That was in
+reference to Slony 2.0.3, but my guess is that he'll end up doing this
+with 2.0.4.
+
+-- 
+Regards,
+Peter Geoghegan
+
+From rod at iol.ie  Thu Jul  8 10:22:12 2010
+From: rod at iol.ie (Raymond O'Donnell)
+Date: Thu, 08 Jul 2010 18:22:12 +0100
+Subject: [Slony1-general] slony + win32
+In-Reply-To: <AANLkTin2bdulKR_8HX7TjqqILjM4XHwIOqRJ_tHKxPNT@mail.gmail.com>
+References: <4C35F320.7040800@ca.afilias.info>
+	<AANLkTin2bdulKR_8HX7TjqqILjM4XHwIOqRJ_tHKxPNT@mail.gmail.com>
+Message-ID: <4C360944.4050506@iol.ie>
+
+On 08/07/2010 18:00, Peter Geoghegan wrote:
+> Dave Page (who produces by far the most popular slony package for
+> windows) has told me that "Unless there's a security or a data
+> integrity issue, then the upgrade will be made available as part of
+> our next quarterly update cycle, towards the end of June." That was in
+> reference to Slony 2.0.3, but my guess is that he'll end up doing this
+> with 2.0.4.
+
+Hi Peter,
+
+Is this installed via the StackBuilder? - Or is it available as a
+separate download?
+
+Ray.
+
+-- 
+Raymond O'Donnell :: Galway :: Ireland
+rod at iol.ie
+
+From guillaume at lelarge.info  Thu Jul  8 13:53:50 2010
+From: guillaume at lelarge.info (Guillaume Lelarge)
+Date: Thu, 08 Jul 2010 22:53:50 +0200
+Subject: [Slony1-general] slony + win32
+In-Reply-To: <4C360944.4050506@iol.ie>
+References: <4C35F320.7040800@ca.afilias.info>	<AANLkTin2bdulKR_8HX7TjqqILjM4XHwIOqRJ_tHKxPNT@mail.gmail.com>
+	<4C360944.4050506@iol.ie>
+Message-ID: <4C363ADE.2040200@lelarge.info>
+
+Le 08/07/2010 19:22, Raymond O'Donnell a ?crit :
+> On 08/07/2010 18:00, Peter Geoghegan wrote:
+>> Dave Page (who produces by far the most popular slony package for
+>> windows) has told me that "Unless there's a security or a data
+>> integrity issue, then the upgrade will be made available as part of
+>> our next quarterly update cycle, towards the end of June." That was in
+>> reference to Slony 2.0.3, but my guess is that he'll end up doing this
+>> with 2.0.4.
+> 
+> Hi Peter,
+> 
+> Is this installed via the StackBuilder? - Or is it available as a
+> separate download?
+> 
+
+I'm pretty sure he's talking about StackBuilder.
+
+
+-- 
+Guillaume
+ http://www.postgresql.fr
+ http://dalibo.com
+
+From peter.geoghegan86 at gmail.com  Fri Jul  9 02:04:27 2010
+From: peter.geoghegan86 at gmail.com (Peter Geoghegan)
+Date: Fri, 9 Jul 2010 10:04:27 +0100
+Subject: [Slony1-general] slony + win32
+In-Reply-To: <4C363ADE.2040200@lelarge.info>
+References: <4C35F320.7040800@ca.afilias.info>
+	<AANLkTin2bdulKR_8HX7TjqqILjM4XHwIOqRJ_tHKxPNT@mail.gmail.com>
+	<4C360944.4050506@iol.ie> <4C363ADE.2040200@lelarge.info>
+Message-ID: <AANLkTilfunjtPtca-TR3IJcYH22q5a8PhtIuXQc1WH8S@mail.gmail.com>
+
+>> Hi Peter,
+>>
+>> Is this installed via the StackBuilder? - Or is it available as a
+>> separate download?
+>>
+>
+> I'm pretty sure he's talking about StackBuilder.
+
+Yes, I am.
+
+-- 
+Regards,
+Peter Geoghegan
+
+From rod at iol.ie  Fri Jul  9 03:22:32 2010
+From: rod at iol.ie (Raymond O'Donnell)
+Date: Fri, 09 Jul 2010 11:22:32 +0100
+Subject: [Slony1-general] slony + win32
+In-Reply-To: <AANLkTilfunjtPtca-TR3IJcYH22q5a8PhtIuXQc1WH8S@mail.gmail.com>
+References: <4C35F320.7040800@ca.afilias.info>	<AANLkTin2bdulKR_8HX7TjqqILjM4XHwIOqRJ_tHKxPNT@mail.gmail.com>	<4C360944.4050506@iol.ie>	<4C363ADE.2040200@lelarge.info>
+	<AANLkTilfunjtPtca-TR3IJcYH22q5a8PhtIuXQc1WH8S@mail.gmail.com>
+Message-ID: <4C36F868.2060805@iol.ie>
+
+On 09/07/2010 10:04, Peter Geoghegan wrote:
+>>> Hi Peter,
+>>>
+>>> Is this installed via the StackBuilder? - Or is it available as a
+>>> separate download?
+>>>
+>>
+>> I'm pretty sure he's talking about StackBuilder.
+> 
+> Yes, I am.
+
+OK - grand - thanks.
+
+Ray.
+
+-- 
+Raymond O'Donnell :: Galway :: Ireland
+rod at iol.ie
+
+From pwnell at telkomsa.net  Fri Jul  9 13:25:04 2010
+From: pwnell at telkomsa.net (Waldo Nell)
+Date: Fri, 9 Jul 2010 13:25:04 -0700
+Subject: [Slony1-general] Updating huge table in Slony-I
+Message-ID: <61A8FA5C-EFE7-44F5-9CBA-32F2A72611BF@telkomsa.net>
+
+I need to run an update statement pretty much like:
+
+ update XXX set Y = 'Y' where Z = 1;
+
+but table XXX contains approximately 130 million rows.  This will translate to 130 million update statements via Slony-I to the other replicated node.  Any more efficient way to update this?  If not, will Slony-I break on this update?
+
+Thanks
+
+From ajs at crankycanuck.ca  Fri Jul  9 18:30:58 2010
+From: ajs at crankycanuck.ca (Andrew Sullivan)
+Date: Fri, 9 Jul 2010 21:30:58 -0400
+Subject: [Slony1-general] Updating huge table in Slony-I
+In-Reply-To: <61A8FA5C-EFE7-44F5-9CBA-32F2A72611BF@telkomsa.net>
+References: <61A8FA5C-EFE7-44F5-9CBA-32F2A72611BF@telkomsa.net>
+Message-ID: <20100710013056.GA70924@shinkuro.com>
+
+On Fri, Jul 09, 2010 at 01:25:04PM -0700, Waldo Nell wrote:
+> but table XXX contains approximately 130 million rows.  This will translate to 130 million update statements via Slony-I to the other replicated node.  Any more efficient way to update this?  If not, will Slony-I break on this update?
+> 
+
+It probably won't break, but I bet you won't be happy.
+
+When I used to have to do this sort of thing, I'd do it in transaction
+batches of a few hundred or thousand at a time.  If you can't do it
+that way, the only real effective way to do it is to drop that table
+from replication, make the changes, and then add the table again.
+
+A
+
+-- 
+Andrew Sullivan
+ajs at crankycanuck.ca
+
+From ssinger_pg at sympatico.ca  Sat Jul 10 06:00:38 2010
+From: ssinger_pg at sympatico.ca (Steve Singer)
+Date: Sat, 10 Jul 2010 09:00:38 -0400 (EDT)
+Subject: [Slony1-general] Updating huge table in Slony-I
+In-Reply-To: <61A8FA5C-EFE7-44F5-9CBA-32F2A72611BF@telkomsa.net>
+References: <61A8FA5C-EFE7-44F5-9CBA-32F2A72611BF@telkomsa.net>
+Message-ID: <BLU0-SMTP13E5EDF08357F08B36DBCDACB60@phx.gbl>
+
+On Fri, 9 Jul 2010, Waldo Nell wrote:
+
+> I need to run an update statement pretty much like:
+>
+> update XXX set Y = 'Y' where Z = 1;
+>
+> but table XXX contains approximately 130 million rows.  This will 
+> translate to 130 million update statements via Slony-I to the other 
+> replicated node.  Any more efficient way to update this?  If not, will 
+> Slony-I break on this update?
+
+If you can afford to take an outage on other activity on your database (not 
+just that table but all replicated tables) you can submit the update 
+statement through EXECUTE SCRIPT.  That way only the UPDATE statement will 
+be sent via slony and it will execute on each of the nodes (as a single big 
+update).
+
+
+
+
+>
+> Thanks
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+>
+
+
+From bnichols at ca.afilias.info  Mon Jul 12 06:43:40 2010
+From: bnichols at ca.afilias.info (Brad Nicholson)
+Date: Mon, 12 Jul 2010 09:43:40 -0400
+Subject: [Slony1-general] Updating huge table in Slony-I
+In-Reply-To: <BLU0-SMTP13E5EDF08357F08B36DBCDACB60@phx.gbl>
+References: <61A8FA5C-EFE7-44F5-9CBA-32F2A72611BF@telkomsa.net>
+	<BLU0-SMTP13E5EDF08357F08B36DBCDACB60@phx.gbl>
+Message-ID: <1278942220.29426.61.camel@bnicholson-desktop>
+
+On Sat, 2010-07-10 at 09:00 -0400, Steve Singer wrote:
+> On Fri, 9 Jul 2010, Waldo Nell wrote:
+> 
+> > I need to run an update statement pretty much like:
+> >
+> > update XXX set Y = 'Y' where Z = 1;
+> >
+> > but table XXX contains approximately 130 million rows.  This will 
+> > translate to 130 million update statements via Slony-I to the other 
+> > replicated node.  Any more efficient way to update this?  If not, will 
+> > Slony-I break on this update?
+> 
+> If you can afford to take an outage on other activity on your database (not 
+> just that table but all replicated tables) you can submit the update 
+> statement through EXECUTE SCRIPT.  That way only the UPDATE statement will 
+> be sent via slony and it will execute on each of the nodes (as a single big 
+> update).
+
+In most cases - updating 130 million records is going to take a really,
+really long time.  If your updates are not doing HOT updates, you'll be
+left with a horrible bloated table which will then need a cluster or a
+dreaded VACUUM FULL+REINDEX, which will take an additional really long
+time.  This is a Postgres issue that has nothing to do with Slony.
+Updating large tables can be nasty.
+
+If you are using Slony 2.0 - the quickest way to do this, again, if you
+can do this in an outage:
+
+(assuming Y and Z are the only columns, if there are others, include
+them accordingly)
+
+CREATE TABLE XXX_new LIKE XXX (exclude the indexes)
+INSERT INTO XXX_new (Y,Z) SELECT Y,Z where  Z <> 1;
+INSERT INTO XXX_new (Y,Z) SELECT 'Y',Z where  Z = 1;
+
+ALTER TABLE XXX RENAME XXX_old;
+ALTER TABLE XXX_new RENAME XXX;
+
+Then add the indexes back on (rename the indexes on XXX_old first if you
+want to maintain the index names).
+
+You can use the same approach with Slony 1.2, but you will need to do a
+full resubscribe of the table afterwards, which may not be acceptable.
+
+If that's the case - Andrews batch update approach is pretty much the
+only way to go.
+
+-- 
+Brad Nicholson  416-673-4106
+Database Administrator, Afilias Canada Corp.
+
+
+
+From pwnell at telkomsa.net  Mon Jul 12 08:56:45 2010
+From: pwnell at telkomsa.net (Waldo Nell)
+Date: Mon, 12 Jul 2010 08:56:45 -0700
+Subject: [Slony1-general] Updating huge table in Slony-I
+In-Reply-To: <1278942220.29426.61.camel@bnicholson-desktop>
+References: <61A8FA5C-EFE7-44F5-9CBA-32F2A72611BF@telkomsa.net>
+	<BLU0-SMTP13E5EDF08357F08B36DBCDACB60@phx.gbl>
+	<1278942220.29426.61.camel@bnicholson-desktop>
+Message-ID: <9183FD88-6367-4672-A2D7-428585D9C7DA@telkomsa.net>
+
+
+On 2010-07-12, at 06:43 , Brad Nicholson wrote:
+
+> (assuming Y and Z are the only columns, if there are others, include
+> them accordingly)
+> 
+> CREATE TABLE XXX_new LIKE XXX (exclude the indexes)
+> INSERT INTO XXX_new (Y,Z) SELECT Y,Z where  Z <> 1;
+> INSERT INTO XXX_new (Y,Z) SELECT 'Y',Z where  Z = 1;
+> 
+> ALTER TABLE XXX RENAME XXX_old;
+> ALTER TABLE XXX_new RENAME XXX;
+> 
+> Then add the indexes back on (rename the indexes on XXX_old first if you
+> want to maintain the index names).
+> 
+
+Do I need to run this in an EXECUTE SCRIPT? Or directly on the DB?  While Slony is running?
+
+
+From bnichols at ca.afilias.info  Mon Jul 12 10:36:45 2010
+From: bnichols at ca.afilias.info (Brad Nicholson)
+Date: Mon, 12 Jul 2010 13:36:45 -0400
+Subject: [Slony1-general] Updating huge table in Slony-I
+In-Reply-To: <9183FD88-6367-4672-A2D7-428585D9C7DA@telkomsa.net>
+References: <61A8FA5C-EFE7-44F5-9CBA-32F2A72611BF@telkomsa.net>
+	<BLU0-SMTP13E5EDF08357F08B36DBCDACB60@phx.gbl>
+	<1278942220.29426.61.camel@bnicholson-desktop>
+	<9183FD88-6367-4672-A2D7-428585D9C7DA@telkomsa.net>
+Message-ID: <1278956205.29426.241.camel@bnicholson-desktop>
+
+On Mon, 2010-07-12 at 08:56 -0700, Waldo Nell wrote:
+> On 2010-07-12, at 06:43 , Brad Nicholson wrote:
+> 
+> > (assuming Y and Z are the only columns, if there are others, include
+> > them accordingly)
+> > 
+> > CREATE TABLE XXX_new LIKE XXX (exclude the indexes)
+> > INSERT INTO XXX_new (Y,Z) SELECT Y,Z where  Z <> 1;
+> > INSERT INTO XXX_new (Y,Z) SELECT 'Y',Z where  Z = 1;
+> > 
+> > ALTER TABLE XXX RENAME XXX_old;
+> > ALTER TABLE XXX_new RENAME XXX;
+> > 
+> > Then add the indexes back on (rename the indexes on XXX_old first if you
+> > want to maintain the index names).
+> > 
+> 
+> Do I need to run this in an EXECUTE SCRIPT? Or directly on the DB?  While Slony is running?
+
+I don't know about running this in an EXECUTE SCRIPT.  I think that
+renaming replicated tables doesn't work well with EXECUTE SCRIPTS.
+
+In both cases, you need to make sure that there is no new data going
+into the table.  If there is, you will lose it.
+
+How you do this would depend on the Slony version you are running.
+
+With 1.2.x, you would drop the table from replication, perform the above
+on the master only (directly, not through Slony), and resubscribe it -
+with a full data copy.  This will probably take some time for a table of
+that size, which may or may not be acceptable to you.
+
+With Slony 2.0, you would drop the table from replication, perform the
+transformation directly on all nodes, and subscribe the table back with
+the "OMIT COPY" option.  This assume that the data on all nodes is is
+sync, and does not do the copy command.  If the data is not is sync, you
+will break things.
+
+With either of these, test them out, and be sure that you understand
+them fully.  
+
+If not, stick with Andrew's suggestion.  It is the simplest, but the
+most time consuming.
+
+
+-- 
+Brad Nicholson  416-673-4106
+Database Administrator, Afilias Canada Corp.
+
+
+
+From threshar at torgo.978.org  Tue Jul 13 06:15:21 2010
+From: threshar at torgo.978.org (Jeff)
+Date: Tue, 13 Jul 2010 09:15:21 -0400
+Subject: [Slony1-general] autovacuum cannot vacuum sl_event
+Message-ID: <3E678FF6-F819-426E-A1C1-98781240D84F@torgo.978.org>
+
+so a while ago I posted about pg_listener vs autovacuum, however it  
+seems sl_event is also nearly impossible to have vacuumed for me.    
+However since then another issue has come up: sl_event cannot be  
+autovacuumed.
+
+As of earlier today the last successful autovac of sl_event on my  
+origin was in may (I'd run vacuum manually a few times between then  
+and now).
+
+There is quite a lot of replication going on so it is pretty much  
+constantly busy. Looking at my logs "busy" is currently defined as  
+30-40M rows across various tables replicated daily.    I'm not sure  
+there is much that can be done for slony 1.2  beyond scheduling some  
+manual vacuuming - would 2.x be less prone to these issues?
+
+[postgres at XXXX log]$  grep "Jul 13" pgsql.log | grep "automatic vacuum  
+of table \"XXXX._replication.sl_event\"" | wc
+     540    6480   59228  (this morning)
+[postgres at XXXX log]$  grep "Jul 12" pgsql.log | grep "automatic vacuum  
+of table \"XXXX._replication.sl_event\"" | wc
+    1438   17256  157726
+[postgres at XXXlog]$  grep "Jul 11" pgsql.log | grep "automatic vacuum  
+of table \"XXXX._replication.sl_event\"" | wc
+    1164   13968  127691
+
+--
+Jeff Trout <jeff at jefftrout.com>
+http://www.stuarthamm.net/
+http://www.dellsmartexitin.com/
+
+
+
+
+From ssinger at ca.afilias.info  Tue Jul 13 11:36:53 2010
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Tue, 13 Jul 2010 14:36:53 -0400
+Subject: [Slony1-general] autovacuum cannot vacuum sl_event
+In-Reply-To: <3E678FF6-F819-426E-A1C1-98781240D84F@torgo.978.org>
+References: <3E678FF6-F819-426E-A1C1-98781240D84F@torgo.978.org>
+Message-ID: <4C3CB245.9000304@ca.afilias.info>
+
+Jeff wrote:
+> so a while ago I posted about pg_listener vs autovacuum, however it  
+> seems sl_event is also nearly impossible to have vacuumed for me.    
+> However since then another issue has come up: sl_event cannot be  
+> autovacuumed.
+> 
+> As of earlier today the last successful autovac of sl_event on my  
+> origin was in may (I'd run vacuum manually a few times between then  
+> and now).
+> 
+> There is quite a lot of replication going on so it is pretty much  
+> constantly busy. Looking at my logs "busy" is currently defined as  
+> 30-40M rows across various tables replicated daily.    I'm not sure  
+> there is much that can be done for slony 1.2  beyond scheduling some  
+> manual vacuuming - would 2.x be less prone to these issues?
+
+You don't say what version of postgresql your on or anything about your 
+autovacuum settings.
+
+Do you have autovacuum set to skip the slony tables?
+
+If autovacuum is disabled slony is supposed to handle vacuuming the 
+tables itself (this was the default behaviour with some versions of 
+slony on some versions of postgresql).  You might want to try doing this 
+to see if it helps.  (There is a function 'ShouldSlonyVacuumTable'  in 
+the version specific .sql files under src/backend)
+
+The question is why hasn't autovacuum been getting to the slony tables.
+
+Off the top of my head some possible reasons might be
+
+-You have had an old subscriber/node in your configuration that you are 
+no longer replicating to.  This means that nothing is being deleted from 
+sl_event so autovacuum sees no reason to vacuum it
+-Your vacuum cost delay settings are such that it takes forever for 
+autovacuum to finish vacuuming, older versions of postgresql only 
+autovacuumed one table at a time.  autovacuum just hasn't been able to 
+get to your slony tables until now
+-You had autovacuum disabled on for the slony tables
+
+
+
+
+
+
+
+
+> 
+> [postgres at XXXX log]$  grep "Jul 13" pgsql.log | grep "automatic vacuum  
+> of table \"XXXX._replication.sl_event\"" | wc
+>      540    6480   59228  (this morning)
+> [postgres at XXXX log]$  grep "Jul 12" pgsql.log | grep "automatic vacuum  
+> of table \"XXXX._replication.sl_event\"" | wc
+>     1438   17256  157726
+> [postgres at XXXlog]$  grep "Jul 11" pgsql.log | grep "automatic vacuum  
+> of table \"XXXX._replication.sl_event\"" | wc
+>     1164   13968  127691
+> 
+> --
+> Jeff Trout <jeff at jefftrout.com>
+> http://www.stuarthamm.net/
+> http://www.dellsmartexitin.com/
+> 
+> 
+> 
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+
+
+-- 
+Steve Singer
+Afilias Canada
+Data Services Developer
+416-673-1142
+
+From threshar at torgo.978.org  Tue Jul 13 12:15:24 2010
+From: threshar at torgo.978.org (Jeff)
+Date: Tue, 13 Jul 2010 15:15:24 -0400
+Subject: [Slony1-general] autovacuum cannot vacuum sl_event
+In-Reply-To: <4C3CB245.9000304@ca.afilias.info>
+References: <3E678FF6-F819-426E-A1C1-98781240D84F@torgo.978.org>
+	<4C3CB245.9000304@ca.afilias.info>
+Message-ID: <D7388192-897F-44E2-AFEE-68EC7A135065@torgo.978.org>
+
+
+On Jul 13, 2010, at 2:36 PM, Steve Singer wrote:
+
+>
+> You don't say what version of postgresql your on or anything about  
+> your autovacuum settings.
+>
+
+PG 8.4.2, Slony 1.2.17 (I'm aware it is not the latest)
+
+AV is on - AV is cancelling the vacuuming of sl_event:
+
+Jul 13 15:04:28 xxx postgres[29468]: [3-1] ERROR:  canceling  
+autovacuum task
+Jul 13 15:04:28 xxx postgres[29468]: [3-2] CONTEXT:  automatic vacuum  
+of table "xxxxx._replication.sl_event"
+Jul 13 15:05:27 xxx postgres[29829]: [3-1] ERROR:  canceling  
+autovacuum task
+Jul 13 15:05:27 xxx postgres[29829]: [3-2] CONTEXT:  automatic vacuum  
+of table "xxxx._replication.sl_event"
+
+> Do you have autovacuum set to skip the slony tables?
+>
+
+No. All the other slony tables are being successfully vacuumed. As  
+evidenced above, it is trying to but it cannot as it cancels.   Slony  
+takes a lock on sl_event and because of this if AV is working on the  
+table it cancels itself so it will not hold up "real work".   The  
+problem is if this happens constantly.  I think within the last few  
+weeks I hit some tipping point causing it happen constantly.
+
+
+>> [postgres at XXXX log]$  grep "Jul 13" pgsql.log | grep "automatic  
+>> vacuum  of table \"XXXX._replication.sl_event\"" | wc
+>>     540    6480   59228  (this morning)
+>> [postgres at XXXX log]$  grep "Jul 12" pgsql.log | grep "automatic  
+>> vacuum  of table \"XXXX._replication.sl_event\"" | wc
+>>    1438   17256  157726
+>> [postgres at XXXlog]$  grep "Jul 11" pgsql.log | grep "automatic  
+>> vacuum  of table \"XXXX._replication.sl_event\"" | wc
+>>    1164   13968  127691
+
+As you can see this is happening thousands of times a day.
+
+--
+Jeff Trout <jeff at jefftrout.com>
+http://www.stuarthamm.net/
+http://www.dellsmartexitin.com/
+
+
+
+
+From cbbrowne at ca.afilias.info  Wed Jul 14 12:43:09 2010
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Wed, 14 Jul 2010 15:43:09 -0400
+Subject: [Slony1-general] Hurray, there's a git repository!
+Message-ID: <878w5d97ea.fsf@cbbrowne.afilias-int.info>
+
+http://git.postgresql.org/gitweb?p=slony1-engine.git;a=summary
+
+It's empty, at the moment.  Steve Singer has been working on a fresh
+repository to push into it based on a recent copy of CVS, so hopefully
+the repo will be a little bit less empty quite soon.
+-- 
+output = ("cbbrowne" "@" "ca.afilias.info")
+Christopher Browne
+"Bother,"  said Pooh,  "Eeyore, ready  two photon  torpedoes  and lock
+phasers on the Heffalump, Piglet, meet me in transporter room three"
+
+From ssinger at ca.afilias.info  Thu Jul 15 08:26:56 2010
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Thu, 15 Jul 2010 11:26:56 -0400
+Subject: [Slony1-general] Hurray, there's a git repository!
+In-Reply-To: <878w5d97ea.fsf@cbbrowne.afilias-int.info>
+References: <878w5d97ea.fsf@cbbrowne.afilias-int.info>
+Message-ID: <4C3F28C0.7020607@ca.afilias.info>
+
+Christopher Browne wrote:
+> http://git.postgresql.org/gitweb?p=slony1-engine.git;a=summary
+> 
+> It's empty, at the moment.  Steve Singer has been working on a fresh
+> repository to push into it based on a recent copy of CVS, so hopefully
+> the repo will be a little bit less empty quite soon.
+
+The git repository has now been populated with the slony1-engine source 
+history.
+
+The configure.ac file used a CVS $Name$ tag which is a symbolic tag that 
+gets the value substituted in based on how you checked out your working 
+copy of the source.   This isn't really representable in git.   The same 
+thing applies to a few tags in comments.  Other than that my diffs on 
+all the tags show it being the same as in cvs.
+
+If anyone finds issues with the conversion please report them.
+
+
+
+-- 
+Steve Singer
+Afilias Canada
+Data Services Developer
+416-673-1142
+
+From tamanna.madan at globallogic.com  Thu Jul 15 05:17:29 2010
+From: tamanna.madan at globallogic.com (tamanna madaan)
+Date: Thu, 15 Jul 2010 17:47:29 +0530
+Subject: [Slony1-general] "cache lookup failed for function 19119" error
+Message-ID: <68666423656E1444A011106C4E085F4DD48DFC@ex3-del1.synapse.com>
+
+Hi All
+
+ 
+
+I am using slony-1.1.5 with postgres-8.1.2 .
+
+ 
+
+Everything was going fine earlier .
+
+ 
+
+But I am getting the following error for a while now while updating any
+of my tables :
+
+ 
+
+"cache lookup failed for function 19119".
+
+ 
+
+Can anyone please let me know if its something related to slony ??
+
+Which function its talking about ??
+
+Can dropping/recreating schema used by slony lead to this error in
+someway ??
+
+ 
+
+Please help...
+
+ 
+
+ 
+
+Thanks..
+
+Tamanna
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20100715/d9c16edb/attachment.htm 
+
+From cbbrowne at ca.afilias.info  Fri Jul 16 08:14:32 2010
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Fri, 16 Jul 2010 11:14:32 -0400
+Subject: [Slony1-general] Open question: SCM handling of configure?
+Message-ID: <874ofz8nmv.fsf@cbbrowne.afilias-int.info>
+
+I was looking at migrating .cvsignore files into the .gitignore
+equivalents (which is quite an easy matter to deal with) and saw one
+file that it seems we've been waffling over for some time: 
+   configure
+
+This is a generated file, generated by autoconf, so in principle, we
+should be able to remove it, and expect the build process to generate
+it.  (And, as consequence, put it into the .gitignore file for the
+main directory.)
+
+Is there a good reason *not* to do that?
+-- 
+output = ("cbbrowne" "@" "ca.afilias.info")
+Christopher Browne
+"Bother,"  said Pooh,  "Eeyore, ready  two photon  torpedoes  and lock
+phasers on the Heffalump, Piglet, meet me in transporter room three"
+
+From simon at 2ndQuadrant.com  Fri Jul 16 08:51:55 2010
+From: simon at 2ndQuadrant.com (Simon Riggs)
+Date: Fri, 16 Jul 2010 16:51:55 +0100
+Subject: [Slony1-general] CREATE TRIGGER CONCURRENTLY
+Message-ID: <1279295515.1735.37571.camel@ebony>
+
+
+I've just completed a patch to reduce lock level for CREATE TRIGGER down
+to ShareRowExclusiveLock, i.e. blocks writes but not reads.
+
+I'm thinking that it should be possible to add triggers to PostgreSQL
+without blocking reads and writes (ShareUpdateExclusiveLock).
+
+There's a couple of ways of doing that, possibly in conjunction with
+facilities in Slony.
+
+Is there anybody interested enough to fund that work for inclusion in
+9.1?
+
+Thanks,
+
+-- 
+ Simon Riggs           www.2ndQuadrant.com
+ PostgreSQL Development, 24x7 Support, Training and Services
+
+
+From ssinger at ca.afilias.info  Fri Jul 16 09:14:40 2010
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Fri, 16 Jul 2010 12:14:40 -0400
+Subject: [Slony1-general] SCM: commit messages
+Message-ID: <4C408570.9000806@ca.afilias.info>
+
+
+With cvs we had emails of commits go to the slony1-commit email list. 
+With this this isn't currently happening.
+
+I see a few options for doing this
+
+1) We can see if the postgresql.org is willing to add a hook on 
+git.postgresql.org to the slony1-engine repository to send the emails out.
+
+2)  We can setup a cron tab on the slony.info server that does a git 
+pull from the master repository with a hook setup to send out emails on 
+new commits.  Maybe we would run the crontab every x minutes (10?, 30?)
+
+3) We can tell people to get notices of commits from the RSS feed at 
+http://git.postgresql.org/gitweb?p=slony1-engine.git;a=rss and use their 
+own RSS readers or RSS to email gateways for notifications.
+
+Thoughts?
+
+I'm leaning towards 2.
+
+
+
+
+-- 
+Steve Singer
+Afilias Canada
+Data Services Developer
+416-673-1142
+
+From damien at dalibo.info  Fri Jul 16 09:34:48 2010
+From: damien at dalibo.info (damien clochard)
+Date: Fri, 16 Jul 2010 18:34:48 +0200
+Subject: [Slony1-general] Hurray, there's a git repository!
+In-Reply-To: <878w5d97ea.fsf@cbbrowne.afilias-int.info>
+References: <878w5d97ea.fsf@cbbrowne.afilias-int.info>
+Message-ID: <4C408A28.9090808@dalibo.info>
+
+Le 14/07/2010 21:43, Christopher Browne a ?crit :
+> http://git.postgresql.org/gitweb?p=slony1-engine.git;a=summary
+> 
+
+For the record : a few weeks ago, the french community has moved its own
+SVN repositories to github.
+
+This includes the french translation of Slony's documentation, which is
+now hosted at : http://github.com/gleu/pgdocs_fr/tree/master/slony/
+
+Have a nice day !
+
+--
+damien clochard
+
+
+
+From vivek at khera.org  Fri Jul 16 12:50:42 2010
+From: vivek at khera.org (Vick Khera)
+Date: Fri, 16 Jul 2010 15:50:42 -0400
+Subject: [Slony1-general] Open question: SCM handling of configure?
+In-Reply-To: <874ofz8nmv.fsf@cbbrowne.afilias-int.info>
+References: <874ofz8nmv.fsf@cbbrowne.afilias-int.info>
+Message-ID: <AANLkTilC4_zX9kIM4__AfY6j8YxdLkz48dxn_OMMJ7gz@mail.gmail.com>
+
+On Fri, Jul 16, 2010 at 11:14 AM, Christopher Browne <
+cbbrowne at ca.afilias.info> wrote:
+
+> Is there a good reason *not* to do that?
+>
+
+In my opinion it is always a good idea to keep generated files out of the
+SCM.  You only want them in the tarballs, which presumably will be done by a
+developer who has the tools to make them in the first place.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20100716/f9253703/attachment.htm 
+
+From vivek at khera.org  Fri Jul 16 13:05:22 2010
+From: vivek at khera.org (Vick Khera)
+Date: Fri, 16 Jul 2010 16:05:22 -0400
+Subject: [Slony1-general] SCM: commit messages
+In-Reply-To: <4C408570.9000806@ca.afilias.info>
+References: <4C408570.9000806@ca.afilias.info>
+Message-ID: <AANLkTikB8mOf_qzH5kTP-AAUHNf065FH0qkHlljVqjId@mail.gmail.com>
+
+On Fri, Jul 16, 2010 at 12:14 PM, Steve Singer <ssinger at ca.afilias.info> wrote:
+>
+> 1) We can see if the postgresql.org is willing to add a hook on
+> git.postgresql.org to the slony1-engine repository to send the emails out.
+
+I find this to be the most correct solution. ?It is how we've
+configured our office svn repo. ?I would assume git can do it as well.
+Anything cron based is a hack.
+
+From david at fetter.org  Sat Jul 17 13:25:13 2010
+From: david at fetter.org (David Fetter)
+Date: Sat, 17 Jul 2010 13:25:13 -0700
+Subject: [Slony1-general] SCM: commit messages
+In-Reply-To: <AANLkTikB8mOf_qzH5kTP-AAUHNf065FH0qkHlljVqjId@mail.gmail.com>
+References: <4C408570.9000806@ca.afilias.info>
+	<AANLkTikB8mOf_qzH5kTP-AAUHNf065FH0qkHlljVqjId@mail.gmail.com>
+Message-ID: <20100717202512.GB3817@fetter.org>
+
+On Fri, Jul 16, 2010 at 04:05:22PM -0400, Vick Khera wrote:
+> On Fri, Jul 16, 2010 at 12:14 PM, Steve Singer <ssinger at ca.afilias.info> wrote:
+> >
+> > 1) We can see if the postgresql.org is willing to add a hook on
+> > git.postgresql.org to the slony1-engine repository to send the emails out.
+> 
+> I find this to be the most correct solution. ?It is how we've
+> configured our office svn repo. ?I would assume git can do it as well.
+> Anything cron based is a hack.
+
++1 for a git hook.
+http://www.kernel.org/pub/software/scm/git/docs/git-receive-pack.html
+
+Cheers,
+David.
+-- 
+David Fetter <david at fetter.org> http://fetter.org/
+Phone: +1 415 235 3778  AIM: dfetter666  Yahoo!: dfetter
+Skype: davidfetter      XMPP: david.fetter at gmail.com
+iCal: webcal://www.tripit.com/feed/ical/people/david74/tripit.ics
+
+Remember to vote!
+Consider donating to Postgres: http://www.postgresql.org/about/donate
+
+From guillaume at lelarge.info  Sun Jul 18 09:09:36 2010
+From: guillaume at lelarge.info (Guillaume Lelarge)
+Date: Sun, 18 Jul 2010 18:09:36 +0200
+Subject: [Slony1-general] SCM: commit messages
+In-Reply-To: <4C408570.9000806@ca.afilias.info>
+References: <4C408570.9000806@ca.afilias.info>
+Message-ID: <4C432740.5040102@lelarge.info>
+
+Le 16/07/2010 18:14, Steve Singer a ?crit :
+> 
+> With cvs we had emails of commits go to the slony1-commit email list. 
+> With this this isn't currently happening.
+> 
+> I see a few options for doing this
+> 
+> 1) We can see if the postgresql.org is willing to add a hook on 
+> git.postgresql.org to the slony1-engine repository to send the emails out.
+> 
+> 2)  We can setup a cron tab on the slony.info server that does a git 
+> pull from the master repository with a hook setup to send out emails on 
+> new commits.  Maybe we would run the crontab every x minutes (10?, 30?)
+> 
+> 3) We can tell people to get notices of commits from the RSS feed at 
+> http://git.postgresql.org/gitweb?p=slony1-engine.git;a=rss and use their 
+> own RSS readers or RSS to email gateways for notifications.
+> 
+> Thoughts?
+> 
+> I'm leaning towards 2.
+> 
+
+3 seems enough to me. Less burden for the administrators, and still
+enough informations from the RSS feed.
+
+
+-- 
+Guillaume
+ http://www.postgresql.fr
+ http://dalibo.com
+
+From devrim at gunduz.org  Sun Jul 18 09:41:47 2010
+From: devrim at gunduz.org (=?utf-8?Q?Devrim_G=C3=9CND=C3=9CZ?=)
+Date: Sun, 18 Jul 2010 19:41:47 +0300
+Subject: [Slony1-general] SCM: commit messages
+In-Reply-To: <4C408570.9000806@ca.afilias.info>
+References: <4C408570.9000806@ca.afilias.info>
+Message-ID: <2C17DF48-DBF0-405D-AAF3-DBD1459B4EE3@gunduz.org>
+
+16.Tem.2010 tarihinde 19:14 saatinde, Steve Singer <ssinger at ca.afilias.info 
+ > ?unlar? yazd?:
+
+> With cvs we had emails of commits go to the slony1-commit email list.
+> With this this isn't currently happening.
+>
+> I see a few options for doing this
+>
+> 1) We can see if the postgresql.org is willing to add a hook on
+> git.postgresql.org to the slony1-engine repository to send the  
+> emails out.
+>
+> 2)  We can setup a cron tab on the slony.info server that does a git
+> pull from the master repository with a hook setup to send out emails  
+> on
+> new commits.  Maybe we would run the crontab every x minutes (10?,  
+> 30?)
+>
+> 3) We can tell people to get notices of commits from the RSS feed at
+> http://git.postgresql.org/gitweb?p=slony1-engine.git;a=rss and use  
+> their
+> own RSS readers or RSS to email gateways for notifications.
+>
+> Thoughts?
+
+I'm for 1. If it does not happen, 2 will also work.
+
+--
+Devrim G?ND?Z
+PostgreSQL DBA @ Akinon/Markafoni, Red Hat Certified Engineer
+devrim~gunduz.org, devrim~PostgreSQL.org, devrim.gunduz~linux.org.tr
+http://www.gunduz.org  Twitter: http://twitter.com/devrimgunduz
+
+
+From cbbrowne at ca.afilias.info  Mon Jul 19 08:12:57 2010
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Mon, 19 Jul 2010 11:12:57 -0400
+Subject: [Slony1-general] SCM: commit messages
+In-Reply-To: <4C408570.9000806@ca.afilias.info> (Steve Singer's message of
+	"Fri, 16 Jul 2010 12:14:40 -0400")
+References: <4C408570.9000806@ca.afilias.info>
+Message-ID: <87vd8b5wue.fsf@cbbrowne.afilias-int.info>
+
+Steve Singer <ssinger at ca.afilias.info> writes:
+> 3) We can tell people to get notices of commits from the RSS feed at 
+> http://git.postgresql.org/gitweb?p=slony1-engine.git;a=rss and use their 
+> own RSS readers or RSS to email gateways for notifications.
+
+I rather like #3, assuming that this is something that's pretty
+tightly tied into the GitWeb implementation, so that it's unlikely to
+go away.
+-- 
+output = ("cbbrowne" "@" "ca.afilias.info")
+Christopher Browne
+"Bother,"  said Pooh,  "Eeyore, ready  two photon  torpedoes  and lock
+phasers on the Heffalump, Piglet, meet me in transporter room three"
+
+From scott.marlowe at gmail.com  Tue Jul 20 20:46:42 2010
+From: scott.marlowe at gmail.com (Scott Marlowe)
+Date: Tue, 20 Jul 2010 21:46:42 -0600
+Subject: [Slony1-general] having trouble building slony on ubuntu 10.04 with
+	pgsql 8.3.8
+Message-ID: <AANLkTingLx9mw1-SC1fCsWN5GIVaI5P8G3kj7FiVFioC@mail.gmail.com>
+
+I added the previous repos to get pgsql 8.3 on this ubuntu 10.04
+machine, but now I'm close to installing pgsql from source to get the
+latest version as well and see if compiling will then work.
+
+wget http://www.slony.info/downloads/1.2/source/slony1-1.2.21.tar.bz2
+tar xvjf slony1-1.2.21.tar.bz2
+cd slony1-1.2.21/
+./configure --with-pgpkglibdir=/usr/lib/postgresql/8.3/lib/
+make
+
+I get this at the end:
+
+xxid.c: In function '_Slony_I_xxid_ge_snapshot':
+xxid.c:409: warning: cast to pointer from integer of different size
+make[2]: *** [xxid.o] Error 1
+make[2]: Leaving directory `/home/dgish/slony1-1.2.21/src/xxid'
+make[1]: *** [all] Error 2
+make[1]: Leaving directory `/home/dgish/slony1-1.2.21/src'
+make: *** [all] Error 2
+
+and it doesn't seem to install after that.  In the past I've seen
+complaints about xxid, but it still finished compiling.
+
+I think I'll just try source compiling both pgsql and slony1
+
+-- 
+To understand recursion, one must first understand recursion.
+
+From ssinger at ca.afilias.info  Wed Jul 21 07:20:34 2010
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Wed, 21 Jul 2010 10:20:34 -0400
+Subject: [Slony1-general] having trouble building slony on ubuntu 10.04
+ with	pgsql 8.3.8
+In-Reply-To: <AANLkTingLx9mw1-SC1fCsWN5GIVaI5P8G3kj7FiVFioC@mail.gmail.com>
+References: <AANLkTingLx9mw1-SC1fCsWN5GIVaI5P8G3kj7FiVFioC@mail.gmail.com>
+Message-ID: <4C470232.1060403@ca.afilias.info>
+
+Scott Marlowe wrote:
+> I added the previous repos to get pgsql 8.3 on this ubuntu 10.04
+> machine, but now I'm close to installing pgsql from source to get the
+> latest version as well and see if compiling will then work.
+> 
+> wget http://www.slony.info/downloads/1.2/source/slony1-1.2.21.tar.bz2
+> tar xvjf slony1-1.2.21.tar.bz2
+> cd slony1-1.2.21/
+> ./configure --with-pgpkglibdir=/usr/lib/postgresql/8.3/lib/
+> make
+> 
+> I get this at the end:
+> 
+
+
+> xxid.c: In function '_Slony_I_xxid_ge_snapshot':
+> xxid.c:409: warning: cast to pointer from integer of different size
+> make[2]: *** [xxid.o] Error 1
+
+This is just the warning, the compiler probably printed an error a few 
+lines above.  If your still interested in getting it to compile against 
+your pgsql binaries then send the entire compiler output for xxid.c 
+including the gcc command it invoked.
+
+My guess is that it isn't finding a header file.
+
+
+> make[2]: Leaving directory `/home/dgish/slony1-1.2.21/src/xxid'
+> make[1]: *** [all] Error 2
+> make[1]: Leaving directory `/home/dgish/slony1-1.2.21/src'
+> make: *** [all] Error 2
+> 
+> and it doesn't seem to install after that.  In the past I've seen
+> complaints about xxid, but it still finished compiling.
+> 
+> I think I'll just try source compiling both pgsql and slony1
+> 
+
+
+-- 
+Steve Singer
+Afilias Canada
+Data Services Developer
+416-673-1142
+
+From scott.marlowe at gmail.com  Wed Jul 21 10:48:35 2010
+From: scott.marlowe at gmail.com (Scott Marlowe)
+Date: Wed, 21 Jul 2010 11:48:35 -0600
+Subject: [Slony1-general] having trouble building slony on ubuntu 10.04
+	with pgsql 8.3.8
+In-Reply-To: <4C470232.1060403@ca.afilias.info>
+References: <AANLkTingLx9mw1-SC1fCsWN5GIVaI5P8G3kj7FiVFioC@mail.gmail.com>
+	<4C470232.1060403@ca.afilias.info>
+Message-ID: <AANLkTimAxX1sxfwq46hgdmjILCiQsnz3qsF4733XqBiJ@mail.gmail.com>
+
+On Wed, Jul 21, 2010 at 8:20 AM, Steve Singer <ssinger at ca.afilias.info> wrote:
+> Scott Marlowe wrote:
+>>
+>> I added the previous repos to get pgsql 8.3 on this ubuntu 10.04
+>> machine, but now I'm close to installing pgsql from source to get the
+>> latest version as well and see if compiling will then work.
+>>
+>> wget http://www.slony.info/downloads/1.2/source/slony1-1.2.21.tar.bz2
+>> tar xvjf slony1-1.2.21.tar.bz2
+>> cd slony1-1.2.21/
+>> ./configure --with-pgpkglibdir=/usr/lib/postgresql/8.3/lib/
+>> make
+>>
+>> I get this at the end:
+>>
+>
+>
+>> xxid.c: In function '_Slony_I_xxid_ge_snapshot':
+>> xxid.c:409: warning: cast to pointer from integer of different size
+>> make[2]: *** [xxid.o] Error 1
+>
+> This is just the warning, the compiler probably printed an error a few lines
+> above. ?If your still interested in getting it to compile against your pgsql
+> binaries then send the entire compiler output for xxid.c including the gcc
+> command it invoked.
+>
+
+gcc -g -O2 -Wall -Wmissing-prototypes -Wmissing-declarations -fpic
+-I../.. -I/usr/include/postgresql/
+-I/usr/include/postgresql/8.4/server/  -c -o xxid.o xxid.c
+xxid.c:18:25: error: access/xact.h: No such file or directory
+xxid.c:19:28: error: access/transam.h: No such file or directory
+xxid.c:20:26: error: executor/spi.h: No such file or directory
+xxid.c:52: warning: data definition has no type or storage class
+xxid.c:52: warning: type defaults to 'int' in declaration of
+'PG_FUNCTION_INFO_V1'
+xxid.c:52: warning: parameter names (without types) in function declaration
+xxid.c:53: warning: data definition has no type or storage class
+xxid.c:53: warning: type defaults to 'int' in declaration of
+'PG_FUNCTION_INFO_V1'
+xxid.c:53: warning: parameter names (without types) in function declaration
+xxid.c:54: warning: data definition has no type or storage class
+xxid.c:54: warning: type defaults to 'int' in declaration of
+'PG_FUNCTION_INFO_V1'
+xxid.c:54: warning: parameter names (without types) in function declaration
+xxid.c:55: warning: data definition has no type or storage class
+xxid.c:55: warning: type defaults to 'int' in declaration of
+'PG_FUNCTION_INFO_V1'
+xxid.c:55: warning: parameter names (without types) in function declaration
+xxid.c:56: warning: data definition has no type or storage class
+xxid.c:56: warning: type defaults to 'int' in declaration of
+'PG_FUNCTION_INFO_V1'
+xxid.c:56: warning: parameter names (without types) in function declaration
+xxid.c:57: warning: data definition has no type or storage class
+xxid.c:57: warning: type defaults to 'int' in declaration of
+'PG_FUNCTION_INFO_V1'
+xxid.c:57: warning: parameter names (without types) in function declaration
+xxid.c:58: warning: data definition has no type or storage class
+xxid.c:58: warning: type defaults to 'int' in declaration of
+'PG_FUNCTION_INFO_V1'
+xxid.c:58: warning: parameter names (without types) in function declaration
+xxid.c:59: warning: data definition has no type or storage class
+xxid.c:59: warning: type defaults to 'int' in declaration of
+'PG_FUNCTION_INFO_V1'
+xxid.c:59: warning: parameter names (without types) in function declaration
+xxid.c:60: warning: data definition has no type or storage class
+xxid.c:60: warning: type defaults to 'int' in declaration of
+'PG_FUNCTION_INFO_V1'
+xxid.c:60: warning: parameter names (without types) in function declaration
+xxid.c:61: warning: data definition has no type or storage class
+xxid.c:61: warning: type defaults to 'int' in declaration of
+'PG_FUNCTION_INFO_V1'
+xxid.c:61: warning: parameter names (without types) in function declaration
+xxid.c:62: warning: data definition has no type or storage class
+xxid.c:62: warning: type defaults to 'int' in declaration of
+'PG_FUNCTION_INFO_V1'
+xxid.c:62: warning: parameter names (without types) in function declaration
+xxid.c:63: warning: data definition has no type or storage class
+xxid.c:63: warning: type defaults to 'int' in declaration of
+'PG_FUNCTION_INFO_V1'
+xxid.c:63: warning: parameter names (without types) in function declaration
+xxid.c:64: warning: parameter names (without types) in function declaration
+xxid.c:65: warning: parameter names (without types) in function declaration
+xxid.c:66: warning: parameter names (without types) in function declaration
+xxid.c:67: warning: parameter names (without types) in function declaration
+xxid.c:68: warning: parameter names (without types) in function declaration
+xxid.c:69: warning: parameter names (without types) in function declaration
+xxid.c:70: warning: parameter names (without types) in function declaration
+xxid.c:71: warning: parameter names (without types) in function declaration
+xxid.c:72: warning: parameter names (without types) in function declaration
+xxid.c:73: warning: parameter names (without types) in function declaration
+xxid.c:74: warning: parameter names (without types) in function declaration
+xxid.c:75: warning: parameter names (without types) in function declaration
+xxid.c:77: warning: data definition has no type or storage class
+xxid.c:77: warning: type defaults to 'int' in declaration of
+'PG_FUNCTION_INFO_V1'
+xxid.c:77: warning: parameter names (without types) in function declaration
+xxid.c:78: warning: data definition has no type or storage class
+xxid.c:78: warning: type defaults to 'int' in declaration of
+'PG_FUNCTION_INFO_V1'
+xxid.c:78: warning: parameter names (without types) in function declaration
+xxid.c:79: warning: data definition has no type or storage class
+xxid.c:79: warning: type defaults to 'int' in declaration of
+'PG_FUNCTION_INFO_V1'
+xxid.c:79: warning: parameter names (without types) in function declaration
+xxid.c:80: warning: data definition has no type or storage class
+xxid.c:80: warning: type defaults to 'int' in declaration of
+'PG_FUNCTION_INFO_V1'
+xxid.c:80: warning: parameter names (without types) in function declaration
+xxid.c:81: warning: parameter names (without types) in function declaration
+xxid.c:82: warning: parameter names (without types) in function declaration
+xxid.c:83: warning: parameter names (without types) in function declaration
+xxid.c:84: warning: parameter names (without types) in function declaration
+xxid.c:92: warning: no previous prototype for '_Slony_I_xxidin'
+xxid.c: In function '_Slony_I_xxidin':
+xxid.c:94: warning: implicit declaration of function 'PG_GETARG_CSTRING'
+xxid.c:94: warning: initialization makes pointer from integer without a cast
+xxid.c: At top level:
+xxid.c:104: warning: no previous prototype for '_Slony_I_xxidout'
+xxid.c: In function '_Slony_I_xxidout':
+xxid.c:106: warning: implicit declaration of function 'PG_GETARG_DATUM'
+xxid.c:111: warning: implicit declaration of function 'PG_RETURN_CSTRING'
+xxid.c: At top level:
+xxid.c:119: warning: no previous prototype for '_Slony_I_xxideq'
+xxid.c: In function '_Slony_I_xxideq':
+xxid.c:124: warning: implicit declaration of function 'PG_RETURN_BOOL'
+xxid.c:124: warning: implicit declaration of function 'TransactionIdEquals'
+xxid.c: At top level:
+xxid.c:132: warning: no previous prototype for '_Slony_I_xxidne'
+xxid.c:145: warning: no previous prototype for '_Slony_I_xxidlt'
+xxid.c: In function '_Slony_I_xxidlt':
+xxid.c:153: warning: implicit declaration of function 'TransactionIdPrecedes'
+xxid.c: At top level:
+xxid.c:161: warning: no previous prototype for '_Slony_I_xxidle'
+xxid.c: In function '_Slony_I_xxidle':
+xxid.c:169: warning: implicit declaration of function
+'TransactionIdPrecedesOrEquals'
+xxid.c: At top level:
+xxid.c:177: warning: no previous prototype for '_Slony_I_xxidgt'
+xxid.c: In function '_Slony_I_xxidgt':
+xxid.c:185: warning: implicit declaration of function 'TransactionIdFollows'
+xxid.c: At top level:
+xxid.c:193: warning: no previous prototype for '_Slony_I_xxidge'
+xxid.c: In function '_Slony_I_xxidge':
+xxid.c:201: warning: implicit declaration of function
+'TransactionIdFollowsOrEquals'
+xxid.c: At top level:
+xxid.c:209: warning: no previous prototype for '_Slony_I_btxxidcmp'
+xxid.c: In function '_Slony_I_btxxidcmp':
+xxid.c:215: warning: implicit declaration of function 'PG_RETURN_INT32'
+xxid.c: At top level:
+xxid.c:227: warning: no previous prototype for '_Slony_I_getCurrentXid'
+xxid.c: In function '_Slony_I_getCurrentXid':
+xxid.c:229: warning: implicit declaration of function 'GetCurrentTransactionId'
+xxid.c: At top level:
+xxid.c:237: warning: no previous prototype for '_Slony_I_getMinXid'
+xxid.c: In function '_Slony_I_getMinXid':
+xxid.c:243: error: 'SerializableSnapshot' undeclared (first use in
+this function)
+xxid.c:243: error: (Each undeclared identifier is reported only once
+xxid.c:243: error: for each function it appears in.)
+xxid.c: At top level:
+xxid.c:254: warning: no previous prototype for '_Slony_I_getMaxXid'
+xxid.c: In function '_Slony_I_getMaxXid':
+xxid.c:259: error: 'SerializableSnapshot' undeclared (first use in
+this function)
+xxid.c: At top level:
+xxid.c:270: warning: no previous prototype for '_Slony_I_xxid_snapshot_in'
+xxid.c: In function '_Slony_I_xxid_snapshot_in':
+xxid.c:282: warning: initialization makes pointer from integer without a cast
+xxid.c:345: warning: implicit declaration of function 'PG_RETURN_POINTER'
+xxid.c: At top level:
+xxid.c:353: warning: no previous prototype for '_Slony_I_xxid_snapshot_out'
+xxid.c: In function '_Slony_I_xxid_snapshot_out':
+xxid.c:355: warning: implicit declaration of function 'PG_DETOAST_DATUM'
+xxid.c:355: warning: cast to pointer from integer of different size
+xxid.c: At top level:
+xxid.c:380: warning: no previous prototype for '_Slony_I_xxid_lt_snapshot'
+xxid.c: In function '_Slony_I_xxid_lt_snapshot':
+xxid.c:383: warning: cast to pointer from integer of different size
+xxid.c: At top level:
+xxid.c:406: warning: no previous prototype for '_Slony_I_xxid_ge_snapshot'
+xxid.c: In function '_Slony_I_xxid_ge_snapshot':
+xxid.c:409: warning: cast to pointer from integer of different size
+make[2]: *** [xxid.o] Error 1
+make[2]: Leaving directory `/home/dgish/slony1-1.2.21/src/xxid'
+make[1]: *** [all] Error 2
+make[1]: Leaving directory `/home/dgish/slony1-1.2.21/src'
+make: *** [all] Error 2
+
+From scott.marlowe at gmail.com  Wed Jul 21 10:49:16 2010
+From: scott.marlowe at gmail.com (Scott Marlowe)
+Date: Wed, 21 Jul 2010 11:49:16 -0600
+Subject: [Slony1-general] having trouble building slony on ubuntu 10.04
+	with pgsql 8.3.8
+In-Reply-To: <AANLkTimAxX1sxfwq46hgdmjILCiQsnz3qsF4733XqBiJ@mail.gmail.com>
+References: <AANLkTingLx9mw1-SC1fCsWN5GIVaI5P8G3kj7FiVFioC@mail.gmail.com>
+	<4C470232.1060403@ca.afilias.info>
+	<AANLkTimAxX1sxfwq46hgdmjILCiQsnz3qsF4733XqBiJ@mail.gmail.com>
+Message-ID: <AANLkTimNjTyAGoISPf3EXmSeUWOHNTIs06bP5H8S94YG@mail.gmail.com>
+
+Note that this is with Ubuntu 10.04 with the karmic repo enabled to
+get pgsql 8.3 from there.
+
+From ssinger at ca.afilias.info  Wed Jul 21 11:04:08 2010
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Wed, 21 Jul 2010 14:04:08 -0400
+Subject: [Slony1-general] having trouble building slony on ubuntu 10.04
+ with pgsql 8.3.8
+In-Reply-To: <AANLkTimNjTyAGoISPf3EXmSeUWOHNTIs06bP5H8S94YG@mail.gmail.com>
+References: <AANLkTingLx9mw1-SC1fCsWN5GIVaI5P8G3kj7FiVFioC@mail.gmail.com>	<4C470232.1060403@ca.afilias.info>	<AANLkTimAxX1sxfwq46hgdmjILCiQsnz3qsF4733XqBiJ@mail.gmail.com>
+	<AANLkTimNjTyAGoISPf3EXmSeUWOHNTIs06bP5H8S94YG@mail.gmail.com>
+Message-ID: <4C473698.4090809@ca.afilias.info>
+
+Scott Marlowe wrote:
+> Note that this is with Ubuntu 10.04 with the karmic repo enabled to
+> get pgsql 8.3 from there.
+
+Do you have the postgresql-server-dev-8.3 package installed?
+The ubuntu 9.x system I have access to puts the headers in that second 
+-server-dev package.  10.04 is probably the same.
+
+
+-- 
+Steve Singer
+Afilias Canada
+Data Services Developer
+416-673-1142
+
+From scott.marlowe at gmail.com  Wed Jul 21 11:30:09 2010
+From: scott.marlowe at gmail.com (Scott Marlowe)
+Date: Wed, 21 Jul 2010 12:30:09 -0600
+Subject: [Slony1-general] having trouble building slony on ubuntu 10.04
+	with pgsql 8.3.8
+In-Reply-To: <4C473698.4090809@ca.afilias.info>
+References: <AANLkTingLx9mw1-SC1fCsWN5GIVaI5P8G3kj7FiVFioC@mail.gmail.com>
+	<4C470232.1060403@ca.afilias.info>
+	<AANLkTimAxX1sxfwq46hgdmjILCiQsnz3qsF4733XqBiJ@mail.gmail.com>
+	<AANLkTimNjTyAGoISPf3EXmSeUWOHNTIs06bP5H8S94YG@mail.gmail.com>
+	<4C473698.4090809@ca.afilias.info>
+Message-ID: <AANLkTikmvSD3ZmYUVc_sEimllO0IZVlisFPUBURd3MKj@mail.gmail.com>
+
+On Wed, Jul 21, 2010 at 12:04 PM, Steve Singer <ssinger at ca.afilias.info> wrote:
+> Scott Marlowe wrote:
+>>
+>> Note that this is with Ubuntu 10.04 with the karmic repo enabled to
+>> get pgsql 8.3 from there.
+>
+> Do you have the postgresql-server-dev-8.3 package installed?
+> The ubuntu 9.x system I have access to puts the headers in that second
+> -server-dev package. ?10.04 is probably the same.
+
+Yep.  Have that.  It won't get through ./configure without it.
+
+From ssinger at ca.afilias.info  Wed Jul 21 11:34:46 2010
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Wed, 21 Jul 2010 14:34:46 -0400
+Subject: [Slony1-general] having trouble building slony on ubuntu 10.04
+ with pgsql 8.3.8
+In-Reply-To: <AANLkTikmvSD3ZmYUVc_sEimllO0IZVlisFPUBURd3MKj@mail.gmail.com>
+References: <AANLkTingLx9mw1-SC1fCsWN5GIVaI5P8G3kj7FiVFioC@mail.gmail.com>	<4C470232.1060403@ca.afilias.info>	<AANLkTimAxX1sxfwq46hgdmjILCiQsnz3qsF4733XqBiJ@mail.gmail.com>	<AANLkTimNjTyAGoISPf3EXmSeUWOHNTIs06bP5H8S94YG@mail.gmail.com>	<4C473698.4090809@ca.afilias.info>
+	<AANLkTikmvSD3ZmYUVc_sEimllO0IZVlisFPUBURd3MKj@mail.gmail.com>
+Message-ID: <4C473DC6.8020307@ca.afilias.info>
+
+Scott Marlowe wrote:
+> On Wed, Jul 21, 2010 at 12:04 PM, Steve Singer <ssinger at ca.afilias.info> wrote:
+>> Scott Marlowe wrote:
+>>> Note that this is with Ubuntu 10.04 with the karmic repo enabled to
+>>> get pgsql 8.3 from there.
+>> Do you have the postgresql-server-dev-8.3 package installed?
+>> The ubuntu 9.x system I have access to puts the headers in that second
+>> -server-dev package.  10.04 is probably the same.
+> 
+> Yep.  Have that.  It won't get through ./configure without it.
+
+Do they include pg_config? if so try passing 
+--with-pgconfigdir=/path/to/pg_config on the configure command line.
+
+It can't find xact.h which should be at include/server/access/xact.h
+
+
+
+
+-- 
+Steve Singer
+Afilias Canada
+Data Services Developer
+416-673-1142
+
+From tamanna.madan at globallogic.com  Wed Jul 21 23:09:02 2010
+From: tamanna.madan at globallogic.com (tamanna madaan)
+Date: Thu, 22 Jul 2010 11:39:02 +0530
+Subject: [Slony1-general] "cache lookup failed for function 19119" error
+Message-ID: <68666423656E1444A011106C4E085F4DD9065D@ex3-del1.synapse.com>
+
+Hi  All
+
+ 
+
+I got the problem in my database.
+
+ 
+
+The result of below queries in the database gives the following results
+:
+
+ 
+
+SELECT tgrelid,tgname,tgfoid from pg_trigger;
+
+ 
+
+tgrelid    |            tgname                        | tgfoid
+
+---------   +-------------------------------------------- +--------
+
+   16470 | _clustername_denyaccess_1   |  19119
+
+   16470 | user_defined_trig_1                 |  17733
+
+   16470 | user_defined_trig_2                 |  17629
+
+   16392 | _cluastername_denyaccess_1 |  20801
+
+ 
+
+ 
+
+msw=# SELECT relname from pg_class where oid=16470;
+
+    relname
+
+----------------
+
+ abc_pkey
+
+(1 row)
+
+ 
+
+msw=# SELECT relname from pg_class where oid=16392;
+
+  relname
+
+-----------
+
+ abc
+
+(1 row)
+
+ 
+
+The result is like this for all the replicable tables  i.e the
+denyaccess trigger is applied on the table as well as table_pkey with
+
+Different function ids (19119 and 20801 in this case). While function
+with oid 20801 is available in pg_proc table
+
+and the corresponding function name is denyaccess( ) but function with
+oid 19119 is not available 
+
+In database and that's why the error "cache lookup failed for function
+19119" 
+
+ 
+
+Now my question is " how denyaccess trigger got applied on table_pkey"
+while 
+
+ denyaccess trigger should have been applied only on  table name and
+user defined triggers should have been applied on
+
+table_pkey in slave database. 
+
+ 
+
+What can lead to  this kind of situation.
+
+ 
+
+Please help
+
+ 
+
+ 
+
+Thanks..
+
+Tamanna
+
+   
+
+ 
+
+ 
+
+________________________________
+
+From: tamanna madaan 
+Sent: Thursday, July 15, 2010 5:47 PM
+To: 'slony1-general at lists.slony.info'
+Subject: "cache lookup failed for function 19119" error
+
+ 
+
+Hi All
+
+ 
+
+I am using slony-1.1.5 with postgres-8.1.2 .
+
+ 
+
+Everything was going fine earlier .
+
+ 
+
+But I am getting the following error for a while now while updating any
+of my tables :
+
+ 
+
+"cache lookup failed for function 19119".
+
+ 
+
+Can anyone please let me know if its something related to slony ??
+
+Which function its talking about ??
+
+Can dropping/recreating schema used by slony lead to this error in
+someway ??
+
+ 
+
+Please help...
+
+ 
+
+ 
+
+Thanks..
+
+Tamanna
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20100722/19d2e1da/attachment.htm 
+
+From tamanna.madan at globallogic.com  Thu Jul 22 04:36:35 2010
+From: tamanna.madan at globallogic.com (tamanna madaan)
+Date: Thu, 22 Jul 2010 17:06:35 +0530
+Subject: [Slony1-general] replication through slony beween the nodes having
+	different versions of postgres
+Message-ID: <68666423656E1444A011106C4E085F4D96F109@ex3-del1.synapse.com>
+
+
+Hi All
+      
+I am using slony-2.0.4 with postgres-8.4.0 for replication between two nodes.
+Now , for some reason , I need to upgrade to postgres-8.4.2. I'll be upgrading
+postgres on the nodes one by one. When one node is upgraded, it
+would be having postgres-8.4.2 while other node would still be on 
+postgres-8.4.0 until its also upgraded. Now, my question is :
+
+would slony still be able to replicate data from the node
+having postgres-8.4.2 to the node having postgres-8.4.0 .
+      
+Or will it cause any issue ??
+      
+       
+Thanks....
+Tamanna  
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20100722/4828e50b/attachment.htm 
+
+From devrim at gunduz.org  Thu Jul 22 05:48:49 2010
+From: devrim at gunduz.org (Devrim =?ISO-8859-1?Q?G=DCND=DCZ?=)
+Date: Thu, 22 Jul 2010 15:48:49 +0300
+Subject: [Slony1-general] replication through slony beween the nodes
+ having different versions of postgres
+In-Reply-To: <68666423656E1444A011106C4E085F4D96F109@ex3-del1.synapse.com>
+References: <68666423656E1444A011106C4E085F4D96F109@ex3-del1.synapse.com>
+Message-ID: <1279802929.2419.487.camel@hp-laptop2.gunduz.org>
+
+On Thu, 2010-07-22 at 17:06 +0530, tamanna madaan wrote:
+> 
+> would slony still be able to replicate data from the node
+> having postgres-8.4.2 to the node having postgres-8.4.0 . 
+
+Yeah, this is the design goal of Slony-I actually.
+-- 
+Devrim G?ND?Z
+PostgreSQL Dan??man?/Consultant, Red Hat Certified Engineer
+PostgreSQL RPM Repository: http://yum.pgrpms.org
+Community: devrim~PostgreSQL.org, devrim.gunduz~linux.org.tr
+http://www.gunduz.org  Twitter: http://twitter.com/devrimgunduz
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: not available
+Type: application/pgp-signature
+Size: 198 bytes
+Desc: This is a digitally signed message part
+Url : http://lists.slony.info/pipermail/slony1-general/attachments/20100722/1e3ff076/attachment.pgp 
+
+From greg at endpoint.com  Thu Jul 22 06:24:15 2010
+From: greg at endpoint.com (Greg Sabino Mullane)
+Date: Thu, 22 Jul 2010 09:24:15 -0400
+Subject: [Slony1-general] replication through slony beween the nodes
+ having different versions of postgres
+In-Reply-To: <68666423656E1444A011106C4E085F4D96F109@ex3-del1.synapse.com>
+References: <68666423656E1444A011106C4E085F4D96F109@ex3-del1.synapse.com>
+Message-ID: <20100722132415.GG2847@core.home>
+
+> would slony still be able to replicate data from the node
+> having postgres-8.4.2 to the node having postgres-8.4.0 .
+
+Yes. 8.4.0 and 8.4.2 are completely compatible: the only thing that will 
+change is the postgres binary (plus you will need to REINDEX any 
+hash indexes you have, however it's very likely you do not have any).
+
+You really should be upgrading all your nodes to 8.4.4 right away, as 
+8.4.4 is the the current latest revision in the 8.4 series. Visit the 
+upgrade page for more details on what changed between versions:
+
+http://www.postgresql.org/docs/8.4/static/release-8-4-4.html
+
+-- 
+Greg Sabino Mullane greg at endpoint.com
+End Point Corporation
+PGP Key: 0x14964AC8
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: not available
+Type: application/pgp-signature
+Size: 163 bytes
+Desc: not available
+Url : http://lists.slony.info/pipermail/slony1-general/attachments/20100722/e16a19f8/attachment.pgp 
+
+From scott.marlowe at gmail.com  Thu Jul 22 12:00:32 2010
+From: scott.marlowe at gmail.com (Scott Marlowe)
+Date: Thu, 22 Jul 2010 13:00:32 -0600
+Subject: [Slony1-general] having trouble building slony on ubuntu 10.04
+	with pgsql 8.3.8
+In-Reply-To: <4C473DC6.8020307@ca.afilias.info>
+References: <AANLkTingLx9mw1-SC1fCsWN5GIVaI5P8G3kj7FiVFioC@mail.gmail.com>
+	<4C470232.1060403@ca.afilias.info>
+	<AANLkTimAxX1sxfwq46hgdmjILCiQsnz3qsF4733XqBiJ@mail.gmail.com>
+	<AANLkTimNjTyAGoISPf3EXmSeUWOHNTIs06bP5H8S94YG@mail.gmail.com>
+	<4C473698.4090809@ca.afilias.info>
+	<AANLkTikmvSD3ZmYUVc_sEimllO0IZVlisFPUBURd3MKj@mail.gmail.com>
+	<4C473DC6.8020307@ca.afilias.info>
+Message-ID: <AANLkTikC8QD2sPswqGeW8jN1CRxMNPK18JNHsktXFfo2@mail.gmail.com>
+
+On Wed, Jul 21, 2010 at 12:34 PM, Steve Singer <ssinger at ca.afilias.info> wrote:
+> Scott Marlowe wrote:
+>>
+>> On Wed, Jul 21, 2010 at 12:04 PM, Steve Singer <ssinger at ca.afilias.info>
+>> wrote:
+>>>
+>>> Scott Marlowe wrote:
+>>>>
+>>>> Note that this is with Ubuntu 10.04 with the karmic repo enabled to
+>>>> get pgsql 8.3 from there.
+>>>
+>>> Do you have the postgresql-server-dev-8.3 package installed?
+>>> The ubuntu 9.x system I have access to puts the headers in that second
+>>> -server-dev package. ?10.04 is probably the same.
+>>
+>> Yep. ?Have that. ?It won't get through ./configure without it.
+>
+> Do they include pg_config? if so try passing
+> --with-pgconfigdir=/path/to/pg_config on the configure command line.
+>
+> It can't find xact.h which should be at include/server/access/xact.h
+
+Getting the same error with that.  Here's what I tried:
+
+make distclean
+./configure --with-pgpkglibdir=/usr/lib/postgresql/8.3/lib/
+--with-pgconfigdir=/usr/bin/pg_config
+make
+
+output was:
+
+make[1]: Entering directory `/home/dgish/slony1-1.2.21/src'
+make[2]: Entering directory `/home/dgish/slony1-1.2.21/src/xxid'
+gcc -g -O2 -Wall -Wmissing-prototypes -Wmissing-declarations -fpic
+-I../.. -I/usr/include/postgresql/
+-I/usr/include/postgresql/8.4/server/  -c -o xxid.o xxid.c
+xxid.c:18:25: error: access/xact.h: No such file or directory
+xxid.c:19:28: error: access/transam.h: No such file or directory
+xxid.c:20:26: error: executor/spi.h: No such file or directory
+xxid.c:52: warning: data definition has no type or storage class
+xxid.c:52: warning: type defaults to 'int' in declaration of
+'PG_FUNCTION_INFO_V1'
+xxid.c:52: warning: parameter names (without types) in function declaration
+xxid.c:53: warning: data definition has no type or storage class
+xxid.c:53: warning: type defaults to 'int' in declaration of
+'PG_FUNCTION_INFO_V1'
+xxid.c:53: warning: parameter names (without types) in function declaration
+xxid.c:54: warning: data definition has no type or storage class
+xxid.c:54: warning: type defaults to 'int' in declaration of
+'PG_FUNCTION_INFO_V1'
+xxid.c:54: warning: parameter names (without types) in function declaration
+xxid.c:55: warning: data definition has no type or storage class
+xxid.c:55: warning: type defaults to 'int' in declaration of
+'PG_FUNCTION_INFO_V1'
+xxid.c:55: warning: parameter names (without types) in function declaration
+xxid.c:56: warning: data definition has no type or storage class
+xxid.c:56: warning: type defaults to 'int' in declaration of
+'PG_FUNCTION_INFO_V1'
+xxid.c:56: warning: parameter names (without types) in function declaration
+xxid.c:57: warning: data definition has no type or storage class
+xxid.c:57: warning: type defaults to 'int' in declaration of
+'PG_FUNCTION_INFO_V1'
+xxid.c:57: warning: parameter names (without types) in function declaration
+xxid.c:58: warning: data definition has no type or storage class
+xxid.c:58: warning: type defaults to 'int' in declaration of
+'PG_FUNCTION_INFO_V1'
+xxid.c:58: warning: parameter names (without types) in function declaration
+xxid.c:59: warning: data definition has no type or storage class
+xxid.c:59: warning: type defaults to 'int' in declaration of
+'PG_FUNCTION_INFO_V1'
+xxid.c:59: warning: parameter names (without types) in function declaration
+xxid.c:60: warning: data definition has no type or storage class
+xxid.c:60: warning: type defaults to 'int' in declaration of
+'PG_FUNCTION_INFO_V1'
+xxid.c:60: warning: parameter names (without types) in function declaration
+xxid.c:61: warning: data definition has no type or storage class
+xxid.c:61: warning: type defaults to 'int' in declaration of
+'PG_FUNCTION_INFO_V1'
+xxid.c:61: warning: parameter names (without types) in function declaration
+xxid.c:62: warning: data definition has no type or storage class
+xxid.c:62: warning: type defaults to 'int' in declaration of
+'PG_FUNCTION_INFO_V1'
+xxid.c:62: warning: parameter names (without types) in function declaration
+xxid.c:63: warning: data definition has no type or storage class
+xxid.c:63: warning: type defaults to 'int' in declaration of
+'PG_FUNCTION_INFO_V1'
+xxid.c:63: warning: parameter names (without types) in function declaration
+xxid.c:64: warning: parameter names (without types) in function declaration
+xxid.c:65: warning: parameter names (without types) in function declaration
+xxid.c:66: warning: parameter names (without types) in function declaration
+xxid.c:67: warning: parameter names (without types) in function declaration
+xxid.c:68: warning: parameter names (without types) in function declaration
+xxid.c:69: warning: parameter names (without types) in function declaration
+xxid.c:70: warning: parameter names (without types) in function declaration
+xxid.c:71: warning: parameter names (without types) in function declaration
+xxid.c:72: warning: parameter names (without types) in function declaration
+xxid.c:73: warning: parameter names (without types) in function declaration
+xxid.c:74: warning: parameter names (without types) in function declaration
+xxid.c:75: warning: parameter names (without types) in function declaration
+xxid.c:77: warning: data definition has no type or storage class
+xxid.c:77: warning: type defaults to 'int' in declaration of
+'PG_FUNCTION_INFO_V1'
+xxid.c:77: warning: parameter names (without types) in function declaration
+xxid.c:78: warning: data definition has no type or storage class
+xxid.c:78: warning: type defaults to 'int' in declaration of
+'PG_FUNCTION_INFO_V1'
+xxid.c:78: warning: parameter names (without types) in function declaration
+xxid.c:79: warning: data definition has no type or storage class
+xxid.c:79: warning: type defaults to 'int' in declaration of
+'PG_FUNCTION_INFO_V1'
+xxid.c:79: warning: parameter names (without types) in function declaration
+xxid.c:80: warning: data definition has no type or storage class
+xxid.c:80: warning: type defaults to 'int' in declaration of
+'PG_FUNCTION_INFO_V1'
+xxid.c:80: warning: parameter names (without types) in function declaration
+xxid.c:81: warning: parameter names (without types) in function declaration
+xxid.c:82: warning: parameter names (without types) in function declaration
+xxid.c:83: warning: parameter names (without types) in function declaration
+xxid.c:84: warning: parameter names (without types) in function declaration
+xxid.c:92: warning: no previous prototype for '_Slony_I_xxidin'
+xxid.c: In function '_Slony_I_xxidin':
+xxid.c:94: warning: implicit declaration of function 'PG_GETARG_CSTRING'
+xxid.c:94: warning: initialization makes pointer from integer without a cast
+xxid.c: At top level:
+xxid.c:104: warning: no previous prototype for '_Slony_I_xxidout'
+xxid.c: In function '_Slony_I_xxidout':
+xxid.c:106: warning: implicit declaration of function 'PG_GETARG_DATUM'
+xxid.c:111: warning: implicit declaration of function 'PG_RETURN_CSTRING'
+xxid.c: At top level:
+xxid.c:119: warning: no previous prototype for '_Slony_I_xxideq'
+xxid.c: In function '_Slony_I_xxideq':
+xxid.c:124: warning: implicit declaration of function 'PG_RETURN_BOOL'
+xxid.c:124: warning: implicit declaration of function 'TransactionIdEquals'
+xxid.c: At top level:
+xxid.c:132: warning: no previous prototype for '_Slony_I_xxidne'
+xxid.c:145: warning: no previous prototype for '_Slony_I_xxidlt'
+xxid.c: In function '_Slony_I_xxidlt':
+xxid.c:153: warning: implicit declaration of function 'TransactionIdPrecedes'
+xxid.c: At top level:
+xxid.c:161: warning: no previous prototype for '_Slony_I_xxidle'
+xxid.c: In function '_Slony_I_xxidle':
+xxid.c:169: warning: implicit declaration of function
+'TransactionIdPrecedesOrEquals'
+xxid.c: At top level:
+xxid.c:177: warning: no previous prototype for '_Slony_I_xxidgt'
+xxid.c: In function '_Slony_I_xxidgt':
+xxid.c:185: warning: implicit declaration of function 'TransactionIdFollows'
+xxid.c: At top level:
+xxid.c:193: warning: no previous prototype for '_Slony_I_xxidge'
+xxid.c: In function '_Slony_I_xxidge':
+xxid.c:201: warning: implicit declaration of function
+'TransactionIdFollowsOrEquals'
+xxid.c: At top level:
+xxid.c:209: warning: no previous prototype for '_Slony_I_btxxidcmp'
+xxid.c: In function '_Slony_I_btxxidcmp':
+xxid.c:215: warning: implicit declaration of function 'PG_RETURN_INT32'
+xxid.c: At top level:
+xxid.c:227: warning: no previous prototype for '_Slony_I_getCurrentXid'
+xxid.c: In function '_Slony_I_getCurrentXid':
+xxid.c:229: warning: implicit declaration of function 'GetCurrentTransactionId'
+xxid.c: At top level:
+xxid.c:237: warning: no previous prototype for '_Slony_I_getMinXid'
+xxid.c: In function '_Slony_I_getMinXid':
+xxid.c:243: error: 'SerializableSnapshot' undeclared (first use in
+this function)
+xxid.c:243: error: (Each undeclared identifier is reported only once
+xxid.c:243: error: for each function it appears in.)
+xxid.c: At top level:
+xxid.c:254: warning: no previous prototype for '_Slony_I_getMaxXid'
+xxid.c: In function '_Slony_I_getMaxXid':
+xxid.c:259: error: 'SerializableSnapshot' undeclared (first use in
+this function)
+xxid.c: At top level:
+xxid.c:270: warning: no previous prototype for '_Slony_I_xxid_snapshot_in'
+xxid.c: In function '_Slony_I_xxid_snapshot_in':
+xxid.c:282: warning: initialization makes pointer from integer without a cast
+xxid.c:345: warning: implicit declaration of function 'PG_RETURN_POINTER'
+xxid.c: At top level:
+xxid.c:353: warning: no previous prototype for '_Slony_I_xxid_snapshot_out'
+xxid.c: In function '_Slony_I_xxid_snapshot_out':
+xxid.c:355: warning: implicit declaration of function 'PG_DETOAST_DATUM'
+xxid.c:355: warning: cast to pointer from integer of different size
+xxid.c: At top level:
+xxid.c:380: warning: no previous prototype for '_Slony_I_xxid_lt_snapshot'
+xxid.c: In function '_Slony_I_xxid_lt_snapshot':
+xxid.c:383: warning: cast to pointer from integer of different size
+xxid.c: At top level:
+xxid.c:406: warning: no previous prototype for '_Slony_I_xxid_ge_snapshot'
+xxid.c: In function '_Slony_I_xxid_ge_snapshot':
+xxid.c:409: warning: cast to pointer from integer of different size
+make[2]: *** [xxid.o] Error 1
+make[2]: Leaving directory `/home/dgish/slony1-1.2.21/src/xxid'
+make[1]: *** [all] Error 2
+make[1]: Leaving directory `/home/dgish/slony1-1.2.21/src'
+make: *** [all] Error 2
+
+
+I was under the impression that xxid didn't exist after pg 8.3 or so.
+
+From scott.marlowe at gmail.com  Thu Jul 22 12:05:58 2010
+From: scott.marlowe at gmail.com (Scott Marlowe)
+Date: Thu, 22 Jul 2010 13:05:58 -0600
+Subject: [Slony1-general] having trouble building slony on ubuntu 10.04
+	with pgsql 8.3.8
+In-Reply-To: <AANLkTikC8QD2sPswqGeW8jN1CRxMNPK18JNHsktXFfo2@mail.gmail.com>
+References: <AANLkTingLx9mw1-SC1fCsWN5GIVaI5P8G3kj7FiVFioC@mail.gmail.com>
+	<4C470232.1060403@ca.afilias.info>
+	<AANLkTimAxX1sxfwq46hgdmjILCiQsnz3qsF4733XqBiJ@mail.gmail.com>
+	<AANLkTimNjTyAGoISPf3EXmSeUWOHNTIs06bP5H8S94YG@mail.gmail.com>
+	<4C473698.4090809@ca.afilias.info>
+	<AANLkTikmvSD3ZmYUVc_sEimllO0IZVlisFPUBURd3MKj@mail.gmail.com>
+	<4C473DC6.8020307@ca.afilias.info>
+	<AANLkTikC8QD2sPswqGeW8jN1CRxMNPK18JNHsktXFfo2@mail.gmail.com>
+Message-ID: <AANLkTimg8yvxkC85J4kYTj0GJmIov7kmyqJDJtyYK-E2@mail.gmail.com>
+
+So, I did this:
+
+make distclean
+./configure --with-pgpkglibdir=/usr/lib/postgresql/8.3/lib/
+--with-pgconfigdir=/usr/bin/pg_config
+--with-pgincludeserverdir=/usr/include/postgresql/8.3/server/
+make
+
+and got this:
+
+gcc -g -O2 -Wall -Wmissing-prototypes -Wmissing-declarations -fpic
+-I../.. -I/usr/include/postgresql/
+-I/usr/include/postgresql/8.3/server  -c -o xxid.o xxid.c
+In file included from /usr/include/postgresql/8.3/server/access/tupdesc.h:18,
+                 from /usr/include/postgresql/8.3/server/utils/rel.h:17,
+                 from /usr/include/postgresql/8.3/server/storage/bufmgr.h:18,
+                 from /usr/include/postgresql/8.3/server/storage/bufpage.h:17,
+                 from /usr/include/postgresql/8.3/server/access/relscan.h:18,
+                 from /usr/include/postgresql/8.3/server/access/heapam.h:18,
+                 from /usr/include/postgresql/8.3/server/executor/spi.h:26,
+                 from xxid.c:20:
+/usr/include/postgresql/8.3/server/catalog/pg_attribute.h:44: error:
+expected ')' before numeric constant
+/usr/include/postgresql/8.3/server/catalog/pg_attribute.h:152:
+warning: data definition has no type or storage class
+/usr/include/postgresql/8.3/server/catalog/pg_attribute.h:152:
+warning: type defaults to 'int' in declaration of
+'FormData_pg_attribute'
+/usr/include/postgresql/8.3/server/catalog/pg_attribute.h:167: error:
+expected '=', ',', ';', 'asm' or '__attribute__' before '*' token
+/usr/include/postgresql/8.3/server/catalog/pg_attribute.h:252: error:
+expected ')' before '(' token
+/usr/include/postgresql/8.3/server/catalog/pg_attribute.h:253: error:
+expected ')' before '(' token
+/usr/include/postgresql/8.3/server/catalog/pg_attribute.h:254: error:
+expected ')' before '(' token
+
+and several thousand more lines of error / warnings after that.
+
+Then this:
+
+In file included from /usr/include/postgresql/8.3/server/utils/rel.h:17,
+                 from /usr/include/postgresql/8.3/server/storage/bufmgr.h:18,
+                 from /usr/include/postgresql/8.3/server/storage/bufpage.h:17,
+                 from /usr/include/postgresql/8.3/server/access/relscan.h:18,
+                 from /usr/include/postgresql/8.3/server/access/heapam.h:18,
+                 from /usr/include/postgresql/8.3/server/executor/spi.h:26,
+                 from xxid.c:20:
+/usr/include/postgresql/8.3/server/access/tupdesc.h:72: error:
+expected specifier-qualifier-list before 'Form_pg_attribute'
+/usr/include/postgresql/8.3/server/access/tupdesc.h:85: error:
+expected declaration specifiers or '...' before 'Form_pg_attribute'
+
+I got errors like that from lots of different files.
+
+From ssinger at ca.afilias.info  Thu Jul 22 13:35:45 2010
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Thu, 22 Jul 2010 16:35:45 -0400
+Subject: [Slony1-general] having trouble building slony on ubuntu 10.04
+ with pgsql 8.3.8
+In-Reply-To: <AANLkTikC8QD2sPswqGeW8jN1CRxMNPK18JNHsktXFfo2@mail.gmail.com>
+References: <AANLkTingLx9mw1-SC1fCsWN5GIVaI5P8G3kj7FiVFioC@mail.gmail.com>	<4C470232.1060403@ca.afilias.info>	<AANLkTimAxX1sxfwq46hgdmjILCiQsnz3qsF4733XqBiJ@mail.gmail.com>	<AANLkTimNjTyAGoISPf3EXmSeUWOHNTIs06bP5H8S94YG@mail.gmail.com>	<4C473698.4090809@ca.afilias.info>	<AANLkTikmvSD3ZmYUVc_sEimllO0IZVlisFPUBURd3MKj@mail.gmail.com>	<4C473DC6.8020307@ca.afilias.info>
+	<AANLkTikC8QD2sPswqGeW8jN1CRxMNPK18JNHsktXFfo2@mail.gmail.com>
+Message-ID: <4C48ABA1.2000105@ca.afilias.info>
+
+Scott Marlowe wrote:
+
+<snip>
+
+>make distclean
+>./configure --with-pgpkglibdir=/usr/lib/postgresql/8.3/lib/
+>--with-pgconfigdir=/usr/bin/pg_config
+>make
+>
+>output was:
+>
+>make[1]: Entering directory `/home/dgish/slony1-1.2.21/src'
+>make[2]: Entering directory `/home/dgish/slony1-1.2.21/src/xxid'
+>gcc -g -O2 -Wall -Wmissing-prototypes -Wmissing-declarations -fpic
+>-I../.. -I/usr/include/postgresql/
+>-I/usr/include/postgresql/8.4/server/  -c -o xxid.o xxid.c>> Scott Marlowe wrote:
+
+
+So is this 8.4 or 8.3 your compiling against? (note the 8.4 in the -I 
+above).
+
+Ubuntu allows both 8.4 and 8.3 to be installed at once (in theory). 
+However when run /usr/lib/postgresql/8.3/bin/pg_config and 
+/usr/lib/postgresql/8.4/bin/pg_config I see them both listing 
+/usr/include/postgresql.   I'm not 100% sure which version 
+/usr/include/postgresql/postgres.h is from
+
+I'm thinking that the pg_config with ubuntu on multi-version 
+installations is broken.  It seems to put the 8.4 files in 
+include/postgresql but the 8.3 files (minus the libpq headers) in 
+include/postgresql/8.3
+
+
+
+
+
+
+
+
+>>> On Wed, Jul 21, 2010 at 12:04 PM, Steve Singer <ssinger at ca.afilias.info>
+>>> wrote:
+>>>> Scott Marlowe wrote:
+>>>>> Note that this is with Ubuntu 10.04 with the karmic repo enabled to
+>>>>> get pgsql 8.3 from there.
+>>>> Do you have the postgresql-server-dev-8.3 package installed?
+>>>> The ubuntu 9.x system I have access to puts the headers in that second
+>>>> -server-dev package.  10.04 is probably the same.
+>>> Yep.  Have that.  It won't get through ./configure without it.
+>> Do they include pg_config? if so try passing
+>> --with-pgconfigdir=/path/to/pg_config on the configure command line.
+>>
+>> It can't find xact.h which should be at include/server/access/xact.h
+> 
+> Getting the same error with that.  Here's what I tried:
+> 
+> make distclean
+> ./configure --with-pgpkglibdir=/usr/lib/postgresql/8.3/lib/
+> --with-pgconfigdir=/usr/bin/pg_config
+> make
+> 
+> output was:
+> 
+> make[1]: Entering directory `/home/dgish/slony1-1.2.21/src'
+> make[2]: Entering directory `/home/dgish/slony1-1.2.21/src/xxid'
+> gcc -g -O2 -Wall -Wmissing-prototypes -Wmissing-declarations -fpic
+> -I../.. -I/usr/include/postgresql/
+> -I/usr/include/postgresql/8.4/server/  -c -o xxid.o xxid.c
+> xxid.c:18:25: error: access/xact.h: No such file or directory
+> xxid.c:19:28: error: access/transam.h: No such file or directory
+> xxid.c:20:26: error: executor/spi.h: No such file or directory
+> xxid.c:52: warning: data definition has no type or storage class
+> xxid.c:52: warning: type defaults to 'int' in declaration of
+> 'PG_FUNCTION_INFO_V1'
+> xxid.c:52: warning: parameter names (without types) in function declaration
+> xxid.c:53: warning: data definition has no type or storage class
+> xxid.c:53: warning: type defaults to 'int' in declaration of
+> 'PG_FUNCTION_INFO_V1'
+> xxid.c:53: warning: parameter names (without types) in function declaration
+> xxid.c:54: warning: data definition has no type or storage class
+> xxid.c:54: warning: type defaults to 'int' in declaration of
+> 'PG_FUNCTION_INFO_V1'
+> xxid.c:54: warning: parameter names (without types) in function declaration
+> xxid.c:55: warning: data definition has no type or storage class
+> xxid.c:55: warning: type defaults to 'int' in declaration of
+> 'PG_FUNCTION_INFO_V1'
+> xxid.c:55: warning: parameter names (without types) in function declaration
+> xxid.c:56: warning: data definition has no type or storage class
+> xxid.c:56: warning: type defaults to 'int' in declaration of
+> 'PG_FUNCTION_INFO_V1'
+> xxid.c:56: warning: parameter names (without types) in function declaration
+> xxid.c:57: warning: data definition has no type or storage class
+> xxid.c:57: warning: type defaults to 'int' in declaration of
+> 'PG_FUNCTION_INFO_V1'
+> xxid.c:57: warning: parameter names (without types) in function declaration
+> xxid.c:58: warning: data definition has no type or storage class
+> xxid.c:58: warning: type defaults to 'int' in declaration of
+> 'PG_FUNCTION_INFO_V1'
+> xxid.c:58: warning: parameter names (without types) in function declaration
+> xxid.c:59: warning: data definition has no type or storage class
+> xxid.c:59: warning: type defaults to 'int' in declaration of
+> 'PG_FUNCTION_INFO_V1'
+> xxid.c:59: warning: parameter names (without types) in function declaration
+> xxid.c:60: warning: data definition has no type or storage class
+> xxid.c:60: warning: type defaults to 'int' in declaration of
+> 'PG_FUNCTION_INFO_V1'
+> xxid.c:60: warning: parameter names (without types) in function declaration
+> xxid.c:61: warning: data definition has no type or storage class
+> xxid.c:61: warning: type defaults to 'int' in declaration of
+> 'PG_FUNCTION_INFO_V1'
+> xxid.c:61: warning: parameter names (without types) in function declaration
+> xxid.c:62: warning: data definition has no type or storage class
+> xxid.c:62: warning: type defaults to 'int' in declaration of
+> 'PG_FUNCTION_INFO_V1'
+> xxid.c:62: warning: parameter names (without types) in function declaration
+> xxid.c:63: warning: data definition has no type or storage class
+> xxid.c:63: warning: type defaults to 'int' in declaration of
+> 'PG_FUNCTION_INFO_V1'
+> xxid.c:63: warning: parameter names (without types) in function declaration
+> xxid.c:64: warning: parameter names (without types) in function declaration
+> xxid.c:65: warning: parameter names (without types) in function declaration
+> xxid.c:66: warning: parameter names (without types) in function declaration
+> xxid.c:67: warning: parameter names (without types) in function declaration
+> xxid.c:68: warning: parameter names (without types) in function declaration
+> xxid.c:69: warning: parameter names (without types) in function declaration
+> xxid.c:70: warning: parameter names (without types) in function declaration
+> xxid.c:71: warning: parameter names (without types) in function declaration
+> xxid.c:72: warning: parameter names (without types) in function declaration
+> xxid.c:73: warning: parameter names (without types) in function declaration
+> xxid.c:74: warning: parameter names (without types) in function declaration
+> xxid.c:75: warning: parameter names (without types) in function declaration
+> xxid.c:77: warning: data definition has no type or storage class
+> xxid.c:77: warning: type defaults to 'int' in declaration of
+> 'PG_FUNCTION_INFO_V1'
+> xxid.c:77: warning: parameter names (without types) in function declaration
+> xxid.c:78: warning: data definition has no type or storage class
+> xxid.c:78: warning: type defaults to 'int' in declaration of
+> 'PG_FUNCTION_INFO_V1'
+> xxid.c:78: warning: parameter names (without types) in function declaration
+> xxid.c:79: warning: data definition has no type or storage class
+> xxid.c:79: warning: type defaults to 'int' in declaration of
+> 'PG_FUNCTION_INFO_V1'
+> xxid.c:79: warning: parameter names (without types) in function declaration
+> xxid.c:80: warning: data definition has no type or storage class
+> xxid.c:80: warning: type defaults to 'int' in declaration of
+> 'PG_FUNCTION_INFO_V1'
+> xxid.c:80: warning: parameter names (without types) in function declaration
+> xxid.c:81: warning: parameter names (without types) in function declaration
+> xxid.c:82: warning: parameter names (without types) in function declaration
+> xxid.c:83: warning: parameter names (without types) in function declaration
+> xxid.c:84: warning: parameter names (without types) in function declaration
+> xxid.c:92: warning: no previous prototype for '_Slony_I_xxidin'
+> xxid.c: In function '_Slony_I_xxidin':
+> xxid.c:94: warning: implicit declaration of function 'PG_GETARG_CSTRING'
+> xxid.c:94: warning: initialization makes pointer from integer without a cast
+> xxid.c: At top level:
+> xxid.c:104: warning: no previous prototype for '_Slony_I_xxidout'
+> xxid.c: In function '_Slony_I_xxidout':
+> xxid.c:106: warning: implicit declaration of function 'PG_GETARG_DATUM'
+> xxid.c:111: warning: implicit declaration of function 'PG_RETURN_CSTRING'
+> xxid.c: At top level:
+> xxid.c:119: warning: no previous prototype for '_Slony_I_xxideq'
+> xxid.c: In function '_Slony_I_xxideq':
+> xxid.c:124: warning: implicit declaration of function 'PG_RETURN_BOOL'
+> xxid.c:124: warning: implicit declaration of function 'TransactionIdEquals'
+> xxid.c: At top level:
+> xxid.c:132: warning: no previous prototype for '_Slony_I_xxidne'
+> xxid.c:145: warning: no previous prototype for '_Slony_I_xxidlt'
+> xxid.c: In function '_Slony_I_xxidlt':
+> xxid.c:153: warning: implicit declaration of function 'TransactionIdPrecedes'
+> xxid.c: At top level:
+> xxid.c:161: warning: no previous prototype for '_Slony_I_xxidle'
+> xxid.c: In function '_Slony_I_xxidle':
+> xxid.c:169: warning: implicit declaration of function
+> 'TransactionIdPrecedesOrEquals'
+> xxid.c: At top level:
+> xxid.c:177: warning: no previous prototype for '_Slony_I_xxidgt'
+> xxid.c: In function '_Slony_I_xxidgt':
+> xxid.c:185: warning: implicit declaration of function 'TransactionIdFollows'
+> xxid.c: At top level:
+> xxid.c:193: warning: no previous prototype for '_Slony_I_xxidge'
+> xxid.c: In function '_Slony_I_xxidge':
+> xxid.c:201: warning: implicit declaration of function
+> 'TransactionIdFollowsOrEquals'
+> xxid.c: At top level:
+> xxid.c:209: warning: no previous prototype for '_Slony_I_btxxidcmp'
+> xxid.c: In function '_Slony_I_btxxidcmp':
+> xxid.c:215: warning: implicit declaration of function 'PG_RETURN_INT32'
+> xxid.c: At top level:
+> xxid.c:227: warning: no previous prototype for '_Slony_I_getCurrentXid'
+> xxid.c: In function '_Slony_I_getCurrentXid':
+> xxid.c:229: warning: implicit declaration of function 'GetCurrentTransactionId'
+> xxid.c: At top level:
+> xxid.c:237: warning: no previous prototype for '_Slony_I_getMinXid'
+> xxid.c: In function '_Slony_I_getMinXid':
+> xxid.c:243: error: 'SerializableSnapshot' undeclared (first use in
+> this function)
+> xxid.c:243: error: (Each undeclared identifier is reported only once
+> xxid.c:243: error: for each function it appears in.)
+> xxid.c: At top level:
+> xxid.c:254: warning: no previous prototype for '_Slony_I_getMaxXid'
+> xxid.c: In function '_Slony_I_getMaxXid':
+> xxid.c:259: error: 'SerializableSnapshot' undeclared (first use in
+> this function)
+> xxid.c: At top level:
+> xxid.c:270: warning: no previous prototype for '_Slony_I_xxid_snapshot_in'
+> xxid.c: In function '_Slony_I_xxid_snapshot_in':
+> xxid.c:282: warning: initialization makes pointer from integer without a cast
+> xxid.c:345: warning: implicit declaration of function 'PG_RETURN_POINTER'
+> xxid.c: At top level:
+> xxid.c:353: warning: no previous prototype for '_Slony_I_xxid_snapshot_out'
+> xxid.c: In function '_Slony_I_xxid_snapshot_out':
+> xxid.c:355: warning: implicit declaration of function 'PG_DETOAST_DATUM'
+> xxid.c:355: warning: cast to pointer from integer of different size
+> xxid.c: At top level:
+> xxid.c:380: warning: no previous prototype for '_Slony_I_xxid_lt_snapshot'
+> xxid.c: In function '_Slony_I_xxid_lt_snapshot':
+> xxid.c:383: warning: cast to pointer from integer of different size
+> xxid.c: At top level:
+> xxid.c:406: warning: no previous prototype for '_Slony_I_xxid_ge_snapshot'
+> xxid.c: In function '_Slony_I_xxid_ge_snapshot':
+> xxid.c:409: warning: cast to pointer from integer of different size
+> make[2]: *** [xxid.o] Error 1
+> make[2]: Leaving directory `/home/dgish/slony1-1.2.21/src/xxid'
+> make[1]: *** [all] Error 2
+> make[1]: Leaving directory `/home/dgish/slony1-1.2.21/src'
+> make: *** [all] Error 2
+> 
+> 
+> I was under the impression that xxid didn't exist after pg 8.3 or so.
+
+
+-- 
+Steve Singer
+Afilias Canada
+Data Services Developer
+416-673-1142
+
+From scott.marlowe at gmail.com  Thu Jul 22 13:57:57 2010
+From: scott.marlowe at gmail.com (Scott Marlowe)
+Date: Thu, 22 Jul 2010 14:57:57 -0600
+Subject: [Slony1-general] having trouble building slony on ubuntu 10.04
+	with pgsql 8.3.8
+In-Reply-To: <4C48ABA1.2000105@ca.afilias.info>
+References: <AANLkTingLx9mw1-SC1fCsWN5GIVaI5P8G3kj7FiVFioC@mail.gmail.com>
+	<4C470232.1060403@ca.afilias.info>
+	<AANLkTimAxX1sxfwq46hgdmjILCiQsnz3qsF4733XqBiJ@mail.gmail.com>
+	<AANLkTimNjTyAGoISPf3EXmSeUWOHNTIs06bP5H8S94YG@mail.gmail.com>
+	<4C473698.4090809@ca.afilias.info>
+	<AANLkTikmvSD3ZmYUVc_sEimllO0IZVlisFPUBURd3MKj@mail.gmail.com>
+	<4C473DC6.8020307@ca.afilias.info>
+	<AANLkTikC8QD2sPswqGeW8jN1CRxMNPK18JNHsktXFfo2@mail.gmail.com>
+	<4C48ABA1.2000105@ca.afilias.info>
+Message-ID: <AANLkTilSO2TJ8qrpm-ilG8I41QegHxV2NCfMYmbFX5be@mail.gmail.com>
+
+On Thu, Jul 22, 2010 at 2:35 PM, Steve Singer <ssinger at ca.afilias.info> wrote:
+> Scott Marlowe wrote:
+>
+> <snip>
+>
+>> make distclean
+>> ./configure --with-pgpkglibdir=/usr/lib/postgresql/8.3/lib/
+>> --with-pgconfigdir=/usr/bin/pg_config
+>> make
+>>
+>> output was:
+>>
+>> make[1]: Entering directory `/home/dgish/slony1-1.2.21/src'
+>> make[2]: Entering directory `/home/dgish/slony1-1.2.21/src/xxid'
+>> gcc -g -O2 -Wall -Wmissing-prototypes -Wmissing-declarations -fpic
+>> -I../.. -I/usr/include/postgresql/
+>> -I/usr/include/postgresql/8.4/server/ ?-c -o xxid.o xxid.c>> Scott Marlowe
+>> wrote:
+>
+>
+> So is this 8.4 or 8.3 your compiling against? (note the 8.4 in the -I
+> above).
+>
+> Ubuntu allows both 8.4 and 8.3 to be installed at once (in theory). However
+> when run /usr/lib/postgresql/8.3/bin/pg_config and
+> /usr/lib/postgresql/8.4/bin/pg_config I see them both listing
+> /usr/include/postgresql. ? I'm not 100% sure which version
+> /usr/include/postgresql/postgres.h is from
+>
+> I'm thinking that the pg_config with ubuntu on multi-version installations
+> is broken. ?It seems to put the 8.4 files in include/postgresql but the 8.3
+> files (minus the libpq headers) in include/postgresql/8.3
+
+yep, that's exactly it.  I tried moving the karmic repos to being
+above all the others but that didn't help.
+
+I've tried a few things to try to get it to use the karmic repos, but
+I'm a bit frustrated right now and just want working pgsql and slony,
+so I'll probably go with source installs on both.
+
+From hari.kiran at enterprisedb.com  Thu Jul 22 19:09:51 2010
+From: hari.kiran at enterprisedb.com (Hari Kiran)
+Date: Fri, 23 Jul 2010 07:39:51 +0530
+Subject: [Slony1-general] Slony Cluster Initialize Error: Quick Help Please
+Message-ID: <AANLkTik0I0s-aD7QusLnq5g90pEBWP9DazE7x0FjtzK6@mail.gmail.com>
+
+Hi All,
+
+I am trying to implement Slony1-1.2.20 on with PostgreSQL 8.4.1 running on
+Ret Hat Linx 64bit.
+
+Getting the following error:
+
+-bash-3.2$ ./slonik_init_cluster -c etc/slon_tools.conf
+
+# INIT CLUSTER
+cluster name = cms_replica;
+ node 1 admin conninfo='host=172.17.16.30 dbname=cms_master user=postgres
+port=5432 password=2zyo6y58';
+ node 2 admin conninfo='host=172.17.13.35 dbname=cms_slave user=postgres
+port=5432 password=2zyo6y58';
+  init cluster (id = 1, comment = 'Node 1 - cms_master at 172.17.16.30');
+
+# STORE NODE
+  store node (id = 2, event node = 1, comment = 'Node 2 -
+cms_slave at 172.17.13.35');
+  echo 'Set up replication nodes';
+
+# STORE PATH
+  echo 'Next: configure paths for each node/origin';
+  store path (server = 1, client = 2, conninfo = 'host=172.17.16.30
+dbname=cms_master user=postgres port=5432 password=2zyo6y58');
+  store path (server = 2, client = 1, conninfo = 'host=172.17.13.35
+dbname=cms_slave user=postgres port=5432 password=2zyo6y58');
+  echo 'Replication nodes prepared';
+  echo 'Please start a slon replication daemon for each node';
+-bash-3.2$
+
+====ERROR:
+
+*-bash-3.2$ ./slonik_init_cluster -c etc/slon_tools.conf|./slonik
+<stdin>:6: Possible unsupported PostgreSQL version (80401) 8.4, defaulting
+to 8.3 support
+<stdin>:6: loading of file
+/opt/PostgresPlus/8.4SS/share/postgresql/slony1_base.sql: PGRES_FATAL_ERROR
+ERROR:  type "_cms_replica.xxid" does not exist
+LINE 60:  set_locked   "_cms_replica".xxid,
+                       ^
+ERROR:  type "_cms_replica.xxid" does not exist
+LINE 60:  set_locked   "_cms_replica".xxid,
+                       ^
+-bash-3.2$
+*
+Please let me know whats missing.
+
+Thanks
+Hari Kiran P.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20100723/cc856dde/attachment.htm 
+
+From shoaibmir at gmail.com  Thu Jul 22 21:23:44 2010
+From: shoaibmir at gmail.com (Shoaib Mir)
+Date: Fri, 23 Jul 2010 14:23:44 +1000
+Subject: [Slony1-general] Slony Cluster Initialize Error: Quick Help
+	Please
+In-Reply-To: <AANLkTik0I0s-aD7QusLnq5g90pEBWP9DazE7x0FjtzK6@mail.gmail.com>
+References: <AANLkTik0I0s-aD7QusLnq5g90pEBWP9DazE7x0FjtzK6@mail.gmail.com>
+Message-ID: <AANLkTin08aoTFnxLHDAcIj1RTwBjUYASMfOE1F5FeUsQ@mail.gmail.com>
+
+On Fri, Jul 23, 2010 at 12:09 PM, Hari Kiran <hari.kiran at enterprisedb.com>
+ wrote:
+
+> ====ERROR:
+>
+> *-bash-3.2$ ./slonik_init_cluster -c etc/slon_tools.conf|./slonik
+> <stdin>:6: Possible unsupported PostgreSQL version (80401) 8.4, defaulting
+> to 8.3 support
+> <stdin>:6: loading of file
+> /opt/PostgresPlus/8.4SS/share/postgresql/slony1_base.sql: PGRES_FATAL_ERROR
+> ERROR:  type "_cms_replica.xxid" does not exist
+> LINE 60:  set_locked   "_cms_replica".xxid,
+> *
+
+
+Have you installed Slony against 8.4? looks like you got 8.3 and 8.4 on same
+machine and Slony not been built properly against 8.4. Make sure you have
+all the required .so and bin files built against 8.4 and not using the 8.3
+files!
+
+-- 
+Shoaib Mir
+http://shoaibmir.wordpress.com/
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20100723/4e5686dc/attachment.htm 
+
+From hari.kiran at enterprisedb.com  Thu Jul 22 22:10:00 2010
+From: hari.kiran at enterprisedb.com (Hari Kiran)
+Date: Fri, 23 Jul 2010 10:40:00 +0530
+Subject: [Slony1-general] Slony Cluster Initialize Error: Quick Help
+	Please
+In-Reply-To: <AANLkTin08aoTFnxLHDAcIj1RTwBjUYASMfOE1F5FeUsQ@mail.gmail.com>
+References: <AANLkTik0I0s-aD7QusLnq5g90pEBWP9DazE7x0FjtzK6@mail.gmail.com>
+	<AANLkTin08aoTFnxLHDAcIj1RTwBjUYASMfOE1F5FeUsQ@mail.gmail.com>
+Message-ID: <AANLkTinnMcAEuTxtqbPs_U2rUXaxZNX8gpOS5zk2kNMH@mail.gmail.com>
+
+Thanks Shoaib.
+
+I could work around the Init cluster issue and made progress, however, now
+the subscribe set is taking longer than expected. The logs are getting
+updated with the following messages...
+
+2010-07-23 06:08:00 BST DEBUG2 remoteWorkerThread_2: SYNC 897 processing
+2010-07-23 06:08:00 BST DEBUG2 remoteWorkerThread_2: no sets need syncing
+for this event
+2010-07-23 06:08:00 BST DEBUG2 remoteWorkerThread_2: forward confirm 1,905
+received by 2
+2010-07-23 06:08:03 BST DEBUG2 syncThread: new sl_action_seq 1 - SYNC 906
+2010-07-23 06:08:03 BST DEBUG2 localListenThread: Received event 1,906 SYNC
+2010-07-23 06:08:04 BST DEBUG2 remoteListenThread_2: queue event 2,898 SYNC
+2010-07-23 06:08:04 BST DEBUG2 remoteWorkerThread_2: Received event 2,898
+SYNC
+2010-07-23 06:08:04 BST DEBUG2 calc sync size - last time: 1 last length:
+4002 ideal: 14 proposed size: 3
+2010-07-23 06:08:04 BST DEBUG2 remoteWorkerThread_2: SYNC 898 processing
+2010-07-23 06:08:04 BST DEBUG2 remoteWorkerThread_2: no sets need syncing
+for this event
+2010-07-23 06:08:05 BST DEBUG2 remoteWorkerThread_2: forward confirm 1,906
+received by 2
+2010-07-23 06:08:13 BST DEBUG2 syncThread: new sl_action_seq 1 - SYNC 907
+2010-07-23 06:08:13 BST DEBUG2 localListenThread: Received event 1,907 SYNC
+2010-07-23 06:08:15 BST DEBUG2 remoteListenThread_2: queue event 2,899 SYNC
+2010-07-23 06:08:15 BST DEBUG2 remoteWorkerThread_2: Received event 2,899
+SYNC
+2010-07-23 06:08:15 BST DEBUG2 calc sync size - last time: 1 last length:
+11003 ideal: 5 proposed size: 3
+2010-07-23 06:08:15 BST DEBUG2 remoteWorkerThread_2: SYNC 899 processing
+2010-07-23 06:08:15 BST DEBUG2 remoteWorkerThread_2: no sets need syncing
+for this event
+2010-07-23 06:08:15 BST DEBUG2 remoteWorkerThread_2: forward confirm 1,907
+received by 2
+2010-07-23 06:08:23 BST DEBUG2 syncThread: new sl_action_seq 1 - SYNC 908
+2010-07-23 06:08:23 BST DEBUG2 localListenThread: Received event 1,908 SYNC
+2010-07-23 06:08:26 BST DEBUG2 remoteListenThread_2: queue event 2,900 SYNC
+2010-07-23 06:08:26 BST DEBUG2 remoteWorkerThread_2: Received event 2,900
+SYNC
+2010-07-23 06:08:26 BST DEBUG2 calc sync size - last time: 1 last length:
+11005 ideal: 5 proposed size: 3
+2010-07-23 06:08:26 BST DEBUG2 remoteWorkerThread_2: SYNC 900 processing
+2010-07-23 06:08:26 BST DEBUG2 remoteWorkerThread_2: no sets need syncing
+for this event
+2010-07-23 06:08:26 BST DEBUG2 remoteWorkerThread_2: forward confirm 1,908
+received by 2
+2010-07-23 06:08:33 BST DEBUG2 syncThread: new sl_action_seq 1 - SYNC 909
+2010-07-23 06:08:33 BST DEBUG2 localListenThread: Received event 1,909 SYNC
+2010-07-23 06:08:37 BST DEBUG2 remoteListenThread_2: queue event 2,901 SYNC
+2010-07-23 06:08:37 BST DEBUG2 remoteWorkerThread_2: Received event 2,901
+SYNC
+2010-07-23 06:08:37 BST DEBUG2 calc sync size - last time: 1 last length:
+11003 ideal: 5 proposed size: 3
+2010-07-23 06:08:37 BST DEBUG2 remoteWorkerThread_2: SYNC 901 processing
+2010-07-23 06:08:37 BST DEBUG2 remoteWorkerThread_2: no sets need syncing
+for this event
+2010-07-23 06:08:37 BST DEBUG2 remoteWorkerThread_2: forward confirm 1,909
+received by 2
+2010-07-23 06:08:43 BST DEBUG2 syncThread: new sl_action_seq 1 - SYNC 910
+2010-07-23 06:08:43 BST DEBUG2 localListenThread: Received event 1,910 SYNC
+2010-07-23 06:08:48 BST DEBUG2 remoteListenThread_2: queue event 2,902 SYNC
+2010-07-23 06:08:48 BST DEBUG2 remoteWorkerThread_2: Received event 2,902
+SYNC
+2010-07-23 06:08:48 BST DEBUG2 calc sync size - last time: 1 last length:
+11003 ideal: 5 proposed size: 3
+2010-07-23 06:08:48 BST DEBUG2 remoteWorkerThread_2: SYNC 902 processing
+2010-07-23 06:08:48 BST DEBUG2 remoteWorkerThread_2: no sets need syncing
+for this event
+2010-07-23 06:08:48 BST DEBUG2 remoteWorkerThread_2: forward confirm 1,910
+received by 2
+2010-07-23 06:08:53 BST DEBUG2 syncThread: new sl_action_seq 1 - SYNC 911
+2010-07-23 06:08:53 BST DEBUG2 localListenThread: Received event 1,911 SYNC
+
+Just want to make sure that my Slon process is moving ahead and doing an
+Initial Sync from Master to Slave.
+
+Thanks for your help
+
+Regards
+Hari Kiran
+
+On Fri, Jul 23, 2010 at 9:53 AM, Shoaib Mir <shoaibmir at gmail.com> wrote:
+
+> On Fri, Jul 23, 2010 at 12:09 PM, Hari Kiran <hari.kiran at enterprisedb.com>
+>  wrote:
+>
+>> ====ERROR:
+>>
+>>
+>> *-bash-3.2$ ./slonik_init_cluster -c etc/slon_tools.conf|./slonik
+>> <stdin>:6: Possible unsupported PostgreSQL version (80401) 8.4, defaulting
+>> to 8.3 support
+>> <stdin>:6: loading of file
+>> /opt/PostgresPlus/8.4SS/share/postgresql/slony1_base.sql: PGRES_FATAL_ERROR
+>> ERROR:  type "_cms_replica.xxid" does not exist
+>> LINE 60:  set_locked   "_cms_replica".xxid,
+>> *
+>>
+>
+> Have you installed Slony against 8.4? looks like you got 8.3 and 8.4 on
+> same machine and Slony not been built properly against 8.4. Make sure you
+> have all the required .so and bin files built against 8.4 and not using the
+> 8.3 files!
+>
+> --
+> Shoaib Mir
+> http://shoaibmir.wordpress.com/
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20100723/cf6e4adc/attachment.htm 
+
+From shoaibmir at gmail.com  Thu Jul 22 23:29:21 2010
+From: shoaibmir at gmail.com (Shoaib Mir)
+Date: Fri, 23 Jul 2010 16:29:21 +1000
+Subject: [Slony1-general] Slony Cluster Initialize Error: Quick Help
+	Please
+In-Reply-To: <AANLkTinnMcAEuTxtqbPs_U2rUXaxZNX8gpOS5zk2kNMH@mail.gmail.com>
+References: <AANLkTik0I0s-aD7QusLnq5g90pEBWP9DazE7x0FjtzK6@mail.gmail.com>
+	<AANLkTin08aoTFnxLHDAcIj1RTwBjUYASMfOE1F5FeUsQ@mail.gmail.com>
+	<AANLkTinnMcAEuTxtqbPs_U2rUXaxZNX8gpOS5zk2kNMH@mail.gmail.com>
+Message-ID: <AANLkTilF5sLo3qXWe0Ac8hgGJ-yx3aGpgI6iuWkUIn2q@mail.gmail.com>
+
+On Fri, Jul 23, 2010 at 3:10 PM, Hari Kiran <hari.kiran at enterprisedb.com>wrote:
+
+> Thanks Shoaib.
+>
+> I could work around the Init cluster issue and made progress, however, now
+> the subscribe set is taking longer than expected. The logs are getting
+> updated with the following messages...
+>
+>
+What I usually do to see if everything is going fine by checking
+'pg_stat_activity' and see if there is anything running for slony function
+like a copy or analyze after copy etc...
+
+-- 
+Shoaib Mir
+http://shoaibmir.wordpress.com/
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20100723/fa92ac84/attachment-0001.htm 
+
+From Ger.Timmens at adyen.com  Fri Jul 23 06:16:04 2010
+From: Ger.Timmens at adyen.com (Ger Timmens)
+Date: Fri, 23 Jul 2010 15:16:04 +0200
+Subject: [Slony1-general] Using Slony for Postgresql upgrades
+In-Reply-To: <mailman.480.1279866563.4690.slony1-general@lists.slony.info>
+References: <mailman.480.1279866563.4690.slony1-general@lists.slony.info>
+Message-ID: <4C499614.8050004@adyen.com>
+
+Hi All,
+
+I'm using slony to upgrade databases without downtime.
+
+However, now I have to upgrade a database where slony is already
+involved.
+
+So I have database A replicating to databases X, Y, and Z.
+I want to upgrade A to B.
+
+When I do this the usual way, in the end I would have an
+upgraded database B replicating to A and A replicating to X, Y and Z.
+
+However, I want to replicate from B directly to X, Y and Z.
+
+Is there a way with slony to achieve this without setting up new
+replication from scratch ?
+
+Kind Regards,
+
+Ger Timmens
+
+From tamanna.madan at globallogic.com  Fri Jul 23 04:01:28 2010
+From: tamanna.madan at globallogic.com (tamanna madaan)
+Date: Fri, 23 Jul 2010 16:31:28 +0530
+Subject: [Slony1-general] replication through slony beween the nodes
+	having different versions of postgres
+References: <68666423656E1444A011106C4E085F4D96F109@ex3-del1.synapse.com>
+	<20100722132415.GG2847@core.home>
+Message-ID: <68666423656E1444A011106C4E085F4D96F10B@ex3-del1.synapse.com>
+
+Thanks you all for your suggestions :)
+
+
+-----Original Message-----
+From: Greg Sabino Mullane [mailto:greg at endpoint.com]
+Sent: Thu 7/22/2010 6:54 PM
+To: tamanna madaan
+Cc: slony1-general at lists.slony.info
+Subject: Re: [Slony1-general] replication through slony beween the nodes having different versions of postgres
+ 
+> would slony still be able to replicate data from the node
+> having postgres-8.4.2 to the node having postgres-8.4.0 .
+
+Yes. 8.4.0 and 8.4.2 are completely compatible: the only thing that will 
+change is the postgres binary (plus you will need to REINDEX any 
+hash indexes you have, however it's very likely you do not have any).
+
+You really should be upgrading all your nodes to 8.4.4 right away, as 
+8.4.4 is the the current latest revision in the 8.4 series. Visit the 
+upgrade page for more details on what changed between versions:
+
+http://www.postgresql.org/docs/8.4/static/release-8-4-4.html
+
+-- 
+Greg Sabino Mullane greg at endpoint.com
+End Point Corporation
+PGP Key: 0x14964AC8
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20100723/1ea510c2/attachment.htm 
+
+From tamanna.madan at globallogic.com  Fri Jul 23 04:24:07 2010
+From: tamanna.madan at globallogic.com (tamanna madaan)
+Date: Fri, 23 Jul 2010 16:54:07 +0530
+Subject: [Slony1-general] replication through slony beween the nodes
+	having different versions of postgres
+References: <68666423656E1444A011106C4E085F4D96F109@ex3-del1.synapse.com>
+	<20100722132415.GG2847@core.home>
+Message-ID: <68666423656E1444A011106C4E085F4D96F10D@ex3-del1.synapse.com>
+
+Hi Greg
+
+postgres-8.4.0 and 8.4.2 are completely compatible. Does it also mean that
+replication will work fine from postgres-8.4.0 to postgres-8.4.2 means 
+from a lower to higher release. Does that holds true for postgres-8.4.4 as well ??
+
+Moreover, in the release notes of 8.4.2 (link below),
+its mentioned that "A dump/restore is not required for those running 8.4.X unless you are having
+hash index" . Does that mean: if I am not using any hash index , then I can upgrade
+to postgres-8.4.2 from postgres-8.4.0 simply without any need of exporting my database schema
+and data in it before upgrading postgres and then importing it back after upgrade.
+
+won't it corrupt the data if I upgrade postgres db with my database schema/data in it ?? 
+
+http://www.postgresql.org/docs/8.4/static/release-8-4-2.html
+
+Thanks...
+Tamanna
+
+
+-----Original Message-----
+From: Greg Sabino Mullane [mailto:greg at endpoint.com]
+Sent: Thu 7/22/2010 6:54 PM
+To: tamanna madaan
+Cc: slony1-general at lists.slony.info
+Subject: Re: [Slony1-general] replication through slony beween the nodes having different versions of postgres
+ 
+> would slony still be able to replicate data from the node
+> having postgres-8.4.2 to the node having postgres-8.4.0 .
+
+Yes. 8.4.0 and 8.4.2 are completely compatible: the only thing that will 
+change is the postgres binary (plus you will need to REINDEX any 
+hash indexes you have, however it's very likely you do not have any).
+
+You really should be upgrading all your nodes to 8.4.4 right away, as 
+8.4.4 is the the current latest revision in the 8.4 series. Visit the 
+upgrade page for more details on what changed between versions:
+
+http://www.postgresql.org/docs/8.4/static/release-8-4-4.html
+
+-- 
+Greg Sabino Mullane greg at endpoint.com
+End Point Corporation
+PGP Key: 0x14964AC8
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20100723/a8a1ccd4/attachment.htm 
+
+From greg at endpoint.com  Fri Jul 23 07:58:14 2010
+From: greg at endpoint.com (Greg Sabino Mullane)
+Date: Fri, 23 Jul 2010 10:58:14 -0400
+Subject: [Slony1-general] replication through slony beween the nodes
+ having different versions of postgres
+In-Reply-To: <68666423656E1444A011106C4E085F4D96F10D@ex3-del1.synapse.com>
+References: <68666423656E1444A011106C4E085F4D96F109@ex3-del1.synapse.com>
+	<20100722132415.GG2847@core.home>
+	<68666423656E1444A011106C4E085F4D96F10D@ex3-del1.synapse.com>
+Message-ID: <20100723145814.GT2847@core.home>
+
+> postgres-8.4.0 and 8.4.2 are completely compatible. Does it also mean that
+> replication will work fine from postgres-8.4.0 to postgres-8.4.2 means
+> from a lower to higher release. Does that holds true for postgres-8.4.4 as
+> well ??
+
+Yes.
+
+> Moreover, in the release notes of 8.4.2 (link below), its mentioned that 
+> "A dump/restore is not required for those running 8.4.X unless you are having
+> hash index" . Does that mean: if I am not using any hash index , then I 
+> can upgrade to postgres-8.4.2 from postgres-8.4.0 simply without any need of 
+> exporting my database schema and data in it before upgrading postgres and 
+> then importing it back after upgrade.
+
+Yes, that is correct. Going from one revision to another (where the last of the 
+three version number changes) never requires a dump and a reload. Even if you 
+have hash indexes, a dump and reload is not required, just a REINDEX after 
+the upgrade has completed.
+
+> won't it corrupt the data if I upgrade postgres db with my database
+> schema/data in it ??
+
+No: the only thing that is changing is the Postgres program itself. The 
+underlying data is not changed, just the program that reads and writes 
+that data is slightly changed, to fix bugs.
+
+If I can further expound to this list some more best practices, you should 
+be subscribed to the pgsql-announce mailing list so you hear about new 
+released (of Postgres, Slony, and other Postgres-related programs). You 
+may also wish to run check_postgres.pl with the new_version_pg action, 
+which will give you a Nagios alert when your version of Postgres becomes 
+out of date.
+
+-- 
+Greg Sabino Mullane greg at endpoint.com
+End Point Corporation
+PGP Key: 0x14964AC8
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: not available
+Type: application/pgp-signature
+Size: 163 bytes
+Desc: not available
+Url : http://lists.slony.info/pipermail/slony1-general/attachments/20100723/64dc688f/attachment.pgp 
+
+From vivek at khera.org  Fri Jul 23 09:20:42 2010
+From: vivek at khera.org (Vick Khera)
+Date: Fri, 23 Jul 2010 12:20:42 -0400
+Subject: [Slony1-general] Using Slony for Postgresql upgrades
+In-Reply-To: <4C499614.8050004@adyen.com>
+References: <mailman.480.1279866563.4690.slony1-general@lists.slony.info>
+	<4C499614.8050004@adyen.com>
+Message-ID: <AANLkTin6PpAaiq5fh6hnw=9LvsxV6EjihPc1gDiA2bJg@mail.gmail.com>
+
+Once you set up B, just have X, Y, and Z subscribe to B.  It is
+slightly counter-intuitive that there is no "move master" command --
+it is exactly the same command as the original subscribe set command.
+
+
+On Fri, Jul 23, 2010 at 9:16 AM, Ger Timmens <Ger.Timmens at adyen.com> wrote:
+> Is there a way with slony to achieve this without setting up new
+> replication from scratch ?
+>
+
+From tamanna.madan at globallogic.com  Sun Jul 25 22:01:57 2010
+From: tamanna.madan at globallogic.com (tamanna madaan)
+Date: Mon, 26 Jul 2010 10:31:57 +0530
+Subject: [Slony1-general] replication through slony beween the nodes
+	having different versions of postgres
+References: <68666423656E1444A011106C4E085F4D96F109@ex3-del1.synapse.com>
+	<20100722132415.GG2847@core.home>
+	<68666423656E1444A011106C4E085F4D96F10D@ex3-del1.synapse.com>
+	<20100723145814.GT2847@core.home>
+Message-ID: <68666423656E1444A011106C4E085F4D96F110@ex3-del1.synapse.com>
+
+
+Hi Greg
+
+Thanks for all your help :)
+
+Regards
+Tamanna
+
+-----Original Message-----
+From: Greg Sabino Mullane [mailto:greg at endpoint.com]
+Sent: Fri 7/23/2010 8:28 PM
+To: tamanna madaan
+Cc: slony1-general at lists.slony.info
+Subject: Re: [Slony1-general] replication through slony beween the nodes having different versions of postgres
+ 
+> postgres-8.4.0 and 8.4.2 are completely compatible. Does it also mean that
+> replication will work fine from postgres-8.4.0 to postgres-8.4.2 means
+> from a lower to higher release. Does that holds true for postgres-8.4.4 as
+> well ??
+
+Yes.
+
+> Moreover, in the release notes of 8.4.2 (link below), its mentioned that 
+> "A dump/restore is not required for those running 8.4.X unless you are having
+> hash index" . Does that mean: if I am not using any hash index , then I 
+> can upgrade to postgres-8.4.2 from postgres-8.4.0 simply without any need of 
+> exporting my database schema and data in it before upgrading postgres and 
+> then importing it back after upgrade.
+
+Yes, that is correct. Going from one revision to another (where the last of the 
+three version number changes) never requires a dump and a reload. Even if you 
+have hash indexes, a dump and reload is not required, just a REINDEX after 
+the upgrade has completed.
+
+> won't it corrupt the data if I upgrade postgres db with my database
+> schema/data in it ??
+
+No: the only thing that is changing is the Postgres program itself. The 
+underlying data is not changed, just the program that reads and writes 
+that data is slightly changed, to fix bugs.
+
+If I can further expound to this list some more best practices, you should 
+be subscribed to the pgsql-announce mailing list so you hear about new 
+released (of Postgres, Slony, and other Postgres-related programs). You 
+may also wish to run check_postgres.pl with the new_version_pg action, 
+which will give you a Nagios alert when your version of Postgres becomes 
+out of date.
+
+-- 
+Greg Sabino Mullane greg at endpoint.com
+End Point Corporation
+PGP Key: 0x14964AC8
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20100726/456feab4/attachment.htm 
+
+From ssinger at ca.afilias.info  Tue Jul 27 10:56:45 2010
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Tue, 27 Jul 2010 13:56:45 -0400
+Subject: [Slony1-general] slon memory usage
+Message-ID: <4C4F1DDD.5070307@ca.afilias.info>
+
+A month or two ago there was some discussion on the list about the 
+memory footprint of slon.
+
+I've done some investigating.
+
+slon is multi-threaded.  For each remote database that the slon instance 
+talks to there will be 2 threads (a remote listener and a remote worker) 
+plus about 4 threads for 'local' stuff.
+
+By default on Linux pthread_create gives each thread a stack size 
+controlled by the RLIMIT_STACK setting that can be viewed/adjusted by 
+running 'ulimit -s'.  On my ubuntu x64 system the default value for this 
+is 8 megs per thread (why? I have no idea).  If I reduce this to 1024 
+the memory footprint (VmData in /proc/$pid/status ) goes from 14800kb to 
+around 76724kb
+
+
+I see a few choices
+
+1) We can have slon explicitly request a more reasonable thread stack 
+size before it creates threads (pthreads has API calls for this).  I'm 
+not 100% sure what the best value for this would be for all platforms 
+but slon tends to be pretty good about not storing large values on the stack
+
+2) We can document this and tell sysadmins/DBA's that are concerned 
+about the slon memory footprint to use their OS's facilities (ie ulimit 
+-s before invoking slon) to adjust how much stack each thread.
+
+The argument for 1 is that the slony development team has a better sense 
+of how much stack memory slon threads take, and we might even discover 
+that different threads types of stack memory requirements (I doubt the 
+different slony thread types will very much in stack usage)
+
+The argument for 2 is that the OS is already providing facilities to 
+tune this and we should leave it tunable through those.
+
+Thoughts?
+
+(Even with a 1024kb stack size total memory usage for a 5 database 
+cluster still seems higher than I would like to see)
+
+
+
+
+
+
+-- 
+Steve Singer
+Afilias Canada
+Data Services Developer
+416-673-1142
+
+From ghelmer at palisadesystems.com  Thu Jul 29 12:22:55 2010
+From: ghelmer at palisadesystems.com (Guy Helmer)
+Date: Thu, 29 Jul 2010 14:22:55 -0500
+Subject: [Slony1-general] Replication failure for new set
+Message-ID: <C1744683-B1B5-4FEE-BBFA-04FE337E9B63@palisadesystems.com>
+
+I have an interesting failure that I can't seem to resolve with slony1 1.2.20.  I have setup replication between two nodes and that seems to be working fine.  I wanted to add a new table to replication, so I followed the steps of creating a new set containing the new table, subscribing the second (slave) node to the set, and trying to merge the new set into the existing set. 
+
+I'm using the slonik_create_set / slonik_subscribe_set / slonik_merge_sets scripts, and initially I made the mistake of leaving the "table_id" for the new set, "set2", set to 1 when I tried to create the new set containing the new table.  After correcting the mistake, I fixed the "table_id" for the new set to resolve conflicts with the table_id values for the existing set and successfully created the set and subscribed the set to my second node, #2.  However, when I tried to merge the set 2 into the existing set 1, the command failed:
+
+sm1# slonik_merge_sets --config slon_tools_db-new.conf 1 1 2 | slonik
+<stdin>:4: PGRES_FATAL_ERROR select "_replication".mergeSet(1, 2);  - ERROR:  Slony-I: set 2 has subscriptions in progress - cannot merge
+<stdin>:6: Failure to merge sets 1 and 2 with origin 1
+
+FWIW, at this time, I also had made the mistake of not having created the new table in the slave's database.
+
+I tried unsubscribing node 2 from the set, and dropping the set, then recreating the set and resubscribing node 2 to the set, but the merge still failed.  Looking to the log file, I see this in the node 2's log:
+
+2010-07-29 14:02:39 CDT DEBUG2 localListenThread: Received event 2,68315 SYNC
+2010-07-29 14:02:42 CDT DEBUG2 remoteListenThread_1: queue event 1,69285 SYNC
+2010-07-29 14:02:43 CDT DEBUG1 copy_set 2
+2010-07-29 14:02:43 CDT ERROR  remoteWorkerThread_1: node -1 not found in runtime configuration
+2010-07-29 14:02:43 CDT WARN   remoteWorkerThread_1: data copy for set 2 failed 211 times - sleep 60 seconds
+2010-07-29 14:02:46 CDT DEBUG2 remoteListenThread_1: queue event 1,69286 SYNC
+2010-07-29 14:02:49 CDT DEBUG2 syncThread: new sl_action_seq 1 - SYNC 68316
+2010-07-29 14:02:49 CDT DEBUG2 localListenThread: Received event 2,68316 SYNC
+2010-07-29 14:02:57 CDT DEBUG2 remoteListenThread_1: queue event 1,69287 SYNC
+
+I've tried combinations of restarting the slon daemons, dropping the subscription & set then recreating them, but nothing seems to have helped.
+
+I've found a couple of other threads about "node -1 not found in runtime configuration" errors, but I haven't seen any solutions.  Does it look like I'll have to completely rebuild my slony configuration?  If so, do I have to truncate the tables in the slave database before I restart the replication?
+
+Thanks in advance for any help,
+Guy
+
+--------
+This message has been scanned by ComplianceSafe, powered by Palisade's PacketSure.
+
+From ssinger at ca.afilias.info  Thu Jul 29 12:46:01 2010
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Thu, 29 Jul 2010 15:46:01 -0400
+Subject: [Slony1-general] Replication failure for new set
+In-Reply-To: <C1744683-B1B5-4FEE-BBFA-04FE337E9B63@palisadesystems.com>
+References: <C1744683-B1B5-4FEE-BBFA-04FE337E9B63@palisadesystems.com>
+Message-ID: <4C51DA79.4060709@ca.afilias.info>
+
+Guy Helmer wrote:
+> I have an interesting failure that I can't seem to resolve with slony1 1.2.20.  I have setup replication between two nodes and that seems to be working fine.  I wanted to add a new table to replication, so I followed the steps of creating a new set containing the new table, subscribing the second (slave) node to the set, and trying to merge the new set into the existing set. 
+> 
+> I'm using the slonik_create_set / slonik_subscribe_set / slonik_merge_sets scripts, and initially I made the mistake of leaving the "table_id" for the new set, "set2", set to 1 when I tried to create the new set containing the new table.  After correcting the mistake, I fixed the "table_id" for the new set to resolve conflicts with the table_id values for the existing set and successfully created the set and subscribed the set to my second node, #2.  However, when I tried to merge the set 2 into the existing set 1, the command failed:
+> 
+> sm1# slonik_merge_sets --config slon_tools_db-new.conf 1 1 2 | slonik
+> <stdin>:4: PGRES_FATAL_ERROR select "_replication".mergeSet(1, 2);  - ERROR:  Slony-I: set 2 has subscriptions in progress - cannot merge
+> <stdin>:6: Failure to merge sets 1 and 2 with origin 1
+> 
+> FWIW, at this time, I also had made the mistake of not having created the new table in the slave's database.
+> 
+> I tried unsubscribing node 2 from the set, and dropping the set, then recreating the set and resubscribing node 2 to the set, but the merge still failed.  Looking to the log file, I see this in the node 2's log:
+> 
+
+My guess is that you ran the 'merge' command before the subscription 
+finished.  Your subscription probably hadn't finished because the table 
+did exist (per your note below).  What you should have done is created 
+the table on the slave then the subscription would have finished then 
+you could have rerun the merge.
+
+
+
+
+> 2010-07-29 14:02:39 CDT DEBUG2 localListenThread: Received event 2,68315 SYNC
+> 2010-07-29 14:02:42 CDT DEBUG2 remoteListenThread_1: queue event 1,69285 SYNC
+> 2010-07-29 14:02:43 CDT DEBUG1 copy_set 2
+> 2010-07-29 14:02:43 CDT ERROR  remoteWorkerThread_1: node -1 not found in runtime configuration
+> 2010-07-29 14:02:43 CDT WARN   remoteWorkerThread_1: data copy for set 2 failed 211 times - sleep 60 seconds
+> 2010-07-29 14:02:46 CDT DEBUG2 remoteListenThread_1: queue event 1,69286 SYNC
+> 2010-07-29 14:02:49 CDT DEBUG2 syncThread: new sl_action_seq 1 - SYNC 68316
+> 2010-07-29 14:02:49 CDT DEBUG2 localListenThread: Received event 2,68316 SYNC
+> 2010-07-29 14:02:57 CDT DEBUG2 remoteListenThread_1: queue event 1,69287 SYNC
+> 
+> I've tried combinations of restarting the slon daemons, dropping the subscription & set then recreating them, but nothing seems to have helped.
+> 
+> I've found a couple of other threads about "node -1 not found in runtime configuration" errors, but I haven't seen any solutions.  Does it look like I'll have to completely rebuild my slony configuration?  If so, do I have to truncate the tables in the slave database before I restart the replication?
+> 
+
+The node -1 issue is probably caused by you issuing the UNSUBSCRIBE 
+before the subscription is finished.  See 
+http://bugs.slony.info/bugzilla/show_bug.cgi?id=111 this is bug is still 
+outstanding bug.
+
+Your best option is probably to teardown your cluster and redo it.  If 
+that isn't possible then you would need to either mark the subscription 
+events (including the ENABLE_SUBSCRIPTION) as confirmed or delete them 
+along with your MERGE SET and then delete the set and start over (the 
+exact steps/commands/order is probably important but off the top of my 
+head I don't know what they are)
+
+
+
+> Thanks in advance for any help,
+> Guy
+> 
+> --------
+> This message has been scanned by ComplianceSafe, powered by Palisade's PacketSure.
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+
+
+-- 
+Steve Singer
+Afilias Canada
+Data Services Developer
+416-673-1142
+
+From jaime at 2ndquadrant.com  Sat Jul 31 00:09:45 2010
+From: jaime at 2ndquadrant.com (Jaime Casanova)
+Date: Sat, 31 Jul 2010 02:09:45 -0500
+Subject: [Slony1-general] [slony-general] moving tables to another schema
+Message-ID: <AANLkTinOGdhMRHf-tjCGqMpHJK9u-ZBfwcpadnbE=1Za@mail.gmail.com>
+
+Hi,
+
+I want to move some replicated tables to a new schema, so i execute
+"ALTER TABLE SET SCHEMA new_schema" via the SLONIK EXECUTE SCRIPT
+command and the result was:
+- on origin: everything is ok, table moved and sl_table fixed
+- on subscriber: table was moved but sl_table still says that the
+table is in public (i guess i can update sl_table manually but i
+prefer it happens automagically)
+
+this was on pg 8.4 with slony 1.2.20
+
+I also tried to rename the schema via the SLONIK EXECUTE SCRIPT
+command and on subscriber the schema wasn't renamed.
+
+-- 
+Jaime Casanova? ? ? ?? www.2ndQuadrant.com
+Soporte y capacitaci?n de PostgreSQL
+
+From karl at denninger.net  Sat Jul 31 21:19:31 2010
+From: karl at denninger.net (Karl Denninger)
+Date: Sat, 31 Jul 2010 23:19:31 -0500
+Subject: [Slony1-general] Aieeee!  Problem with 2.0.4
+Message-ID: <4C54F5D3.2060703@denninger.net>
+
+I upgraded somewhat-recently from 2.0.2 to 2.0.4, and now I've got a
+serious problem.
+
+The reason for the "gotta do it now" was that somehow one of the tables
+got out of sync, and a delete was failing to propagate - hanging the
+process.
+
+OK, ok, so 2.0.2 with Postgres 8.4.4 is a bit old and mismatched.  So I
+upgraded to 2.0.4 on all the nodes, and told the subscriber to reload -
+ditched the client config and re-subscribed the sets.
+
+All went well until a very large table came up - it failed.
+
+There's no error in the logs indicating why, other than the following:
+
+Jul 31 22:52:53 dbms TICKER[70295]: [153-1] CONFIG remoteWorkerThread_3:
+copy table "public"."images"
+Jul 31 22:52:53 dbms TICKER[70295]: [154-1] CONFIG remoteWorkerThread_3:
+Begin COPY of table "public"."images"
+Jul 31 22:54:24 dbms TICKER[70295]: [155-1] ERROR  remoteWorkerThread_3:
+PGgetCopyData() server closed the connection unexpectedly
+Jul 31 22:54:24 dbms TICKER[70295]: [155-2]     This probably means the
+server terminated abnormally
+Jul 31 22:54:24 dbms TICKER[70295]: [155-3]     before or while
+processing the request.
+Jul 31 22:54:24 dbms TICKER[70295]: [156-1] WARN   remoteWorkerThread_3:
+data copy for set 1 failed 1 times - sleep 15 seconds
+
+And in 15 seconds, the entire process of trying to re-init the node
+starts over - from the beginning!
+
+Near as I can tell, it's failing pretty early on.
+
+The source host is fine.  This particular table contains a BYTEA field,
+and it's BIG.  ~20ish gigs big.  But I've re-initialized in the past
+without problems.  I tried going back to 2.0.2, and that still fails. 
+Both servers are running with encoding set to SQL_ASCII, if it matters.
+
+When it fails the SERVER's COPY is still running - so the client is
+definitely wrong on the reported error.  I have NOTHING in the server's
+SLON log and there are no comms problems between the two hosts.
+
+I'm going to run a dump of the table and see if I can manually bring it
+over to the other host and load it.  There's nothing going on with the
+master that implicates the data being damaged......
+
+Ideas?
+
+-- Karl
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: karl.vcf
+Type: text/x-vcard
+Size: 124 bytes
+Desc: not available
+Url : http://lists.slony.info/pipermail/slony1-general/attachments/20100731/719c0571/attachment.vcf 
+
+From karl at denninger.net  Sat Jul 31 23:00:58 2010
+From: karl at denninger.net (Karl Denninger)
+Date: Sun, 01 Aug 2010 01:00:58 -0500
+Subject: [Slony1-general] Aieeee!  Problem with 2.0.4
+In-Reply-To: <4C54F5D3.2060703@denninger.net>
+References: <4C54F5D3.2060703@denninger.net>
+Message-ID: <4C550D9A.1080305@denninger.net>
+
+Karl Denninger wrote:
+> I upgraded somewhat-recently from 2.0.2 to 2.0.4, and now I've got a
+> serious problem.
+>
+> The reason for the "gotta do it now" was that somehow one of the tables
+> got out of sync, and a delete was failing to propagate - hanging the
+> process.
+>
+> OK, ok, so 2.0.2 with Postgres 8.4.4 is a bit old and mismatched.  So I
+> upgraded to 2.0.4 on all the nodes, and told the subscriber to reload -
+> ditched the client config and re-subscribed the sets.
+>
+> All went well until a very large table came up - it failed.
+>
+> There's no error in the logs indicating why, other than the following:
+>
+> Jul 31 22:52:53 dbms TICKER[70295]: [153-1] CONFIG remoteWorkerThread_3:
+> copy table "public"."images"
+> Jul 31 22:52:53 dbms TICKER[70295]: [154-1] CONFIG remoteWorkerThread_3:
+> Begin COPY of table "public"."images"
+> Jul 31 22:54:24 dbms TICKER[70295]: [155-1] ERROR  remoteWorkerThread_3:
+> PGgetCopyData() server closed the connection unexpectedly
+> Jul 31 22:54:24 dbms TICKER[70295]: [155-2]     This probably means the
+> server terminated abnormally
+> Jul 31 22:54:24 dbms TICKER[70295]: [155-3]     before or while
+> processing the request.
+> Jul 31 22:54:24 dbms TICKER[70295]: [156-1] WARN   remoteWorkerThread_3:
+> data copy for set 1 failed 1 times - sleep 15 seconds
+>
+> And in 15 seconds, the entire process of trying to re-init the node
+> starts over - from the beginning!
+>
+> Near as I can tell, it's failing pretty early on.
+>
+> The source host is fine.  This particular table contains a BYTEA field,
+> and it's BIG.  ~20ish gigs big.  But I've re-initialized in the past
+> without problems.  I tried going back to 2.0.2, and that still fails. 
+> Both servers are running with encoding set to SQL_ASCII, if it matters.
+>
+> When it fails the SERVER's COPY is still running - so the client is
+> definitely wrong on the reported error.  I have NOTHING in the server's
+> SLON log and there are no comms problems between the two hosts.
+>
+> I'm going to run a dump of the table and see if I can manually bring it
+> over to the other host and load it.  There's nothing going on with the
+> master that implicates the data being damaged......
+>
+> Ideas?
+>
+> -- Karl
+>   
+Oh boy, I think I know what's going on....
+
+This looks like a problem in the SSL code (!!!!!)
+
+I shut off SSL and I'm now ~4x further than where the copy has
+previously failed.  For obvious reasons this is decidedly un-good - a
+perusal of the server's log (not slony's, but the server's) disclosed
+several SSL errors in the log, which would account for the problem and
+what the client thought were disconnects - but weren't.
+
+Specifically, I got a bunch of these...
+
+Jul 31 23:00:00 tickerforum postgres[27093]: [9593-2] STATEMENT:  copy
+"public"."images"
+("post_ordinal","ordinal","caption","image","login","file_type","thumb","thumb_width","thumb_height","hidden")
+to stdout;
+Jul 31 23:00:00 tickerforum postgres[27093]: [9594-1] LOG:  SSL error:
+internal error
+Jul 31 23:00:00 tickerforum postgres[27093]: [9594-2] STATEMENT:  copy
+"public"."images"
+("post_ordinal","ordinal","caption","image","login","file_type","thumb","thumb_width","thumb_height","hidden")
+to stdout;
+Jul 31 23:00:01 tickerforum postgres[27093]: [9595-1] LOG:  SSL error:
+internal error
+
+This isn't SLONY's issue, but it's definitely a problem.  I'll report it
+over on the Postgres list in the morning...
+
+In the meantime, I think I can get the copy to go with SSL off, and then
+turn it back on once the copy is complete.
+
+-- Karl
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: karl.vcf
+Type: text/x-vcard
+Size: 124 bytes
+Desc: not available
+Url : http://lists.slony.info/pipermail/slony1-general/attachments/20100801/a1ff49f7/attachment.vcf 
+

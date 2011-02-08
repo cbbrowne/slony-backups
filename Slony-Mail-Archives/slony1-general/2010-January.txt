@@ -1,0 +1,2718 @@
+From vivek at khera.org  Mon Jan  4 12:34:55 2010
+From: vivek at khera.org (Vick Khera)
+Date: Mon, 4 Jan 2010 15:34:55 -0500
+Subject: [Slony1-general] strategy for running many EXECUTE SCRIPT calls
+Message-ID: <2968dfd61001041234h7055add6h6018f780a8575212@mail.gmail.com>
+
+I am about to alter about a 100 inherited tables to change the FK
+reference to point to a more compact and efficient table representing
+the PK for the relation.
+
+Each FK drop/add will potentially take several minutes, so I'd like to
+break it up over time to keep the main application from being totally
+useless for several hours.
+
+My question is can I implement it as a single slonik script with 100
+EXECUTE SCRIPT commands and some "wait" between, or do I need to
+implement 100 slonik scripts and execute them within a shell script
+loop and appropriate wait in between.
+
+That is, will the slonik command lock the whole set for the duration
+of its execution, or will it lock the set per EXECUTE SCRIPT line?
+
+Perhaps my best strategy will be to run this script on my replica node
+only, swap master, then run it on the old origin using EXECUTE ONLY ON
+parameter.
+
+Thanks for any advice.
+
+From melvin6925 at yahoo.com  Mon Jan  4 12:52:26 2010
+From: melvin6925 at yahoo.com (Melvin Davidson)
+Date: Mon, 4 Jan 2010 12:52:26 -0800 (PST)
+Subject: [Slony1-general] strategy for running many EXECUTE SCRIPT calls
+In-Reply-To: <2968dfd61001041234h7055add6h6018f780a8575212@mail.gmail.com>
+Message-ID: <513430.69654.qm@web53001.mail.re2.yahoo.com>
+
+>My question is can I implement it as a single slonik script with 100
+>EXECUTE SCRIPT commands and some "wait" between, or do I need to
+>implement 100 slonik scripts and execute them within a shell script
+>loop and appropriate wait in between.
+
+You can put a pg_sleep(seconds) function in between the ALTERs.eg:
+ALTER TABLE some_table1
+...
+...;
+
+SELECT pg_sleep(300);
+
+ALTER TABLE some_table2
+...
+...;
+
+Will pause 5 minutes between altering some_table1 and some_table2.
+
+Melvin Davidson 
+
+
+
+
+      
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20100104/9e0a7c05/attachment.htm 
+
+From vivek at khera.org  Mon Jan  4 13:03:45 2010
+From: vivek at khera.org (Vick Khera)
+Date: Mon, 4 Jan 2010 16:03:45 -0500
+Subject: [Slony1-general] strategy for running many EXECUTE SCRIPT calls
+In-Reply-To: <513430.69654.qm@web53001.mail.re2.yahoo.com>
+References: <2968dfd61001041234h7055add6h6018f780a8575212@mail.gmail.com>
+	<513430.69654.qm@web53001.mail.re2.yahoo.com>
+Message-ID: <2968dfd61001041303l603ed5d4ge871b4d1dade435c@mail.gmail.com>
+
+On Mon, Jan 4, 2010 at 3:52 PM, Melvin Davidson <melvin6925 at yahoo.com>wrote:
+
+> You can put a pg_sleep(seconds) function in between the ALTERs.
+>
+> but slony will keep the whole thing locked the whole time if I do that.  I
+want to avoid locking my whole set for multiple hours, as that would be very
+very bad[tm].
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20100104/04164397/attachment.htm 
+
+From ajs at crankycanuck.ca  Mon Jan  4 13:27:13 2010
+From: ajs at crankycanuck.ca (Andrew Sullivan)
+Date: Mon, 4 Jan 2010 16:27:13 -0500
+Subject: [Slony1-general] strategy for running many EXECUTE SCRIPT calls
+In-Reply-To: <2968dfd61001041234h7055add6h6018f780a8575212@mail.gmail.com>
+References: <2968dfd61001041234h7055add6h6018f780a8575212@mail.gmail.com>
+Message-ID: <20100104212713.GA8857@shinkuro.com>
+
+On Mon, Jan 04, 2010 at 03:34:55PM -0500, Vick Khera wrote:
+> 
+> My question is can I implement it as a single slonik script with 100
+> EXECUTE SCRIPT commands and some "wait" between, or do I need to
+> implement 100 slonik scripts and execute them within a shell script
+> loop and appropriate wait in between.
+
+Since it's one transaction, you'll be blocked the whole time.
+
+> Perhaps my best strategy will be to run this script on my replica node
+> only, swap master, then run it on the old origin using EXECUTE ONLY ON
+> parameter.
+
+That sounds like a more promising avenue to me, yes.
+
+A
+
+-- 
+Andrew Sullivan
+ajs at crankycanuck.ca
+
+From vivek at khera.org  Tue Jan  5 07:08:50 2010
+From: vivek at khera.org (Vick Khera)
+Date: Tue, 5 Jan 2010 10:08:50 -0500
+Subject: [Slony1-general] strategy for running many EXECUTE SCRIPT calls
+In-Reply-To: <20100104212713.GA8857@shinkuro.com>
+References: <2968dfd61001041234h7055add6h6018f780a8575212@mail.gmail.com>
+	<20100104212713.GA8857@shinkuro.com>
+Message-ID: <2968dfd61001050708g704ad509m36a5be5e62e545f8@mail.gmail.com>
+
+On Mon, Jan 4, 2010 at 4:27 PM, Andrew Sullivan <ajs at crankycanuck.ca> wrote:
+>> Perhaps my best strategy will be to run this script on my replica node
+>> only, swap master, then run it on the old origin using EXECUTE ONLY ON
+>> parameter.
+>
+> That sounds like a more promising avenue to me, yes.
+>
+
+Thanks.  I think I'll plan this out and execute this strategy.
+
+From bob_lunney at yahoo.com  Wed Jan  6 11:17:32 2010
+From: bob_lunney at yahoo.com (Bob Lunney)
+Date: Wed, 6 Jan 2010 11:17:32 -0800 (PST)
+Subject: [Slony1-general] alterTableRestore Error on Slony1-1.2.20 & PG 8.4.1
+Message-ID: <99679.28237.qm@web39703.mail.mud.yahoo.com>
+
+I'm testing Slony1-1.2.20 against PostgreSQL 8.4.1.  Whenever I attempt to execute a script I get an error from slony that the slony trigger for the subscriber table does not exist.  I can recreate this error reliably.
+
+Basically, I follow these steps:
+
+1.  Dump the master database (at this point there is no slony schema).
+2.  Import the dump into the slave database.
+3.  Initialize slony (including creating new slony schemas).
+4.  Create the replication set.
+5.  Start slon on both nodes.
+6.  Subscribe the slave.
+
+So far so good.  Data replication works fine.
+
+7.  Execute a script that creates a store proc (or any statement).
+
+That's when I get the error.  My slonik script does not use "only on <node>" for the "execute script" command, since I want this DDL to propagate from the master to all slaves.
+
+Interestingly enough, if I run ddlScript_Prepare_Int(1, -1) manually, I do not get any errors or notices, and sl_tables, pg_triggers and the replication set triggers look like expected.  I can also reverse the changes by running ddlScript_Complete_Int(1, -1), without errors or notices, and the same tables and objects return to their expected states.
+
+I built slony on the boxes where it is running, against PG 8.4, with no errors and just the usual yacc warnings.
+
+BTW, this operation seems to work fine on PG 8.2 masters and slaves.
+
+I've found and applied the hack Jeff Trout suggested in http://lists.slony.info/pipermail/slony1-general/2009-December/010221.html, but that only bypasses the check for the table not being in an altered state.  How that can be I can't determine, since a check of sl_tables shows tab_altered == t and the denyaccess trigger is on the slave table.  The database log, with log_statement = all, does not show any previous activity on that table or trigger.
+
+Below is the relevant section of the slony log.  Any help would be greatly appreciated.
+
+Thanks in advance,
+
+Bob Lunney
+
+======================================
+
+2010-01-06 11:18:00 EST CONFIG main: slon version 1.2.20 starting up
+2010-01-06 11:18:00 EST CONFIG main: local node id = 2
+2010-01-06 11:18:00 EST CONFIG main: launching sched_start_mainloop
+2010-01-06 11:18:00 EST CONFIG main: loading current cluster configuration
+2010-01-06 11:18:00 EST CONFIG storeNode: no_id=1 no_comment='node 1'
+2010-01-06 11:18:00 EST CONFIG storePath: pa_server=1 pa_client=2 pa_conninfo="host=db_1 dbname=slony user=slony" pa_connretry=10
+2010-01-06 11:18:00 EST CONFIG storeListen: li_origin=1 li_receiver=2 li_provider=1
+2010-01-06 11:18:00 EST CONFIG storeSet: set_id=1 set_origin=1 set_comment='Replication set 1'
+2010-01-06 11:18:00 EST WARN   remoteWorker_wakeup: node 1 - no worker thread
+2010-01-06 11:18:00 EST CONFIG storeSubscribe: sub_set=1 sub_provider=1 sub_forward='t'
+2010-01-06 11:18:00 EST WARN   remoteWorker_wakeup: node 1 - no worker thread
+2010-01-06 11:18:00 EST CONFIG enableSubscription: sub_set=1
+2010-01-06 11:18:00 EST WARN   remoteWorker_wakeup: node 1 - no worker thread
+2010-01-06 11:18:00 EST CONFIG main: configuration complete - starting threads
+NOTICE:  Slony-I: cleanup stale sl_nodelock entry for pid=14704
+2010-01-06 11:18:00 EST CONFIG enableNode: no_id=1
+2010-01-06 11:18:00 EST INFO   Checking local node id
+2010-01-06 11:18:00 EST INFO   Found local node id
+2010-01-06 11:18:00 EST INFO   prepare for DDL script - set:1 onlyonnode:-1
+NOTICE:  Slony-I: alterTableRestore(): Table "public"."table_1" is not in altered state
+CONTEXT:  SQL statement "SELECT  "_slony".alterTableRestore( $1 )"
+PL/pgSQL function "ddlscript_prepare_int" line 46 at PERFORM
+2010-01-06 11:18:00 EST ERROR  remoteWorkerThread_1: "select "_slony".ddlScript_prepare_int(1, -1); " PGRES_FATAL_ERROR ERROR:  trigger "_slony_denyaccess_1" for table "table_1" does not exist
+CONTEXT:  SQL statement "drop trigger "_slony_denyaccess_1" on "public"."table_1""
+PL/pgSQL function "altertablerestore" line 62 at EXECUTE statement
+SQL statement "SELECT  "_slony".alterTableRestore( $1 )"
+PL/pgSQL function "ddlscript_prepare_int" line 46 at PERFORM
+2010-01-06 11:18:00 EST ERROR  remoteWorkerThread_1: DDL preparation failed - set 1 - only on node -1
+2010-01-06 11:18:00 EST INFO   remoteListenThread_1: disconnecting from 'host=db_1 dbname=slony user=slony'
+2010-01-06 11:18:00 EST CONFIG main: slon version 1.2.20 starting up
+2010-01-06 11:18:00 EST CONFIG main: local node id = 2
+2010-01-06 11:18:00 EST CONFIG main: launching sched_start_mainloop
+
+
+
+      
+
+From dba at richyen.com  Fri Jan  8 14:37:11 2010
+From: dba at richyen.com (Richard Yen)
+Date: Fri, 8 Jan 2010 14:37:11 -0800
+Subject: [Slony1-general] double quotes getting removed in 2.0.3 rc3?
+Message-ID: <9092FED5-4E7F-4DF7-AAA5-98E1C7E27FD6@richyen.com>
+
+Hello,
+
+Just wanted to see if anyone else has experienced this with postgres  
+8.4 and slony 2.0.3 rc3...seems like double quotes are being removed  
+from queries.  In my syslog output below, you will see double quotes  
+around "window" because in postgres 8.4, it seems that "window" is a  
+reserved word.
+
+> Jan  8 14:09:39 global-db1 postgres[30423]: [19-1] 2010-01-08  
+> 14:09:39.612 PST [user=USER,db=DB IPADDR PID:30423 XID:0]LOG:   
+> execute dbdpg_p4760_2: INSERT
+> Jan  8 14:09:39 global-db1 postgres[30423]: [19-2]  INTO node (id,  
+> description, pid_host, pid_host_secondary, pid_port, "window",  
+> disk_host, disk_host_secondary, disk_port,
+> Jan  8 14:09:39 global-db1 postgres[30423]: [19-3]  rep_disk_dir,  
+> rep_disk_host, rep_disk_host_secondary, rep_disk_port, is_opt_out,  
+> collection_name)
+> Jan  8 14:09:39 global-db1 postgres[30423]: [19-4]      SELECT $1,  
+> $2, pid_host, pid_host_secondary, pid_port, "window", disk_host,  
+> disk_host_secondary, disk_port, rep_disk_dir,
+> Jan  8 14:09:39 global-db1 postgres[30423]: [19-5]  rep_disk_host,  
+> rep_disk_host_secondary, rep_disk_port, true, 'submitted_work'
+> Jan  8 14:09:39 global-db1 postgres[30423]: [19-6]      FROM   node  
+> WHERE id = $3
+> Jan  8 14:09:39 global-db1 postgres[30423]: [19-7]
+> Jan  8 14:09:39 global-db1 postgres[30423]: [19-8] 2010-01-08  
+> 14:09:39.612 PST [user=USER,db=DB IPADDR PID:30423 XID:0]DETAIL:   
+> parameters: $1 = '545', $2
+> Jan  8 14:09:39 global-db1 postgres[30423]: [19-9]  = 'Institution  
+> Name', $3 = '1'
+
+Apparently, the insertion works, but when it is to be replicated to  
+the subscribers, it fails because the double quotes around "window"  
+are removed:
+
+> Jan  8 14:19:00 global-db3 slon[24792]: [5000640-1] 2010-01-08  
+> 14:19:00 PST ERROR  remoteWorkerThread_1: "insert into  
+> "ip_global"."node"
+> Jan  8 14:19:00 global-db3 slon[24792]: [5000640-2]   
+> (id 
+> ,description 
+> ,created_time 
+> ,is_private 
+> ,is_opt_out 
+> ,pid_host 
+> ,pid_host_secondary,pid_port,window,disk_host,disk_host_secondary,di
+> Jan  8 14:19:00 global-db3 slon[24792]: [5000640-3]  
+> sk_port 
+> ,crawl_rep_host 
+> ,crawl_rep_port 
+> ,is_active 
+> ,rep_disk_dir 
+> ,rep_disk_host,rep_disk_host_secondary,rep_disk_port,crawl_rep_disk_
+> Jan  8 14:19:00 global-db3 slon[24792]: [5000640-4]  
+> host 
+> ,crawl_rep_disk_dir 
+> ,crawl_rep_disk_port 
+> ,crawl_pid_host 
+> ,crawl_pid_port,crawl_pid_host_secondary,collection,collection_name)
+> Jan  8 14:19:00 global-db3 slon[24792]: [5000640-5]  values  
+> ('545','Institution Name','2010-01-08
+> Jan  8 14:19:00 global-db3 slon[24792]: [5000640-6]   
+> 14:09:39.60761-08','f','t','xxx','xxx','3100','4','xxx
+> Jan  8 14:19:00 global-db3 slon[24792]: [5000640-7]  
+> ','xxx,'4010',NULL,NULL,'t','papers/regular/','xxx','xxx
+> Jan  8 14:19:00 global-db3 slon[24792]:  
+> [5000640 
+> -8],'4010',NULL,NULL,NULL,'xxx','4101','xxx',NULL,'submitted_work');
+> Jan  8 14:19:00 global-db3 slon[24792]: [5000640-9] " ERROR:  syntax  
+> error at or near "window"
+> Jan  8 14:19:00 global-db3 slon[24792]: [5000640-10] LINE  
+> 1: ...e,is_opt_out,pid_host,pid_host_secondary,pid_port,window,dis...
+> Jan  8 14:19:00 global-db3 slon[24792]:  
+> [5000640 
+> -11]                                                              ^
+> Jan  8 14:19:00 global-db3 slon[24792]: [5000640-12]  -  
+> qualification was: where log_origin = 1 and (  (
+> Jan  8 14:19:00 global-db3 slon[24792]: [5000640-13]  log_tableid in  
+> (1,2,3,4,5,6,7)
+> Jan  8 14:19:00 global-db3 slon[24792]: [5000640-14]     and  
+> (log_txid < '143242577' and  
+> "pg_catalog".txid_visible_in_snapshot(log_txid,  
+> '143242577:143242577:'))
+> Jan  8 14:19:00 global-db3 slon[24792]: [5000640-15]     and  
+> (log_txid >= '143242563' or log_txid IN (select * from  
+> "pg_catalog".txid_snapshot_xip('143242563:143242563:')))
+> Jan  8 14:19:00 global-db3 slon[24792]: [5000640-16] ) )
+
+Can someone confirm that this is indeed a bug?
+--Richard Yen
+
+From tamanna.madan at globallogic.com  Mon Jan 11 03:56:32 2010
+From: tamanna.madan at globallogic.com (tamanna madaan)
+Date: Mon, 11 Jan 2010 17:26:32 +0530
+Subject: [Slony1-general] does slony use prepared transactions ??
+Message-ID: <68666423656E1444A011106C4E085F4DB3B070@ex3-del1.synapse.com>
+
+Hi All
+
+ 
+
+I am using slony-1.1.5 with postgres-8.1.2 . 
+
+Can anyone please let me know if slony uses prepared transactions.
+
+ 
+
+Thanks a lot in advance 
+
+ 
+
+ 
+
+Regards
+
+Tamanna
+
+ 
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20100111/8115f4fe/attachment.htm 
+
+From vivek at khera.org  Tue Jan 12 07:28:59 2010
+From: vivek at khera.org (Vick Khera)
+Date: Tue, 12 Jan 2010 10:28:59 -0500
+Subject: [Slony1-general] does slony use prepared transactions ??
+In-Reply-To: <68666423656E1444A011106C4E085F4DB3B070@ex3-del1.synapse.com>
+References: <68666423656E1444A011106C4E085F4DB3B070@ex3-del1.synapse.com>
+Message-ID: <2968dfd61001120728p7d73ebb9o1790d1ee3c401e9b@mail.gmail.com>
+
+no. it does not.  why don't you check around with whomever you are
+allowing to use your server if they do?  seems like you're guessing
+here and on the main pg list... :-)
+
+On Mon, Jan 11, 2010 at 6:56 AM, tamanna madaan
+<tamanna.madan at globallogic.com> wrote:
+> Can anyone please let me know if slony uses prepared transactions.
+
+From andy.dale at gmail.com  Wed Jan 13 05:13:56 2010
+From: andy.dale at gmail.com (Andy Dale)
+Date: Wed, 13 Jan 2010 14:13:56 +0100
+Subject: [Slony1-general] drop node not working correctly
+Message-ID: <faa313131001130513l67e48ad1i16034cfde7cbffe8@mail.gmail.com>
+
+Hi,
+
+I have set up a simple 3 node slony cluster, and every thing works pretty
+much as I would expect, however I am running into a few issue when using the
+drop node (in a failover scenario).
+
+I have a simple slonik script to perform a failover as follows (node 1 is
+the old master node to removed):
+
+#!/usr/bin/slonik
+
+include <preamble.sk>;
+
+# hard failover to the backup system
+failover (id = 1, backup node = 2);
+
+# purge out the opersystem node
+drop node (id = 1, event node = 2);
+
+
+The purges node 1 from the current cluster, the updated cluster is the
+correct at node 2 (sl_node has node 2 and 3), but node 3 does not get/apply
+the drop node command (sl_node still has nodes 1, 2, 3).
+
+Looking at the slon log file on node 3 it is still trying to connect to node
+1, and I do not understand why the cluster topology change has not been
+detected on node 3.
+
+Does anyone have any suggestions as to what the problem might be ? I am
+using Slony 1.2.16
+
+Many thanks,
+
+Andy
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20100113/975a8500/attachment.htm 
+
+From amaya.gamarra at gtd.es  Wed Jan 13 05:58:47 2010
+From: amaya.gamarra at gtd.es (Amaya Gamarra)
+Date: Wed, 13 Jan 2010 14:58:47 +0100
+Subject: [Slony1-general] Cleanup operation
+Message-ID: <EA040CFA122D488D8F6A428FBD2A1FAA@gtd.es>
+
+Hi,
+
+ 
+
+I've got a 2 node's slony 1.6.2.2 cluster and I'm inserting 400
+records/second in tables with length 1 day. The records are very simple so I
+don't have any problems during normal synchronisation processes. However,
+when I want to switchover the nodes, I find that sometimes this operation
+takes me 1 minute and other times it takes me 15 minutes.
+
+The reason is that the times it needs 15 minutes to achieve, the cleanup
+thread is performing a delete logs operation that needs about 14 minutes:
+
+ 
+
+DEBUG1 cleanupThread:  842.121 seconds for delete logs
+
+ 
+
+Can somebody tell me why this operation needs so much time and how can I
+tune the application in order to reduce this delay?
+
+ 
+
+Thanks a lot,
+
+ 
+
+Amaya
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20100113/06a40fbc/attachment.htm 
+
+From nimesh.satam at gmail.com  Thu Jan 14 04:15:29 2010
+From: nimesh.satam at gmail.com (Nimesh Satam)
+Date: Thu, 14 Jan 2010 17:45:29 +0530
+Subject: [Slony1-general] Warning while updating postgres using slony
+Message-ID: <65f3e23d1001140415k595af102r34edd9039b5cc7db@mail.gmail.com>
+
+Hi,
+
+We are trying to upgrade postgres from 8.3.5 to 8.4.2 using slony. While
+doing so we get the below warning message:
+
+<stdin>:8: Possible unsupported PostgreSQL version (80402) 8.4, defaulting
+to 8.3 support
+<stdin>:9: Node 2 on pgsql8.4.2 port 5433 defined
+
+The current version of slony been used is 2.0.2.
+
+Can anybody pin point what might be going wrong?
+
+Regards,
+Nimesh.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20100114/1a74ab8a/attachment.htm 
+
+From peter.geoghegan86 at gmail.com  Thu Jan 14 04:22:18 2010
+From: peter.geoghegan86 at gmail.com (Peter Geoghegan)
+Date: Thu, 14 Jan 2010 12:22:18 +0000
+Subject: [Slony1-general] Warning while updating postgres using slony
+In-Reply-To: <65f3e23d1001140415k595af102r34edd9039b5cc7db@mail.gmail.com>
+References: <65f3e23d1001140415k595af102r34edd9039b5cc7db@mail.gmail.com>
+Message-ID: <db471ace1001140422wbec4db0q6131f3276eb5310a@mail.gmail.com>
+
+Hi Nimesh,
+
+I'm on 2.0.2, and have found that this error can be safely ignored. I
+seem to recall reading on slony.info that this unnecessary warning was
+removed in one of the 2.0.3RCs. In any case, 8.4 is supported by
+2.0.2.
+
+Regards,
+Peter Geoghegan
+
+From nimesh.satam at gmail.com  Thu Jan 14 04:23:20 2010
+From: nimesh.satam at gmail.com (Nimesh Satam)
+Date: Thu, 14 Jan 2010 17:53:20 +0530
+Subject: [Slony1-general] Warning while updating postgres using slony
+In-Reply-To: <db471ace1001140422wbec4db0q6131f3276eb5310a@mail.gmail.com>
+References: <65f3e23d1001140415k595af102r34edd9039b5cc7db@mail.gmail.com>
+	<db471ace1001140422wbec4db0q6131f3276eb5310a@mail.gmail.com>
+Message-ID: <65f3e23d1001140423x3e34de11ubed2d5f69f3ed6e4@mail.gmail.com>
+
+Peter,
+
+Thanks for the information.
+
+Regards,
+Nimesh
+
+
+On 1/14/10, Peter Geoghegan <peter.geoghegan86 at gmail.com> wrote:
+>
+> Hi Nimesh,
+>
+> I'm on 2.0.2, and have found that this error can be safely ignored. I
+> seem to recall reading on slony.info that this unnecessary warning was
+> removed in one of the 2.0.3RCs. In any case, 8.4 is supported by
+> 2.0.2.
+>
+> Regards,
+> Peter Geoghegan
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20100114/786e021b/attachment.htm 
+
+From andy.dale at gmail.com  Thu Jan 14 05:30:23 2010
+From: andy.dale at gmail.com (Andy Dale)
+Date: Thu, 14 Jan 2010 14:30:23 +0100
+Subject: [Slony1-general] drop node not working correctly
+In-Reply-To: <faa313131001130513l67e48ad1i16034cfde7cbffe8@mail.gmail.com>
+References: <faa313131001130513l67e48ad1i16034cfde7cbffe8@mail.gmail.com>
+Message-ID: <faa313131001140530u315ec3edie9082685ee835042@mail.gmail.com>
+
+Hi,
+
+I have attempted to investigate further into why the failover/drop node is
+not being picked up on node 3.  Here is the actual output of the slonik
+script in my original post:
+
+[oper at backup slonik]$ slonik forceProviderChangeToBackup.sk
+INFO: calling failedNode(1,2) on node 1
+forceProviderChangeToBackup.sk:9: NOTICE:  failedNode: set 1 has other
+direct receivers - change providers only
+forceProviderChangeToBackup.sk:9: NOTICE:  failedNode: set 2 has no other
+direct receivers - move now
+forceProviderChangeToBackup.sk:9: NOTICE:  failedNode: set 3 has no other
+direct receivers - move now
+INFO: calling failedNode(1,2) on node 3
+forceProviderChangeToBackup.sk:9: NOTICE:  failedNode: set 1 has other
+direct receivers - change providers only
+forceProviderChangeToBackup.sk:9: NOTICE:  failedNode: set 2 has no other
+direct receivers - move now
+forceProviderChangeToBackup.sk:9: NOTICE:  failedNode: set 3 has no other
+direct receivers - move now
+INFO: Waiting for slon engines to restart
+IMPORTANT: Last known SYNC for set 1 = 383
+INFO: Node with highest sync for set 1 is 2
+INFO: Node with highest sync for set 2 is 2
+INFO: Node with highest sync for set 3 is 2
+
+After the inspecting the logfile generated by the slon process at node 3 and
+it seems to pick up on the fact that the set has been moved to node 2, but
+it does not remove node 1.
+
+DEBUG2 remoteWorkerThread_2: Received event 2,180 ACCEPT_SET
+DEBUG2 start processing ACCEPT_SET
+DEBUG2 ACCEPT: set=1
+DEBUG2 ACCEPT: old origin=1
+DEBUG2 ACCEPT: new origin=2
+DEBUG2 ACCEPT: move set seq=384
+DEBUG2 got parms ACCEPT_SET
+DEBUG2 ACCEPT_SET - node not origin
+DEBUG2 remoteListenThread_2: queue event 2,183 SYNC
+DEBUG2 remoteListenThread_2: queue event 2,184 DROP_NODE
+DEBUG2 remoteListenThread_2: queue event 2,185 SYNC
+DEBUG2 ACCEPT_SET - MOVE_SET or FAILOVER_SET not received yet - sleep
+ERROR  slon_connectdb: PQconnectdb("dbname=db host=node1 port=5432
+user=postgres") failed - could not connect to server: Connection refused
+        Is the server running on host "node 1" and accepting
+        TCP/IP connections on port 5432?
+WARN   remoteListenThread_1: DB connection failed - sleep 10 seconds
+DEBUG2 syncThread: new sl_action_seq 1 - SYNC 181
+DEBUG2 remoteListenThread_2: LISTEN
+DEBUG2 remoteListenThread_2: queue event 2,186 SYNC
+DEBUG2 remoteListenThread_2: UNLISTEN
+DEBUG2 ACCEPT_SET - MOVE_SET or FAILOVER_SET not received yet - sleep
+DEBUG2 localListenThread: Received event 3,181 SYNC
+ERROR  slon_connectdb: PQconnectdb("dbname=db host=node1 port=5432
+user=postgres") failed - could not connect to server: Connection refused
+        Is the server running on host "node 1" and accepting
+        TCP/IP connections on port 5432?
+
+
+Does the below line mean it is waiting for some kind of notification from
+somewhere? :
+    DEBUG2 ACCEPT_SET - MOVE_SET or FAILOVER_SET not received yet - sleep
+
+Additionally, does anyone know how to make the slon logs contain a timestamp
+(e.g. DEBUG2 [2009-01-14 12:12] syncThread), as I find it pretty hard to
+follow what is going on when comparing the log files at multiple nodes.
+
+Cheers,
+
+Andy
+
+2010/1/13 Andy Dale <andy.dale at gmail.com>
+
+> Hi,
+>
+> I have set up a simple 3 node slony cluster, and every thing works pretty
+> much as I would expect, however I am running into a few issue when using the
+> drop node (in a failover scenario).
+>
+> I have a simple slonik script to perform a failover as follows (node 1 is
+> the old master node to removed):
+>
+> #!/usr/bin/slonik
+>
+> include <preamble.sk>;
+>
+> # hard failover to the backup system
+> failover (id = 1, backup node = 2);
+>
+> # purge out the opersystem node
+> drop node (id = 1, event node = 2);
+>
+>
+> The purges node 1 from the current cluster, the updated cluster is the
+> correct at node 2 (sl_node has node 2 and 3), but node 3 does not get/apply
+> the drop node command (sl_node still has nodes 1, 2, 3).
+>
+> Looking at the slon log file on node 3 it is still trying to connect to
+> node 1, and I do not understand why the cluster topology change has not been
+> detected on node 3.
+>
+> Does anyone have any suggestions as to what the problem might be ? I am
+> using Slony 1.2.16
+>
+> Many thanks,
+>
+> Andy
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20100114/e58cc697/attachment.htm 
+
+From cbbrowne at ca.afilias.info  Thu Jan 14 09:02:06 2010
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Thu, 14 Jan 2010 12:02:06 -0500
+Subject: [Slony1-general] Cleanup operation
+In-Reply-To: <EA040CFA122D488D8F6A428FBD2A1FAA@gtd.es>
+References: <EA040CFA122D488D8F6A428FBD2A1FAA@gtd.es>
+Message-ID: <4B4F4E0E.6050704@ca.afilias.info>
+
+Amaya Gamarra wrote:
+>
+> Hi,
+>
+> I?ve got a 2 node?s slony 1.6.2.2 cluster and I?m inserting 400 
+> records/second in tables with length 1 day. The records are very 
+> simple so I don?t have any problems during normal synchronisation 
+> processes. However, when I want to switchover the nodes, I find that 
+> sometimes this operation takes me 1 minute and other times it takes me 
+> 15 minutes.
+>
+> The reason is that the times it needs 15 minutes to achieve, the 
+> cleanup thread is performing a delete logs operation that needs about 
+> 14 minutes:
+>
+> DEBUG1 cleanupThread: 842.121 seconds for delete logs
+>
+> Can somebody tell me why this operation needs so much time and how can 
+> I tune the application in order to reduce this delay?
+>
+> Thanks a lot,
+>
+> Amaya
+>
+Once every so often, Slony-I needs to delete old entries from the log 
+tables, sl_log_1 and sl_log_2.
+
+In version 1.2 and earlier, this takes place via DELETE, and if there is 
+a lot of activity, then this will indeed take a not-inconsiderable 
+amount of time.
+
+In version 2.0, the DELETE is replaced with TRUNCATE, which should be 
+rather faster.
+
+From cbbrowne at ca.afilias.info  Thu Jan 14 09:06:31 2010
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Thu, 14 Jan 2010 12:06:31 -0500
+Subject: [Slony1-general] drop node not working correctly
+In-Reply-To: <faa313131001140530u315ec3edie9082685ee835042@mail.gmail.com>
+References: <faa313131001130513l67e48ad1i16034cfde7cbffe8@mail.gmail.com>
+	<faa313131001140530u315ec3edie9082685ee835042@mail.gmail.com>
+Message-ID: <4B4F4F17.1020406@ca.afilias.info>
+
+Andy Dale wrote:
+> Hi,
+>
+> I have attempted to investigate further into why the failover/drop 
+> node is not being picked up on node 3.  Here is the actual output of 
+> the slonik script in my original post:
+>
+> [oper at backup slonik]$ slonik forceProviderChangeToBackup.sk
+> INFO: calling failedNode(1,2) on node 1
+> forceProviderChangeToBackup.sk:9: NOTICE:  failedNode: set 1 has other 
+> direct receivers - change providers only
+> forceProviderChangeToBackup.sk:9: NOTICE:  failedNode: set 2 has no 
+> other direct receivers - move now
+> forceProviderChangeToBackup.sk:9: NOTICE:  failedNode: set 3 has no 
+> other direct receivers - move now
+> INFO: calling failedNode(1,2) on node 3
+> forceProviderChangeToBackup.sk:9: NOTICE:  failedNode: set 1 has other 
+> direct receivers - change providers only
+> forceProviderChangeToBackup.sk:9: NOTICE:  failedNode: set 2 has no 
+> other direct receivers - move now
+> forceProviderChangeToBackup.sk:9: NOTICE:  failedNode: set 3 has no 
+> other direct receivers - move now
+> INFO: Waiting for slon engines to restart
+> IMPORTANT: Last known SYNC for set 1 = 383
+> INFO: Node with highest sync for set 1 is 2
+> INFO: Node with highest sync for set 2 is 2
+> INFO: Node with highest sync for set 3 is 2
+>
+> After the inspecting the logfile generated by the slon process at node 
+> 3 and it seems to pick up on the fact that the set has been moved to 
+> node 2, but it does not remove node 1.
+>
+> DEBUG2 remoteWorkerThread_2: Received event 2,180 ACCEPT_SET
+> DEBUG2 start processing ACCEPT_SET
+> DEBUG2 ACCEPT: set=1
+> DEBUG2 ACCEPT: old origin=1
+> DEBUG2 ACCEPT: new origin=2
+> DEBUG2 ACCEPT: move set seq=384
+> DEBUG2 got parms ACCEPT_SET
+> DEBUG2 ACCEPT_SET - node not origin
+> DEBUG2 remoteListenThread_2: queue event 2,183 SYNC
+> DEBUG2 remoteListenThread_2: queue event 2,184 DROP_NODE
+> DEBUG2 remoteListenThread_2: queue event 2,185 SYNC
+> DEBUG2 ACCEPT_SET - MOVE_SET or FAILOVER_SET not received yet - sleep
+> ERROR  slon_connectdb: PQconnectdb("dbname=db host=node1 port=5432 
+> user=postgres") failed - could not connect to server: Connection refused
+>         Is the server running on host "node 1" and accepting
+>         TCP/IP connections on port 5432?
+> WARN   remoteListenThread_1: DB connection failed - sleep 10 seconds
+> DEBUG2 syncThread: new sl_action_seq 1 - SYNC 181
+> DEBUG2 remoteListenThread_2: LISTEN
+> DEBUG2 remoteListenThread_2: queue event 2,186 SYNC
+> DEBUG2 remoteListenThread_2: UNLISTEN
+> DEBUG2 ACCEPT_SET - MOVE_SET or FAILOVER_SET not received yet - sleep
+> DEBUG2 localListenThread: Received event 3,181 SYNC
+> ERROR  slon_connectdb: PQconnectdb("dbname=db host=node1 port=5432 
+> user=postgres") failed - could not connect to server: Connection refused
+>         Is the server running on host "node 1" and accepting
+>         TCP/IP connections on port 5432?
+>
+>
+> Does the below line mean it is waiting for some kind of notification 
+> from somewhere? :
+>     DEBUG2 ACCEPT_SET - MOVE_SET or FAILOVER_SET not received yet - sleep
+Yup, that indicates that node #3 hasn't completed the failover.  It 
+hasn't fully accepted the new provider.
+I'm not sure what to suggest on that.
+>
+> Additionally, does anyone know how to make the slon logs contain a 
+> timestamp (e.g. DEBUG2 [2009-01-14 12:12] syncThread), as I find it 
+> pretty hard to follow what is going on when comparing the log files at 
+> multiple nodes.
+http://www.slony.info/documentation/runtime-config.html
+
+See the slon parameter log_timestamp.
+
+What I find *I* prefer is to use syslog to collect slon logs, with the 
+result that the timestamps are generated by syslog.  I know our DBAs 
+don't use that; your milage may vary.
+
+From kevink at consistentstate.com  Thu Jan 14 11:41:48 2010
+From: kevink at consistentstate.com (Kevin Kempter)
+Date: Thu, 14 Jan 2010 12:41:48 -0700
+Subject: [Slony1-general] slony switchover & connection pooling tools
+Message-ID: <201001141241.48284.kevink@consistentstate.com>
+
+Hi all;
+
+I'm need a solid solution for both slony as the replication mechanism with a 
+connection pooling/load balancing option for incoming connections from a JDBC 
+app.
+
+Using pgpool II in master_slave mode I can do this:
+
+
+1) do a slony switchover
+
+2) alert pgpool II that the master is down either by issueing a pcp detatch 
+node command or by stopping the slon daemons and shutting down the (former) 
+slony master
+
+My concern with the above is that pgpool II will continue to send writes to 
+the original slony master after the switchover is completed until it detects 
+that it needs to do a failover itself either via a detatch node command or 
+via the health check recognizing that the old master is no longer available
+
+Has anyone else solved this with pgpool II ? If so how?
+
+Has anyone solved this via another tools (say pgbouncer and lvm or pgbouncer 
+and HAProxy or something entirely different)? 
+
+I'd like to hear what everyone else ids doing in this area and how well it's 
+working. What your remaining hurdles are (if any), etc..
+
+Thanks in advance for any feedback.
+
+From andy.dale at gmail.com  Thu Jan 14 12:16:03 2010
+From: andy.dale at gmail.com (Andy Dale)
+Date: Thu, 14 Jan 2010 21:16:03 +0100
+Subject: [Slony1-general] drop node not working correctly
+In-Reply-To: <4B4F4F17.1020406@ca.afilias.info>
+References: <faa313131001130513l67e48ad1i16034cfde7cbffe8@mail.gmail.com>
+	<faa313131001140530u315ec3edie9082685ee835042@mail.gmail.com>
+	<4B4F4F17.1020406@ca.afilias.info>
+Message-ID: <faa313131001141216q68e531a4y2c2e5a0fefc8eef9@mail.gmail.com>
+
+Hi,
+
+
+> Yup, that indicates that node #3 hasn't completed the failover.  It hasn't
+> fully accepted the new provider.
+> I'm not sure what to suggest on that.
+>
+>
+I am certain with the same scripts (except for IP addresses) on 3 different
+machines/nodes the failover worked perfectly, so that would seem to point to
+something at OS level, the question is what ? :-)
+
+
+>> Additionally, does anyone know how to make the slon logs contain a
+>> timestamp (e.g. DEBUG2 [2009-01-14 12:12] syncThread), as I find it pretty
+>> hard to follow what is going on when comparing the log files at multiple
+>> nodes.
+>>
+> http://www.slony.info/documentation/runtime-config.html
+>
+> See the slon parameter log_timestamp.
+>
+> What I find *I* prefer is to use syslog to collect slon logs, with the
+> result that the timestamps are generated by syslog.  I know our DBAs don't
+> use that; your milage may vary.
+>
+
+Thanks for the tips, I will look into this tomorrow.
+
+Cheers,
+
+Andy
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20100114/7e8a1fc5/attachment.htm 
+
+From nimesh.satam at gmail.com  Thu Jan 14 23:31:01 2010
+From: nimesh.satam at gmail.com (Nimesh Satam)
+Date: Fri, 15 Jan 2010 13:01:01 +0530
+Subject: [Slony1-general] Error in slony logs: relation
+	"pg_catalog.pg_autovacuum" does not exist
+Message-ID: <65f3e23d1001142331g2ad52bc3pdec468ccaefc3271@mail.gmail.com>
+
+Hi,
+
+We just upgraded one of the database to 8.4.2 using slony - 2.0.2. After the
+upgrade we are getting the following errors in slony logs:
+
+NOTICE:  Slony-I: Logswitch to sl_log_1 initiated
+CONTEXT:  SQL statement "SELECT  "_inventorycluster".logswitch_start()"
+PL/pgSQL function "cleanupevent" line 101 at PERFORM
+2010-01-14 23:15:59 PST INFO   cleanupThread:    0.043 seconds for
+cleanupEvent()
+2010-01-14 23:15:59 PST DEBUG1 cleanupThread: minxid: 4071
+2010-01-14 23:16:00 PST ERROR  cleanupThread: "select nspname, relname from
+"_inventorycluster".TablesToVacuum();" - ERROR:  relation
+"pg_catalog.pg_autovacuum" does not exist
+LINE 1: select enabled from "pg_catalog".pg_autovacuum where vacreli...
+                            ^
+QUERY:  select enabled from "pg_catalog".pg_autovacuum where vacrelid =  $1
+CONTEXT:  PL/pgSQL function "shouldslonyvacuumtable" line 25 at SQL
+statement
+PL/pgSQL function "tablestovacuum" line 6 at IF
+
+Can anybody let us know whats going wrong here.
+
+Regards,
+Nimesh.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20100115/7887bd6f/attachment.htm 
+
+From guillaume at lelarge.info  Thu Jan 14 23:45:41 2010
+From: guillaume at lelarge.info (Guillaume Lelarge)
+Date: Fri, 15 Jan 2010 08:45:41 +0100
+Subject: [Slony1-general] Error in slony logs:
+ relation	"pg_catalog.pg_autovacuum" does not exist
+In-Reply-To: <65f3e23d1001142331g2ad52bc3pdec468ccaefc3271@mail.gmail.com>
+References: <65f3e23d1001142331g2ad52bc3pdec468ccaefc3271@mail.gmail.com>
+Message-ID: <4B501D25.2030806@lelarge.info>
+
+Le 15/01/2010 08:31, Nimesh Satam a ?crit :
+> Hi,
+> 
+> We just upgraded one of the database to 8.4.2 using slony - 2.0.2. After the
+> upgrade we are getting the following errors in slony logs:
+> 
+> NOTICE:  Slony-I: Logswitch to sl_log_1 initiated
+> CONTEXT:  SQL statement "SELECT  "_inventorycluster".logswitch_start()"
+> PL/pgSQL function "cleanupevent" line 101 at PERFORM
+> 2010-01-14 23:15:59 PST INFO   cleanupThread:    0.043 seconds for
+> cleanupEvent()
+> 2010-01-14 23:15:59 PST DEBUG1 cleanupThread: minxid: 4071
+> 2010-01-14 23:16:00 PST ERROR  cleanupThread: "select nspname, relname from
+> "_inventorycluster".TablesToVacuum();" - ERROR:  relation
+> "pg_catalog.pg_autovacuum" does not exist
+> LINE 1: select enabled from "pg_catalog".pg_autovacuum where vacreli...
+>                             ^
+> QUERY:  select enabled from "pg_catalog".pg_autovacuum where vacrelid =  $1
+> CONTEXT:  PL/pgSQL function "shouldslonyvacuumtable" line 25 at SQL
+> statement
+> PL/pgSQL function "tablestovacuum" line 6 at IF
+> 
+> Can anybody let us know whats going wrong here.
+> 
+
+pg_autovacuum has been removed in 8.4. Probably fixed in 2.0.3, but this
+update is not yet available.
+
+
+-- 
+Guillaume.
+ http://www.postgresqlfr.org
+ http://dalibo.com
+
+From gwyn.connor at googlemail.com  Fri Jan 15 05:22:35 2010
+From: gwyn.connor at googlemail.com (Gwyn Connor)
+Date: Fri, 15 Jan 2010 14:22:35 +0100
+Subject: [Slony1-general] sprintf bug in slon_log function
+Message-ID: <790aa72b1001150522na2b7a84m534d0767a897b413@mail.gmail.com>
+
+Hi,
+
+the slon_log function in 2.0.3-rc3 contains a very bad sprintf bug,
+where source and target buffer are the same. In such a case the
+standard says that the result of sprintf is undefined (according to
+the sprintf man page). And this causes slon to not log timestamps on
+my Gentoo machine.
+
+I am not a C coder, so I don't know the proper way of fixing it. I
+simply hacked in a quick and extremely dirty workaround (it also
+breaks logpid support, but I don't use that anyways):
+
+--- src/slon/misc.c.bak 2010-01-15 12:11:48.254746186 +0100
++++ src/slon/misc.c     2010-01-15 12:12:25.550750724 +0100
+@@ -162,6 +162,7 @@
+        }
+        outbuf[0] = (char) 0;
+
++       time_buf[0] = (char) 0;
+        if (logtimestamp == true && (Use_syslog != 1)
+ #ifdef WIN32
+                && !win32_isservice
+@@ -179,7 +180,7 @@
+        {
+                sprintf(outbuf, "%s[%d] ", outbuf, slon_pid);
+        }
+-       sprintf(outbuf, "%s%-6.6s ", outbuf, level_c);
++       sprintf(outbuf, "%s %-6.6s ", time_buf, level_c);
+
+        off = (int) strlen(outbuf);
+
+
+Regards,
+gwyn
+
+From bench at silentmedia.com  Fri Jan 15 09:28:46 2010
+From: bench at silentmedia.com (Ben Chobot)
+Date: Fri, 15 Jan 2010 10:28:46 -0700
+Subject: [Slony1-general] [GENERAL] vacuum issues under load?
+In-Reply-To: <dcc563d11001150741o1dce6119te5eaeb2c279fa6d1@mail.gmail.com>
+References: <Pine.LNX.4.64.1001142143100.2400@localhost.localdomain>
+	<27928.1263566742@sss.pgh.pa.us>
+	<dcc563d11001150741o1dce6119te5eaeb2c279fa6d1@mail.gmail.com>
+Message-ID: <727063E2-7CDC-49A2-95BA-8C2FF4660762@silentmedia.com>
+
+[moving this from pg-general to slony1-general on the off chance it's more related to slony...]
+
+On Jan 15, 2010, at 8:41 AM, Scott Marlowe wrote:
+
+> On Fri, Jan 15, 2010 at 7:45 AM, Tom Lane <tgl at sss.pgh.pa.us> wrote:
+>> Ben Chobot <bench at silentmedia.com> writes:
+>>> We have recently discovered a problem with our slony-1 cluster of 8.1.19
+>>> installs. Specifically, we are unable to vacuum a table on the master
+>>> node; vacuum always hangs on the same index of the same table. If we do a
+>>> slony switchover and make the other node the master, then *it* will become
+>>> unable to vacuum that index. Vacuum on the slave always works quickly and
+>>> without issue. Vacuum does not hang anywhere else.
+>> 
+>>> When we tried to strace the vacuuming backend, it appeared as if it was
+>>> trying to acquire a lock, but pg_lock showed nothing unexpected for that
+>>> index.
+> 
+> I've seen a situation like there during ddl ops (using the slony
+> execute command to run them on the cluster) where slony halts waiting
+> on vacuum and everything else halts waiting on slony.  That was with
+> slony 1.2
+> 
+> With slony 2.0.3 or so, I had occasional complete lockups of my
+> database that I didn't have time to troubleshoot as it was a live
+> cluster and I had to restart slony and the databases to get them back
+> up and running.
+
+We're using slony 1.2.15, for what that's worth. I don't see anything in the 1.2.x release notes that would indicate any problem like this, but I'm new to slony.
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20100115/e9669567/attachment.htm 
+
+From nitro at zhukcity.ru  Mon Jan 18 04:25:10 2010
+From: nitro at zhukcity.ru (Nickolay)
+Date: Mon, 18 Jan 2010 12:25:10 +0000
+Subject: [Slony1-general] can slony break a transaction with trigger?
+Message-ID: <4B545326.2010606@zhukcity.ru>
+
+Hello all,
+
+First of all, I suspect that slony recognizes any SQL operation and 
+triggered operations as a single transaction, right? For example, I have 
+some table with records, let's call it "messages" and some table with 
+messages' categories, like "categories". And I have a row-level trigger 
+that is fired AFTER insert, update or delete statements on "messages" 
+and increases/decreases the corresponding counter row in table 
+"categories", for example:
+
+table messages
+----------------
+
+msg_id | category_id | text
+1 | 15 | test tralala
+2 | 15 | test trututu
+3 | 16 | hello
+
+table categories
+-----------------
+category_id | title | counter
+15 | test category | 2
+16 | welcomes | 1
+
+CREATE OR REPLACE FUNCTION msgs_upd_counters()
+  RETURNS SETOF trigger AS
+BEGIN
+  IF (TG_OP = 'DELETE') THEN
+      UPDATE categories SET counter=counter-1 WHERE id = OLD.category_id;
+      EXECUTE 'NOTIFY category'||OLD.category_id::text||'_changed';
+    END IF;
+    RETURN OLD;
+  END IF;
+  IF (TG_OP = 'UPDATE') THEN
+    IF (NEW.category_id != OLD.category_id) THEN
+      UPDATE categories SET counter=counter-1 WHERE id = OLD.category_id;
+      EXECUTE 'NOTIFY category'||OLD.category_id::text||'_changed';
+      UPDATE categories SET counter=counter+1 WHERE id = NEW.category_id;
+      EXECUTE 'NOTIFY category'||NEW.category_id::text||'_changed';
+    END IF;
+  END IF;
+  IF (TG_OP = 'INSERT') THEN
+    UPDATE categories SET counter=counter+1 WHERE id = NEW.category_id;
+    EXECUTE 'NOTIFY category'||NEW.category_id::text||'_changed';
+  END IF;
+  RETURN NEW;
+END;
+
+CREATE TRIGGER trg_upd_category
+AFTER INSERT OR UPDATE OR DELETE
+  ON messages
+  FOR EACH ROW
+  EXECUTE PROCEDURE msgs_upd_counters();
+
+Everything works just fine, until I execute FAILOVER or DROP NODE (may 
+be MOVE SET does it too, I don't know).
+Sometimes after that the counters doesn't match the real messages count 
+for some of the categories, i.e. for example, table "categories" shows 
+that "counter" for category_id=15 is 2, but there is only one message in 
+table "messages" with category_id=15.
+I suspect two options:
+1. Either Slony doesn't recognize INSERT INTO messages, UPDATE 
+categories and NOTIFY as ONE SINGLE transaction
+2. Or Slony allows my application to do INSERT/DELETEs while triggers 
+are not activated by Slony (after FAILOVER) yet.
+
+Does anyone has any thoughts on this subject?
+I'm not happy with the idea that I would have to remove this trigger and 
+add a bunch of SQL code to all the INSERT/DELETE/UPDATE operations in my 
+code.
+
+Best regards, Nick.
+
+
+
+From vivek at khera.org  Mon Jan 18 07:47:32 2010
+From: vivek at khera.org (Vick Khera)
+Date: Mon, 18 Jan 2010 10:47:32 -0500
+Subject: [Slony1-general] can slony break a transaction with trigger?
+In-Reply-To: <4B545326.2010606@zhukcity.ru>
+References: <4B545326.2010606@zhukcity.ru>
+Message-ID: <2968dfd61001180747q566ef482rd90ddb97eb546a19@mail.gmail.com>
+
+On Mon, Jan 18, 2010 at 7:25 AM, Nickolay <nitro at zhukcity.ru> wrote:
+> Everything works just fine, until I execute FAILOVER or DROP NODE (may
+> be MOVE SET does it too, I don't know).
+>
+
+
+what versions of everything do you have?  I've never seen any data
+loss on a MOVE SET or DROP NODE.  I haven't done DROP NODE very often,
+so I can't say how robust that is.
+
+Slony does operate at transaction boundaries, and takes locks on
+tables to prevent other operations from happening, so it is hard to
+see how this kind of error would happen.
+
+From nitro at zhukcity.ru  Mon Jan 18 08:07:30 2010
+From: nitro at zhukcity.ru (Nickolay)
+Date: Mon, 18 Jan 2010 19:07:30 +0300
+Subject: [Slony1-general] can slony break a transaction with trigger?
+In-Reply-To: <2968dfd61001180747q566ef482rd90ddb97eb546a19@mail.gmail.com>
+References: <4B545326.2010606@zhukcity.ru>
+	<2968dfd61001180747q566ef482rd90ddb97eb546a19@mail.gmail.com>
+Message-ID: <4B548742.2050807@zhukcity.ru>
+
+CentOS 4.6
+PostgreSQL 8.3.5
+Slony 2.0.2
+
+Vick Khera wrote:
+> what versions of everything do you have?  I've never seen any data
+> loss on a MOVE SET or DROP NODE.  I haven't done DROP NODE very often,
+> so I can't say how robust that is.
+>
+>   
+
+
+From ajs at crankycanuck.ca  Mon Jan 18 08:51:35 2010
+From: ajs at crankycanuck.ca (Andrew Sullivan)
+Date: Mon, 18 Jan 2010 11:51:35 -0500
+Subject: [Slony1-general] can slony break a transaction with trigger?
+In-Reply-To: <4B548742.2050807@zhukcity.ru>
+References: <4B545326.2010606@zhukcity.ru>
+	<2968dfd61001180747q566ef482rd90ddb97eb546a19@mail.gmail.com>
+	<4B548742.2050807@zhukcity.ru>
+Message-ID: <20100118165135.GE68023@shinkuro.com>
+
+On Mon, Jan 18, 2010 at 07:07:30PM +0300, Nickolay wrote:
+> PostgreSQL 8.3.5
+
+I note an awful lot of fixes after that in the 8.3.x branch.  Are you
+quite sure you don't have a data-loss problem in Postgres?  I barely
+scanned the release notes & nothing leaped out at me, but that would
+be the first thing I'd fix.  Note that a response of, "But this only
+happens when I'm doing Slony things," is not going to get a
+sympathetic hearing: Slony is already working at the limits of
+Postgres functionality, and it will exercise parts of the system that
+you won't.  If there's a serious problem fixed by the four subsequent
+minor 8.3 releases, I'll bet a pretty good lunch Slony will tickle it.
+
+(This isn't to say that _is_ the problem, but I think you should rule
+it out first.)
+
+A
+
+-- 
+Andrew Sullivan
+ajs at crankycanuck.ca
+
+From JanWieck at Yahoo.com  Mon Jan 18 12:20:45 2010
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Mon, 18 Jan 2010 15:20:45 -0500
+Subject: [Slony1-general] can slony break a transaction with trigger?
+In-Reply-To: <20100118165135.GE68023@shinkuro.com>
+References: <4B545326.2010606@zhukcity.ru>	<2968dfd61001180747q566ef482rd90ddb97eb546a19@mail.gmail.com>	<4B548742.2050807@zhukcity.ru>
+	<20100118165135.GE68023@shinkuro.com>
+Message-ID: <4B54C29D.8000008@Yahoo.com>
+
+On 1/18/2010 11:51 AM, Andrew Sullivan wrote:
+> On Mon, Jan 18, 2010 at 07:07:30PM +0300, Nickolay wrote:
+>> PostgreSQL 8.3.5
+> 
+> I note an awful lot of fixes after that in the 8.3.x branch.  Are you
+> quite sure you don't have a data-loss problem in Postgres?  I barely
+> scanned the release notes & nothing leaped out at me, but that would
+> be the first thing I'd fix.  Note that a response of, "But this only
+> happens when I'm doing Slony things," is not going to get a
+> sympathetic hearing: Slony is already working at the limits of
+> Postgres functionality, and it will exercise parts of the system that
+> you won't.  If there's a serious problem fixed by the four subsequent
+> minor 8.3 releases, I'll bet a pretty good lunch Slony will tickle it.
+> 
+> (This isn't to say that _is_ the problem, but I think you should rule
+> it out first.)
+
+As a general rule of thumb, nothing (not even slony) is supposed to be 
+even able to break transactional integrity. It is PostgreSQL's job to 
+deny that under all circumstances.
+
+
+Jan
+
+-- 
+Anyone who trades liberty for security deserves neither
+liberty nor security. -- Benjamin Franklin
+
+From varathasiva at gmail.com  Mon Jan 18 13:53:25 2010
+From: varathasiva at gmail.com (Siva)
+Date: Tue, 19 Jan 2010 03:23:25 +0530 (IST)
+Subject: [Slony1-general] Hey Slony1-General, I forgot to mention...
+Message-ID: <2226002.1263851605428.JavaMail.Administrator@pg-2>
+
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20100119/7b23084d/attachment.htm 
+
+From ajs at crankycanuck.ca  Mon Jan 18 14:28:14 2010
+From: ajs at crankycanuck.ca (Andrew Sullivan)
+Date: Mon, 18 Jan 2010 17:28:14 -0500
+Subject: [Slony1-general] can slony break a transaction with trigger?
+In-Reply-To: <4B54C29D.8000008@Yahoo.com>
+References: <4B545326.2010606@zhukcity.ru>
+	<2968dfd61001180747q566ef482rd90ddb97eb546a19@mail.gmail.com>
+	<4B548742.2050807@zhukcity.ru>
+	<20100118165135.GE68023@shinkuro.com> <4B54C29D.8000008@Yahoo.com>
+Message-ID: <20100118222814.GD68865@shinkuro.com>
+
+On Mon, Jan 18, 2010 at 03:20:45PM -0500, Jan Wieck wrote:
+> As a general rule of thumb, nothing (not even slony) is supposed to be  
+> even able to break transactional integrity. It is PostgreSQL's job to  
+> deny that under all circumstances.
+
+Sure, but we need to rule out that there was a serious bug in
+PostgreSQL before we start to look for other things.  That said, I'd
+be astonished if this weren't an aborted transaction of some kind.
+
+A
+
+-- 
+Andrew Sullivan
+ajs at crankycanuck.ca
+
+From maxim.boguk at gmail.com  Tue Jan 19 01:26:06 2010
+From: maxim.boguk at gmail.com (Maxim Boguk)
+Date: Tue, 19 Jan 2010 22:26:06 +1300
+Subject: [Slony1-general] Problem with adding function via EXECUTE SCRIPT
+Message-ID: <ce8e675b1001190126x5a876cbcg9b0325e16c06d800@mail.gmail.com>
+
+I using Slony 1.2.17 + Postgresql 8.4.1
+All running fine until i try to add new function via execute script:
+and i getting function body all time garbled with errors:
+
+Looks like some bug in parsing file with statements.
+
+Here is details:
+
+
+slonik script look like:
+==========
+include <cluster_config.slonik>;
+
+EXECUTE SCRIPT (SET ID=@main, FILENAME = '../sql/update.sql', EVENT
+NODE=@master);
+==========
+
+update.sql look like:
+==========
+CREATE OR REPLACE FUNCTION percent_int(bigint, bigint) RETURNS numeric AS
+$body$
+        DECLARE
+                percent numeric(10,2);
+        BEGIN
+                if $2 = 0 then
+                        percent := 0.00;
+                else
+                        percent := ($1::numeric(10,2) * 100 /
+$2)::numeric(10,2);
+                end if;
+                RETURN
+                        percent;
+        END;
+$body$
+LANGUAGE 'plpgsql';
+=========
+
+When i trying run this with slonik i got error:
+postgres at shalyapin:~/dba/plus1/slonik_scripts$ slonik ./execute_script.slonik
+DDL script consisting of 3 SQL statements
+DDL Statement 0: (0,1026) [CREATE OR REPLACE FUNCTION
+percent_int(bigint, bigint) RETURNS numeric AS$body$ OR REPLACE
+FUNCTION percent_int(bigint, bigint) RETURNS numeric AS
+DECLARECE FUNCTION percent_int(bigint, bigint) RETURNS numeric AS
+          percent numeric(10,2);(bigint, bigint) RETURNS numeric AS
+    BEGIN   percent numeric(10,2);(bigint, bigint) RETURNS numeric AS
+              if $2 = 0 thenc(10,2);(bigint, bigint) RETURNS numeric
+AS                        percent := 0.00;igint, bigint) RETURNS
+numeric AS                else    percent := 0.00;igint, bigint)
+RETURNS numeric AS                        percent :=
+($1::numeric(10,2) * 100 / $2)::numeric(10,2);T6
+                end if; percent := ($1::numeric(10,2) * 100 /
+$2)::numeric(10,2);T6
+                RETURN; percent := ($1::numeric(10,2) * 100 /
+$2)::numeric(10,2);T6
+                        percent;:= ($1::numeric(10,2) * 100 /
+$2)::numeric(10,2);T6
+        END;            percent;:= ($1::numeric(10,2) * 100 /
+$2)::numeric(10,2);T6
+$body$  END;]
+DDL Statement failed - PGRES_FATAL_ERROR
+
+And in postgresql log i see:
+2010-01-19 11:47:02 MSK 10236 slony at plus1 [vxid:52/24956042
+txid:554963435] [idle in transaction] ERROR:  syntax error at or near
+"cent" at character 969
+2010-01-19 11:47:02 MSK 10236 slony at plus1 [vxid:52/24956042
+txid:554963435] [idle in transaction] STATEMENT:  CREATE OR REPLACE
+FUNCTION percent_int(bigint, bigint) RETURNS numeric AS $body$ OR
+REPLACE FUNCTION percent_int(bigint, bigint) RETURNS numeric AS
+DECLARER REPLACE FUNCTION percent_int(bigint, bigint) RETURNS numeric
+AS                percent numeric(10,2);ON percent_int(bigint, bigint)
+RETURNS numeric AS
+        BEGINent numeric(10,2);ON percent_int(bigint, bigint) RETURNS
+numeric AS                if $2 = 0 thenc(10,2);ON percent_int(bigint,
+bigint) RETURNS numeric AS                         percent :=
+0.00;0,2);ON percent_int(bigint, bigint) RETURNS numeric AS
+elsecent := 0.00;0,2);ON percent_int(bigint, bigint) RETURNS numeric
+AS                         percent := ($1::numeric(10,2) * 100 /
+$2)::numeric(10,2);NS numeric AS          end if;t :=
+($1::numeric(10,2) * 100 / $2)::numeric(10,2);NS numeric AS
+     RETURN t := ($1::numeric(10,2) * 100 / $2)::numeric(10,2);NS
+numeric AS                         percent;:= ($1::numeric(10,2) * 100
+/ $2)::numeric(10,2);NS numeric AS  END;rcent;:= ($1::numeric(10,2) *
+100 / $2)::numeric(10,2);NS numeric AS $body$cent;
+
+
+-- 
+=======================================================
+? ? ????????: http://vkontakte.ru/id16323414
+???? ?????? ?????, ?? ?? ??? ? ????? ????? - ??????, ?? ? ???? ?????? ?? ???.
+
+From nitro at zhukcity.ru  Tue Jan 19 06:18:45 2010
+From: nitro at zhukcity.ru (Nickolay)
+Date: Tue, 19 Jan 2010 17:18:45 +0300
+Subject: [Slony1-general] can slony break a transaction with trigger?
+In-Reply-To: <20100118165135.GE68023@shinkuro.com>
+References: <4B545326.2010606@zhukcity.ru>	<2968dfd61001180747q566ef482rd90ddb97eb546a19@mail.gmail.com>	<4B548742.2050807@zhukcity.ru>
+	<20100118165135.GE68023@shinkuro.com>
+Message-ID: <4B55BF45.6090403@zhukcity.ru>
+
+Okay, I will try to upgrade to the latest 8.3 branch and get back on 
+this topic.
+In what sequence does Slony enable triggers and unlock the set? Is there 
+any chance that some of my transactions are being started before Slony 
+enables the (user's) triggers, but after the replication set is unlocked?
+
+Andrew Sullivan wrote:
+> On Mon, Jan 18, 2010 at 07:07:30PM +0300, Nickolay wrote:
+>   
+>> PostgreSQL 8.3.5
+>>     
+>
+> I note an awful lot of fixes after that in the 8.3.x branch.  Are you
+> quite sure you don't have a data-loss problem in Postgres?  I barely
+> scanned the release notes & nothing leaped out at me, but that would
+> be the first thing I'd fix.  Note that a response of, "But this only
+> happens when I'm doing Slony things," is not going to get a
+> sympathetic hearing: Slony is already working at the limits of
+> Postgres functionality, and it will exercise parts of the system that
+> you won't.  If there's a serious problem fixed by the four subsequent
+> minor 8.3 releases, I'll bet a pretty good lunch Slony will tickle it.
+>
+> (This isn't to say that _is_ the problem, but I think you should rule
+> it out first.)
+>
+> A
+>
+>   
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20100119/2161bb60/attachment.htm 
+
+From ajs at crankycanuck.ca  Tue Jan 19 07:43:40 2010
+From: ajs at crankycanuck.ca (Andrew Sullivan)
+Date: Tue, 19 Jan 2010 10:43:40 -0500
+Subject: [Slony1-general] can slony break a transaction with trigger?
+In-Reply-To: <4B55BF45.6090403@zhukcity.ru>
+References: <4B545326.2010606@zhukcity.ru>
+	<2968dfd61001180747q566ef482rd90ddb97eb546a19@mail.gmail.com>
+	<4B548742.2050807@zhukcity.ru>
+	<20100118165135.GE68023@shinkuro.com>
+	<4B55BF45.6090403@zhukcity.ru>
+Message-ID: <20100119154340.GI72363@shinkuro.com>
+
+On Tue, Jan 19, 2010 at 05:18:45PM +0300, Nickolay wrote:
+> Okay, I will try to upgrade to the latest 8.3 branch and get back on  
+> this topic.
+> In what sequence does Slony enable triggers and unlock the set? Is there  
+> any chance that some of my transactions are being started before Slony  
+> enables the (user's) triggers, but after the replication set is unlocked?
+
+I don't understand the question.  _Everything_ is locked then the
+triggers are added.  It's one big transaction.  Maybe I don't
+understand what you're doing.  Maybe you need to provide a more
+complete description of what you are observing and what the
+transaction flow is like.
+
+A
+
+
+-- 
+Andrew Sullivan
+ajs at crankycanuck.ca
+
+From amaya.gamarra at gtd.es  Fri Jan 22 00:30:00 2010
+From: amaya.gamarra at gtd.es (Amaya Gamarra)
+Date: Fri, 22 Jan 2010 09:30:00 +0100
+Subject: [Slony1-general] CREATE SET timeout
+Message-ID: <AD17B1C49FD84E04BAF9E56CF8DBD9F7@gtd.es>
+
+Hello,
+
+ 
+
+We've got a slony 1.2.14 cluster running over 2 postgres 8.1.11 servers. We
+try to create a replication set on an already full table with the command:
+
+ 
+
+ 
+
+    "slonik <<_EOF_\nINCLUDE <common.inc>;\nCREATE SET (ID = 100, ORIGIN =
+$local_node$, COMMENT = 'Temporary set');\n tables  \
+
+               SUBSCRIBE SET ( ID = 100, PROVIDER = $local_node$, RECEIVER =
+$peer_node$, FORWARD = YES );\n \
+
+               SYNC(ID = $local_node$);\n \
+
+               WAIT FOR EVENT (ORIGIN = $local_node$, CONFIRMED =
+$peer_node$, WAIT ON = $local_node$);\n \
+
+               MERGE SET( ID = 1, ADD ID = 100, ORIGIN =
+$local_node$);\n_EOF_" 
+
+ 
+
+Depending on the table size we get a timeout error message: "timeout
+exceeded while waiting for event confirmation" and the operation is
+cancelled. I've tried to tune the remote_listen_timeout parameter even with
+the maximal allowed value (30000 ) in vain.
+
+ 
+
+Can anybody suggest me what I'm doing wrong?
+
+ 
+
+Amaya
+
+ 
+
+ 
+
+ 
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20100122/c8e2de48/attachment.html 
+
+From stephane.schildknecht at postgresql.fr  Fri Jan 22 04:51:01 2010
+From: stephane.schildknecht at postgresql.fr (=?ISO-8859-15?Q?=22St=E9phane_A=2E_Schildknecht=22?=)
+Date: Fri, 22 Jan 2010 13:51:01 +0100
+Subject: [Slony1-general] CREATE SET timeout
+In-Reply-To: <AD17B1C49FD84E04BAF9E56CF8DBD9F7@gtd.es>
+References: <AD17B1C49FD84E04BAF9E56CF8DBD9F7@gtd.es>
+Message-ID: <4B599F35.7050301@postgresql.fr>
+
+-----BEGIN PGP SIGNED MESSAGE-----
+Hash: SHA1
+
+Amaya Gamarra a ?crit :
+> Hello,
+> 
+>  
+> 
+> We?ve got a slony 1.2.14 cluster running over 2 postgres 8.1.11 servers.
+> We try to create a replication set on an already full table with the
+> command:
+> 
+>  
+> 
+>  
+> 
+>     /"slonik <<_EOF_\nINCLUDE <common.inc>;\nCREATE SET (ID = 100,
+> ORIGIN = $local_node$, COMMENT = 'Temporary set');\n tables  \/
+> 
+> /               SUBSCRIBE SET ( ID = 100, PROVIDER = $local_node$,
+> RECEIVER = $peer_node$, FORWARD = YES );\n \/
+> 
+> /               SYNC(ID = $local_node$);\n \/
+> 
+> /               WAIT FOR EVENT (ORIGIN = $local_node$, CONFIRMED =
+> $peer_node$, WAIT ON = $local_node$);\n \/
+> 
+> /               MERGE SET( ID = 1, ADD ID = 100, ORIGIN =
+> $local_node$);\n_EOF_"/
+> 
+>  
+> 
+> Depending on the table size we get a timeout error message: ?timeout
+> exceeded while waiting for event confirmation? and the operation is
+> cancelled. I?ve tried to tune the r//emote_listen_timeout ////parameter
+> even with the maximal allowed value (//30000 ) in vain.
+> 
+>  
+> 
+> Can anybody suggest me what I?m doing wrong?
+> 
+>  
+> 
+
+Hi,
+
+Assuming the word "tables" stands for "set add table..." I don't see anything
+clearly wrong. Could you try with timeout = 0, which implies no timeout at all ?
+
+Regards,
+- --
+St?phane Schildknecht
+http://www.postgresql.fr
+-----BEGIN PGP SIGNATURE-----
+Version: GnuPG v1.4.6 (GNU/Linux)
+Comment: Using GnuPG with Mozilla - http://enigmail.mozdev.org
+
+iD8DBQFLWZ81A+REPKWGI0ERAoQrAKDfnfH4XrJ7MDWZuzcIOfO3llgABgCfb5cc
+hlJMIh1IKrq24lA4I7AmmOU=
+=YXlZ
+-----END PGP SIGNATURE-----
+
+From bpineau at elma.fr  Sat Jan 23 04:58:18 2010
+From: bpineau at elma.fr (Benjamin Pineau)
+Date: Sat, 23 Jan 2010 13:58:18 +0100
+Subject: [Slony1-general] lightweight DDLs changes method (would this break?)
+Message-ID: <20100123125818.GA4679@mailer.elma.fr>
+
+Hi,                             
+                                
+I've too much traffic to find an edge between locks.
+I can hardly afford an application outage.
+Using Slony 1.2.15, pg 8.2 and 8.3, having only one replication set.
+
+My DDLs changes are usually pretty trivial (mostly "ADD COLUMN"): they
+only touch one table at time, they they don't rename things, they never 
+alter primary keys, they don't add triggers or rewrite rules.
+All replicated tables have their own, explicit primary keys (no add key).
+                                                         
+Looking quickly at slony's source code, I thought this may be sufficient to
+run my ALTERs on replicated tables, avoiding an heavyweight "EXECUTE SCRIPT":
+                                                         
+                                                         
+  BEGIN;                                                 
+  LOCK TABLE mytable;                                    
+  -- Wait for pending events touching this table to propagate on subscribers.
+  -- Then run the same "BEGIN ; LOCK TABLE mytable;" on all subscribers.
+
+  -- On all nodes
+  ALTER mytable ...
+
+  -- On origin node (only there?)
+  SELECT _mycluster.alterTableRestore(42);
+  SELECT _mycluster.alterTableForReplication(42);
+
+  -- On all nodes (origin and subscribers)
+  COMMIT;
+
+
+Would this work or did I overlooked something?
+
+I wonder if the alterTableRestore and alterTableForReplication are mandatory
+on subscribers, or only on origin. EXECUTE SCRIPT run them everywhere but
+this doesn't look necessary when we're not touching triggers/rewrites (?).
+
+And I'm not sure whether it would be wise to stop slon daemons meanwhile. My
+understanding is that when avoiding ddlScript_complete(), aforementioned
+actions wouldn't generate any event, so slon wouldn't notice anything.
+
+Thanks
+
+From bpineau at elma.fr  Sat Jan 23 08:40:39 2010
+From: bpineau at elma.fr (Benjamin Pineau)
+Date: Sat, 23 Jan 2010 17:40:39 +0100
+Subject: [Slony1-general] Problem with adding function via EXECUTE SCRIPT
+In-Reply-To: <ce8e675b1001190126x5a876cbcg9b0325e16c06d800@mail.gmail.com>
+References: <ce8e675b1001190126x5a876cbcg9b0325e16c06d800@mail.gmail.com>
+Message-ID: <20100123164039.GB4679@mailer.elma.fr>
+
+I'm very new to slony and may well be wrong, 
+but this rings a bell since I've just looked at this part of slony's source.
+
+On Tue, Jan 19, 2010 at 10:26:06PM +1300, Maxim Boguk wrote:
+> When i trying run this with slonik i got error:
+> postgres at shalyapin:~/dba/plus1/slonik_scripts$ slonik ./execute_script.slonik
+> DDL script consisting of 3 SQL statements
+> DDL Statement 0: (0,1026) [CREATE OR REPLACE FUNCTION
+> percent_int(bigint, bigint) RETURNS numeric AS$body$ OR REPLACE
+> FUNCTION percent_int(bigint, bigint) RETURNS numeric AS
+> DECLARECE FUNCTION percent_int(bigint, bigint) RETURNS numeric AS
+>           percent numeric(10,2);(bigint, bigint) RETURNS numeric AS
+>     BEGIN   percent numeric(10,2);(bigint, bigint) RETURNS numeric AS
+
+This looks like something you may get when feeding slonik with an sql
+script containing CRLF end of lines.
+Does running "sed -i -e 's/\r//g' ../sql/update.sql" improve things ?
+
+Ie. in src/slonik/slonik.c, in replace_token() function we have this,
+which seems buggy :
+
+  for (i = o = 0; i < numlines; i++, o++)
+  {
+        /* just copy pointer if NULL or no change needed */
+	if (!lines[i] || (strncmp((const char *)lines + i, token, toklen)))
+	{
+		if (lines[i] == 0x0d)           /* ||(lines[i] == 0x0a)) */
+			break;
+
+Maybe the intent was to trim CR from statements, but this actually
+truncate strings, and let them overflow since "o" is used later to
+null-terminate the string. Commenting those two lines would avoid
+problems. Or if we really want to remove \r :
+
+		if (lines[i] == 0x0d)           /* ||(lines[i] == 0x0a)) */ {
+			o--; continue;
+		}
+
+
+From ajs at crankycanuck.ca  Mon Jan 25 06:39:51 2010
+From: ajs at crankycanuck.ca (Andrew Sullivan)
+Date: Mon, 25 Jan 2010 09:39:51 -0500
+Subject: [Slony1-general] lightweight DDLs changes method (would
+	this	break?)
+In-Reply-To: <20100123125818.GA4679@mailer.elma.fr>
+References: <20100123125818.GA4679@mailer.elma.fr>
+Message-ID: <20100125143951.GB85637@shinkuro.com>
+
+On Sat, Jan 23, 2010 at 01:58:18PM +0100, Benjamin Pineau wrote:
+
+> Looking quickly at slony's source code, I thought this may be sufficient to
+> run my ALTERs on replicated tables, avoiding an heavyweight "EXECUTE SCRIPT":
+>                                                          
+>                                                          
+>   BEGIN;                                                 
+>   LOCK TABLE mytable;                                    
+>   -- Wait for pending events touching this table to propagate on subscribers.
+>   -- Then run the same "BEGIN ; LOCK TABLE mytable;" on all subscribers.
+> 
+>   -- On all nodes
+>   ALTER mytable ...
+> 
+>   -- On origin node (only there?)
+>   SELECT _mycluster.alterTableRestore(42);
+>   SELECT _mycluster.alterTableForReplication(42);
+> 
+>   -- On all nodes (origin and subscribers)
+>   COMMIT;
+> 
+> 
+> Would this work or did I overlooked something?
+
+This is actually what Slony does.  So it will work.  But it still
+locks everything, note.
+
+> I wonder if the alterTableRestore and alterTableForReplication are mandatory
+> on subscribers, or only on origin. EXECUTE SCRIPT run them everywhere but
+> this doesn't look necessary when we're not touching triggers/rewrites (?).
+
+It's mandatory.  If you don't do this, the slony triggers themselves
+get confused and Bad Things happen.
+
+You need to do everything _last_ on the origin node because if it gets
+the extra column at a logical point in transaction history time when
+any of the replicas aren't ready for such a column, then that replica
+will be broken.
+
+> And I'm not sure whether it would be wise to stop slon daemons meanwhile. My
+> understanding is that when avoiding ddlScript_complete(), aforementioned
+> actions wouldn't generate any event, so slon wouldn't notice anything.
+
+Stopping the slons isn't the important bit, because they just apply
+the records according to the state of the database at the time the
+transactions happened.  AFAIR, you can leave them running.
+
+I encourage you very strongly to test everything out in a lab first,
+several times, before you do any of this.
+
+A
+
+-- 
+Andrew Sullivan
+ajs at crankycanuck.ca
+
+From dba at richyen.com  Mon Jan 25 15:29:57 2010
+From: dba at richyen.com (Richard Yen)
+Date: Mon, 25 Jan 2010 15:29:57 -0800
+Subject: [Slony1-general] "if" instead of "else if"?
+Message-ID: <52243D8E-FBC8-4713-BE55-0EF6A0EE9A06@richyen.com>
+
+Hello,
+
+While parsing through remote_worker.c, I found that there's an "if"  
+statement where it seems possible that it should be an "else if"  
+statement.
+
+My patch:
+Index: slon/remote_worker.c
+===================================================================
+--- slon/remote_worker.c	(revision 806)
++++ slon/remote_worker.c	(working copy)
+@@ -825,7 +825,7 @@
+
+  				need_reloadListen = true;
+  			}
+-			if (strcmp(event->ev_type, "CLONE_NODE") == 0)
++			else if (strcmp(event->ev_type, "CLONE_NODE") == 0)
+  			{
+  				int			no_id = (int) strtol(event->ev_data1, NULL, 10);
+  				int			no_provider = (int) strtol(event->ev_data2, NULL, 10);
+
+Could someone verify that the "else" actually belongs there?  If so,  
+could you please apply the patch (I don't have commit access to the  
+repository)?
+
+Thanks!
+--Richard
+
+From dba at richyen.com  Mon Jan 25 21:12:44 2010
+From: dba at richyen.com (Richard Yen)
+Date: Mon, 25 Jan 2010 21:12:44 -0800
+Subject: [Slony1-general] drop node not working correctly
+In-Reply-To: <4B4F4F17.1020406@ca.afilias.info>
+References: <faa313131001130513l67e48ad1i16034cfde7cbffe8@mail.gmail.com>
+	<faa313131001140530u315ec3edie9082685ee835042@mail.gmail.com>
+	<4B4F4F17.1020406@ca.afilias.info>
+Message-ID: <DD747252-9392-4571-A5ED-1511E4DDE7FC@richyen.com>
+
+
+On Jan 14, 2010, at 9:06 AM, Christopher Browne wrote:
+>> Does the below line mean it is waiting for some kind of notification
+>> from somewhere? :
+>>  DEBUG2 ACCEPT_SET - MOVE_SET or FAILOVER_SET not received yet -  
+>> sleep
+> Yup, that indicates that node #3 hasn't completed the failover.  It
+> hasn't fully accepted the new provider.
+> I'm not sure what to suggest on that.
+
+I'm actually experimenting with this issue on slony 2.0.3 rc3.  It  
+seems that there is a race condition (I'm still trying to pinpoint  
+exactly where it is) where if you call the DROP_NODE command before  
+the FAILOVER_SET command is completed, the ACCEPT_SET command never  
+makes it into sl_event.
+
+However, I have found that if I put a sleep (even 1 second works in my  
+environment), the DROP_NODE command succeeds, and everything proceeds  
+happily.
+
+I don't know exactly where the race condition is, but it appears that  
+if DROP_NODE is called too early, the failoverSet_int() trigger never  
+gets fired (or perhaps something deletes from sl_event prematurely).
+
+I'm continuing to debug this with gdb, and if you guys might have some  
+sort of direction as to where to look, that would be much appreciated.
+
+--Richard
+
+From dba at richyen.com  Mon Jan 25 21:19:59 2010
+From: dba at richyen.com (Richard Yen)
+Date: Mon, 25 Jan 2010 21:19:59 -0800
+Subject: [Slony1-general] drop node not working correctly
+In-Reply-To: <DD747252-9392-4571-A5ED-1511E4DDE7FC@richyen.com>
+References: <faa313131001130513l67e48ad1i16034cfde7cbffe8@mail.gmail.com>
+	<faa313131001140530u315ec3edie9082685ee835042@mail.gmail.com>
+	<4B4F4F17.1020406@ca.afilias.info>
+	<DD747252-9392-4571-A5ED-1511E4DDE7FC@richyen.com>
+Message-ID: <F0EA5405-F741-456E-AEE5-3E400A87880E@richyen.com>
+
+
+On Jan 25, 2010, at 9:12 PM, Richard Yen wrote:
+
+>
+> On Jan 14, 2010, at 9:06 AM, Christopher Browne wrote:
+>>> Does the below line mean it is waiting for some kind of notification
+>>> from somewhere? :
+>>> DEBUG2 ACCEPT_SET - MOVE_SET or FAILOVER_SET not received yet -
+>>> sleep
+>> Yup, that indicates that node #3 hasn't completed the failover.  It
+>> hasn't fully accepted the new provider.
+>> I'm not sure what to suggest on that.
+>
+> I'm actually experimenting with this issue on slony 2.0.3 rc3.  It
+> seems that there is a race condition (I'm still trying to pinpoint
+> exactly where it is) where if you call the DROP_NODE command before
+> the FAILOVER_SET command is completed, the ACCEPT_SET command never
+> makes it into sl_event.
+
+Sorry, I should be a little more specific.  It looks like when the  
+FAILOVER_SET command finishes in slonik, the events have not  
+necessarily been propagated to the slaves (they're only issued to the  
+new master so far).  Therefore, when the DROP_NODE command is called,  
+there is no ACCEPT_SET entry in sl_event on the slaves, thus causing  
+the DROP_NODE to flounder, and it will keep retrying and failing.
+
+Hopefully that makes it a little more clear when I said "the  
+ACCEPT_SET command never makes it to sl_event"
+
+--Richard
+
+From scott.marlowe at gmail.com  Mon Jan 25 22:33:07 2010
+From: scott.marlowe at gmail.com (Scott Marlowe)
+Date: Mon, 25 Jan 2010 23:33:07 -0700
+Subject: [Slony1-general] drop node not working correctly
+In-Reply-To: <F0EA5405-F741-456E-AEE5-3E400A87880E@richyen.com>
+References: <faa313131001130513l67e48ad1i16034cfde7cbffe8@mail.gmail.com>
+	<faa313131001140530u315ec3edie9082685ee835042@mail.gmail.com>
+	<4B4F4F17.1020406@ca.afilias.info>
+	<DD747252-9392-4571-A5ED-1511E4DDE7FC@richyen.com>
+	<F0EA5405-F741-456E-AEE5-3E400A87880E@richyen.com>
+Message-ID: <dcc563d11001252233u32f3187re3b242fb04dfae4f@mail.gmail.com>
+
+On Mon, Jan 25, 2010 at 10:19 PM, Richard Yen <dba at richyen.com> wrote:
+>
+> On Jan 25, 2010, at 9:12 PM, Richard Yen wrote:
+>
+>>
+>> On Jan 14, 2010, at 9:06 AM, Christopher Browne wrote:
+>>>> Does the below line mean it is waiting for some kind of notification
+>>>> from somewhere? :
+>>>> DEBUG2 ACCEPT_SET - MOVE_SET or FAILOVER_SET not received yet -
+>>>> sleep
+>>> Yup, that indicates that node #3 hasn't completed the failover. ?It
+>>> hasn't fully accepted the new provider.
+>>> I'm not sure what to suggest on that.
+>>
+>> I'm actually experimenting with this issue on slony 2.0.3 rc3. ?It
+>> seems that there is a race condition (I'm still trying to pinpoint
+>> exactly where it is) where if you call the DROP_NODE command before
+>> the FAILOVER_SET command is completed, the ACCEPT_SET command never
+>> makes it into sl_event.
+>
+> Sorry, I should be a little more specific. ?It looks like when the
+> FAILOVER_SET command finishes in slonik, the events have not
+> necessarily been propagated to the slaves (they're only issued to the
+> new master so far). ?Therefore, when the DROP_NODE command is called,
+> there is no ACCEPT_SET entry in sl_event on the slaves, thus causing
+> the DROP_NODE to flounder, and it will keep retrying and failing.
+>
+> Hopefully that makes it a little more clear when I said "the
+> ACCEPT_SET command never makes it to sl_event"
+
+Does running a SYNC between them allow it to work?
+
+From dba at richyen.com  Tue Jan 26 07:49:41 2010
+From: dba at richyen.com (Richard Yen)
+Date: Tue, 26 Jan 2010 07:49:41 -0800
+Subject: [Slony1-general] drop node not working correctly
+In-Reply-To: <dcc563d11001252233u32f3187re3b242fb04dfae4f@mail.gmail.com>
+References: <faa313131001130513l67e48ad1i16034cfde7cbffe8@mail.gmail.com>
+	<faa313131001140530u315ec3edie9082685ee835042@mail.gmail.com>
+	<4B4F4F17.1020406@ca.afilias.info>
+	<DD747252-9392-4571-A5ED-1511E4DDE7FC@richyen.com>
+	<F0EA5405-F741-456E-AEE5-3E400A87880E@richyen.com>
+	<dcc563d11001252233u32f3187re3b242fb04dfae4f@mail.gmail.com>
+Message-ID: <F24EA5A6-02E2-470E-9494-8A4BD3C2FC30@richyen.com>
+
+
+On Jan 25, 2010, at 10:33 PM, Scott Marlowe wrote:
+>
+> Does running a SYNC between them allow it to work?
+
+I tried using WAIT FOR EVENT (origin=ALL, confirmed=ALL, wait  
+on=<new_master>) and again using (origin = <new_master>,  
+confirmed=ALL, wait on=<new_master>), but these didn't seem to do  
+anything to alleviate the effects of the race condition.
+
+--Richard
+
+From kevink at consistentstate.com  Tue Jan 26 12:49:40 2010
+From: kevink at consistentstate.com (Kevin Kempter)
+Date: Tue, 26 Jan 2010 13:49:40 -0700
+Subject: [Slony1-general] slon  PST ERROR's
+Message-ID: <201001261349.40594.kevink@consistentstate.com>
+
+Hi All;
+
+
+I'm seeing these errors in my slon log 
+( I've enables slon log archiving to  /usr/local/pgsql/slon_logs ):
+
+2010-01-26 12:44:47 PST ERROR  remoteWorkerThread_1: Cannot write to archive 
+file /usr/local/pgsql/slon_logs/slony1_log_2_00000000000000000006.sql.tmp - not 
+open
+
+
+Anyone know what this is caused by?
+
+Thanks in advance
+
+From er_tamanna at yahoo.com  Thu Jan 28 04:03:38 2010
+From: er_tamanna at yahoo.com (Tamanna)
+Date: Thu, 28 Jan 2010 04:03:38 -0800 (PST)
+Subject: [Slony1-general] logtrigger/denyaccess triggers removed from
+ master/slave
+In-Reply-To: <2968dfd60912181132m22859683u776c040a2b575299@mail.gmail.com>
+References: <68666423656E1444A011106C4E085F4D96F091@ex3-del1.synapse.com>
+	<2968dfd60912181132m22859683u776c040a2b575299@mail.gmail.com>
+Message-ID: <27354891.post@talk.nabble.com>
+
+
+No I am not doing any schema changes . 
+
+any other clue about this problem ?? Have anybody seen the same problem ?? 
+
+
+Vick Khera wrote:
+> 
+> On Fri, Dec 18, 2009 at 2:02 PM, tamanna madaan
+> <tamanna.madan at globallogic.com> wrote:
+>> I want to know what could be the root cause of logtriggers/denyaccess
+>> triggers getting removed from the tables.
+>>
+> 
+> Do you do any schema changes to your database?  If you do not tell
+> slony about them, it will break in strange ways like this.
+> 
+> General rule: always do your DDL changes via EXECUTE SCRIPT slonik
+> command.
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+> 
+> 
+
+-- 
+View this message in context: http://old.nabble.com/logtrigger-denyaccess-triggers-removed-from-master-slave-tp26848398p27354891.html
+Sent from the Slony-I -- General mailing list archive at Nabble.com.
+
+
+From stephane.schildknecht at postgresql.fr  Thu Jan 28 09:23:44 2010
+From: stephane.schildknecht at postgresql.fr (=?ISO-8859-15?Q?=22St=E9phane_A=2E_Schildknecht=22?=)
+Date: Thu, 28 Jan 2010 18:23:44 +0100
+Subject: [Slony1-general] logtrigger/denyaccess triggers removed from
+ master/slave
+In-Reply-To: <27354891.post@talk.nabble.com>
+References: <68666423656E1444A011106C4E085F4D96F091@ex3-del1.synapse.com>	<2968dfd60912181132m22859683u776c040a2b575299@mail.gmail.com>
+	<27354891.post@talk.nabble.com>
+Message-ID: <4B61C820.9000509@postgresql.fr>
+
+-----BEGIN PGP SIGNED MESSAGE-----
+Hash: SHA1
+
+Tamanna a ?crit :
+> No I am not doing any schema changes . 
+> 
+> any other clue about this problem ?? Have anybody seen the same problem ?? 
+> 
+> 
+
+Have you tried to upgrade slony and/or PostgreSQL? The versions you are using
+are really old.
+
+Is there any automatic operation that could alter your schemas?
+
+Regards,
+- --
+St?phane Schildknecht
+Pr?sident de PostgreSQLFr
+http://www.postgresql.fr
+-----BEGIN PGP SIGNATURE-----
+Version: GnuPG v1.4.6 (GNU/Linux)
+Comment: Using GnuPG with Mozilla - http://enigmail.mozdev.org
+
+iD8DBQFLYcggA+REPKWGI0ERAmH0AKDNVHrJgvafbUp3xDrjtySDB7AP/ACfSaJA
+F/fkEJ7iB57AIOWGJXg7iR8=
+=X0gz
+-----END PGP SIGNATURE-----
+
+From tmblue at gmail.com  Thu Jan 28 14:53:59 2010
+From: tmblue at gmail.com (Tory M Blue)
+Date: Thu, 28 Jan 2010 14:53:59 -0800
+Subject: [Slony1-general] new cluster issues.. banging head provider 2 is
+	not an active forwarding node
+Message-ID: <8a547c841001281453q1fb1e276g3535b01f22823e6c@mail.gmail.com>
+
+I have a simplified configuration that I'm trying to debug, since a
+more complicated has the same issues. I'm getting an error  "Slony-I:
+subscribeSet(): provider 2 is not an active forwarding node for
+replication set 1"
+
+Now I'm nor sure what I'm missing, my guess it's uber easy but I'm
+just stepping on my own toes. What I want to configure is a 5 box
+configuration (actually want to make it a tad more dynamic), but for
+conversation sake a 5 box cluster, 1 master, 2 slaves and the 2 slaves
+talk to another set of queryslaves.
+
+The configuration I'm debugging is a simple master to slave with 2
+queryslaves. And I can't figure out what I'm missing, nor if I really
+need paths back to the origin (Masterhost) from the query nodes.
+
+Can you see something totally wrong with my path and listeners info here?
+
+        store path (server = 1, client = 2, conninfo='dbname=clsdb
+host=devidb03 user=postgres password=secure');
+        store path (server = 2, client = 1, conninfo='dbname=clsdb
+host=devidb04 user=postgres password=secure');
+        store path (server = 1, client = 3, conninfo='dbname=clsdb
+host=devidb03 user=postgres password=secure');
+        store path (server = 3, client = 1, conninfo='dbname=clsdb
+host=devidb05 user=postgres password=secure');
+        store path (server = 2, client = 4, conninfo='dbname=clsdb
+host=devidb04 user=postgres password=secure');
+        store path (server = 4, client = 2, conninfo='dbname=clsdb
+host=devqdb03 user=postgres password=secure');
+        store path (server = 1, client = 4, conninfo='dbname=clsdb
+host=devidb03 user=postgres password=secure');
+        store path (server = 4, client = 1, conninfo='dbname=clsdb
+host=devqdb03 user=postgres password=secure');
+        store path (server = 2, client = 3, conninfo='dbname=clsdb
+host=devidb04 user=postgres password=secure');
+        store path (server = 3, client = 2, conninfo='dbname=clsdb
+host=devidb05 user=postgres password=secure');
+        store path (server = 3, client = 4, conninfo='dbname=clsdb
+host=devidb05 user=postgres password=secure');
+        store path (server = 4, client = 3, conninfo='dbname=clsdb
+host=devqdb03 user=postgres password=secure');
+
+        store listen (origin=1, provider = 1, receiver =3);
+        store listen (origin=1, provider = 1, receiver =2);
+        store listen (origin=1, provider = 2, receiver =4);
+        store listen (origin=2, provider = 2, receiver =1);
+        store listen (origin=2, provider = 1, receiver =3);
+        store listen (origin=2, provider = 2, receiver =4);
+        store listen (origin=3, provider = 3, receiver =1);
+        store listen (origin=3, provider = 1, receiver =2);
+        store listen (origin=3, provider = 1, receiver =4);
+        store listen (origin=4, provider = 2, receiver =1);
+        store listen (origin=4, provider = 4, receiver =2);
+        store listen (origin=4, provider = 1, receiver =3);
+
+    subscribe set ( id = 1, provider = 1, receiver = 2, forward = yes);
+    subscribe set ( id = 2, provider = 1, receiver = 2, forward = yes);
+    subscribe set ( id = 3, provider = 1, receiver = 2, forward = yes);
+
+    subscribe set ( id = 1, provider = 1, receiver = 3, forward = yes);
+    subscribe set ( id = 2, provider = 1, receiver = 3, forward = yes);
+    subscribe set ( id = 3, provider = 1, receiver = 3, forward = yes);
+
+    subscribe set ( id = 1, provider = 2, receiver = 4, forward = yes);
+
+
+1-Masternode
+2-Slavenode
+3-Qslave1
+4-Qslave2
+
+ERROR:
+<stdin>:74: PGRES_FATAL_ERROR select "_cls".subscribeSet(1, 2, 4,
+'t');  - ERROR:  Slony-I: subscribeSet(): provider 2 is not an active
+forwarding node for replication set 1
+
+Thanks
+Tory
+
+From melvin6925 at yahoo.com  Thu Jan 28 15:46:41 2010
+From: melvin6925 at yahoo.com (Melvin Davidson)
+Date: Thu, 28 Jan 2010 15:46:41 -0800 (PST)
+Subject: [Slony1-general] new cluster issues.. banging head provider 2
+	is not an active forwarding node
+In-Reply-To: <8a547c841001281453q1fb1e276g3535b01f22823e6c@mail.gmail.com>
+Message-ID: <893070.20041.qm@web53004.mail.re2.yahoo.com>
+
+>? ? subscribe set ( id = 1, provider = 1, receiver = 2, forward = yes);
+>? ? subscribe set ( id = 2, provider = 1, receiver = 2, forward = yes);
+>?? subscribe set ( id = 3, provider = 1, receiver = 2, forward = yes);
+>
+>? ? subscribe set ( id = 1, provider = 1, receiver = 3, forward = yes);
+>? ? subscribe set ( id = 2, provider = 1, receiver = 3, forward = yes);
+>? ? subscribe set ( id = 3, provider = 1, receiver = 3, forward = yes);
+
+>? ? subscribe set ( id = 1, provider = 2, receiver = 4, forward = yes);
+
+>ERROR:
+><stdin>:74: PGRES_FATAL_ERROR select "_cls".subscribeSet(1, 2, 4,
+>'t');? - ERROR:? Slony-I: subscribeSet(): provider 2 is not an active
+>forwarding node for replication set 1
+
+Try adding? a 
+wait for event (origin = <origin_node>, confirmed = <subscriber_node>);
+after _each_ of your subscribe commands.
+
+eg:
+ subscribe set ( id = 1, provider = 1, receiver = 2, forward = yes);
+wait for event (origin = 1 confirmed = 2);
+subscribe set ( id = 2, provider = 1, receiver = 2, forward = yes);
+wait for event (origin = 1 confirmed = 2);
+...
+...
+...
+subscribe set ( id = 3, provider = 1, receiver = 3, forward = yes);
+
+wait for event (origin = 1 confirmed = 3);
+
+subscribe set ( id = 1, provider = 2, receiver = 4, forward = yes);
+
+
+
+Melvin Davidson 
+  
+
+
+
+
+
+      
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20100128/81501b4c/attachment.htm 
+
+From tmblue at gmail.com  Thu Jan 28 16:04:03 2010
+From: tmblue at gmail.com (Tory M Blue)
+Date: Thu, 28 Jan 2010 16:04:03 -0800
+Subject: [Slony1-general] new cluster issues.. banging head provider 2
+	is not an active forwarding node
+In-Reply-To: <893070.20041.qm@web53004.mail.re2.yahoo.com>
+References: <8a547c841001281453q1fb1e276g3535b01f22823e6c@mail.gmail.com>
+	<893070.20041.qm@web53004.mail.re2.yahoo.com>
+Message-ID: <8a547c841001281604s38ad6d5ch80b9684f418c91e7@mail.gmail.com>
+
+On Thu, Jan 28, 2010 at 3:46 PM, Melvin Davidson <melvin6925 at yahoo.com> wrote:
+>
+> >? ? subscribe set ( id = 1, provider = 1, receiver = 2, forward = yes);
+> >? ? subscribe set ( id = 2, provider = 1, receiver = 2, forward = yes);
+> >?? subscribe set ( id = 3, provider = 1, receiver = 2, forward = yes);
+> >
+> >? ? subscribe set ( id = 1, provider = 1, receiver = 3, forward = yes);
+> >? ? subscribe set ( id = 2, provider = 1, receiver = 3, forward = yes);
+> >? ? subscribe set ( id = 3, provider = 1, receiver = 3, forward = yes);
+>
+> >? ? subscribe set ( id = 1, provider = 2, receiver = 4, forward = yes);
+>
+> >ERROR:
+> ><stdin>:74: PGRES_FATAL_ERROR select "_cls".subscribeSet(1, 2, 4,
+> >'t');? - ERROR:? Slony-I: subscribeSet(): provider 2 is not an active
+> >forwarding node for replication set 1
+>
+> Try adding? a
+> wait for event (origin = <origin_node>, confirmed = <subscriber_node>);
+> after _each_ of your subscribe commands.
+>
+> eg:
+> subscribe set ( id = 1, provider = 1, receiver = 2, forward = yes);
+> wait for event (origin = 1, confirmed = 2);
+> subscribe set ( id = 2, provider = 1, receiver = 2, forward = yes);
+> wait for event (origin = 1, confirmed = 2);
+>
+
+Thanks Melvin, I might of broke one of the cardinal rules.. Version,
+what's your VERSION?!
+
+slon 1.2.20.
+
+Ya the problem is my slon cluster is not up at this time. It's a
+script I run to setup the cluster, once it's setup from the master, I
+start slon on the various nodes. So there will be no confirmation
+until I start up slon on the nodes, and I generally don't do that
+until the cluster is setup. So this may not be the solution for me. In
+fact it's odd that it only complains about 1,2,4 and none of the
+others.
+
+So after adding the confirmed my script is stuck,  :) ya because slon
+is not up, so I can't get a confirmation.
+
+Tory
+
+From melvin6925 at yahoo.com  Thu Jan 28 16:14:13 2010
+From: melvin6925 at yahoo.com (Melvin Davidson)
+Date: Thu, 28 Jan 2010 16:14:13 -0800 (PST)
+Subject: [Slony1-general] new cluster issues.. banging head provider 2
+	is not an active forwarding node
+In-Reply-To: <8a547c841001281604s38ad6d5ch80b9684f418c91e7@mail.gmail.com>
+Message-ID: <865735.69239.qm@web53008.mail.re2.yahoo.com>
+
+>what's your VERSION?!
+
+Tory I'm on Slony 1.2.14 with PG 8.2
+
+
+>Ya the problem is my slon cluster is not up at this time. It's a
+>script I run to setup the cluster, once it's setup from the master, I
+>start slon on the various nodes. So there will be no confirmation
+>until I start up slon on the nodes, and I generally don't do that
+>until the cluster is setup. So this may not be the solution for me. In
+>fact it's odd that it only complains about 1,2,4 and none of the
+>others.
+
+>So after adding the confirmed my script is stuck,? :) ya because slon
+>is not up, so I can't get a confirmation.
+
+>Tory
+
+Well Tory, you absolutely need slon up and running on the master and all subscribing nodes.? A subscribe causes all tables on the slave to be either truncated or deleted, then loaded with the data from the provided. But that can't happen without slon running!
+
+--Melvin
+
+
+
+      
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20100128/e16b1958/attachment.htm 
+
+From tmblue at gmail.com  Thu Jan 28 16:50:20 2010
+From: tmblue at gmail.com (Tory M Blue)
+Date: Thu, 28 Jan 2010 16:50:20 -0800
+Subject: [Slony1-general] new cluster issues.. banging head provider 2
+	is not an active forwarding node
+In-Reply-To: <865735.69239.qm@web53008.mail.re2.yahoo.com>
+References: <8a547c841001281604s38ad6d5ch80b9684f418c91e7@mail.gmail.com>
+	<865735.69239.qm@web53008.mail.re2.yahoo.com>
+Message-ID: <8a547c841001281650o7043a88pfd1e0a4d42f2259b@mail.gmail.com>
+
+On Thu, Jan 28, 2010 at 4:14 PM, Melvin Davidson <melvin6925 at yahoo.com> wrote:
+>
+> >what's your VERSION?!
+>
+> Tory I'm on Slony 1.2.14 with PG 8.2
+
+Sorry Melvin, wasn't asking you , just correcting my protocol :)
+>
+>
+>
+> >Ya the problem is my slon cluster is not up at this time. It's a
+> >script I run to setup the cluster, once it's setup from the master, I
+> >start slon on the various nodes. So there will be no confirmation
+> >until I start up slon on the nodes, and I generally don't do that
+> >until the cluster is setup. So this may not be the solution for me. In
+> >fact it's odd that it only complains about 1,2,4 and none of the
+> >others.
+>
+> >So after adding the confirmed my script is stuck,? :) ya because slon
+> >is not up, so I can't get a confirmation.
+>
+> >Tory
+>
+> Well Tory, you absolutely need slon up and running on the master and all subscribing nodes.? A subscribe causes all tables on the slave to be either truncated or deleted, then loaded with the data from the provided. But that can't happen without slon running!
+>
+>
+Understood, but this works in a similar configuration now. The script
+starts by dropping the slon schema, than sets paths, listeners, than
+sets some other information (priviledges etc). Then I start slon on
+all nodes and things start to replicate. I've never had slon running
+when I run this prepare script. Just wondering if it's something
+different now that I'm trying to use a slave as the provider for a
+query server, vs having all servers hit masternode (origin) directly.
+That could be the issue I guess.
+
+Thank you sir!
+
+Tory
+
+From er_tamanna at yahoo.com  Thu Jan 28 20:39:28 2010
+From: er_tamanna at yahoo.com (Tamanna)
+Date: Thu, 28 Jan 2010 20:39:28 -0800 (PST)
+Subject: [Slony1-general] logtrigger/denyaccess triggers removed from
+ master/slave
+In-Reply-To: <4B61C820.9000509@postgresql.fr>
+References: <68666423656E1444A011106C4E085F4D96F091@ex3-del1.synapse.com>
+	<2968dfd60912181132m22859683u776c040a2b575299@mail.gmail.com>
+	<27354891.post@talk.nabble.com> <4B61C820.9000509@postgresql.fr>
+Message-ID: <27366757.post@talk.nabble.com>
+
+
+No, I never tried and don't intend to upgrade slony / postgres.
+I just noticed that I had changed a function's definition using "create or
+replace function" query.
+doesn't that also mean schema change ??
+
+
+&quot;St?phane A. Schildknecht&quot;-3 wrote:
+> 
+> -----BEGIN PGP SIGNED MESSAGE-----
+> Hash: SHA1
+> 
+> Tamanna a ?crit :
+>> No I am not doing any schema changes . 
+>> 
+>> any other clue about this problem ?? Have anybody seen the same problem
+>> ?? 
+>> 
+>> 
+> 
+> Have you tried to upgrade slony and/or PostgreSQL? The versions you are
+> using
+> are really old.
+> 
+> Is there any automatic operation that could alter your schemas?
+> 
+> Regards,
+> - --
+> St?phane Schildknecht
+> Pr?sident de PostgreSQLFr
+> http://www.postgresql.fr
+> -----BEGIN PGP SIGNATURE-----
+> Version: GnuPG v1.4.6 (GNU/Linux)
+> Comment: Using GnuPG with Mozilla - http://enigmail.mozdev.org
+> 
+> iD8DBQFLYcggA+REPKWGI0ERAmH0AKDNVHrJgvafbUp3xDrjtySDB7AP/ACfSaJA
+> F/fkEJ7iB57AIOWGJXg7iR8=
+> =X0gz
+> -----END PGP SIGNATURE-----
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+> 
+> 
+
+-- 
+View this message in context: http://old.nabble.com/logtrigger-denyaccess-triggers-removed-from-master-slave-tp26848398p27366757.html
+Sent from the Slony-I -- General mailing list archive at Nabble.com.
+
+
+From bnichols at ca.afilias.info  Fri Jan 29 13:02:29 2010
+From: bnichols at ca.afilias.info (Brad Nicholson)
+Date: Fri, 29 Jan 2010 16:02:29 -0500
+Subject: [Slony1-general] new cluster issues.. banging head provider 2
+ is not an active forwarding node
+In-Reply-To: <8a547c841001281650o7043a88pfd1e0a4d42f2259b@mail.gmail.com>
+References: <8a547c841001281604s38ad6d5ch80b9684f418c91e7@mail.gmail.com>
+	<865735.69239.qm@web53008.mail.re2.yahoo.com>
+	<8a547c841001281650o7043a88pfd1e0a4d42f2259b@mail.gmail.com>
+Message-ID: <1264798949.4270.31.camel@bnicholson-desktop>
+
+On Thu, 2010-01-28 at 16:50 -0800, Tory M Blue wrote:
+> Understood, but this works in a similar configuration now. The script
+> starts by dropping the slon schema, than sets paths, listeners, than
+> sets some other information (priviledges etc). Then I start slon on
+> all nodes and things start to replicate. I've never had slon running
+> when I run this prepare script. Just wondering if it's something
+> different now that I'm trying to use a slave as the provider for a
+> query server, vs having all servers hit masternode (origin) directly.
+> That could be the issue I guess.
+
+
+Adding the cascaded replica is indeed the difference.
+
+In your first case, all the subscription are coming off node1.  The
+slonik command creates the events, but they are not processed until the
+slons are started.  When you start the slons up, the subscribe set
+events get processed, and everything works.
+
+In the second case, when you start the slons and the events get
+processed, you are processing the subscribe set event for the cascaded
+subscriber before the provider is an active subscriber itself.  This is
+what breaks.
+
+There probably should be a check in the subscribe set slonik command to
+ensure that the provider is subscribed and an active forwarder before
+accepting the event. 
+
+-- 
+Brad Nicholson  416-673-4106
+Database Administrator, Afilias Canada Corp.
+
+
+
+From riyav at hotmail.com  Fri Jan 29 16:17:00 2010
+From: riyav at hotmail.com (rsv)
+Date: Fri, 29 Jan 2010 16:17:00 -0800 (PST)
+Subject: [Slony1-general]  Error while trying to set upi cascaded slave
+Message-ID: <27380132.post@talk.nabble.com>
+
+
+I have the slony 1.24 running on postgres 8.34
+
+I get the following error when i run my slon setup script. I have 3 nodes, 1
+replicated to 2 and 2 cascades to 3.
+
+Error
+<stdin>:23: PGRES_FATAL_ERROR select "_slonytest".subscribeSet(1, 2, 4,
+'f');  - ERROR:  Slony-I: subscribeSet(): set 1 not found
+
+My script
+
+slonik <<_EOF_
+cluster name = slonytest;
+node 1 admin conninfo = 'dbname=slonytestdb host=db1.eng.company.net
+user=pos  password=pos123';
+node 2 admin conninfo = 'dbname=slonytestdb host=db2.eng.company.net
+user=pos  password=pos123';
+node 4 admin conninfo = 'dbname=slonytestdb host=db3.eng.company.net
+user=pos  password=pos123';
+
+init cluster ( id=1, comment = 'Master Node');
+store node (id=2, comment = 'Primary Slave node');
+store node (id=4, comment = 'Primary query node');
+
+
+store path (server = 1, client = 2, conninfo='dbname=slontestdb
+host=db1.eng.company.net user=postgres password=pos123');
+store path (server = 2, client = 1, conninfo='dbname=slontestdb
+host=db2.eng.company.net  user=pos password=pos123');
+store path (server = 2, client = 4, conninfo='dbname=slontestdb
+host=db3.eng.company.net  user=pos password=postgres1234');
+store path (server = 4, client = 2, conninfo='dbname=slontestdb
+host=db4.eng.company.net  user=pos password=pos123');
+
+
+create set (id=1, origin=1, comment='repl Tables');
+set add table (set id=1, origin=1, id=1, fully qualified name =
+'moot.users', comment='users table');
+
+
+subscribe set ( id = 1, provider = 1, receiver = 2, forward = yes);
+subscribe set ( id = 1, provider = 2, receiver = 4, forward = no);
+_EOF_
+
+Any insight would be appreciated.
+If I comment out the last line (subscribing set 1 from 2 to 4 ), it runs
+without error, so it recognizes set 1 if I don't have the cascaded
+subscribe.
+
+-- 
+View this message in context: http://old.nabble.com/Error-while-trying-to-set-upi-cascaded-slave-tp27380132p27380132.html
+Sent from the Slony-I -- General mailing list archive at Nabble.com.
+
+
+From riyav at hotmail.com  Fri Jan 29 16:17:52 2010
+From: riyav at hotmail.com (rsv)
+Date: Fri, 29 Jan 2010 16:17:52 -0800 (PST)
+Subject: [Slony1-general] Error while trying to set up cascaded Slony slave
+Message-ID: <27380132.post@talk.nabble.com>
+
+
+I have the slony 1.24 running on postgres 8.34
+
+I get the following error when i run my slon setup script. I have 3 nodes, 1
+replicated to 2 and 2 cascades to 3.
+
+Error
+<stdin>:23: PGRES_FATAL_ERROR select "_slonytest".subscribeSet(1, 2, 4,
+'f');  - ERROR:  Slony-I: subscribeSet(): set 1 not found
+
+My script
+
+slonik <<_EOF_
+cluster name = slonytest;
+node 1 admin conninfo = 'dbname=slonytestdb host=db1.eng.company.net
+user=pos  password=pos123';
+node 2 admin conninfo = 'dbname=slonytestdb host=db2.eng.company.net
+user=pos  password=pos123';
+node 4 admin conninfo = 'dbname=slonytestdb host=db3.eng.company.net
+user=pos  password=pos123';
+
+init cluster ( id=1, comment = 'Master Node');
+store node (id=2, comment = 'Primary Slave node');
+store node (id=4, comment = 'Primary query node');
+
+
+store path (server = 1, client = 2, conninfo='dbname=slontestdb
+host=db1.eng.company.net user=postgres password=pos123');
+store path (server = 2, client = 1, conninfo='dbname=slontestdb
+host=db2.eng.company.net  user=pos password=pos123');
+store path (server = 2, client = 4, conninfo='dbname=slontestdb
+host=db3.eng.company.net  user=pos password=postgres1234');
+store path (server = 4, client = 2, conninfo='dbname=slontestdb
+host=db4.eng.company.net  user=pos password=pos123');
+
+
+create set (id=1, origin=1, comment='repl Tables');
+set add table (set id=1, origin=1, id=1, fully qualified name =
+'moot.users', comment='users table');
+
+
+subscribe set ( id = 1, provider = 1, receiver = 2, forward = yes);
+subscribe set ( id = 1, provider = 2, receiver = 4, forward = no);
+_EOF_
+
+Any insight would be appreciated.
+NOTE
+If I comment out the last line (subscribing set 1 from 2 to 4 ), it runs
+without error, so it recognizes set 1 if I don't have the cascaded
+subscribe.
+
+Thanks!
+RSV
+-- 
+View this message in context: http://old.nabble.com/Error-while-trying-to-set-up-cascaded-Slony-slave-tp27380132p27380132.html
+Sent from the Slony-I -- General mailing list archive at Nabble.com.
+
+
+From dba at richyen.com  Fri Jan 29 16:30:11 2010
+From: dba at richyen.com (Richard Yen)
+Date: Fri, 29 Jan 2010 16:30:11 -0800
+Subject: [Slony1-general] drop node not working correctly
+In-Reply-To: <DD747252-9392-4571-A5ED-1511E4DDE7FC@richyen.com>
+References: <faa313131001130513l67e48ad1i16034cfde7cbffe8@mail.gmail.com>
+	<faa313131001140530u315ec3edie9082685ee835042@mail.gmail.com>
+	<4B4F4F17.1020406@ca.afilias.info>
+	<DD747252-9392-4571-A5ED-1511E4DDE7FC@richyen.com>
+Message-ID: <35FC8159-12CE-4185-A21B-8C1CEE358506@richyen.com>
+
+> On Jan 14, 2010, at 9:06 AM, Christopher Browne wrote:
+>>> Does the below line mean it is waiting for some kind of notification
+>>> from somewhere? :
+>>> DEBUG2 ACCEPT_SET - MOVE_SET or FAILOVER_SET not received yet -
+>>> sleep
+>> Yup, that indicates that node #3 hasn't completed the failover.  It
+>> hasn't fully accepted the new provider.
+>> I'm not sure what to suggest on that.
+>
+
+The problem lies in the fact that when FAILOVER_SET is issued, the  
+event origin is the failed node (see slony1_funcs.sql:1318).   
+Subsequently, when the DROP_NODE command is issued to drop the failed  
+node, it will delete from sl_event any rows where ev_origin=failed  
+nodeID (see slony1_funcs.sql:1078).  This will delete the FAILOVER_SET  
+row from the sl_event table, as ev_origin=failed nodeID.
+
+Also, note that the ACCEPT_SET event is generated by the FAILOVER_SET  
+command, under failoverSet_int (see slony1_funcs.sql:1391).
+
+After the DROP_NODE event happens on the backup node (new provider),  
+the subscribers looking for events on the backup node will find an  
+ACCEPT_SET event, attempt to confirm and process it, but they  
+ultimately fail because they can no longer find/confirm/process the  
+FAILOVER_NODE event as it had been removed by the DROP_NODE event.   
+This, it (the subscriber node) enters into an infinite sleep/retry/ 
+fail loop as you have experienced.
+
+Therefore, in order to successfully drop the failed node, one must  
+wait for the FAILOVER_SET event to propagate to the subscribers (you  
+must wait at least <sync_interval> milliseconds) before issuing the  
+DROP_NODE command.
+
+The question I have is--shouldn't the ev_origin for FAILOVER_SET be  
+the nodeID of the backup node?  Seems like it wouldn't make sense that  
+a failed node would create an event; the system should state that the  
+backup node is the one creating the event, right?  I suppose this  
+would be the remedy for the problem.
+
+--Richard
+
+
+From melvin6925 at yahoo.com  Fri Jan 29 16:36:40 2010
+From: melvin6925 at yahoo.com (Melvin Davidson)
+Date: Fri, 29 Jan 2010 16:36:40 -0800 (PST)
+Subject: [Slony1-general] Error while trying to set up cascaded Slony
+	slave
+In-Reply-To: <27380132.post@talk.nabble.com>
+Message-ID: <58350.44686.qm@web53003.mail.re2.yahoo.com>
+
+>subscribe set ( id = 1, provider = 1, receiver = 2, forward = yes);
+>subscribe set ( id = 1, provider = 2, receiver = 4, forward = no);
+>_EOF_
+
+>If I comment out the last line (subscribing set 1 from 2 to 4 ), it runs
+>without error, so it recognizes set 1 if I don't have the cascaded
+>subscribe.
+
+
+Node 2 can not beome a provider until it finishes subscribing with Node 1.
+So you need to have a WAIT FOR EVENT (ORIGIN=1, CONFIRMED=2);
+after the 1st subscribe and before the second. 
+ie;
+
+subscribe set ( id = 1, provider = 1, receiver = 2, forward = yes);
+WAIT FOR EVENT (ORIGIN=1, CONFIRMED=2);
+subscribe set ( id = 1, provider = 2, receiver = 4, forward = no);
+
+Melvin Davidson 
+
+
+
+      
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20100129/40db1b86/attachment.htm 
+
+From riyav at hotmail.com  Fri Jan 29 16:52:33 2010
+From: riyav at hotmail.com (rsv)
+Date: Fri, 29 Jan 2010 16:52:33 -0800 (PST)
+Subject: [Slony1-general] Error while trying to set up cascaded Slony
+ slave
+In-Reply-To: <58350.44686.qm@web53003.mail.re2.yahoo.com>
+References: <27380132.post@talk.nabble.com>
+	<58350.44686.qm@web53003.mail.re2.yahoo.com>
+Message-ID: <27380356.post@talk.nabble.com>
+
+
+Thanks! That worked, but I had to start up the Slon process as the script was
+running. Previously when we did not have cascaded slaves, we ran the setup
+scripts and then started Slon on all the servers.
+Is there a right way to do it? Should you run the slon process on the
+servers first and then run the slon setup script on the Master. 
+
+
+melvin6925 wrote:
+> 
+>>subscribe set ( id = 1, provider = 1, receiver = 2, forward = yes);
+>>subscribe set ( id = 1, provider = 2, receiver = 4, forward = no);
+>>_EOF_
+> 
+>>If I comment out the last line (subscribing set 1 from 2 to 4 ), it runs
+>>without error, so it recognizes set 1 if I don't have the cascaded
+>>subscribe.
+> 
+> 
+> Node 2 can not beome a provider until it finishes subscribing with Node 1.
+> So you need to have a WAIT FOR EVENT (ORIGIN=1, CONFIRMED=2);
+> after the 1st subscribe and before the second. 
+> ie;
+> 
+> subscribe set ( id = 1, provider = 1, receiver = 2, forward = yes);
+> WAIT FOR EVENT (ORIGIN=1, CONFIRMED=2);
+> subscribe set ( id = 1, provider = 2, receiver = 4, forward = no);
+> 
+> Melvin Davidson 
+> 
+> 
+> 
+>       
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+> 
+> 
+
+-- 
+View this message in context: http://old.nabble.com/Error-while-trying-to-set-up-cascaded-Slony-slave-tp27380132p27380356.html
+Sent from the Slony-I -- General mailing list archive at Nabble.com.
+
+
+From melvin6925 at yahoo.com  Fri Jan 29 17:08:47 2010
+From: melvin6925 at yahoo.com (Melvin Davidson)
+Date: Fri, 29 Jan 2010 17:08:47 -0800 (PST)
+Subject: [Slony1-general] Error while trying to set up cascaded Slony
+	slave
+In-Reply-To: <27380356.post@talk.nabble.com>
+Message-ID: <836038.58858.qm@web53003.mail.re2.yahoo.com>
+
+>Thanks! That worked, but I had to start up the Slon process as the script was
+>running. Previously when we did not have cascaded slaves, we ran the setup
+>scripts and then started Slon on all the servers.
+>Is there a right way to do it? Should you run the slon process on the
+>servers first and then run the slon setup script on the Master. 
+
+I don't believe there is an "official" right way to do it. 
+What always works for me though is two scripts. 
+I run one to do the initialize of slony (nodes, paths, tables & seq adds)
+Then I start slon on ALL nodes.
+Then I run the second set to do subscribes.
+
+Melvin Davidson 
+-
+
+
+
+      
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20100129/47455580/attachment.htm 
+
+From riyav at hotmail.com  Fri Jan 29 17:28:55 2010
+From: riyav at hotmail.com (rsv)
+Date: Fri, 29 Jan 2010 17:28:55 -0800 (PST)
+Subject: [Slony1-general] Error while trying to set up cascaded Slony
+ slave
+In-Reply-To: <836038.58858.qm@web53003.mail.re2.yahoo.com>
+References: <27380132.post@talk.nabble.com>
+	<58350.44686.qm@web53003.mail.re2.yahoo.com>
+	<27380356.post@talk.nabble.com>
+	<836038.58858.qm@web53003.mail.re2.yahoo.com>
+Message-ID: <27380506.post@talk.nabble.com>
+
+
+Yes, that would work for us.
+Thanks again.
+
+
+melvin6925 wrote:
+> 
+>>Thanks! That worked, but I had to start up the Slon process as the script
+was
+>>running. Previously when we did not have cascaded slaves, we ran the setup
+>>scripts and then started Slon on all the servers.
+>>Is there a right way to do it? Should you run the slon process on the
+>>servers first and then run the slon setup script on the Master. 
+> 
+> I don't believe there is an "official" right way to do it. 
+> What always works for me though is two scripts. 
+> I run one to do the initialize of slony (nodes, paths, tables & seq adds)
+> Then I start slon on ALL nodes.
+> Then I run the second set to do subscribes.
+> 
+> Melvin Davidson 
+> -
+> 
+> 
+> 
+>       
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+> 
+> 
+
+-- 
+View this message in context: http://old.nabble.com/Error-while-trying-to-set-up-cascaded-Slony-slave-tp27380132p27380506.html
+Sent from the Slony-I -- General mailing list archive at Nabble.com.
+
+

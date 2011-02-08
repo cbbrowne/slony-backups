@@ -1,0 +1,233 @@
+From jeff at frostconsultingllc.com  Mon Oct  1 12:29:52 2007
+From: jeff at frostconsultingllc.com (Jeff Frost)
+Date: Mon Oct  1 12:30:01 2007
+Subject: [Slony1-bugs] Slony 1.2.10: Deadlock on slave during execute
+	script
+In-Reply-To: <60ve9uom8k.fsf@dba2.int.libertyrms.com>
+References: <Pine.LNX.4.64.0709260815230.4701@discord.home.frostconsultingllc.com>
+	<608x6tper4.fsf@dba2.int.libertyrms.com>
+	<Pine.LNX.4.64.0709260935380.20452@discord.home.frostconsultingllc.com>
+	<46FADBF9.9090908@ca.afilias.info>
+	<Pine.LNX.4.64.0709261533590.4701@discord.home.frostconsultingllc.com>
+	<60ve9uom8k.fsf@dba2.int.libertyrms.com>
+Message-ID: <Pine.LNX.4.64.0710011226410.16924@discord.home.frostconsultingllc.com>
+
+On Fri, 28 Sep 2007, Christopher Browne wrote:
+
+> If you could check as to what relation it was reporting it deadlocked
+> on (e.g. - "select * from pg_class where oid = [relation number that
+> was in the log];"), that would be somewhat interesting to know.  If it
+> was a Slony-I-created table, and you have reinitialized replication,
+> then you won't be able to find out :-(.
+>
+> I would expect to find it somewhat surprising which relation this was.
+
+Hooray on the fix.
+
+But, I wasn't surprised at all to find out what was causing the deadlock as it 
+was the products and man tables which were being used in the search queries. 
+:-(
+
+
+-- 
+Jeff Frost, Owner 	<jeff@frostconsultingllc.com>
+Frost Consulting, LLC 	http://www.frostconsultingllc.com/
+Phone: 650-780-7908	FAX: 650-649-1954
+From slony at estrider.com  Thu Oct 25 13:11:49 2007
+From: slony at estrider.com (slony@estrider.com)
+Date: Thu Oct 25 13:20:56 2007
+Subject: [Slony1-bugs] slonik_build_environment
+Message-ID: <4720F885.7000809@estrider.com>
+
+   
+There is a flaw in the slonik_build_env.pl script. The print test should 
+be >=1 and not > 1. It currently will not print databases where there 
+are only single tables or sequences.
+
+
+So, it should be:
+
+if ( scalar(@tablesWithIndexes) >= 1 ) {
+  print '@KEYEDTABLES=(' . "\n";
+  foreach my $table (sort @tablesWithIndexes) {
+    print "\t\"$table\",\n";
+  }
+  print ");\n";
+}
+if ( scalar(@tablesWithoutIndexes) >= 1 ) {
+  print '@SERIALTABLES=(' . "\n";
+  foreach my $table (sort @tablesWithoutIndexes) {
+    print "\t\"$table\",\n";
+  }
+  print ");\n";
+}
+if ( scalar(@sequences) >= 1 ) {
+  print '@SEQUENCES=(' . "\n";
+  foreach my $table (sort @sequences) {
+    print "\t\"$table\",\n";
+  }
+  print ");\n";
+}
+From mailings at oopsware.de  Fri Oct 26 09:42:31 2007
+From: mailings at oopsware.de (Bernd Helmle)
+Date: Fri Oct 26 09:44:35 2007
+Subject: [Slony1-bugs] slonik_build_environment
+In-Reply-To: <4720F885.7000809@estrider.com>
+References: <4720F885.7000809@estrider.com>
+Message-ID: <3F26A781D7A2E3AFAFAAAFED@imhotep.credativ.de>
+
+--On Donnerstag, Oktober 25, 2007 13:11:49 -0700 slony@estrider.com wrote:
+
+>    There is a flaw in the slonik_build_env.pl script. The print test
+> should be >=1 and not > 1. It currently will not print databases where
+> there are only single tables or sequences.
+>
+
+You're right. I've created a patch with your changes plus a fix to repair 
+the -schema option, which was broken, too, and cc'ed slony1-patches so 
+someone can review and apply it.
+
+Note that slonik_build_environment is called slonik_build_env only, the 
+former was removed.
+
+-- 
+  Thanks
+
+                    Bernd
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: slonik_build_env.patch
+Type: text/x-diff
+Size: 2395 bytes
+Desc: not available
+Url : http://lists.slony.info/pipermail/slony1-bugs/attachments/20071026/109c5269/slonik_build_env.bin
+From mailings at oopsware.de  Fri Oct 26 09:52:50 2007
+From: mailings at oopsware.de (Bernd Helmle)
+Date: Fri Oct 26 09:52:55 2007
+Subject: [Slony1-patches] Re: [Slony1-bugs] slonik_build_environment
+In-Reply-To: <3F26A781D7A2E3AFAFAAAFED@imhotep.credativ.de>
+References: <4720F885.7000809@estrider.com>
+	<3F26A781D7A2E3AFAFAAAFED@imhotep.credativ.de>
+Message-ID: <2FF565CC165D9640A4BB8883@imhotep.credativ.de>
+
+--On Freitag, Oktober 26, 2007 18:42:31 +0200 Bernd Helmle 
+<mailings@oopsware.de> wrote:
+>
+> Note that slonik_build_environment is called slonik_build_env only, the
+> former was removed.
+
+Nonsens, confused that with show_configuration.pl, forget about this.
+
+-- 
+  Thanks
+
+                    Bernd
+From cbbrowne at ca.afilias.info  Fri Oct 26 11:29:54 2007
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Fri Oct 26 11:29:45 2007
+Subject: [Slony1-patches] Re: [Slony1-bugs] slonik_build_environment
+In-Reply-To: <3F26A781D7A2E3AFAFAAAFED@imhotep.credativ.de> (Bernd Helmle's
+	message of "Fri, 26 Oct 2007 18:42:31 +0200")
+References: <4720F885.7000809@estrider.com>
+	<3F26A781D7A2E3AFAFAAAFED@imhotep.credativ.de>
+Message-ID: <604pgd91b1.fsf@dba2.int.libertyrms.com>
+
+Bernd Helmle <mailings@oopsware.de> writes:
+> --On Donnerstag, Oktober 25, 2007 13:11:49 -0700 slony@estrider.com wrote:
+>
+>>    There is a flaw in the slonik_build_env.pl script. The print test
+>> should be >=1 and not > 1. It currently will not print databases where
+>> there are only single tables or sequences.
+>>
+>
+> You're right. I've created a patch with your changes plus a fix to
+> repair the -schema option, which was broken, too, and cc'ed
+> slony1-patches so someone can review and apply it.
+>
+> Note that slonik_build_environment is called slonik_build_env only,
+> the former was removed.
+
+I have committed this to 1.2 and HEAD; thanks for the patch!
+-- 
+let name="cbbrowne" and tld="acm.org" in name ^ "@" ^ tld;;
+http://linuxdatabases.info/info/linux.html
+OS/2: Why marketing matters more than technology...
+From slony1-bugs at lists.slony.info  Tue Oct 30 14:53:31 2007
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Tue Oct 30 14:54:27 2007
+Subject: [Slony1-bugs] [Bug 4] Test Bug
+In-Reply-To: <bug-4-4@http.www.slony.info/bugzilla/>
+Message-ID: <20071030215331.69D7B2901D6@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=4
+
+
+Christopher Browne <cbbrowne@ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         Resolution|                            |FIXED
+          Component|docs                        |website
+             Status|ASSIGNED                    |RESOLVED
+
+
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Tue Oct 30 15:01:47 2007
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Tue Oct 30 15:01:49 2007
+Subject: [Slony1-bugs] [Bug 7] Testing e-mail
+In-Reply-To: <bug-7-4@http.www.slony.info/bugzilla/>
+Message-ID: <20071030220147.5EF7929025E@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=7
+
+
+Devrim GUNDUZ <devrim@commandprompt.com> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         Resolution|                            |FIXED
+             Status|NEW                         |RESOLVED
+
+
+
+
+--- Comment #1 from Devrim GUNDUZ <devrim@commandprompt.com>  2007-10-30 15:01:47 ---
+Solved.
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Tue Oct 30 16:29:52 2007
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Tue Oct 30 16:29:54 2007
+Subject: [Slony1-bugs] [Bug 6] Yet another test bug for e-mail testing
+In-Reply-To: <bug-6-4@http.www.slony.info/bugzilla/>
+Message-ID: <20071030232952.786A029025A@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=6
+
+
+Devrim GUNDUZ <devrim@commandprompt.com> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         Resolution|                            |FIXED
+             Status|NEW                         |RESOLVED
+
+
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.

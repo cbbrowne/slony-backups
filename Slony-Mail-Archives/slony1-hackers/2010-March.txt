@@ -1,0 +1,218 @@
+From uweber at astaro.com  Wed Mar 10 01:56:43 2010
+From: uweber at astaro.com (Ulrich Weber)
+Date: Wed, 10 Mar 2010 10:56:43 +0100
+Subject: [Slony1-hackers] PATCH Check return of sched_wait_time
+Message-ID: <4B976CDB.30303@astaro.com>
+
+-----BEGIN PGP SIGNED MESSAGE-----
+Hash: SHA1
+
+Hi,
+
+in remoteListen_receive_events() there is a loop
+where the return of sched_wait_time() is not checked.
+
+This leads to five minute of full CPU utilization on my
+system after an takeover.
+
+Attached patch applies to 1.2.20 and 2.0.2 as well.
+
+Best regards
+ Ulrich
+
+- --
+Ulrich Weber | uweber at astaro.com | Software Engineer
+Astaro AG | www.astaro.de | Phone +49-721-25516-0 | Fax ?200
+An der RaumFabrik 33a | 76227 Karlsruhe | Germany
+
+-----BEGIN PGP SIGNATURE-----
+Version: GnuPG v1.4.9 (GNU/Linux)
+Comment: Using GnuPG with Mozilla - http://enigmail.mozdev.org
+
+iEYEARECAAYFAkuXbNsACgkQ22t2oTuElzrPvQCfQvwoJOgihkxKuJvvbn9MAgsE
+OzkAoJQ/VpCBInbQAgtK84Soh12s//9U
+=AM+G
+-----END PGP SIGNATURE-----
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: Check-return-of-sched_wait_time-in-receive_events.patch
+Type: text/x-patch
+Size: 0 bytes
+Desc: not available
+Url : http://lists.slony.info/pipermail/slony1-hackers/attachments/20100310/659e8b96/attachment.bin 
+
+From uweber at astaro.com  Wed Mar 10 01:32:19 2010
+From: uweber at astaro.com (Ulrich Weber)
+Date: Wed, 10 Mar 2010 10:32:19 +0100
+Subject: [PATCH] Check return of sched_wait_time in receive_events
+Message-ID: <mailman.0.1268215008.5160.slony1-hackers@lists.slony.info>
+
+Otherwise this might loop for five minutes until
+execution is terminated by remote_listen_timeout.
+
+Signed-off-by: Ulrich Weber <uweber at astaro.com>
+---
+ src/slon/remote_listen.c |    8 ++++++--
+ 1 files changed, 6 insertions(+), 2 deletions(-)
+
+diff --git a/src/slon/remote_listen.c b/src/slon/remote_listen.c
+index 58e461b..63331e8 100644
+--- a/src/slon/remote_listen.c
++++ b/src/slon/remote_listen.c
+@@ -671,6 +671,7 @@ remoteListen_receive_events(SlonNode * node, SlonConn * conn,
+ 	int			tupno;
+ 	time_t		timeout;
+ 	time_t		now;
++	ScheduleStatus	rc;
+ 
+ 	dstring_init(&query);
+ 
+@@ -762,8 +763,11 @@ remoteListen_receive_events(SlonNode * node, SlonConn * conn,
+ 			dstring_free(&query);
+ 			return -1;
+ 		}
+-		if (PQisBusy(conn->dbconn) != 0)
+-			sched_wait_time(conn, SCHED_WAIT_SOCK_READ, 10000);
++		if (PQisBusy(conn->dbconn) != 0) {
++			rc = sched_wait_time(conn, SCHED_WAIT_SOCK_READ, 10000);
++			if (rc != SCHED_STATUS_OK && rc != SCHED_STATUS_CANCEL)
++				break;
++		}
+ 	}
+ 
+ 	res = PQgetResult(conn->dbconn);
+-- 
+1.6.3.3
+
+
+--------------010001080600080909020205--
+
+From devrim at gunduz.org  Thu Mar 11 05:09:22 2010
+From: devrim at gunduz.org (Devrim =?ISO-8859-1?Q?G=DCND=DCZ?=)
+Date: Thu, 11 Mar 2010 15:09:22 +0200
+Subject: [Slony1-hackers] Pushing 2.0.3 out of the door
+Message-ID: <1268312962.2454.25.camel@hp-laptop2.gunduz.org>
+
+Hi,
+
+We got tons of fixes since 2.0.2. I think it may be a good time to push
+2.0.3 out of the door. Also, new PostgreSQL releases will be announced
+on Monday, so if we can push it until Friday, I can announce RPM
+packages, too, along with PG RPMs.
+
+Regards,
+-- 
+Devrim G?ND?Z
+PostgreSQL Dan??man?/Consultant, Red Hat Certified Engineer
+PostgreSQL RPM Repository: http://yum.pgrpms.org
+Community: devrim~PostgreSQL.org, devrim.gunduz~linux.org.tr
+http://www.gunduz.org  Twitter: http://twitter.com/devrimgunduz
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: not available
+Type: application/pgp-signature
+Size: 198 bytes
+Desc: This is a digitally signed message part
+Url : http://lists.slony.info/pipermail/slony1-hackers/attachments/20100311/978cc9d2/attachment.pgp 
+
+From ssinger at ca.afilias.info  Fri Mar 12 07:12:15 2010
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Fri, 12 Mar 2010 10:12:15 -0500
+Subject: [Slony1-hackers] [Slony1-commit] slony1-engine/src/slon
+	remote_listen.c	remote_worker.c
+In-Reply-To: <20100311213807.ABB4C290423@main.slony.info>
+References: <20100311213807.ABB4C290423@main.slony.info>
+Message-ID: <4B9A59CF.7020508@ca.afilias.info>
+
+Chris Browne wrote:
+
+I don't think this patch is right.
+
+It looks to me like
+
+* dstring_init calls  malloc and stores the result on the ->data member.
+* dstring_free calls free on the ->data member.
+* dstring_reset does not call free or malloc
+
+So
+
+
+> Update of /home/cvsd/slony1/slony1-engine/src/slon
+> In directory main.slony.info:/tmp/cvs-serv11819
+> 
+> Modified Files:
+>       Tag: REL_1_2_STABLE
+> 	remote_listen.c remote_worker.c 
+> Log Message:
+> Apparently fixes to memory leaks via freeing values at more apropos times
+> 
+> 
+> Index: remote_worker.c
+> ===================================================================
+<snip>
+> 
+> Index: remote_listen.c
+> ===================================================================
+> RCS file: /home/cvsd/slony1/slony1-engine/src/slon/remote_listen.c,v
+> retrieving revision 1.31.2.5
+> retrieving revision 1.31.2.6
+> diff -C 2 -d -r1.31.2.5 -r1.31.2.6
+> *** remote_listen.c	22 Dec 2009 17:10:10 -0000	1.31.2.5
+> --- remote_listen.c	11 Mar 2010 21:38:04 -0000	1.31.2.6
+> ***************
+> *** 267,270 ****
+> --- 267,271 ----
+>   					 node->no_id,
+>   					 dstring_data(&query1), PQresultErrorMessage(res));
+> + 				dstring_free(&query1);
+>   				PQclear(res);
+>   				slon_disconnectdb(conn);
+
+The above code is in a while loop.  dstring_init is called before the 
+while loop, but each iteration of the while loop will try to put new 
+queries into query1.   Once dstring_free is called on query1 I don't 
+think it can be used anymore (dstring_init appears to be the only 
+dstring macro that does a malloc ).
+
+I think you only want to call dstring_free() following the end of the 
+while() loop.
+
+
+> ***************
+> *** 342,345 ****
+> --- 343,347 ----
+>   		}
+>   		if (oldpstate != poll_state) { /* Switched states... */
+> + 			dstring_init(&query1);
+>   			switch (poll_state) {
+>   			case SLON_POLLSTATE_POLL:
+> ***************
+> *** 368,371 ****
+> --- 370,374 ----
+>   					 node->no_id,
+>   					 dstring_data(&query1), PQresultErrorMessage(res));
+> + 				dstring_free(&query1);
+>   				PQclear(res);
+>   				slon_disconnectdb(conn);
+> ***************
+> *** 375,378 ****
+> --- 378,382 ----
+>   				continue;
+>   			}
+> + 			dstring_free(&query1);
+>   			PQclear(res);
+>   		}
+> 
+> _______________________________________________
+> Slony1-commit mailing list
+> Slony1-commit at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-commit
+
+
+-- 
+Steve Singer
+Afilias Canada
+Data Services Developer
+416-673-1142
+

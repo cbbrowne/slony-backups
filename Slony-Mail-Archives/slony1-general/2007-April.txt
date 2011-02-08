@@ -1,0 +1,4169 @@
+From cbbrowne at ca.afilias.info  Tue Apr  3 14:59:52 2007
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Tue Apr  3 15:00:02 2007
+Subject: [Slony1-general] Problem with 1.2.8 and EXECUTE SCRIPT
+	with	multiple sets
+In-Reply-To: <200703291446.39520@hal.medialogik.com>
+References: <200703270949.43495@hal.medialogik.com>	<Pine.LNX.4.62.0703272037290.2859@mini.atlantida.localdomain>
+	<200703291446.39520@hal.medialogik.com>
+Message-ID: <4612CE58.8030203@ca.afilias.info>
+
+Alan Hodgson wrote:
+> On Tuesday 27 March 2007 17:45, Steve Singer <ssinger_pg@sympatico.ca> 
+> wrote:
+>   
+>> I don't know what workarounds are going to be options for you compared
+>> with running a patched version of slony but if you
+>> need a fix right away you could consider patching your version of slony.
+>>
+>> The patched attached to
+>> http://lists.slony.info/pipermail/slony1-patches/2007-March/000005.html
+>>
+>> should address the problem your describing.  I assume it will be
+>> included with the next 1.2.x release.
+>>     
+>
+> The patch referenced above, with the very small fix I posted earlier 
+> to -patches, completely fixes this problem.  Hopefully it will get reviewed 
+> and make its way into 1.2.10.
+>
+> As I suspected, my problem was due to ddlScript_prepare_int not running 
+> alterTableRestore against tables (because it checked for set membership), 
+> but ddlScript_complete_int trying to run alterTableForReplication (because 
+> it doesn't). However, I misunderstood what should be the normal contents of 
+> sl_table. As it turns out, there is no need for changes to the SQL 
+> functions if used with Steve's patch. There are some checks in 
+> ddlScript_prepare_int that are made redundant and could be removed, but 
+> they no longer hurt anything.
+>
+> Steve - thank you very much for your help.
+>
+>   
+I have committed a (significantly altered) version of this patch, along
+with a change to the DDL test script to exercise this, so we don't miss
+this in future.
+
+If people can take a look at this, it would be greatly appreciated.
+
+I made one "big, manifest assumption" for the "EXECUTE ONLY ON" case,
+namely that we alter back *all* tables that are involved in replication
+on the local node.  (And there's already a bug in this for the 'restore
+to replication' code...  Another patch goes in momentarily...)
+From cbbrowne at ca.afilias.info  Wed Apr  4 21:52:06 2007
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Wed Apr  4 21:52:18 2007
+Subject: [Slony1-general] TABLE ADD KEY deprecation
+Message-ID: <601wizmnih.fsf@dba2.int.libertyrms.com>
+
+I had a chat with Jan about some of the forthcoming changes we're
+thinking about for the next major version...
+
+In general, there's a thought of doing a fairly *enormous* amount of
+cleanup, falling fundamentally out of the presence of hooks in PG 8.3
+that will allow Slony-I to work without any of the current catalog
+corruptions.  The cleanup we're thinking of is of extensive enough
+nature that it might even be that "version 2.0" would only work with
+PG 8.3 'and above.'
+
+The scope of that, in total, I'll let Jan comment on, so as to allow
+debate on the merits of that.
+
+I'll draw back to a rather smaller, but not unimportant, matter...
+
+My position at this point is that dropping the "TABLE ADD KEY" feature
+is highly desirable.  It represents a schema corruption that causes
+considerable trouble, and discouraging its use to the point of
+promising it *won't* be supported in 2.0 strikes me as being a good
+starting position.
+
+Let me note a merit that falls from this; at present, uninstalling
+Slony-I from a node requires walking thru tables and doing the
+following:
+
+- dropping the generated columns
+- dropping denyaccess triggers
+- fixing the expressly broken other triggers
+
+After those three things, DROP SCHEMA _Whatever completes the work.
+
+In 8.3, "fixing the triggers" is eliminated as a step because the
+triggers don't need to be "busted."  If we eliminate TABLE ADD KEY,
+then there are no generated columns to drop out.
+
+That leaves dropping the denyaccess triggers, but "DROP SCHEMA
+_Whatever CASCADE" actually automatically addresses that.
+
+There, essentially, is my argument as to why getting rid of TABLE ADD
+KEY is a good thing.  It eliminates, conceptually, about 1/2 of the
+"brokenness" about the way Slony-I presently "busts" the
+catalog/schema...
+-- 
+(format nil "~S@~S" "cbbrowne" "linuxfinances.info")
+http://linuxdatabases.info/info/multiplexor.html
+"Every  sufficiently    unreadable programming  language   contains  a
+reimplementation  of  APL and/or INTERCAL."    -- Greenspun's Eleventh
+Rule of Programming
+From david at fetter.org  Thu Apr  5 09:11:38 2007
+From: david at fetter.org (David Fetter)
+Date: Thu Apr  5 09:11:48 2007
+Subject: [Slony1-general] TABLE ADD KEY deprecation
+In-Reply-To: <601wizmnih.fsf@dba2.int.libertyrms.com>
+References: <601wizmnih.fsf@dba2.int.libertyrms.com>
+Message-ID: <20070405161138.GA6011@fetter.org>
+
+On Thu, Apr 05, 2007 at 12:52:06AM -0400, Christopher Browne wrote:
+> I had a chat with Jan about some of the forthcoming changes we're
+> thinking about for the next major version...
+> 
+> In general, there's a thought of doing a fairly *enormous* amount of
+> cleanup, falling fundamentally out of the presence of hooks in PG 8.3
+> that will allow Slony-I to work without any of the current catalog
+> corruptions.  The cleanup we're thinking of is of extensive enough
+> nature that it might even be that "version 2.0" would only work with
+> PG 8.3 'and above.'
+> 
+> The scope of that, in total, I'll let Jan comment on, so as to allow
+> debate on the merits of that.
+> 
+> I'll draw back to a rather smaller, but not unimportant, matter...
+> 
+> My position at this point is that dropping the "TABLE ADD KEY" feature
+> is highly desirable.
+
++1 on dropping it.  This is a case where "helping" people to shoot
+themselves in the foot really isn't helping them.
+
+Cheers,
+D
+-- 
+David Fetter <david@fetter.org> http://fetter.org/
+phone: +1 415 235 3778        AIM: dfetter666
+                              Skype: davidfetter
+
+Remember to vote!
+Consider donating to PostgreSQL: http://www.postgresql.org/about/donate
+From darcyb at commandprompt.com  Thu Apr  5 09:13:58 2007
+From: darcyb at commandprompt.com (Darcy Buskermolen)
+Date: Thu Apr  5 09:14:17 2007
+Subject: [Slony1-general] TABLE ADD KEY deprecation
+In-Reply-To: <20070405161138.GA6011@fetter.org>
+References: <601wizmnih.fsf@dba2.int.libertyrms.com>
+	<20070405161138.GA6011@fetter.org>
+Message-ID: <200704050913.58565.darcyb@commandprompt.com>
+
+On April 5, 2007 09:11 am, David Fetter wrote:
+> On Thu, Apr 05, 2007 at 12:52:06AM -0400, Christopher Browne wrote:
+> > I had a chat with Jan about some of the forthcoming changes we're
+> > thinking about for the next major version...
+> >
+> > In general, there's a thought of doing a fairly *enormous* amount of
+> > cleanup, falling fundamentally out of the presence of hooks in PG 8.3
+> > that will allow Slony-I to work without any of the current catalog
+> > corruptions.  The cleanup we're thinking of is of extensive enough
+> > nature that it might even be that "version 2.0" would only work with
+> > PG 8.3 'and above.'
+> >
+> > The scope of that, in total, I'll let Jan comment on, so as to allow
+> > debate on the merits of that.
+> >
+> > I'll draw back to a rather smaller, but not unimportant, matter...
+> >
+> > My position at this point is that dropping the "TABLE ADD KEY" feature
+> > is highly desirable.
+>
+> +1 on dropping it.  This is a case where "helping" people to shoot
+> themselves in the foot really isn't helping them.
+
++1 here.  I think I've already voiced my thougt on this in an earlyer email as 
+well. :-)
+
+-- 
+Darcy Buskermolen
+Command Prompt, Inc.
+Sales/Support: +1.503.667.4564 || 24x7/Emergency: +1.800.492.2240
+PostgreSQL solutions since 1997
+http://www.commandprompt.com/
+From JanWieck at Yahoo.com  Thu Apr  5 12:17:46 2007
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Thu Apr  5 12:18:02 2007
+Subject: [Slony1-general] TABLE ADD KEY deprecation
+In-Reply-To: <200704050913.58565.darcyb@commandprompt.com>
+References: <601wizmnih.fsf@dba2.int.libertyrms.com>	<20070405161138.GA6011@fetter.org>
+	<200704050913.58565.darcyb@commandprompt.com>
+Message-ID: <46154B5A.6010603@Yahoo.com>
+
+On 4/5/2007 12:13 PM, Darcy Buskermolen wrote:
+> On April 5, 2007 09:11 am, David Fetter wrote:
+>> On Thu, Apr 05, 2007 at 12:52:06AM -0400, Christopher Browne wrote:
+>> > I had a chat with Jan about some of the forthcoming changes we're
+>> > thinking about for the next major version...
+>> >
+>> > In general, there's a thought of doing a fairly *enormous* amount of
+>> > cleanup, falling fundamentally out of the presence of hooks in PG 8.3
+>> > that will allow Slony-I to work without any of the current catalog
+>> > corruptions.  The cleanup we're thinking of is of extensive enough
+>> > nature that it might even be that "version 2.0" would only work with
+>> > PG 8.3 'and above.'
+>> >
+>> > The scope of that, in total, I'll let Jan comment on, so as to allow
+>> > debate on the merits of that.
+>> >
+>> > I'll draw back to a rather smaller, but not unimportant, matter...
+>> >
+>> > My position at this point is that dropping the "TABLE ADD KEY" feature
+>> > is highly desirable.
+>>
+>> +1 on dropping it.  This is a case where "helping" people to shoot
+>> themselves in the foot really isn't helping them.
+> 
+> +1 here.  I think I've already voiced my thougt on this in an earlyer email as 
+> well. :-)
+> 
+
+It was a misfeature to begin with.
+
+
+Jan
+
+-- 
+#======================================================================#
+# It's easier to get forgiveness for being wrong than for being right. #
+# Let's break this rule - forgive me.                                  #
+#================================================== JanWieck@Yahoo.com #
+From andrew.george.hammond at gmail.com  Thu Apr  5 15:30:42 2007
+From: andrew.george.hammond at gmail.com (Andrew Hammond)
+Date: Thu Apr  5 15:30:51 2007
+Subject: [Slony1-general] TABLE ADD KEY deprecation
+In-Reply-To: <46154B5A.6010603@Yahoo.com>
+References: <601wizmnih.fsf@dba2.int.libertyrms.com>
+	<20070405161138.GA6011@fetter.org>
+	<200704050913.58565.darcyb@commandprompt.com>
+	<46154B5A.6010603@Yahoo.com>
+Message-ID: <5a0a9d6f0704051530o16c68e44y868aba9b9e13c2ec@mail.gmail.com>
+
+On 4/5/07, Jan Wieck <JanWieck@yahoo.com> wrote:
+> On 4/5/2007 12:13 PM, Darcy Buskermolen wrote:
+> > On April 5, 2007 09:11 am, David Fetter wrote:
+> >> On Thu, Apr 05, 2007 at 12:52:06AM -0400, Christopher Browne wrote:
+> >> > I had a chat with Jan about some of the forthcoming changes we're
+> >> > thinking about for the next major version...
+> >> >
+> >> > In general, there's a thought of doing a fairly *enormous* amount of
+> >> > cleanup, falling fundamentally out of the presence of hooks in PG 8.3
+> >> > that will allow Slony-I to work without any of the current catalog
+> >> > corruptions.  The cleanup we're thinking of is of extensive enough
+> >> > nature that it might even be that "version 2.0" would only work with
+> >> > PG 8.3 'and above.'
+> >> >
+> >> > The scope of that, in total, I'll let Jan comment on, so as to allow
+> >> > debate on the merits of that.
+> >> >
+> >> > I'll draw back to a rather smaller, but not unimportant, matter...
+> >> >
+> >> > My position at this point is that dropping the "TABLE ADD KEY" feature
+> >> > is highly desirable.
+> >>
+> >> +1 on dropping it.  This is a case where "helping" people to shoot
+> >> themselves in the foot really isn't helping them.
+> >
+> > +1 here.  I think I've already voiced my thougt on this in an earlyer email as
+> > well. :-)
+> >
+>
+> It was a misfeature to begin with.
+
++1 for reasons previously expressed.
+
+Andrew
+From ajs at crankycanuck.ca  Fri Apr  6 05:52:36 2007
+From: ajs at crankycanuck.ca (Andrew Sullivan)
+Date: Fri Apr  6 05:52:48 2007
+Subject: [Slony1-general] TABLE ADD KEY deprecation
+In-Reply-To: <46154B5A.6010603@Yahoo.com>
+References: <601wizmnih.fsf@dba2.int.libertyrms.com>
+	<20070405161138.GA6011@fetter.org>
+	<200704050913.58565.darcyb@commandprompt.com>
+	<46154B5A.6010603@Yahoo.com>
+Message-ID: <20070406125236.GB9375@phlogiston.dyndns.org>
+
+On Thu, Apr 05, 2007 at 03:17:46PM -0400, Jan Wieck wrote:
+> 
+> It was a misfeature to begin with.
+
+I agree.  That said, it might be nice if we provide a little README
+on how to add aritificial keys for Slony if we're still going to
+require them.  Thoughts?
+
+A
+-- 
+Andrew Sullivan  | ajs@crankycanuck.ca
+Users never remark, "Wow, this software may be buggy and hard 
+to use, but at least there is a lot of code underneath."
+		--Damien Katz
+From frum at ar-sd.net  Tue Apr 10 06:33:58 2007
+From: frum at ar-sd.net (Forum)
+Date: Tue Apr 10 06:32:03 2007
+Subject: [Slony1-general] Database Schema Changes (DDL) not working on
+	third node
+In-Reply-To: <20070330171758.GA22149@phlogiston.dyndns.org>
+Message-ID: <006b01c77b74$e4731ac0$0b00a8c0@mpsro.dom>
+
+
+Hi again, 
+
+I tried to create a new set, but I cannot but the table that is replicated
+between a->b into the b->c set. 
+I get  ERROR:  duplicate key violates unique constraint
+"sl_table_tab_reloid_key".
+
+And as I read in :
+http://www.mail-archive.com/slony1-general@gborg.postgresql.org/msg02192.htm
+l
+
+it is not possible. 
+
+Then how can I replicate the same table to more places???
+
+My scenarion again. 
+
+a.t1 -> b.t1 -> c.t1
+a.t2 -> b.t2
+
+Database a is fully replicated into b(tables t1 && t2). 
+Database b is partially replicated into c(tables t1).
+
+
+1. I make the cluster. 
+2. I create the set1 for a && b and add the tables to the set. 
+3. Create the paths
+4. subscribe b to the set. 
+5. Start the replication scripts... It works. 
+
+Then...
+
+6. Create the c database/schema etc. 
+7. Create a new set. 
+8. Create the paths & listens
+9. Add the table t1 to the set ->>>> ERROR:  duplicate key violates unique
+constraint "sl_table_tab_reloid_key".
+
+And here it stops. 
+
+
+Regards, 
+Andy. 
+
+
+ 
+
+> -----Original Message-----
+> From: Andrew Sullivan [mailto:ajs@crankycanuck.ca] 
+> Sent: Friday, March 30, 2007 8:18 PM
+> To: Forum
+> Cc: 'Thomas Pundt'; slony1-general@lists.slony.info
+> Subject: Re: [Slony1-general] Database Schema Changes (DDL) 
+> not working on third node
+> 
+> Ah.  That won't work.  What you need is to break the b->c 
+> tables into a separate set, and then subscribe c only to that 
+> set, using b as the provider.
+> 
+> A
+> 
+> On Fri, Mar 30, 2007 at 06:08:24PM +0300, Forum wrote:
+> > In the real scenarion:
+> > 
+> > DB a is fully replicated into b. 
+> > 
+> > And some tables from b are replicated into c. 
+> > 
+> > 
+> > Here is the place that fails.... 
+> > 
+> > I think I am making a confusion about how to configure this.
+> > 
+> > Should I do only a new set for the second replication (b->c)??
+> > 
+> > Andy. 
+> > 
+> > > -----Original Message-----
+> > > From: Thomas Pundt [mailto:mlists@rp-online.de]
+> > > Sent: Friday, March 30, 2007 4:25 PM
+> > > To: slony1-general@lists.slony.info; Forum
+> > > Subject: Re: [Slony1-general] Database Schema Changes (DDL) not 
+> > > working on third node
+> > > 
+> > > Hi,
+> > > 
+> > > On Friday 30 March 2007 15:02, Forum wrote:
+> > > | I do the schema change with "execute script()", maybe I
+> > > have something
+> > > | misconfigured.
+> > > 
+> > > looks suspiciously as if, yes.
+> > > 
+> > > | I tried with this example:
+> > > |
+> > > | REPLICATION 1: DB a to DB b
+> > > |
+> > > | cluster name=replic_loco1;
+> > > | NODE 1 ADMIN CONNINFO = 'dbname=a host=127.0.0.1 user=slony 
+> > > | port=5432'; NODE 2 ADMIN CONNINFO = 'dbname=b host=127.0.0.1 
+> > > | user=slony port=5432';
+> > > |
+> > > | init cluster (id=1, comment='replic_loco Master Node'); 
+> store node 
+> > > | (id=2, comment='replic_loco Subscriber Node 1');
+> > > |
+> > > | STORE PATH (SERVER=1, CLIENT=2, CONNINFO='dbname=a 
+> host=127.0.0.1 
+> > > | user=slony
+> > > port=5432');
+> > > | STORE PATH (SERVER=2, CLIENT=1, CONNINFO='dbname=b 
+> host=127.0.0.1 
+> > > | user=slony
+> > > port=5432');
+> > > |
+> > > | create set (id=11, origin=1, comment='replic_loco Tables and 
+> > > | Sequences'); set add table (id=1, set id=11, origin=1,
+> > > fully qualified
+> > > | name='public.t1', comment='replic_loco table public.t1');
+> > > |
+> > > | subscribe set (id=11, provider=1, receiver=2, forward=yes);
+> > > |
+> > > | And replication 2: DB b to DB c
+> > > |
+> > > | cluster name=replic_loco2;
+> > > | NODE 1 ADMIN CONNINFO = 'dbname=b host=127.0.0.1 user=slony 
+> > > | port=5432'; NODE 2 ADMIN CONNINFO = 'dbname=c host=127.0.0.1 
+> > > | user=slony port=5432';
+> > > |
+> > > | init cluster (id=1, comment='replic_loco Master Node'); 
+> store node 
+> > > | (id=2, comment='replic_loco Subscriber Node 1');
+> > > |
+> > > | STORE PATH (SERVER=1, CLIENT=2, CONNINFO='dbname=b 
+> host=127.0.0.1 
+> > > | user=slony
+> > > port=5432');
+> > > | STORE PATH (SERVER=2, CLIENT=1, CONNINFO='dbname=c 
+> host=127.0.0.1 
+> > > | user=slony
+> > > port=5432');
+> > > |
+> > > | create set (id=21, origin=1, comment='replic_loco Tables and 
+> > > | Sequences'); set add table (id=1, set id=21, origin=1,
+> > > fully qualified
+> > > | name='public.t1', comment='replic_loco table public.t1');
+> > > |
+> > > | subscribe set (id=21, provider=1, receiver=2, forward=yes);
+> > > 
+> > > you mean, you have created two clusters for replication that 
+> > > replicate the same tables? IIRC that won't work.
+> > > 
+> > > If all you want is replicating a number of tables to two
+> > > (slave) nodes, then you need to create these nodes _in the same 
+> > > cluster_. Simply use something like
+> > > 
+> > >   store node (id = 3, comment = 'Node 3');
+> > > 
+> > > to add a new node to your existing cluster and
+> > > 
+> > >   store path (server=1, client=3, conninfo=...);
+> > >   store path (server=3, client=1, conninfo=...);
+> > > 
+> > > to store the communication paths. A
+> > > 
+> > >   subscribe set (id=1, provider=1, receiver=3, forward=yes);
+> > > 
+> > > would start replicating your set to the new node.
+> > > 
+> > > Ciao,
+> > > Thomas
+> > > 
+> > > --
+> > > Thomas Pundt <thomas.pundt@rp-online.de> ---- 
+> http://rp-online.de/ 
+> > > ----
+> > > 
+> > > 
+> > 
+> > _______________________________________________
+> > Slony1-general mailing list
+> > Slony1-general@lists.slony.info
+> > http://lists.slony.info/mailman/listinfo/slony1-general
+> 
+> --
+> Andrew Sullivan  | ajs@crankycanuck.ca
+> "The year's penultimate month" is not in truth a good way of 
+> saying November.
+> 		--H.W. Fowler
+> 
+> 
+
+From mlists at rp-online.de  Tue Apr 10 08:11:02 2007
+From: mlists at rp-online.de (Thomas Pundt)
+Date: Tue Apr 10 08:08:22 2007
+Subject: [Slony1-general] Database Schema Changes (DDL) not working on
+	third node
+In-Reply-To: <006b01c77b74$e4731ac0$0b00a8c0@mpsro.dom>
+References: <006b01c77b74$e4731ac0$0b00a8c0@mpsro.dom>
+Message-ID: <200704101711.02277.mlists@rp-online.de>
+
+Hi,
+
+On Tuesday 10 April 2007 15:33, Forum wrote:
+| I tried to create a new set, but I cannot but the table that is replicated
+| between a->b into the b->c set.
+| I get  ERROR:  duplicate key violates unique constraint
+| "sl_table_tab_reloid_key".
+|
+| And as I read in :
+| http://www.mail-archive.com/slony1-general@gborg.postgresql.org/msg02192.ht
+|m l
+|
+| it is not possible.
+|
+| Then how can I replicate the same table to more places???
+
+You can't - not the way you try to. 
+
+You can make "c" also a complete replica of "a", but there is no way to put
+a table into two sets as you try.
+
+I'd suggest you build two sets, one containing t1, the other containing t2,
+and subcribe both sets on "b" and only the set containing t1 on "c".
+
+Ciao,
+Thomas
+
+-- 
+Thomas Pundt <thomas.pundt@rp-online.de> ---- http://rp-online.de/ ----
+From andrew.george.hammond at gmail.com  Tue Apr 10 14:36:24 2007
+From: andrew.george.hammond at gmail.com (Andrew Hammond)
+Date: Tue Apr 10 14:36:33 2007
+Subject: [Slony1-general] Database Schema Changes (DDL) not working on
+	third node
+In-Reply-To: <006b01c77b74$e4731ac0$0b00a8c0@mpsro.dom>
+References: <20070330171758.GA22149@phlogiston.dyndns.org>
+	<006b01c77b74$e4731ac0$0b00a8c0@mpsro.dom>
+Message-ID: <5a0a9d6f0704101436q2aad1f27h4f489051f9174295@mail.gmail.com>
+
+On 4/10/07, Forum <frum@ar-sd.net> wrote:
+>
+> Hi again,
+>
+> I tried to create a new set, but I cannot but the table that is replicated
+> between a->b into the b->c set.
+> I get  ERROR:  duplicate key violates unique constraint
+> "sl_table_tab_reloid_key".
+>
+> And as I read in :
+> http://www.mail-archive.com/slony1-general@gborg.postgresql.org/msg02192.htm
+> l
+>
+> it is not possible.
+>
+> Then how can I replicate the same table to more places???
+>
+> My scenarion again.
+>
+> a.t1 -> b.t1 -> c.t1
+> a.t2 -> b.t2
+>
+> Database a is fully replicated into b(tables t1 && t2).
+> Database b is partially replicated into c(tables t1).
+>
+>
+> 1. I make the cluster.
+> 2. I create the set1 for a && b and add the tables to the set.
+> 3. Create the paths
+> 4. subscribe b to the set.
+> 5. Start the replication scripts... It works.
+>
+> Then...
+>
+> 6. Create the c database/schema etc.
+> 7. Create a new set.
+> 8. Create the paths & listens
+> 9. Add the table t1 to the set ->>>> ERROR:  duplicate key violates unique
+> constraint "sl_table_tab_reloid_key".
+
+A table (or sequence, for that matter) can only be in one set at a
+time. A set can either be subscribed to a node or not subscribed to a
+node. If you wish to have different replication rules for different
+objects, then you must put them in different sets.
+
+So, create set1 for table1 and set2 for table2. Subscribe node2 to
+both set1 and set2. Then subscribe node3 to only set1. This should
+address your need.
+
+Andrew
+
+P.S. This is all with the caveat that you're only initializing a
+single replication cluster in the database. I don't know what would
+happen if you had multiple clusters, and I strongly doubt it's a
+direction you will want to pursue.
+From frum at ar-sd.net  Tue Apr 10 23:23:10 2007
+From: frum at ar-sd.net (Forum)
+Date: Tue Apr 10 23:20:57 2007
+Subject: [Slony1-general] Database Schema Changes (DDL) not working on
+	third node
+In-Reply-To: <5a0a9d6f0704101436q2aad1f27h4f489051f9174295@mail.gmail.com>
+Message-ID: <001b01c77c01$e08320d0$0b00a8c0@mpsro.dom>
+
+Thank you for all your answers, 
+
+Now I think I'm starting to understand now how && why. 
+
+
+My first mistake was that I made 2 clusters. 
+The second error came from that I created 2 sets and I wanted to put the
+same table in the different sets. (which was not possible)
+
+If I create different sets it works well. 
+
+I really missuderstood how slony makes the things work. 
+
+Thanks again. 
+
+Andy. 
+
+ 
+
+> -----Original Message-----
+> From: Andrew Hammond [mailto:andrew.george.hammond@gmail.com] 
+> Sent: Wednesday, April 11, 2007 12:36 AM
+> To: Forum
+> Cc: Andrew Sullivan; Thomas Pundt; slony1-general@lists.slony.info
+> Subject: Re: [Slony1-general] Database Schema Changes (DDL) 
+> not working on third node
+> 
+> On 4/10/07, Forum <frum@ar-sd.net> wrote:
+> >
+> > Hi again,
+> >
+> > I tried to create a new set, but I cannot but the table that is 
+> > replicated between a->b into the b->c set.
+> > I get  ERROR:  duplicate key violates unique constraint 
+> > "sl_table_tab_reloid_key".
+> >
+> > And as I read in :
+> > 
+> http://www.mail-archive.com/slony1-general@gborg.postgresql.org/msg021
+> > 92.htm
+> > l
+> >
+> > it is not possible.
+> >
+> > Then how can I replicate the same table to more places???
+> >
+> > My scenarion again.
+> >
+> > a.t1 -> b.t1 -> c.t1
+> > a.t2 -> b.t2
+> >
+> > Database a is fully replicated into b(tables t1 && t2).
+> > Database b is partially replicated into c(tables t1).
+> >
+> >
+> > 1. I make the cluster.
+> > 2. I create the set1 for a && b and add the tables to the set.
+> > 3. Create the paths
+> > 4. subscribe b to the set.
+> > 5. Start the replication scripts... It works.
+> >
+> > Then...
+> >
+> > 6. Create the c database/schema etc.
+> > 7. Create a new set.
+> > 8. Create the paths & listens
+> > 9. Add the table t1 to the set ->>>> ERROR:  duplicate key violates 
+> > unique constraint "sl_table_tab_reloid_key".
+> 
+> A table (or sequence, for that matter) can only be in one set 
+> at a time. A set can either be subscribed to a node or not 
+> subscribed to a node. If you wish to have different 
+> replication rules for different objects, then you must put 
+> them in different sets.
+> 
+> So, create set1 for table1 and set2 for table2. Subscribe 
+> node2 to both set1 and set2. Then subscribe node3 to only 
+> set1. This should address your need.
+> 
+> Andrew
+> 
+> P.S. This is all with the caveat that you're only 
+> initializing a single replication cluster in the database. I 
+> don't know what would happen if you had multiple clusters, 
+> and I strongly doubt it's a direction you will want to pursue.
+> 
+> 
+
+From kadams at mxlogic.com  Wed Apr 11 11:16:09 2007
+From: kadams at mxlogic.com (Keaton Adams)
+Date: Wed Apr 11 11:16:15 2007
+Subject: [Slony1-general] triggers and partitioned PostgreSQL tables
+Message-ID: <0B34A6972BF39E4CB465A64DBBAD2BB901D5698E@mxlhq-exch01.corp.mxlogic.com>
+
+In the "current limitations" section of the documentation it states that
+"In addition, any other triggers and rules on replicated tables are
+suppressed on the subscribers: This is done by pointing them, in the
+system table, to the primary key index instead of to the table itself."
+When implementing table partitioning, part of the process is to create
+rules on the master table to redirect operations such as inserts to the
+proper child table.  Check constraints on each child table enforce rules
+for where rows of data are stored, but it is the rule set on the master
+table that allows for inserts/updates on the master table to make their
+way to the proper child.
+
+ 
+
+Does this mean that Slony-I is not compatible with partitioned tables in
+PostgreSQL?
+
+1.5. Current Limitations
+
+Slony-I does not automatically propagate schema changes, nor does it
+have any ability to replicate large objects. There is a single common
+reason for these limitations, namely that Slony-I collects updates using
+triggers, and neither schema changes, large object operations, nor
+TRUNCATE requests are able to triggers suitable to inform Slony-I when
+those sorts of changes take place. As a result, the only database
+objects where Slony-I can replicate updates are tables and sequences. 
+
+Note that with the use of triggers comes some additional fiddling around
+with triggers. On the "origin" for each replicated table, an additional
+trigger is added which runs the stored procedure schemadoclogtrigger( )
+<http://www.slony.info/documentation/function.logtrigger.html> . On each
+subscriber, tables are augmented with a trigger that runs the
+schemadocdenyaccess( )
+<http://www.slony.info/documentation/function.denyaccess.html>
+function; this function prevents anything other than the slon
+<http://www.slony.info/documentation/slon.html>  process from updating
+data in replicated tables. In addition, any other triggers and rules on
+replicated tables are suppressed on the subscribers: This is done by
+pointing them, in the system table, to the primary key index instead of
+to the table itself. This represents something of a "corruption" of the
+data dictionary, and is why you should not directly use pg_dump to dump
+schemas on subscribers. 
+
+ 
+
+ 
+
+Thanks,
+
+ 
+
+Keaton
+
+ 
+
+ 
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20070411/12b90284/attachment.htm
+From ahodgson at simkin.ca  Wed Apr 11 11:38:04 2007
+From: ahodgson at simkin.ca (Alan Hodgson)
+Date: Wed Apr 11 11:38:41 2007
+Subject: [Slony1-general] triggers and partitioned PostgreSQL tables
+In-Reply-To: <0B34A6972BF39E4CB465A64DBBAD2BB901D5698E@mxlhq-exch01.corp.mxlogic.com>
+References: <0B34A6972BF39E4CB465A64DBBAD2BB901D5698E@mxlhq-exch01.corp.mxlogic.com>
+Message-ID: <200704111138.04213@hal.simkin.ca>
+
+On Wednesday 11 April 2007 11:16, "Keaton Adams" <kadams@mxlogic.com> 
+wrote:
+> In the "current limitations" section of the documentation it states
+> that "In addition, any other triggers and rules on replicated tables
+> are suppressed on the subscribers: 
+
+> Does this mean that Slony-I is not compatible with partitioned tables
+> in PostgreSQL?
+>
+
+Those triggers and rules are suppressed "on the subscribers". Not the 
+master. Subscribers are read-only.  
+
+Other than the inconvenience of adding new partitions to replication, 
+Slony is perfectly compatible with partitioned tables.
+
+-- 
+If I saw a person in need, and I stole your money to help him, I'd be 
+arrested and convicted of theft. If I get Parliament to do the same 
+thing, I am seen as compassionate.
+From darcyb at commandprompt.com  Wed Apr 11 13:43:05 2007
+From: darcyb at commandprompt.com (Darcy Buskermolen)
+Date: Wed Apr 11 13:43:19 2007
+Subject: [Slony1-general] triggers and partitioned PostgreSQL tables
+In-Reply-To: <0B34A6972BF39E4CB465A64DBBAD2BB901D5698E@mxlhq-exch01.corp.mxlogic.com>
+References: <0B34A6972BF39E4CB465A64DBBAD2BB901D5698E@mxlhq-exch01.corp.mxlogic.com>
+Message-ID: <200704111343.05919.darcyb@commandprompt.com>
+
+On April 11, 2007 11:16 am, Keaton Adams wrote:
+> In the "current limitations" section of the documentation it states that
+> "In addition, any other triggers and rules on replicated tables are
+> suppressed on the subscribers: This is done by pointing them, in the
+> system table, to the primary key index instead of to the table itself."
+> When implementing table partitioning, part of the process is to create
+> rules on the master table to redirect operations such as inserts to the
+> proper child table.  Check constraints on each child table enforce rules
+> for where rows of data are stored, but it is the rule set on the master
+> table that allows for inserts/updates on the master table to make their
+> way to the proper child.
+>
+>
+>
+> Does this mean that Slony-I is not compatible with partitioned tables in
+> PostgreSQL?
+>
+
+As long as your subscription set(s) contain all of the members of the 
+partioning, ie the child tables in a typical inherited partioning setup, then 
+you will have no issues.   Since the triggers are only temporarily disabled 
+on the subscriber (slave)  and left alone on the origin (master).  The 
+triggers are re-enabled when you promote the DB to being the origin, or 
+remove it from being a replication member.
+
+
+
+-- 
+Darcy Buskermolen
+Command Prompt, Inc.
+Sales/Support: +1.503.667.4564 || 24x7/Emergency: +1.800.492.2240
+PostgreSQL solutions since 1997
+http://www.commandprompt.com/
+From andrew.george.hammond at gmail.com  Wed Apr 11 16:46:11 2007
+From: andrew.george.hammond at gmail.com (Andrew Hammond)
+Date: Wed Apr 11 16:46:21 2007
+Subject: [Slony1-general] slony1-1.2.9.tar.bz2 extracts into slony1-1.2.6
+	directory.
+Message-ID: <5a0a9d6f0704111646o143063aw60dab47f4f4d7a4b@mail.gmail.com>
+
+I'm pretty sure that the directory this extracts into should match the
+version number.
+
+> tar tjf slony1-1.2.9.tar.bz2
+slony1-1.2.6/
+slony1-1.2.6/config/
+slony1-1.2.6/config/acx_libpq.m4
+...
+From drees76 at gmail.com  Wed Apr 11 16:49:48 2007
+From: drees76 at gmail.com (David Rees)
+Date: Wed Apr 11 16:49:57 2007
+Subject: [Slony1-general] slony1-1.2.9.tar.bz2 extracts into slony1-1.2.6
+	directory.
+In-Reply-To: <5a0a9d6f0704111646o143063aw60dab47f4f4d7a4b@mail.gmail.com>
+References: <5a0a9d6f0704111646o143063aw60dab47f4f4d7a4b@mail.gmail.com>
+Message-ID: <72dbd3150704111649o78fd9473vada2ac3239052eba@mail.gmail.com>
+
+On 4/11/07, Andrew Hammond <andrew.george.hammond@gmail.com> wrote:
+> I'm pretty sure that the directory this extracts into should match the
+> version number.
+>
+> > tar tjf slony1-1.2.9.tar.bz2
+> slony1-1.2.6/
+> slony1-1.2.6/config/
+> slony1-1.2.6/config/acx_libpq.m4
+
+It unpacks correctly for me. Just downloaded again and it unpacks the
+same as the on I have from Mar 26th.
+
+-Dave
+From andrew.george.hammond at gmail.com  Wed Apr 11 17:04:25 2007
+From: andrew.george.hammond at gmail.com (Andrew Hammond)
+Date: Wed Apr 11 17:04:35 2007
+Subject: [Slony1-general] slony1-1.2.9.tar.bz2 extracts into slony1-1.2.6
+	directory.
+In-Reply-To: <72dbd3150704111649o78fd9473vada2ac3239052eba@mail.gmail.com>
+References: <5a0a9d6f0704111646o143063aw60dab47f4f4d7a4b@mail.gmail.com>
+	<72dbd3150704111649o78fd9473vada2ac3239052eba@mail.gmail.com>
+Message-ID: <5a0a9d6f0704111704v543842a4t226abfe414b19b6f@mail.gmail.com>
+
+On 4/11/07, David Rees <drees76@gmail.com> wrote:
+> On 4/11/07, Andrew Hammond <andrew.george.hammond@gmail.com> wrote:
+> > I'm pretty sure that the directory this extracts into should match the
+> > version number.
+> >
+> > > tar tjf slony1-1.2.9.tar.bz2
+> > slony1-1.2.6/
+> > slony1-1.2.6/config/
+> > slony1-1.2.6/config/acx_libpq.m4
+>
+> It unpacks correctly for me. Just downloaded again and it unpacks the
+> same as the on I have from Mar 26th.
+
+My clever auto-downloader is going right ahead and downloading the
+1.2.6 tarball and renaming it to 1.2.9. Dho!
+
+Andrew
+From frum at ar-sd.net  Thu Apr 12 07:16:08 2007
+From: frum at ar-sd.net (Andy)
+Date: Thu Apr 12 07:14:10 2007
+Subject: [Slony1-general] Can this be done with slony?
+Message-ID: <005a01c77d0d$1d318560$0b00a8c0@mpsro.dom>
+
+Hi to all, 
+ 
+Another thing that I tried with slony and didn't work out, but probably
+again I am missing something. 
+ 
+DB a has 2 sets. 
+DB b subscribes to set1 with provider a.
+DB c subscribes to set1 with provider b. 
+ 
+Untill now everything is fine, replication works well. 
+ 
+Now is it possible in parallel DB c to subscribe to set2 with provider a??? 
+ 
+I tried to do this, but after I made the subscription the b->c replication
+stopped working also the a->c replication didn't work out. 
+ 
+As error I received somehting similar to:
+slony  node -1 not found in runtime configuration or something similar, I
+don't have the error now. 
+ 
+ 
+As a diagram:
+a        b        c
+s1 ->  s1 -> s1
+s2------------->s2     ????????
+ 
+ 
+ 
+Ok, the main question would be: can a node subscribe to multiple different
+sets/providers?
+ 
+Regards, 
+Andy.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20070412/88c93a46/attachment.htm
+From ajs at crankycanuck.ca  Thu Apr 12 07:31:54 2007
+From: ajs at crankycanuck.ca (Andrew Sullivan)
+Date: Thu Apr 12 07:32:13 2007
+Subject: [Slony1-general] Can this be done with slony?
+In-Reply-To: <005a01c77d0d$1d318560$0b00a8c0@mpsro.dom>
+References: <005a01c77d0d$1d318560$0b00a8c0@mpsro.dom>
+Message-ID: <20070412143154.GD24825@phlogiston.dyndns.org>
+
+On Thu, Apr 12, 2007 at 05:16:08PM +0300, Andy wrote:
+> As error I received somehting similar to:
+> slony  node -1 not found in runtime configuration or something similar, I
+> don't have the error now. 
+
+Going to be hard to diagnose without the error message.
+
+>  
+> Ok, the main question would be: can a node subscribe to multiple different
+> sets/providers?
+
+Sure.  It's one of the reasons for the idea of a set.
+
+
+-- 
+Andrew Sullivan  | ajs@crankycanuck.ca
+The whole tendency of modern prose is away from concreteness.
+		--George Orwell
+From vivek at khera.org  Thu Apr 12 07:35:54 2007
+From: vivek at khera.org (Vivek Khera)
+Date: Thu Apr 12 07:36:03 2007
+Subject: [Slony1-general] slony1-1.2.9.tar.bz2 extracts into slony1-1.2.6
+	directory.
+In-Reply-To: <5a0a9d6f0704111704v543842a4t226abfe414b19b6f@mail.gmail.com>
+References: <5a0a9d6f0704111646o143063aw60dab47f4f4d7a4b@mail.gmail.com>
+	<72dbd3150704111649o78fd9473vada2ac3239052eba@mail.gmail.com>
+	<5a0a9d6f0704111704v543842a4t226abfe414b19b6f@mail.gmail.com>
+Message-ID: <49A99978-FB42-47AD-B02E-FACAF7A75A4E@khera.org>
+
+
+On Apr 11, 2007, at 8:04 PM, Andrew Hammond wrote:
+
+>
+> My clever auto-downloader is going right ahead and downloading the
+> 1.2.6 tarball and renaming it to 1.2.9. Dho!
+
+what's the URL from which you fetch it?  if you use the pgfoundry the  
+actual filename at the end is irrelevant; it gives you the file based  
+on the "ID" number in the penultimate component of the URL path.
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: smime.p7s
+Type: application/pkcs7-signature
+Size: 2530 bytes
+Desc: not available
+Url : http://lists.slony.info/pipermail/slony1-general/attachments/20070412/a348b83b/smime.bin
+From andrew.george.hammond at gmail.com  Thu Apr 12 09:02:05 2007
+From: andrew.george.hammond at gmail.com (Andrew Hammond)
+Date: Thu Apr 12 09:02:10 2007
+Subject: [Slony1-general] slony1-1.2.9.tar.bz2 extracts into slony1-1.2.6
+	directory.
+In-Reply-To: <49A99978-FB42-47AD-B02E-FACAF7A75A4E@khera.org>
+References: <5a0a9d6f0704111646o143063aw60dab47f4f4d7a4b@mail.gmail.com>
+	<72dbd3150704111649o78fd9473vada2ac3239052eba@mail.gmail.com>
+	<5a0a9d6f0704111704v543842a4t226abfe414b19b6f@mail.gmail.com>
+	<49A99978-FB42-47AD-B02E-FACAF7A75A4E@khera.org>
+Message-ID: <5a0a9d6f0704120902o4e2cff54te1e56cd01d470e48@mail.gmail.com>
+
+On 4/12/07, Vivek Khera <vivek@khera.org> wrote:
+> On Apr 11, 2007, at 8:04 PM, Andrew Hammond wrote:
+> > My clever auto-downloader is going right ahead and downloading the
+> > 1.2.6 tarball and renaming it to 1.2.9. Dho!
+>
+> what's the URL from which you fetch it?  if you use the pgfoundry the
+> actual filename at the end is irrelevant; it gives you the file based
+> on the "ID" number in the penultimate component of the URL path.
+
+Yeah, that's what bit me. What a terrible design. Shouldn't it at
+least barf if the filename I ask for is different from the one it
+provides? Anyway, I'm grabbing from
+http://main.slony.info/downloads/$SLMAJ.$SLMIN/source/$SLTARBALL
+now.
+
+In case there's a general interest, this is for a script which
+downloads and builds postgres + slony1. I'm trying to address the
+frustration I have with the FreeBSD ports in that they want to be
+installed in default locations and don't seem to like having multiple
+binaries installed concurrently.
+
+Andrew
+From dbarthel at usedeverywhere.com  Fri Apr 13 07:48:43 2007
+From: dbarthel at usedeverywhere.com (Don Barthel)
+Date: Fri Apr 13 07:48:48 2007
+Subject: [Slony1-general] Keeping Replicated Copy Lean
+Message-ID: <93f47c720704130748l389c598dk2400345bc2b76902@mail.gmail.com>
+
+Hi, I use slony to make a replication copy to run queries against to
+offload those from the main database for performance purposes.
+
+I would like to optimize even further by periodically removing records
+from the copy without removing them from the main database.
+
+Will I upset slony if I do this?
+
+My main concern is that if I delete from the copy and then later that
+record is deleted from the main database, will slony handle the error
+gracefully when the DELETE FROM command comes through?
+
+Thanks in advance!
+
+I run Postgres 8.0 with Slony 1.1.5
+From wmoran at collaborativefusion.com  Fri Apr 13 07:53:31 2007
+From: wmoran at collaborativefusion.com (Bill Moran)
+Date: Fri Apr 13 07:53:37 2007
+Subject: [Slony1-general] Keeping Replicated Copy Lean
+In-Reply-To: <93f47c720704130748l389c598dk2400345bc2b76902@mail.gmail.com>
+References: <93f47c720704130748l389c598dk2400345bc2b76902@mail.gmail.com>
+Message-ID: <20070413105331.370eb9e9.wmoran@collaborativefusion.com>
+
+In response to "Don Barthel" <dbarthel@usedeverywhere.com>:
+
+> Hi, I use slony to make a replication copy to run queries against to
+> offload those from the main database for performance purposes.
+> 
+> I would like to optimize even further by periodically removing records
+> from the copy without removing them from the main database.
+> 
+> Will I upset slony if I do this?
+> 
+> My main concern is that if I delete from the copy and then later that
+> record is deleted from the main database, will slony handle the error
+> gracefully when the DELETE FROM command comes through?
+> 
+> Thanks in advance!
+> 
+> I run Postgres 8.0 with Slony 1.1.5
+
+This will break Slony.  It may cause data corruption.  It has also been
+shown to cause cancer in laboratory animals.
+
+A more correct approach would be to reorganize your schema so the unneeded
+records are in tables that don't get replicated.
+
+-- 
+Bill Moran
+Collaborative Fusion Inc.
+
+wmoran@collaborativefusion.com
+Phone: 412-422-3463x4023
+
+****************************************************************
+IMPORTANT: This message contains confidential information and is
+intended only for the individual named. If the reader of this
+message is not an intended recipient (or the individual
+responsible for the delivery of this message to an intended
+recipient), please be advised that any re-use, dissemination,
+distribution or copying of this message is prohibited. Please
+notify the sender immediately by e-mail if you have received
+this e-mail by mistake and delete this e-mail from your system.
+E-mail transmission cannot be guaranteed to be secure or
+error-free as information could be intercepted, corrupted, lost,
+destroyed, arrive late or incomplete, or contain viruses. The
+sender therefore does not accept liability for any errors or
+omissions in the contents of this message, which arise as a
+result of e-mail transmission.
+****************************************************************
+From andrew.george.hammond at gmail.com  Fri Apr 13 15:47:01 2007
+From: andrew.george.hammond at gmail.com (Andrew Hammond)
+Date: Fri Apr 13 15:47:10 2007
+Subject: [Slony1-general] Keeping Replicated Copy Lean
+In-Reply-To: <20070413105331.370eb9e9.wmoran@collaborativefusion.com>
+References: <93f47c720704130748l389c598dk2400345bc2b76902@mail.gmail.com>
+	<20070413105331.370eb9e9.wmoran@collaborativefusion.com>
+Message-ID: <5a0a9d6f0704131547y181c0dfi1d142eca5ce861b@mail.gmail.com>
+
+On 4/13/07, Bill Moran <wmoran@collaborativefusion.com> wrote:
+> In response to "Don Barthel" <dbarthel@usedeverywhere.com>:
+>
+> > Hi, I use slony to make a replication copy to run queries against to
+> > offload those from the main database for performance purposes.
+> >
+> > I would like to optimize even further by periodically removing records
+> > from the copy without removing them from the main database.
+> >
+> > Will I upset slony if I do this?
+> >
+> > My main concern is that if I delete from the copy and then later that
+> > record is deleted from the main database, will slony handle the error
+> > gracefully when the DELETE FROM command comes through?
+> >
+> > Thanks in advance!
+> >
+> > I run Postgres 8.0 with Slony 1.1.5
+>
+> This will break Slony.  It may cause data corruption.  It has also been
+> shown to cause cancer in laboratory animals.
+
+Well, you _might_ be able to do this as long as
+1) you don't ever try to subscribe another node from your hacked
+subscriber (obviously)
+2) there are no RI constraint issues
+3) you're comfortable futzing around with the triggers on your replica
+(you'll need to drop the slony Don't Touch trigger, delete the data,
+and then replace the trigger).
+
+> A more correct approach would be to reorganize your schema so the unneeded
+> records are in tables that don't get replicated.
+
++1 on fixing your design. Consider parent / child tables with CBE and
+then you can simply remove tables you don't need to examine anymore
+from the set.
+
+Andrew
+From wmoran at collaborativefusion.com  Sat Apr 14 07:04:32 2007
+From: wmoran at collaborativefusion.com (Bill Moran)
+Date: Sat Apr 14 07:04:07 2007
+Subject: [Slony1-general] Keeping Replicated Copy Lean
+In-Reply-To: <5a0a9d6f0704131547y181c0dfi1d142eca5ce861b@mail.gmail.com>
+References: <93f47c720704130748l389c598dk2400345bc2b76902@mail.gmail.com>
+	<20070413105331.370eb9e9.wmoran@collaborativefusion.com>
+	<5a0a9d6f0704131547y181c0dfi1d142eca5ce861b@mail.gmail.com>
+Message-ID: <20070414100432.5bbaf115.wmoran@collaborativefusion.com>
+
+"Andrew Hammond" <andrew.george.hammond@gmail.com> wrote:
+>
+> On 4/13/07, Bill Moran <wmoran@collaborativefusion.com> wrote:
+> > In response to "Don Barthel" <dbarthel@usedeverywhere.com>:
+> >
+> > > Hi, I use slony to make a replication copy to run queries against to
+> > > offload those from the main database for performance purposes.
+> > >
+> > > I would like to optimize even further by periodically removing records
+> > > from the copy without removing them from the main database.
+> > >
+> > > Will I upset slony if I do this?
+> > >
+> > > My main concern is that if I delete from the copy and then later that
+> > > record is deleted from the main database, will slony handle the error
+> > > gracefully when the DELETE FROM command comes through?
+> > >
+> > > Thanks in advance!
+> > >
+> > > I run Postgres 8.0 with Slony 1.1.5
+> >
+> > This will break Slony.  It may cause data corruption.  It has also been
+> > shown to cause cancer in laboratory animals.
+> 
+> Well, you _might_ be able to do this as long as
+> 1) you don't ever try to subscribe another node from your hacked
+> subscriber (obviously)
+> 2) there are no RI constraint issues
+> 3) you're comfortable futzing around with the triggers on your replica
+> (you'll need to drop the slony Don't Touch trigger, delete the data,
+> and then replace the trigger).
+> 
+> > A more correct approach would be to reorganize your schema so the unneeded
+> > records are in tables that don't get replicated.
+> 
+> +1 on fixing your design. Consider parent / child tables with CBE and
+> then you can simply remove tables you don't need to examine anymore
+> from the set.
+
+As an aside on this, I don't entirely feel that this indicates that his
+design is "broken" and requires fixing.
+
+One of the things I've been realizing is that planning a database well
+is different from planning a database to replicate well.  You have to
+make decisions about what data is worth replicating and what is not.
+Depending on available resources (bandwidth, etc) you may have to make
+tough choices about what you aren't able to replicate, and this may
+result in changes to your schema that would seem silly outside the
+context of replicated data.
+
+If you design your database without considering replication, and then
+try to tack replication on later, it will probably be an inferior
+design -- even if it was a good design without replication considered.
+
+The decision to move old records to an "archive" table that doesn't
+get replicated is a good example of this, but not the only one.
+
+-- 
+Bill Moran
+Collaborative Fusion Inc.
+
+wmoran@collaborativefusion.com
+Phone: 412-422-3463x4023
+
+****************************************************************
+IMPORTANT: This message contains confidential information
+and is intended only for the individual named. If the reader of
+this message is not an intended recipient (or the individual
+responsible for the delivery of this message to an intended
+recipient), please be advised that any re-use, dissemination,
+distribution or copying of this message is prohibited. Please
+notify the sender immediately by e-mail if you have received
+this e-mail by mistake and delete this e-mail from your system.
+E-mail transmission cannot be guaranteed to be secure or
+error-free as information could be intercepted, corrupted, lost,
+destroyed, arrive late or incomplete, or contain viruses. The
+sender therefore does not accept liability for any errors or
+omissions in the contents of this message, which arise as a
+result of e-mail transmission.
+****************************************************************
+From JanWieck at Yahoo.com  Sat Apr 14 16:08:41 2007
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Sat Apr 14 16:08:52 2007
+Subject: [Slony1-general] Keeping Replicated Copy Lean
+In-Reply-To: <5a0a9d6f0704131547y181c0dfi1d142eca5ce861b@mail.gmail.com>
+References: <93f47c720704130748l389c598dk2400345bc2b76902@mail.gmail.com>	<20070413105331.370eb9e9.wmoran@collaborativefusion.com>
+	<5a0a9d6f0704131547y181c0dfi1d142eca5ce861b@mail.gmail.com>
+Message-ID: <46215EF9.7060809@Yahoo.com>
+
+On 4/13/2007 6:47 PM, Andrew Hammond wrote:
+> On 4/13/07, Bill Moran <wmoran@collaborativefusion.com> wrote:
+>> In response to "Don Barthel" <dbarthel@usedeverywhere.com>:
+>>
+>> > Hi, I use slony to make a replication copy to run queries against to
+>> > offload those from the main database for performance purposes.
+>> >
+>> > I would like to optimize even further by periodically removing records
+>> > from the copy without removing them from the main database.
+>> >
+>> > Will I upset slony if I do this?
+>> >
+>> > My main concern is that if I delete from the copy and then later that
+>> > record is deleted from the main database, will slony handle the error
+>> > gracefully when the DELETE FROM command comes through?
+>> >
+>> > Thanks in advance!
+>> >
+>> > I run Postgres 8.0 with Slony 1.1.5
+>>
+>> This will break Slony.  It may cause data corruption.  It has also been
+>> shown to cause cancer in laboratory animals.
+> 
+> Well, you _might_ be able to do this as long as
+> 1) you don't ever try to subscribe another node from your hacked
+> subscriber (obviously)
+> 2) there are no RI constraint issues
+> 3) you're comfortable futzing around with the triggers on your replica
+> (you'll need to drop the slony Don't Touch trigger, delete the data,
+> and then replace the trigger).
+
+Or leave the triggers in place and pretend to be a slon.
+
+
+Jan
+
+-- 
+#======================================================================#
+# It's easier to get forgiveness for being wrong than for being right. #
+# Let's break this rule - forgive me.                                  #
+#================================================== JanWieck@Yahoo.com #
+From dbarthel at usedeverywhere.com  Sun Apr 15 02:01:31 2007
+From: dbarthel at usedeverywhere.com (Don Barthel)
+Date: Sun Apr 15 02:01:45 2007
+Subject: [Slony1-general] Keeping Replicated Copy Lean
+In-Reply-To: <46215EF9.7060809@Yahoo.com>
+References: <93f47c720704130748l389c598dk2400345bc2b76902@mail.gmail.com>
+	<20070413105331.370eb9e9.wmoran@collaborativefusion.com>
+	<5a0a9d6f0704131547y181c0dfi1d142eca5ce861b@mail.gmail.com>
+	<46215EF9.7060809@Yahoo.com>
+Message-ID: <93f47c720704150201i32ffe6c9k2560d7778955aa71@mail.gmail.com>
+
+Thanks to Bill, Andrew and Jan for their advice!
+
+Based on the feedback I have decided on a new solution.
+
+Again, I have a main database and a slon replicated copy that I use
+for reporting. But the table I report from is big and unwieldy and I
+want to speed up the reports as much as possible.
+
+So I have created a new table that will contain a subset of the rows,
+a subset of the columns and in some cases a subset of an individual
+column when I don't need the whole column (i.e. my reports only need
+the first 200 characters of the description). And I'm maintaining the
+new table with triggers.
+
+All works well, I have triggers for INSERT, DELETE and UPDATE and its
+maintaining exactly the subset I want. And, since I'm maintaining the
+reporting table on the Slon replicated server only, I'm keeping the
+main database 'clean'.
+
+Thanks to all for the help!
+
+- Don Barthel
+
+
+On 4/14/07, Jan Wieck <JanWieck@yahoo.com> wrote:
+> On 4/13/2007 6:47 PM, Andrew Hammond wrote:
+> > On 4/13/07, Bill Moran <wmoran@collaborativefusion.com> wrote:
+> >> In response to "Don Barthel" <dbarthel@usedeverywhere.com>:
+> >>
+> >> > Hi, I use slony to make a replication copy to run queries against to
+> >> > offload those from the main database for performance purposes.
+> >> >
+> >> > I would like to optimize even further by periodically removing records
+> >> > from the copy without removing them from the main database.
+> >> >
+> >> > Will I upset slony if I do this?
+> >> >
+> >> > My main concern is that if I delete from the copy and then later that
+> >> > record is deleted from the main database, will slony handle the error
+> >> > gracefully when the DELETE FROM command comes through?
+> >> >
+> >> > Thanks in advance!
+> >> >
+> >> > I run Postgres 8.0 with Slony 1.1.5
+> >>
+> >> This will break Slony.  It may cause data corruption.  It has also been
+> >> shown to cause cancer in laboratory animals.
+> >
+> > Well, you _might_ be able to do this as long as
+> > 1) you don't ever try to subscribe another node from your hacked
+> > subscriber (obviously)
+> > 2) there are no RI constraint issues
+> > 3) you're comfortable futzing around with the triggers on your replica
+> > (you'll need to drop the slony Don't Touch trigger, delete the data,
+> > and then replace the trigger).
+>
+> Or leave the triggers in place and pretend to be a slon.
+>
+>
+> Jan
+From andreas at kostyrka.org  Sun Apr 15 03:57:01 2007
+From: andreas at kostyrka.org (Andreas Kostyrka)
+Date: Sun Apr 15 03:57:02 2007
+Subject: [Slony1-general] Keeping Replicated Copy Lean
+In-Reply-To: <93f47c720704150201i32ffe6c9k2560d7778955aa71@mail.gmail.com>
+References: <93f47c720704130748l389c598dk2400345bc2b76902@mail.gmail.com>
+	<20070413105331.370eb9e9.wmoran@collaborativefusion.com>
+	<5a0a9d6f0704131547y181c0dfi1d142eca5ce861b@mail.gmail.com>
+	<46215EF9.7060809@Yahoo.com>
+	<93f47c720704150201i32ffe6c9k2560d7778955aa71@mail.gmail.com>
+Message-ID: <20070415105701.GP19371@andi-lap.la.revver.com>
+
+* Don Barthel <dbarthel@usedeverywhere.com> [070415 11:02]:
+> Thanks to Bill, Andrew and Jan for their advice!
+> 
+> Based on the feedback I have decided on a new solution.
+> 
+> Again, I have a main database and a slon replicated copy that I use
+> for reporting. But the table I report from is big and unwieldy and I
+> want to speed up the reports as much as possible.
+> 
+> So I have created a new table that will contain a subset of the rows,
+> a subset of the columns and in some cases a subset of an individual
+> column when I don't need the whole column (i.e. my reports only need
+> the first 200 characters of the description). And I'm maintaining the
+> new table with triggers.
+
+Sounds fine, I just wanted to remark, that PostgreSQL deals rather
+well with just leaving out the unused columns out of the select.
+
+So I wonder have you tried leaving out the unneeded columns, and
+creating partial indexes for the subset of rows you are interested in?
+
+Andreas
+From frum at ar-sd.net  Mon Apr 16 00:49:04 2007
+From: frum at ar-sd.net (Andy)
+Date: Mon Apr 16 00:46:52 2007
+Subject: [Slony1-general] Can this be done with slony?
+In-Reply-To: <20070412143154.GD24825@phlogiston.dyndns.org>
+Message-ID: <001301c77ffb$b451ff60$0b00a8c0@mpsro.dom>
+
+
+Hi again, 
+
+I reconstructed the scenario. 
+
+I do not have the error that I've received last week, but now I have this:
+
+2007-04-16 10:41:08 EEST WARN   remoteWorkerThread_1: copy set: data
+provider 1 only on sync -1 - sleep 5 seconds 
+
+Scenario:
+A	b	c 	- databases 
+t1 ->	t1		- set 1
+t2	t2 ->	t2	- set 2
+T3 ->	t3 	t3	- set 3
+t4 --------> t4	- set 4
+ 
+When I subscribe the set 4 ->> subscribe set (id=4, provider=1, receiver=3,
+forward=yes); 
+
+Then I receive the upper message. 
+
+The rest of replication works well. 
+
+c.t2 is ok replicated. 
+c.t4 is not replicated. 
+
+
+
+Andy.
+
+
+
+> -----Original Message-----
+> From: slony1-general-bounces@lists.slony.info 
+> [mailto:slony1-general-bounces@lists.slony.info] On Behalf Of 
+> Andrew Sullivan
+> Sent: Thursday, April 12, 2007 5:32 PM
+> To: slony1-general@lists.slony.info
+> Subject: Re: [Slony1-general] Can this be done with slony?
+> 
+> On Thu, Apr 12, 2007 at 05:16:08PM +0300, Andy wrote:
+> > As error I received somehting similar to:
+> > slony  node -1 not found in runtime configuration or something 
+> > similar, I don't have the error now.
+> 
+> Going to be hard to diagnose without the error message.
+> 
+> >  
+> > Ok, the main question would be: can a node subscribe to multiple 
+> > different sets/providers?
+> 
+> Sure.  It's one of the reasons for the idea of a set.
+> 
+> 
+> --
+> Andrew Sullivan  | ajs@crankycanuck.ca
+> The whole tendency of modern prose is away from concreteness.
+> 		--George Orwell
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general@lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+> 
+> 
+
+From andreas at kostyrka.org  Mon Apr 16 01:31:07 2007
+From: andreas at kostyrka.org (Andreas Kostyrka)
+Date: Mon Apr 16 01:31:00 2007
+Subject: [Slony1-general] Can this be done with slony?
+In-Reply-To: <001301c77ffb$b451ff60$0b00a8c0@mpsro.dom>
+References: <20070412143154.GD24825@phlogiston.dyndns.org>
+	<001301c77ffb$b451ff60$0b00a8c0@mpsro.dom>
+Message-ID: <20070416083107.GX19371@andi-lap.la.revver.com>
+
+* Andy <frum@ar-sd.net> [070416 10:30]:
+> 
+> Hi again, 
+> 
+> I reconstructed the scenario. 
+> 
+> I do not have the error that I've received last week, but now I have this:
+> 
+> 2007-04-16 10:41:08 EEST WARN   remoteWorkerThread_1: copy set: data
+> provider 1 only on sync -1 - sleep 5 seconds
+Btw, how well are the clocks of the involved hosts synchronized?
+
+Andreas
+From frum at ar-sd.net  Mon Apr 16 02:00:09 2007
+From: frum at ar-sd.net (Andy)
+Date: Mon Apr 16 01:57:54 2007
+Subject: [Slony1-general] Can this be done with slony?
+In-Reply-To: <20070416083107.GX19371@andi-lap.la.revver.com>
+Message-ID: <000a01c78005$a2c2b690$0b00a8c0@mpsro.dom>
+
+In this example everything runs on the same host. 
+ 
+
+> -----Original Message-----
+> From: Andreas Kostyrka [mailto:andreas@kostyrka.org] 
+> Sent: Monday, April 16, 2007 11:31 AM
+> To: Andy
+> Cc: 'Andrew Sullivan'; slony1-general@lists.slony.info
+> Subject: Re: [Slony1-general] Can this be done with slony?
+> 
+> * Andy <frum@ar-sd.net> [070416 10:30]:
+> > 
+> > Hi again,
+> > 
+> > I reconstructed the scenario. 
+> > 
+> > I do not have the error that I've received last week, but 
+> now I have this:
+> > 
+> > 2007-04-16 10:41:08 EEST WARN   remoteWorkerThread_1: copy set: data
+> > provider 1 only on sync -1 - sleep 5 seconds
+> Btw, how well are the clocks of the involved hosts synchronized?
+> 
+> Andreas
+> 
+> 
+
+From ajs at crankycanuck.ca  Mon Apr 16 04:56:53 2007
+From: ajs at crankycanuck.ca (Andrew Sullivan)
+Date: Mon Apr 16 04:57:24 2007
+Subject: [Slony1-general] Can this be done with slony?
+In-Reply-To: <001301c77ffb$b451ff60$0b00a8c0@mpsro.dom>
+References: <20070412143154.GD24825@phlogiston.dyndns.org>
+	<001301c77ffb$b451ff60$0b00a8c0@mpsro.dom>
+Message-ID: <20070416115653.GA6023@phlogiston.dyndns.org>
+
+On Mon, Apr 16, 2007 at 10:49:04AM +0300, Andy wrote:
+> 
+> I do not have the error that I've received last week, but now I have this:
+> 
+> 2007-04-16 10:41:08 EEST WARN   remoteWorkerThread_1: copy set: data
+> provider 1 only on sync -1 - sleep 5 seconds 
+
+That's a warning, not an error.  It's telling you that provider 1
+isn't ready to copy your data yet.  When you initialize, you have to
+copy all the data around.
+
+A
+
+-- 
+Andrew Sullivan  | ajs@crankycanuck.ca
+I remember when computers were frustrating because they *did* exactly what 
+you told them to.  That actually seems sort of quaint now.
+		--J.D. Baldwin
+From cbbrowne at ca.afilias.info  Mon Apr 16 14:49:27 2007
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Mon Apr 16 14:49:42 2007
+Subject: [Slony1-general] Can this be done with slony?
+In-Reply-To: <20070416115653.GA6023@phlogiston.dyndns.org> (Andrew Sullivan's
+	message of "Mon, 16 Apr 2007 07:56:53 -0400")
+References: <20070412143154.GD24825@phlogiston.dyndns.org>
+	<001301c77ffb$b451ff60$0b00a8c0@mpsro.dom>
+	<20070416115653.GA6023@phlogiston.dyndns.org>
+Message-ID: <60abx8c7mg.fsf@dba2.int.libertyrms.com>
+
+Andrew Sullivan <ajs@crankycanuck.ca> writes:
+> On Mon, Apr 16, 2007 at 10:49:04AM +0300, Andy wrote:
+>> 
+>> I do not have the error that I've received last week, but now I have this:
+>> 
+>> 2007-04-16 10:41:08 EEST WARN   remoteWorkerThread_1: copy set: data
+>> provider 1 only on sync -1 - sleep 5 seconds 
+>
+> That's a warning, not an error.  It's telling you that provider 1
+> isn't ready to copy your data yet.  When you initialize, you have to
+> copy all the data around.
+
+And that error message *tends* to indicate that the state of the slon
+process is (somehow, not for any particularly well explicable reason)
+somewhat deranged as it is not aware of connection information for
+node #1.
+
+Restarting the slon commonly resolves this.
+-- 
+(format nil "~S@~S" "cbbrowne" "ca.afilias.info")
+<http://dba2.int.libertyrms.com/>
+Christopher Browne
+(416) 673-4124 (land)
+From cbbrowne at ca.afilias.info  Mon Apr 16 15:20:41 2007
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Mon Apr 16 15:20:49 2007
+Subject: [Slony1-general] Patch to remove TABLE ADD KEY support
+Message-ID: <60zm58arly.fsf@dba2.int.libertyrms.com>
+
+I submitted the following patch to the patches list almost two weeks
+ago, and it hasn't yet seen any comment, either positive or negative.
+<http://lists.slony.info/pipermail/slony1-patches/2007-April/000008.html>
+
+Later this week, I'll plan to apply this patch to CVS HEAD, if there
+are no objections, and I will also see to modifying the documentation
+to ensure it is mentioned that in the new version, TABLE ADD KEY no
+longer works.
+
+And I'll ask around about some suggested procedures for detecting and
+removing instances of this usage from existing clusters.  (A coworker
+has been working on that this very week...)
+-- 
+output = ("cbbrowne" "@" "acm.org")
+http://www3.sympatico.ca/cbbrowne/sap.html
+Sturgeon's Law: 90% of *EVERYTHING* is crud.
+From cbbrowne at ca.afilias.info  Mon Apr 16 15:22:34 2007
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Mon Apr 16 15:22:42 2007
+Subject: [Slony1-general] Patch submitted to remove 7.3-ism for COPY
+Message-ID: <60vefwarit.fsf@dba2.int.libertyrms.com>
+
+Now that 7.3 is really and truly not supported, we can get rid of the
+#defined code that would optionally try to use PQgetline() if
+PQgetCopyData() wasn't available (as was true before 7.4).
+
+http://lists.slony.info/pipermail/slony1-patches/2007-April/000009.html
+
+I'll plan to commit this to CVS HEAD by end of the week, if there are
+no objections.
+-- 
+let name="cbbrowne" and tld="acm.org" in String.concat "@" [name;tld];;
+http://linuxfinances.info/info/linuxxian.html
+"Programming today  is a race  between software engineers  striving to
+build bigger and better  idiot-proof programs, and the Universe trying
+to  produce  bigger  and  better  idiots.  So  far,  the  Universe  is
+winning."  -- Rich Cook
+From ajs at crankycanuck.ca  Tue Apr 17 06:28:06 2007
+From: ajs at crankycanuck.ca (Andrew Sullivan)
+Date: Tue Apr 17 06:28:25 2007
+Subject: [Slony1-general] Can this be done with slony?
+In-Reply-To: <60abx8c7mg.fsf@dba2.int.libertyrms.com>
+References: <20070412143154.GD24825@phlogiston.dyndns.org>
+	<001301c77ffb$b451ff60$0b00a8c0@mpsro.dom>
+	<20070416115653.GA6023@phlogiston.dyndns.org>
+	<60abx8c7mg.fsf@dba2.int.libertyrms.com>
+Message-ID: <20070417132806.GA8784@phlogiston.dyndns.org>
+
+On Mon, Apr 16, 2007 at 05:49:27PM -0400, Christopher Browne wrote:
+> And that error message *tends* to indicate that the state of the slon
+> process is (somehow, not for any particularly well explicable reason)
+> somewhat deranged as it is not aware of connection information for
+> node #1.
+
+My guess in this case is that it has something to do with both the
+order and speed of the various subscription requests.  (Hmm.  I bet
+that's at least one clue on how to reproduce this strange bug.)
+
+A
+
+-- 
+Andrew Sullivan  | ajs@crankycanuck.ca
+When my information changes, I alter my conclusions.  What do you do sir?
+		--attr. John Maynard Keynes
+From wmoran at collaborativefusion.com  Tue Apr 17 06:44:24 2007
+From: wmoran at collaborativefusion.com (Bill Moran)
+Date: Tue Apr 17 06:44:30 2007
+Subject: [Slony1-general] Patch to remove TABLE ADD KEY support
+In-Reply-To: <60zm58arly.fsf@dba2.int.libertyrms.com>
+References: <60zm58arly.fsf@dba2.int.libertyrms.com>
+Message-ID: <20070417094424.faed0d7d.wmoran@collaborativefusion.com>
+
+In response to Christopher Browne <cbbrowne@ca.afilias.info>:
+
+> I submitted the following patch to the patches list almost two weeks
+> ago, and it hasn't yet seen any comment, either positive or negative.
+> <http://lists.slony.info/pipermail/slony1-patches/2007-April/000008.html>
+> 
+> Later this week, I'll plan to apply this patch to CVS HEAD, if there
+> are no objections, and I will also see to modifying the documentation
+> to ensure it is mentioned that in the new version, TABLE ADD KEY no
+> longer works.
+
+No objection, but possibly a comment.
+
+I don't see any changes to initializeLocalNode() in your patch.  It looks
+like this line can come out:
+
+        perform setval(''@NAMESPACE@.sl_rowid_seq'',
+                        p_local_node_id::int8 * ''1000000000000000''::int8);
+
+Additionally, sl_rowid_seq can probably be removed from the schema.  As
+far as I can tell, the only purpose it serves it to provide unique IDs for
+rows without PKs.
+
+I'll try to put together a patch, but I wanted to throw this out in case
+I'm unable to find time to submit a proper patch.
+
+> 
+> And I'll ask around about some suggested procedures for detecting and
+> removing instances of this usage from existing clusters.  (A coworker
+> has been working on that this very week...)
+> -- 
+> output = ("cbbrowne" "@" "acm.org")
+> http://www3.sympatico.ca/cbbrowne/sap.html
+> Sturgeon's Law: 90% of *EVERYTHING* is crud.
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general@lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+> 
+> 
+> 
+> 
+> 
+> 
+
+
+-- 
+Bill Moran
+Collaborative Fusion Inc.
+
+wmoran@collaborativefusion.com
+Phone: 412-422-3463x4023
+
+****************************************************************
+IMPORTANT: This message contains confidential information and is
+intended only for the individual named. If the reader of this
+message is not an intended recipient (or the individual
+responsible for the delivery of this message to an intended
+recipient), please be advised that any re-use, dissemination,
+distribution or copying of this message is prohibited. Please
+notify the sender immediately by e-mail if you have received
+this e-mail by mistake and delete this e-mail from your system.
+E-mail transmission cannot be guaranteed to be secure or
+error-free as information could be intercepted, corrupted, lost,
+destroyed, arrive late or incomplete, or contain viruses. The
+sender therefore does not accept liability for any errors or
+omissions in the contents of this message, which arise as a
+result of e-mail transmission.
+****************************************************************
+From frum at ar-sd.net  Tue Apr 17 07:51:58 2007
+From: frum at ar-sd.net (Andy)
+Date: Tue Apr 17 07:50:11 2007
+Subject: [Slony1-general] Can this be done with slony?
+In-Reply-To: <20070417132806.GA8784@phlogiston.dyndns.org>
+Message-ID: <000301c780ff$f2df6150$0b00a8c0@mpsro.dom>
+
+Well, 
+
+The replication on set 4 does not work. That is 100%. Also after I subscribe
+the table, the t4 table is not blocked on db c. 
+
+I tried to subscribe/unsubscribe many times the t4 set without success. I
+restarted slony/postres, even the server the same behavior. 
+
+
+I dropped node 3, dropped the database, recreated the db/schema/node/paths
+in the replication. After that I subscribed node 3 to set1 with provider 2.
+Replication worked. After that I subscribed node 3 to set 4 provider 1. HERE
+IT FAILED. Set 1 also stopped from this point to replicate.
+
+
+Thank you for help, 
+I donno what I miss here, 
+
+Andy.
+
+
+
+Here are all the scripts:
+
+cluster name=replic_loco1;
+NODE 1 ADMIN CONNINFO = 'dbname=a host=127.0.0.1 user=slony port=5432';
+NODE 2 ADMIN CONNINFO = 'dbname=b host=127.0.0.1 user=slony port=5432';
+NODE 3 ADMIN CONNINFO = 'dbname=c host=127.0.0.1 user=slony port=5432';
+
+init cluster (id=1, comment='replic_loco Master Node');
+store node (id=2, comment='replic_loco Subscriber Node 1');
+store node (id=3, comment='replic_loco Subscriber Node 2');
+
+
+
+STORE PATH (SERVER=1, CLIENT=2, CONNINFO='dbname=a host=127.0.0.1 user=slony
+port=5432');
+STORE PATH (SERVER=2, CLIENT=1, CONNINFO='dbname=b host=127.0.0.1 user=slony
+port=5432');
+
+STORE PATH (SERVER=1, CLIENT=3, CONNINFO='dbname=a host=127.0.0.1 user=slony
+port=5432');
+STORE PATH (SERVER=3, CLIENT=1, CONNINFO='dbname=c host=127.0.0.1 user=slony
+port=5432');
+
+STORE PATH (SERVER=2, CLIENT=3, CONNINFO='dbname=b host=127.0.0.1 user=slony
+port=5432');
+STORE PATH (SERVER=3, CLIENT=2, CONNINFO='dbname=c host=127.0.0.1 user=slony
+port=5432');
+
+
+
+create set (id=1, origin=1, comment='replic_loco SET 1');
+set add table (id=1, set id=1, origin=1, fully qualified name='public.t1',
+comment='replic_loco table public.t1');
+
+subscribe set (id=1, provider=1, receiver=2, forward=yes); 
+
+
+
+
+create set (id=2, origin=2, comment='replic_loco SET 2');
+set add table (id=2, set id=2, origin=2, fully qualified name='public.t2',
+comment='replic_loco table public.t2');
+
+subscribe set (id=2, provider=2, receiver=3, forward=yes); 
+
+
+
+
+create set (id=3, origin=1, comment='replic_loco SET 3');
+set add table (id=3, set id=3, origin=1, fully qualified name='public.t3',
+comment='replic_loco table public.t3');
+
+subscribe set (id=3, provider=1, receiver=2, forward=yes); 
+
+
+create set (id=4, origin=1, comment='replic_loco SET 4');
+set add table (id=4, set id=4, origin=1, fully qualified name='public.t4',
+comment='replic_loco table public.t4');
+
+subscribe set (id=4, provider=1, receiver=3, forward=yes); 
+
+
+
+
+> -----Original Message-----
+> From: slony1-general-bounces@lists.slony.info 
+> [mailto:slony1-general-bounces@lists.slony.info] On Behalf Of 
+> Andrew Sullivan
+> Sent: Tuesday, April 17, 2007 4:28 PM
+> To: Christopher Browne
+> Cc: slony1-general@lists.slony.info
+> Subject: Re: [Slony1-general] Can this be done with slony?
+> 
+> On Mon, Apr 16, 2007 at 05:49:27PM -0400, Christopher Browne wrote:
+> > And that error message *tends* to indicate that the state 
+> of the slon 
+> > process is (somehow, not for any particularly well 
+> explicable reason) 
+> > somewhat deranged as it is not aware of connection information for 
+> > node #1.
+> 
+> My guess in this case is that it has something to do with 
+> both the order and speed of the various subscription 
+> requests.  (Hmm.  I bet that's at least one clue on how to 
+> reproduce this strange bug.)
+> 
+> A
+> 
+> --
+> Andrew Sullivan  | ajs@crankycanuck.ca
+> When my information changes, I alter my conclusions.  What do 
+> you do sir?
+> 		--attr. John Maynard Keynes
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general@lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+> 
+> 
+
+From cbbrowne at ca.afilias.info  Tue Apr 17 09:03:10 2007
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Tue Apr 17 09:03:16 2007
+Subject: [Slony1-general] Patch to remove TABLE ADD KEY support
+In-Reply-To: <20070417094424.faed0d7d.wmoran@collaborativefusion.com> (Bill
+	Moran's message of "Tue, 17 Apr 2007 09:44:24 -0400")
+References: <60zm58arly.fsf@dba2.int.libertyrms.com>
+	<20070417094424.faed0d7d.wmoran@collaborativefusion.com>
+Message-ID: <60fy6zaszl.fsf@dba2.int.libertyrms.com>
+
+Bill Moran <wmoran@collaborativefusion.com> writes:
+> No objection, but possibly a comment.
+>
+> I don't see any changes to initializeLocalNode() in your patch.  It looks
+> like this line can come out:
+>
+>         perform setval(''@NAMESPACE@.sl_rowid_seq'',
+>                         p_local_node_id::int8 * ''1000000000000000''::int8);
+>
+> Additionally, sl_rowid_seq can probably be removed from the schema.  As
+> far as I can tell, the only purpose it serves it to provide unique IDs for
+> rows without PKs.
+>
+> I'll try to put together a patch, but I wanted to throw this out in case
+> I'm unable to find time to submit a proper patch.
+
+Excellent point.
+
+I'm in the process of revising the patch to reflect that change, as
+well as to include documentation changes.
+-- 
+(reverse (concatenate 'string "ofni.sailifa.ac" "@" "enworbbc"))
+<http://dba2.int.libertyrms.com/>
+Christopher Browne
+(416) 673-4124 (land)
+From dba at richyen.com  Tue Apr 17 14:03:43 2007
+From: dba at richyen.com (Richard Yen)
+Date: Tue Apr 17 14:03:55 2007
+Subject: [Slony1-general] cleanupThread v. pg_autovacuum
+Message-ID: <5C461B3D-0EED-425B-A5A7-3B4C664BD097@richyen.com>
+
+Hi all,
+
+Quick little tip here.  I've noticed that on postgres versions 8.1  
+and up, the autovacuum feature can somewhat conflict with slony-I.
+
+In the past, I've noticed that during random times in the day, and  
+depending on machine hardware specs, slony would begin to build up a  
+lag which peaks at around 20 sec, and then suddenly disappear.  It  
+was pretty annoying because I'd get paged whenever the lag crosses a  
+10-second threshold (company "policy" states this as a service  
+degradation).
+
+Just a couple weeks ago, I checked out my logs, and found that the  
+autovacuum cycles often coincided with the "slony lagging" pages, and  
+thought I'd try to do something about it.  I decided to put entries  
+into pg_autovacuum with the 'enabled' column set to 'f'.  These  
+entries were *all* the tables in the slony schema (the ones that  
+begin with _schema.sl_*).
+
+I figured that since I've already set the cleanup cycles in the slon  
+daemon, 1) it's pointless to vacuum twice, 2) slony is responsible  
+enough to do its own vacuuming, and 3) when slony decides to vacuum,  
+it won't contend with itself for table access.
+
+All the "slony lagging" pages have stopped now (I still get one every  
+night when a resource-hogging cronjob runs every night).  So, I guess  
+it was indeed some sort of contention between the postgres autovacuum  
+and the slon daemon.
+
+Just thought I'd throw this out in case anyone would need this info,  
+or perhaps provide some further input.
+
+--Richard
+From wmoran at collaborativefusion.com  Wed Apr 18 08:04:55 2007
+From: wmoran at collaborativefusion.com (Bill Moran)
+Date: Wed Apr 18 08:05:06 2007
+Subject: [Slony1-general] Slony upgrades/mismatched versions/etc
+Message-ID: <20070418110455.0833bf6d.wmoran@collaborativefusion.com>
+
+
+Based on the docs here:
+http://slony.info/documentation/slonyupgrade.html
+it would seem that I have to run the exact same version of Slony on all
+nodes at all times.  If I want to change that version, I have to update
+all nodes simultaneously.
+
+With regards to updating and versions, is this for _any_ version change?
+I'm guessing that I can't have a cluster with some 1.1 Slony and some 1.2
+Slony.
+
+But, in this particular case, I'm looking at moving some systems from 1.2.6
+to 1.2.9.  Do I have to move them all at once, or is the API locked down
+in the 1.2 version so that slight disparities are OK?
+
+-- 
+Bill Moran
+Collaborative Fusion Inc.
+http://people.collaborativefusion.com/~wmoran/
+
+wmoran@collaborativefusion.com
+Phone: 412-422-3463x4023
+
+****************************************************************
+IMPORTANT: This message contains confidential information and is
+intended only for the individual named. If the reader of this
+message is not an intended recipient (or the individual
+responsible for the delivery of this message to an intended
+recipient), please be advised that any re-use, dissemination,
+distribution or copying of this message is prohibited. Please
+notify the sender immediately by e-mail if you have received
+this e-mail by mistake and delete this e-mail from your system.
+E-mail transmission cannot be guaranteed to be secure or
+error-free as information could be intercepted, corrupted, lost,
+destroyed, arrive late or incomplete, or contain viruses. The
+sender therefore does not accept liability for any errors or
+omissions in the contents of this message, which arise as a
+result of e-mail transmission.
+****************************************************************
+From cbbrowne at ca.afilias.info  Wed Apr 18 08:08:11 2007
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Wed Apr 18 08:08:20 2007
+Subject: [Slony1-general] Removing TABLE ADD KEY
+Message-ID: <60bqhloh44.fsf@dba2.int.libertyrms.com>
+
+I just committed a patch to that end to CVS HEAD; the CVS log includes
+output from a (successful!) test run of test1 of the 'NewGen" tests.
+
+The patch includes removal of usage of sl_rowid_seq, which is no
+longer used.  (Thanks, Bill Moran, for pointing that out.)
+
+I was trying to post the patch to the -patches list; two attempts to
+do so seem to have failed.  It might be worth someone taking a peek as
+to why email to -patches might be failing, sometimes, as there's
+*some* mail going through...
+-- 
+"cbbrowne","@","acm.org"
+http://www3.sympatico.ca/cbbrowne/advocacy.html
+Introducing  "lite", the  new way  to  spell "light",  with 20%  fewer
+letters!
+From cbbrowne at ca.afilias.info  Wed Apr 18 08:11:55 2007
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Wed Apr 18 08:11:59 2007
+Subject: [Slony1-general] cleanupThread v. pg_autovacuum
+In-Reply-To: <5C461B3D-0EED-425B-A5A7-3B4C664BD097@richyen.com>
+References: <5C461B3D-0EED-425B-A5A7-3B4C664BD097@richyen.com>
+Message-ID: <4626353B.10400@ca.afilias.info>
+
+Richard Yen wrote:
+> Hi all,
+>
+> Quick little tip here.  I've noticed that on postgres versions 8.1 and
+> up, the autovacuum feature can somewhat conflict with slony-I.
+>
+> In the past, I've noticed that during random times in the day, and
+> depending on machine hardware specs, slony would begin to build up a
+> lag which peaks at around 20 sec, and then suddenly disappear.  It was
+> pretty annoying because I'd get paged whenever the lag crosses a
+> 10-second threshold (company "policy" states this as a service
+> degradation).
+>
+> Just a couple weeks ago, I checked out my logs, and found that the
+> autovacuum cycles often coincided with the "slony lagging" pages, and
+> thought I'd try to do something about it.  I decided to put entries
+> into pg_autovacuum with the 'enabled' column set to 'f'.  These
+> entries were *all* the tables in the slony schema (the ones that begin
+> with _schema.sl_*).
+>
+> I figured that since I've already set the cleanup cycles in the slon
+> daemon, 1) it's pointless to vacuum twice, 2) slony is responsible
+> enough to do its own vacuuming, and 3) when slony decides to vacuum,
+> it won't contend with itself for table access.
+>
+> All the "slony lagging" pages have stopped now (I still get one every
+> night when a resource-hogging cronjob runs every night).  So, I guess
+> it was indeed some sort of contention between the postgres autovacuum
+> and the slon daemon.
+>
+> Just thought I'd throw this out in case anyone would need this info,
+> or perhaps provide some further input.
+>
+I'll see about adding that to the documentation...
+From cbbrowne at ca.afilias.info  Wed Apr 18 08:28:44 2007
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Wed Apr 18 08:28:49 2007
+Subject: [Slony1-general] cleanupThread v. pg_autovacuum
+In-Reply-To: <5C461B3D-0EED-425B-A5A7-3B4C664BD097@richyen.com>
+References: <5C461B3D-0EED-425B-A5A7-3B4C664BD097@richyen.com>
+Message-ID: <4626392C.8070505@ca.afilias.info>
+
+Richard Yen wrote:
+> Hi all,
+>
+> Quick little tip here.  I've noticed that on postgres versions 8.1 and
+> up, the autovacuum feature can somewhat conflict with slony-I.
+>
+> I
+Documented...
+
+See:
+<http://lists.slony.info/pipermail/slony1-commit/2007-April/001690.html>
+From cbbrowne at ca.afilias.info  Wed Apr 18 13:33:08 2007
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Wed Apr 18 13:33:23 2007
+Subject: [Slony1-general] Slony upgrades/mismatched versions/etc
+In-Reply-To: <20070418110455.0833bf6d.wmoran@collaborativefusion.com>
+References: <20070418110455.0833bf6d.wmoran@collaborativefusion.com>
+Message-ID: <46268084.1010706@ca.afilias.info>
+
+Bill Moran wrote:
+> Based on the docs here:
+> http://slony.info/documentation/slonyupgrade.html
+> it would seem that I have to run the exact same version of Slony on all
+> nodes at all times.  If I want to change that version, I have to update
+> all nodes simultaneously.
+>
+> With regards to updating and versions, is this for _any_ version change?
+> I'm guessing that I can't have a cluster with some 1.1 Slony and some 1.2
+> Slony.
+>   
+> But, in this particular case, I'm looking at moving some systems from 1.2.6
+> to 1.2.9.  Do I have to move them all at once, or is the API locked down
+> in the 1.2 version so that slight disparities are OK?
+The slon will refuse to connect to nodes that are not on the same
+version.  That is, if the slon is of version 1.2.6, it will not connect
+to nodes that have schema/functions set up for version 1.2.9.  And
+vice-versa.  A slon 1.2.9 will refuse to connect to 1.2.6 nodes until
+they are updated to v1.2.9.
+
+Slight disparities:  Not OK...
+From wmoran at collaborativefusion.com  Wed Apr 18 13:45:45 2007
+From: wmoran at collaborativefusion.com (Bill Moran)
+Date: Wed Apr 18 13:46:06 2007
+Subject: [Slony1-general] Slony upgrades/mismatched versions/etc
+In-Reply-To: <46268084.1010706@ca.afilias.info>
+References: <20070418110455.0833bf6d.wmoran@collaborativefusion.com>
+	<46268084.1010706@ca.afilias.info>
+Message-ID: <20070418164545.9077ebd0.wmoran@collaborativefusion.com>
+
+In response to Christopher Browne <cbbrowne@ca.afilias.info>:
+
+> Bill Moran wrote:
+> > Based on the docs here:
+> > http://slony.info/documentation/slonyupgrade.html
+> > it would seem that I have to run the exact same version of Slony on all
+> > nodes at all times.  If I want to change that version, I have to update
+> > all nodes simultaneously.
+> >
+> > With regards to updating and versions, is this for _any_ version change?
+> > I'm guessing that I can't have a cluster with some 1.1 Slony and some 1.2
+> > Slony.
+> >   
+> > But, in this particular case, I'm looking at moving some systems from 1.2.6
+> > to 1.2.9.  Do I have to move them all at once, or is the API locked down
+> > in the 1.2 version so that slight disparities are OK?
+> The slon will refuse to connect to nodes that are not on the same
+> version.  That is, if the slon is of version 1.2.6, it will not connect
+> to nodes that have schema/functions set up for version 1.2.9.  And
+> vice-versa.  A slon 1.2.9 will refuse to connect to 1.2.6 nodes until
+> they are updated to v1.2.9.
+> 
+> Slight disparities:  Not OK...
+
+Thanks again, Chris.
+
+-- 
+Bill Moran
+Collaborative Fusion Inc.
+http://people.collaborativefusion.com/~wmoran/
+
+wmoran@collaborativefusion.com
+Phone: 412-422-3463x4023
+From andrew.george.hammond at gmail.com  Wed Apr 18 13:51:12 2007
+From: andrew.george.hammond at gmail.com (Andrew Hammond)
+Date: Wed Apr 18 13:51:26 2007
+Subject: [Slony1-general] Slony upgrades/mismatched versions/etc
+In-Reply-To: <20070418110455.0833bf6d.wmoran@collaborativefusion.com>
+References: <20070418110455.0833bf6d.wmoran@collaborativefusion.com>
+Message-ID: <5a0a9d6f0704181351m35f81dbatee1577702dc3e899@mail.gmail.com>
+
+On 4/18/07, Bill Moran <wmoran@collaborativefusion.com> wrote:
+>
+>
+> Based on the docs here:
+> http://slony.info/documentation/slonyupgrade.html
+> it would seem that I have to run the exact same version of Slony on all
+> nodes at all times.  If I want to change that version, I have to update
+> all nodes simultaneously.
+>
+> With regards to updating and versions, is this for _any_ version change?
+> I'm guessing that I can't have a cluster with some 1.1 Slony and some 1.2
+> Slony.
+>
+> But, in this particular case, I'm looking at moving some systems from
+> 1.2.6
+> to 1.2.9.  Do I have to move them all at once, or is the API locked down
+> in the 1.2 version so that slight disparities are OK?
+
+
+This might be a good design goal for slony 2.0: inter-database compatibility
+between different revisions of the same major.minor version. It'd be a nice
+analogue to the idea of not requiring an initdb across major.minor versions
+of PostgreSQL. While it wouldn't let you avoid taking an outage (well,
+exclusive locks across all tables in all sets) to upgrade functions, it
+would let you stagger the upgrades across the cluster. I doubt it's worth
+the extra maintenance effort though.
+
+Andrew
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20070418/=
+1909b35c/attachment.htm
+From mlists at rp-online.de  Thu Apr 19 00:57:58 2007
+From: mlists at rp-online.de (Thomas Pundt)
+Date: Thu Apr 19 00:55:48 2007
+Subject: [Slony1-general] Uninstalling slony
+In-Reply-To: <cone.1176956128.271708.88842.1000@zoraida.natserv.net>
+References: <cone.1176956128.271708.88842.1000@zoraida.natserv.net>
+Message-ID: <200704190957.58223.mlists@rp-online.de>
+
+Hi,
+
+On Thursday 19 April 2007 06:15, Francisco Reyes wrote:
+| Where I work we hired a company to help us setup slony.
+| We have ceased the relation with the company and we need to clean the mess
+| left behind. I woul like pointers on how to  uninstall Slony
+| completely (it doesn't seem to have finished the first copy) until I have
+| time to read the docs and install it myself.
+|
+| Any pointers on how to stop and uninstall slony?
+
+The official way would be to either use the appropriate slonik
+command (that would be "uninstall node()") or to call the uninstall node 
+function directly on each node:
+
+  select "_cluster".uninstallNode();
+
+where _cluster is your Slony schema name.
+
+| Any online tutorials? Specially that would cover stopping the replication.
+|
+| I found  Christopher Browne's Web Pages at
+| http://linuxdatabases.info/info/slony.html Is that the best source for
+| tutorial?
+
+That's a very good start, yes; although I wouldn't call it a tutorial :-)
+
+| I see a couple of slon processes running.
+| Do I kill them?
+
+Yes; they should exit themselves if Slony is uninstalled though.
+
+| This is FreeBSD and there is a /usr/local/etc/rc.d/slon that starts/stops
+| the process at bootup and shutdown. Is that all I need to run to stop the
+| process?
+
+Probably yes.
+
+Ciao,
+Thomas
+
+-- 
+Thomas Pundt <thomas.pundt@rp-online.de> ---- http://rp-online.de/ ----
+From michal.taborsky at mall.cz  Thu Apr 19 03:43:13 2007
+From: michal.taborsky at mall.cz (Michal Taborsky - Internet Mall)
+Date: Thu Apr 19 03:43:56 2007
+Subject: [Slony1-general] FETCH from LOG taking too long
+Message-ID: <462747C1.7020302@mall.cz>
+
+Hello everyone.
+
+We have a pretty simple setup. Two servers, one database replicated from 
+master to slave, everything in one replication set, about 200 tables. 
+Slony version is 1.2.9, PostgreSQL version is 8.1.5.
+
+We loaded "a bit" of data into one of the tables on master, about 6 
+million records. Which generated 6 million sl_log_1 rows. The problem 
+now is, that the slon on slave issues a "fetch 100 from LOG;" command, 
+which takes about 2 minutes to complete! The servers are loaded, but not 
+overloaded (they are both dual-dual-core Xeons with 4G RAM).
+
+Thre replication is virtually stopped at the moment, the sl_log_1 is 
+growing bigger and bigger, because the primary server does some OLTP work.
+
+Can anything be done to remedy this? The problem obviously is with the 
+FETCH, but I thought there were supposed to be some indexes on that 
+table to speed-up this.
+
+The primary server may not be taken offline. The secondary could be, but 
+only as a last resort, if there are no other ways.
+
+Thanks for any ideas.
+
+-- 
+Michal T?borsk?
+-----------------------
+JEN DO NEDELE - VYSAVAC SE SLEVOU 4.000,- BileZbozi.cz pripravilo neopakovatelnou nabidku - novy revolucni vysavac znacky HOOVER H1.PET jen za 6.990,- Kc. 
+
+http://www.bilezbozi.cz/vysavace-suche-sani/hoover-the-one-h1-pet
+-----------------------
+From andreas at kostyrka.org  Thu Apr 19 04:14:04 2007
+From: andreas at kostyrka.org (Andreas Kostyrka)
+Date: Thu Apr 19 04:14:30 2007
+Subject: [Slony1-general] FETCH from LOG taking too long
+In-Reply-To: <462747C1.7020302@mall.cz>
+References: <462747C1.7020302@mall.cz>
+Message-ID: <20070419111404.GP26355@andi-lap.lan>
+
+* Michal Taborsky - Internet Mall <michal.taborsky@mall.cz> [070419 13:00]:
+> Hello everyone.
+> 
+> We have a pretty simple setup. Two servers, one database replicated from master to slave, everything in one replication set, about 200 tables. Slony version is 1.2.9, PostgreSQL version is 8.1.5.
+> 
+> We loaded "a bit" of data into one of the tables on master, about 6 million records. Which generated 6 million sl_log_1 rows. The problem now is, that the slon on slave issues a "fetch 100 from LOG;" command, 
+> which takes about 2 minutes to complete! The servers are loaded, but not overloaded (they are both dual-dual-core Xeons with 4G RAM).
+> 
+> Thre replication is virtually stopped at the moment, the sl_log_1 is growing bigger and bigger, because the primary server does some OLTP work.
+> 
+> Can anything be done to remedy this? The problem obviously is with the FETCH, but I thought there were supposed to be some indexes on that table to speed-up this.
+
+drop the replication, restart it from scratch.
+
+Basically, slony is prone to getting overwhelmed by to many changes in
+a given time interval. E.g. one "update table set count=count+1;" will
+generate one update per row.
+
+> The primary server may not be taken offline. The secondary could be, but only as a last resort, if there are no other ways.
+Restart the replication from scratch.
+
+Andreas
+From ajs at crankycanuck.ca  Thu Apr 19 06:37:13 2007
+From: ajs at crankycanuck.ca (Andrew Sullivan)
+Date: Thu Apr 19 06:37:29 2007
+Subject: [Slony1-general] Uninstalling slony
+In-Reply-To: <200704190957.58223.mlists@rp-online.de>
+References: <cone.1176956128.271708.88842.1000@zoraida.natserv.net>
+	<200704190957.58223.mlists@rp-online.de>
+Message-ID: <20070419133713.GA14187@phlogiston.dyndns.org>
+
+On Thu, Apr 19, 2007 at 09:57:58AM +0200, Thomas Pundt wrote:
+> The official way would be to either use the appropriate slonik
+> command (that would be "uninstall node()") or to call the uninstall node 
+> function directly on each node:
+> 
+>   select "_cluster".uninstallNode();
+
+I don't think this will have any effect if the initial copy never
+completed -- it'll end up stuck behind the copy.
+
+A
+-- 
+Andrew Sullivan  | ajs@crankycanuck.ca
+Unfortunately reformatting the Internet is a little more painful 
+than reformatting your hard drive when it gets out of whack.
+		--Scott Morris
+From ajs at crankycanuck.ca  Thu Apr 19 06:51:19 2007
+From: ajs at crankycanuck.ca (Andrew Sullivan)
+Date: Thu Apr 19 06:51:30 2007
+Subject: [Slony1-general] FETCH from LOG taking too long
+In-Reply-To: <462747C1.7020302@mall.cz>
+References: <462747C1.7020302@mall.cz>
+Message-ID: <20070419135119.GC14187@phlogiston.dyndns.org>
+
+On Thu, Apr 19, 2007 at 12:43:13PM +0200, Michal Taborsky - Internet Mall wrote:
+> now is, that the slon on slave issues a "fetch 100 from LOG;" command, 
+> which takes about 2 minutes to complete! The servers are loaded, but not 
+> overloaded (they are both dual-dual-core Xeons with 4G RAM).
+
+It sounds like you need to stop all the slons, ANALYSE the log tables
+(because I bet the plans you're getting for that query are _really
+bad_), and restart, probably with a larger fetch size.  It will still
+take a long time to catch up, I expect.  But 6 million rows is by no
+means impossible -- we added 12 million rows to a table just the
+other day, and it caught up in well under an hour (mind, we had
+rather more hardware to throw at the problem than you do.  But
+still).
+
+A
+
+-- 
+Andrew Sullivan  | ajs@crankycanuck.ca
+Everything that happens in the world happens at some place.
+		--Jane Jacobs 
+From vivek at khera.org  Thu Apr 19 08:48:46 2007
+From: vivek at khera.org (Vivek Khera)
+Date: Thu Apr 19 08:48:56 2007
+Subject: [Slony1-general] FETCH from LOG taking too long
+In-Reply-To: <20070419135119.GC14187@phlogiston.dyndns.org>
+References: <462747C1.7020302@mall.cz>
+	<20070419135119.GC14187@phlogiston.dyndns.org>
+Message-ID: <D4C9F8D7-9BFC-4C6F-A496-1D6B66C5246A@khera.org>
+
+
+On Apr 19, 2007, at 9:51 AM, Andrew Sullivan wrote:
+
+> means impossible -- we added 12 million rows to a table just the
+> other day, and it caught up in well under an hour (mind, we had
+> rather more hardware to throw at the problem than you do.  But
+> still).
+
+This is the key -- the hardware....
+
+I also find that index bloat on large tables causes replication  
+slowness.  One time what I did was take the replica off production  
+service, reindexed the big tables, then let slony catch up and  
+restored service.   Prior to reindex, the hardware couldn't keep up  
+with the massive need for seeking, etc.
+
+Also, you might try dropping some indexes which your replica doesn't  
+need (indexes can be different per node and are not necessary to  
+control via 'execute script' commands.
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: smime.p7s
+Type: application/pkcs7-signature
+Size: 2530 bytes
+Desc: not available
+Url : http://lists.slony.info/pipermail/slony1-general/attachments/20070419/c1eea7fb/smime-0001.bin
+From szoradi at t-email.hu  Thu Apr 19 11:48:16 2007
+From: szoradi at t-email.hu (=?ISO-8859-2?Q?Sz=F3r=E1di_Ervin?=)
+Date: Thu Apr 19 11:54:46 2007
+Subject: [Slony1-general] Slony on Windows
+Message-ID: <4627B970.9040303@t-email.hu>
+
+Hello.
+
+My name is Ervin Szoradi.
+
+I would like to use Slony-I but I don't know how can I configure it.
+
+My system is WinXp + PostgreSql 8.1 + Slony 1.2.9.
+
+Please write short example.
+
+Please help me!
+
+Thanks.
+From z-saito at guitar.ocn.ne.jp  Thu Apr 19 12:18:13 2007
+From: z-saito at guitar.ocn.ne.jp (Hiroshi Saito)
+Date: Thu Apr 19 12:18:32 2007
+Subject: [Slony1-general] Slony on Windows
+References: <4627B970.9040303@t-email.hu>
+Message-ID: <0cad01c782b7$79d867c0$0202fea9@wiseknot.local>
+
+Hi.
+
+It is written here. However, it was not detailed yet.
+http://main.slony.info/documentation/installation.html
+
+I have written the document of the usage in windows for Japan,
+http://www.gihyo.co.jp/book/2006/232351/download/Slony-I.zip
+It is scheduled to be rewritten in English. However, I'm late for the
+reasons of very busy now.....
+
+Moreover, the usage is written in detail here.
+http://www.pgadmin.org/docs/1.6/slony.html
+
+Regards,
+Hiroshi Saito
+
+----- Original Message ----- 
+From: "Sz?r?di Ervin" <szoradi@t-email.hu>
+To: <slony1-general@lists.slony.info>
+Sent: Friday, April 20, 2007 3:48 AM
+Subject: [Slony1-general] Slony on Windows
+
+
+> Hello.
+>
+> My name is Ervin Szoradi.
+>
+> I would like to use Slony-I but I don't know how can I configure it.
+>
+> My system is WinXp + PostgreSql 8.1 + Slony 1.2.9.
+>
+> Please write short example.
+>
+> Please help me!
+>
+> Thanks.
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general@lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general 
+
+
+From mlists at rp-online.de  Fri Apr 20 00:19:39 2007
+From: mlists at rp-online.de (Thomas Pundt)
+Date: Fri Apr 20 00:17:10 2007
+Subject: [Slony1-general] Uninstalling slony
+In-Reply-To: <cone.1176998358.247952.99562.1000@zoraida.natserv.net>
+References: <cone.1176956128.271708.88842.1000@zoraida.natserv.net>
+	<200704190957.58223.mlists@rp-online.de>
+	<cone.1176998358.247952.99562.1000@zoraida.natserv.net>
+Message-ID: <200704200919.39396.mlists@rp-online.de>
+
+Hi,
+
+On Thursday 19 April 2007 17:59, Francisco Reyes wrote:
+| >   select "_cluster".uninstallNode();
+|
+| Do I need to stop the slon processes first?
+
+It doesn't really matter if all you care about is your master. And the
+slave didn't even complete the first copy, right?
+
+| I found the schema for slony.
+| The consultant called it "_bk_replica".
+|
+| So is this what I need to run?
+| select _bk_replica.uninstallNode();
+
+Yes.
+
+| So running the uninstallNode should stop the process and the slon will
+| stop?
+
+Yes.
+
+| Don't think the consultant even used the port system to start it..
+| Tried to run /usr/local/etc/rc.d/slon stop and got
+| slon not running? (check /var/run/slon.pid).
+
+I am not familiar enough with the FreeBSD port system to say anything
+about it without having seen that script. But it is safe to simply
+kill the slon processes.
+
+| After I run uninstallNode() do I delete the schema?
+
+Yes. If you drop cascade the Slony schema, there shouldn't be left
+any traces of Slony in your database.
+
+| Anything else that needs to be deleted?
+
+Not to my knowledge.
+
+Ciao,
+Thomas
+
+-- 
+Thomas Pundt <thomas.pundt@rp-online.de> ---- http://rp-online.de/ ----
+From gdh at laterooms.com  Fri Apr 20 11:13:43 2007
+From: gdh at laterooms.com (Gavin Hamill)
+Date: Fri Apr 20 11:12:38 2007
+Subject: [Slony1-general] Too much listening?
+Message-ID: <200704201913.43887.gdh@laterooms.com>
+
+Hi :)
+
+We have a Slony 1.2.9 system involving 6 nodes. All the replication sets are 
+originated on one 'master' machine. Given this, each of the 5 'slave' nodes 
+have listen paths to each of the others, via node 1.
+
+Here's the first half of sl_listen:
+
+li_origin, li_provider, li_receiver
+"1";"1";"2"
+"1";"1";"3"
+"1";"1";"4"
+"1";"1";"5"
+"1";"1";"6"
+"2";"1";"3"
+"2";"1";"4"
+"2";"1";"5"
+"2";"1";"6"
+"2";"2";"1"
+"3";"1";"2"
+"3";"1";"4"
+"3";"1";"5"
+"3";"1";"6"
+"3";"3";"1"
+
+What I really wanted to know is... why does read-only node 2 care what 
+read-only node 3 is doing? I must surely be able to remove 80% of the listens 
+and associated acknowledgment overhead?
+
+If so, is there a safe way of doing this (i.e. not removing rows from 
+sl_listen on each node manually) ?
+
+Apologies if this is covered in the docs; I must have missed it :(
+
+Cheers,
+Gavin.
+From lists at stringsutils.com  Thu Apr 19 08:59:18 2007
+From: lists at stringsutils.com (Francisco Reyes)
+Date: Mon Apr 23 08:41:06 2007
+Subject: [Slony1-general] Uninstalling slony
+References: <cone.1176956128.271708.88842.1000@zoraida.natserv.net>
+	<200704190957.58223.mlists@rp-online.de>
+Message-ID: <cone.1176998358.247952.99562.1000@zoraida.natserv.net>
+
+Thomas Pundt writes:
+
+
+> The official way would be to either use the appropriate slonik
+> command (that would be "uninstall node()") or to call the uninstall node 
+> function directly on each node:
+>   select "_cluster".uninstallNode();
+
+Do I need to stop the slon processes first?
+I found the schema for slony.
+The consultant called it "_bk_replica".
+
+So is this what I need to run?
+select _bk_replica.uninstallNode();
+
+> Yes; they should exit themselves if Slony is uninstalled though.
+
+So running the uninstallNode should stop the process and the slon will stop?
+ 
+> | This is FreeBSD and there is a /usr/local/etc/rc.d/slon that starts/stops
+> | the process at bootup and shutdown. Is that all I need to run to stop the
+> | process?
+> 
+> Probably yes.
+
+Don't think the consultant even used the port system to start it..
+Tried to run /usr/local/etc/rc.d/slon stop and got 
+slon not running? (check /var/run/slon.pid).
+
+After I run uninstallNode() do I delete the schema?
+Anything else that needs to be deleted?
+
+Thanks much for the pointers.  
+From szoradi at t-email.hu  Sun Apr 22 09:36:30 2007
+From: szoradi at t-email.hu (=?ISO-8859-2?Q?Sz=F3r=E1di_Ervin?=)
+Date: Mon Apr 23 08:41:07 2007
+Subject: [Slony1-general] Slony on Windows
+In-Reply-To: <0cad01c782b7$79d867c0$0202fea9@wiseknot.local>
+References: <4627B970.9040303@t-email.hu>
+	<0cad01c782b7$79d867c0$0202fea9@wiseknot.local>
+Message-ID: <462B8F0E.2020505@t-email.hu>
+
+Hi.
+
+Thank You for your advice.
+It was useful but I could only one create a cluster.
+I don't know how!
+
+I have got 2 PC.
+The system is WinXp + PostgreSql 8.1 + Slony 1.2.9. on computers.
+Those computers database is same.
+I created it by template / creator script.
+
+I made the following steps on two Pc:
+
+1. -regservice pc1 / pc 2 It`s OK.
+2. addengines PC 1 C:\slony\master.conf  (slon Cluster =
+
+"dbname=3DTimarvasker host=3Dlocalhost user=3Dpostgres") It`s OK.
+                      PC 2 C:\slony\slave.conf    (slon Cluster =
+
+"dbname=3DTimarvasker host=3Dlocalhost user=3Dpostgres") It`s OK.
+3. Create on Pc 1 Cluster (1 Master ;99 PgAdminNode) It`s OK.
+4. I try join existing cluster on Pc 2 and a receive the following message:
+
+
+
+*Why???
+
+Please help Me!!
+
+*The* *Japan is difficult.
+Please rewrite it.
+*
+*Regards,
+
+Ervin Szoradi*
+*
+Hiroshi Saito =EDrta:
+> Hi.
+>
+> It is written here. However, it was not detailed yet.
+> http://main.slony.info/documentation/installation.html
+>
+> I have written the document of the usage in windows for Japan,
+> http://www.gihyo.co.jp/book/2006/232351/download/Slony-I.zip
+> It is scheduled to be rewritten in English. However, I'm late for the
+> reasons of very busy now.....
+>
+> Moreover, the usage is written in detail here.
+> http://www.pgadmin.org/docs/1.6/slony.html
+>
+> Regards,
+> Hiroshi Saito
+>
+> ----- Original Message ----- From: "Sz=F3r=E1di Ervin" <szoradi@t-email.h=
+u>
+> To: <slony1-general@lists.slony.info>
+> Sent: Friday, April 20, 2007 3:48 AM
+> Subject: [Slony1-general] Slony on Windows
+>
+>
+>> Hello.
+>>
+>> My name is Ervin Szoradi.
+>>
+>> I would like to use Slony-I but I don't know how can I configure it.
+>>
+>> My system is WinXp + PostgreSql 8.1 + Slony 1.2.9.
+>>
+>> Please write short example.
+>>
+>> Please help me!
+>>
+>> Thanks.
+>> _______________________________________________
+>> Slony1-general mailing list
+>> Slony1-general@lists.slony.info
+>> http://lists.slony.info/mailman/listinfo/slony1-general =
+
+>
+>
+>
+
+-------------- next part --------------
+Skipped content of type multipart/related
+From cbbrowne at ca.afilias.info  Mon Apr 23 11:20:08 2007
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Mon Apr 23 11:20:15 2007
+Subject: [Slony1-general] Uninstalling slony
+In-Reply-To: <cone.1176998358.247952.99562.1000@zoraida.natserv.net>
+	(Francisco Reyes's message of "Thu, 19 Apr 2007 11:59:18 -0400")
+References: <cone.1176956128.271708.88842.1000@zoraida.natserv.net>
+	<200704190957.58223.mlists@rp-online.de>
+	<cone.1176998358.247952.99562.1000@zoraida.natserv.net>
+Message-ID: <60r6qbneav.fsf@dba2.int.libertyrms.com>
+
+Francisco Reyes <lists@stringsutils.com> writes:
+> Thomas Pundt writes:
+>
+>
+>> The official way would be to either use the appropriate slonik
+>> command (that would be "uninstall node()") or to call the uninstall
+>> node function directly on each node:
+>>   select "_cluster".uninstallNode();
+>
+> Do I need to stop the slon processes first?
+> I found the schema for slony.
+> The consultant called it "_bk_replica".
+>
+> So is this what I need to run?
+> select _bk_replica.uninstallNode();
+>
+>> Yes; they should exit themselves if Slony is uninstalled though.
+>
+> So running the uninstallNode should stop the process and the slon will stop?
+
+Yup, it sure will.
+
+When uninstallNode() runs, that drops out the "_cluster" schema, and
+the slon process will *definitely* notice that!  :-)
+-- 
+(reverse (concatenate 'string "ofni.sailifa.ac" "@" "enworbbc"))
+<http://dba2.int.libertyrms.com/>
+Christopher Browne
+(416) 673-4124 (land)
+From andrew.george.hammond at gmail.com  Mon Apr 23 15:20:21 2007
+From: andrew.george.hammond at gmail.com (Andrew Hammond)
+Date: Mon Apr 23 15:20:31 2007
+Subject: [Slony1-general] Too much listening?
+In-Reply-To: <200704201913.43887.gdh@laterooms.com>
+References: <200704201913.43887.gdh@laterooms.com>
+Message-ID: <5a0a9d6f0704231520i79b24facg2af8ef8e9b67d79f@mail.gmail.com>
+
+On 4/20/07, Gavin Hamill <gdh@laterooms.com> wrote:
+
+> What I really wanted to know is... why does read-only node 2 care what
+> read-only node 3 is doing? I must surely be able to remove 80% of the
+> listens
+> and associated acknowledgment overhead?
+>
+
+Because subscribers are not read-only. They have the ability to be promoted
+to origin status. If you don't ever intend to promote a node, you can set
+forward=3Dfalse for it's subscription and achieve some savings on the node =
+(by
+not storing log info).
+
+If you want subscribers that really don't cost any extra to the cluster,
+have you considered sl log shipping?
+
+Andrew
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20070423/=
+c32fe9ce/attachment.htm
+From z-saito at guitar.ocn.ne.jp  Mon Apr 23 18:16:24 2007
+From: z-saito at guitar.ocn.ne.jp (Hiroshi Saito)
+Date: Mon Apr 23 18:16:34 2007
+Subject: [Slony1-general] Slony on Windows
+References: <4627B970.9040303@t-email.hu><0cad01c782b7$79d867c0$0202fea9@wiseknot.local>
+	<462B8F0E.2020505@t-email.hu>
+Message-ID: <003201c7860e$2cd06ef0$b601a8c0@hiroshi6e67244>
+
+Hi.
+
+It is strange... I think there is a proposal to divide the problem.
+Did you operate all with pgAdmin3 without using slonik?
+Please operate it with slonik again if it is so.  I saw the screen
+and a related problem of the capital letter and the small
+letter was anxious. However, I think that there is BUG somewhere.
+It is slonik and if it is certain, it might be a problem of pgAdmin3.
+Anyway, Could you confirm it?
+If it is possible, please send me those scripts again.
+
+Thanks!
+
+Regards,
+Hiroshi Saito
+
+----- Original Message ----- 
+From: Sz?r?di Ervin
+Cc: slony1-general@lists.slony.info
+Sent: Monday, April 23, 2007 1:36 AM
+Subject: Re: [Slony1-general] Slony on Windows
+
+
+Hi.
+
+Thank You for your advice.
+It was useful but I could only one create a cluster.
+I don't know how!
+
+I have got 2 PC.
+The system is WinXp + PostgreSql 8.1 + Slony 1.2.9. on computers.
+Those computers database is same.
+I created it by template / creator script.
+
+I made the following steps on two Pc:
+
+1. -regservice pc1 / pc 2 It`s OK.
+2. addengines PC 1 C:\slony\master.conf  (slon Cluster "dbname=Timarvasker host=localhost user=postgres") It`s OK.
+                      PC 2 C:\slony\slave.conf    (slon Cluster "dbname=Timarvasker host=localhost user=postgres") It`s OK.
+3. Create on Pc 1 Cluster (1 Master ;99 PgAdminNode) It`s OK.
+4. I try join existing cluster on Pc 2 and a receive the following message:
+
+
+
+Why???
+
+Please help Me!!
+
+The Japan is difficult.
+Please rewrite it.
+
+Regards,
+
+Ervin Szoradi
+
+Hiroshi Saito ?rta:
+Hi.
+
+It is written here. However, it was not detailed yet.
+http://main.slony.info/documentation/installation.html
+
+I have written the document of the usage in windows for Japan,
+http://www.gihyo.co.jp/book/2006/232351/download/Slony-I.zip
+It is scheduled to be rewritten in English. However, I'm late for the
+reasons of very busy now.....
+
+Moreover, the usage is written in detail here.
+http://www.pgadmin.org/docs/1.6/slony.html
+
+Regards,
+Hiroshi Saito
+
+----- Original Message ----- From: "Sz?r?di Ervin" <szoradi@t-email.hu>
+To: <slony1-general@lists.slony.info>
+Sent: Friday, April 20, 2007 3:48 AM
+Subject: [Slony1-general] Slony on Windows
+
+
+
+Hello.
+
+My name is Ervin Szoradi.
+
+I would like to use Slony-I but I don't know how can I configure it.
+
+My system is WinXp + PostgreSql 8.1 + Slony 1.2.9.
+
+Please write short example.
+
+Please help me!
+
+Thanks.
+_______________________________________________
+Slony1-general mailing list
+Slony1-general@lists.slony.info
+http://lists.slony.info/mailman/listinfo/slony1-general
+
+
+
+
+
+
+
+
+
+_______________________________________________
+Slony1-general mailing list
+Slony1-general@lists.slony.info
+http://lists.slony.info/mailman/listinfo/slony1-general 
+
+From pergesu at gmail.com  Tue Apr 24 04:39:09 2007
+From: pergesu at gmail.com (Pat Maddox)
+Date: Tue Apr 24 04:39:25 2007
+Subject: [Slony1-general] Settings table IDs
+Message-ID: <810a540e0704240439g7ea3cf77meff67e7af5437a41@mail.gmail.com>
+
+I want to start using slony for replication, and have a question about
+setting table IDs when creating replication sets.  The docs say that
+you have to be careful in what IDs you assign to the tables - if
+there's a relationship between two tables, the parent needs to have a
+lower ID.
+
+So let's take two tables, users and articles.
+
+Users:
+id serial primary key
+name varchar(80)
+
+Articles:
+id serial primary key
+title varchar(80)
+body text
+user_id (foreign key on users.id)
+
+If I'm using slony to replicate this db, then I need to give the users
+table an id of 1, and articles should be 2, right?
+
+What happens when I add a table that's higher up on the heirarchy?
+For example now I want to add a companies table.
+
+Companis:
+id serial primary key
+name varchar(80)
+
+Users:
+company_id (fkey on companies.id)
+
+Now would I have to reassign IDs for the tables?  companies->1,
+users->2, articles->3?
+
+Thanks for any help.
+
+Pat
+From bnichols at ca.afilias.info  Tue Apr 24 10:59:16 2007
+From: bnichols at ca.afilias.info (Brad Nicholson)
+Date: Tue Apr 24 10:59:24 2007
+Subject: [Slony1-general] FETCH from LOG taking too long
+In-Reply-To: <20070419135119.GC14187@phlogiston.dyndns.org>
+References: <462747C1.7020302@mall.cz>
+	<20070419135119.GC14187@phlogiston.dyndns.org>
+Message-ID: <1177437556.6120.11.camel@dba5.int.libertyrms.com>
+
+On Thu, 2007-04-19 at 09:51 -0400, Andrew Sullivan wrote:
+> On Thu, Apr 19, 2007 at 12:43:13PM +0200, Michal Taborsky - Internet Mall wrote:
+> > now is, that the slon on slave issues a "fetch 100 from LOG;" command, 
+> > which takes about 2 minutes to complete! The servers are loaded, but not 
+> > overloaded (they are both dual-dual-core Xeons with 4G RAM).
+> 
+> It sounds like you need to stop all the slons, ANALYSE the log tables
+> (because I bet the plans you're getting for that query are _really
+> bad_), and restart, probably with a larger fetch size.  It will still
+> take a long time to catch up, I expect.  But 6 million rows is by no
+> means impossible -- we added 12 million rows to a table just the
+> other day, and it caught up in well under an hour (mind, we had
+> rather more hardware to throw at the problem than you do.  But
+> still).
+
+What we did was a bit different.  We added 12 million rows to an
+un-replicated table, the subscribed the table, which wouldn't have
+caused the bloated sl_log problem that Michal mentioned.  
+
+For a table that is already replicated, if I was unable to test the
+impact of slamming 6 million rows into a table that is already
+replicated table, I would either load the table in batches if possible,
+or look at the bulk loader tool that Andrew wrote (and posted about on
+this list, I believe).
+
+-- 
+Brad Nicholson  416-673-4106
+Database Administrator, Afilias Canada Corp.
+
+From bnichols at ca.afilias.info  Tue Apr 24 11:06:13 2007
+From: bnichols at ca.afilias.info (Brad Nicholson)
+Date: Tue Apr 24 11:06:19 2007
+Subject: [Slony1-general] Settings table IDs
+In-Reply-To: <810a540e0704240439g7ea3cf77meff67e7af5437a41@mail.gmail.com>
+References: <810a540e0704240439g7ea3cf77meff67e7af5437a41@mail.gmail.com>
+Message-ID: <1177437973.6120.17.camel@dba5.int.libertyrms.com>
+
+On Tue, 2007-04-24 at 05:39 -0600, Pat Maddox wrote:
+> I want to start using slony for replication, and have a question about
+> setting table IDs when creating replication sets.  The docs say that
+> you have to be careful in what IDs you assign to the tables - if
+> there's a relationship between two tables, the parent needs to have a
+> lower ID.
+> 
+> So let's take two tables, users and articles.
+> 
+> Users:
+> id serial primary key
+> name varchar(80)
+> 
+> Articles:
+> id serial primary key
+> title varchar(80)
+> body text
+> user_id (foreign key on users.id)
+> 
+> If I'm using slony to replicate this db, then I need to give the users
+> table an id of 1, and articles should be 2, right?
+
+Correct.
+
+> What happens when I add a table that's higher up on the heirarchy?
+> For example now I want to add a companies table.
+>
+>
+> Companis:
+> id serial primary key
+> name varchar(80)
+> 
+> Users:
+> company_id (fkey on companies.id)
+> 
+> Now would I have to reassign IDs for the tables?  companies->1,
+> users->2, articles->3?
+
+That would be one way of doing it.  You would have to drop these tables
+from replication and re-add them with the new id's though.
+
+If this scenario is one that you expect to face, I'd recommend leaving
+gaps in your table id's so you can plug things in later without having
+to do this.
+
+-- 
+Brad Nicholson  416-673-4106
+Database Administrator, Afilias Canada Corp.
+
+From andrew.george.hammond at gmail.com  Tue Apr 24 11:35:16 2007
+From: andrew.george.hammond at gmail.com (Andrew Hammond)
+Date: Tue Apr 24 11:35:24 2007
+Subject: [Slony1-general] CVS access?
+In-Reply-To: <3492.85.147.201.170.1176835982.squirrel@breet.com>
+References: <20070417102754.GC22885@andi-lap.lan>
+	<4624EC7A.1090607@ca.afilias.info>
+	<3492.85.147.201.170.1176835982.squirrel@breet.com>
+Message-ID: <5a0a9d6f0704241135r5ccb783cgadc6d3b9500728f6@mail.gmail.com>
+
+On 4/17/07, Niels Breet <postgres@breet.com> wrote:
+>
+> > It looks like both the altperl and mkservice directories were recently
+> > touched; there is, I believe, a cvsd process on the server that
+> > periodically goes through to fix permissions.  Hourly, I believe that
+> > happens.  So if there's a problem like this, it's worth waiting an hour
+> to
+> > see if it clears itself up.
+>
+> No, Darcy fixed it. He was notified via IRC ;)
+> You committed those mkservice patches on March 30th, so it must have been
+> broken since then. Somehow the permissions didn't get fixed automagically.
+
+
+
+And again...
+
+cvs update: failed to create lock directory for
+`/slony1/slony1-engine/tests/testlogship'
+(/slony1/slony1-engine/tests/testlogship/#cvs.lock): Permission deniedcvs
+update: failed to obtain dir lock in repository
+`/slony1/slony1-engine/tests/testlogship'
+cvs [update aborted]: read lock failed - giving up
+
+
+Andrew
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20070424/=
+8ffce1e4/attachment.htm
+From darcyb at commandprompt.com  Tue Apr 24 11:51:38 2007
+From: darcyb at commandprompt.com (Darcy Buskermolen)
+Date: Tue Apr 24 11:51:53 2007
+Subject: [Slony1-general] CVS access?
+In-Reply-To: <5a0a9d6f0704241135r5ccb783cgadc6d3b9500728f6@mail.gmail.com>
+References: <20070417102754.GC22885@andi-lap.lan>
+	<3492.85.147.201.170.1176835982.squirrel@breet.com>
+	<5a0a9d6f0704241135r5ccb783cgadc6d3b9500728f6@mail.gmail.com>
+Message-ID: <200704241151.38340.darcyb@commandprompt.com>
+
+On April 24, 2007 11:35 am, Andrew Hammond wrote:
+> On 4/17/07, Niels Breet <postgres@breet.com> wrote:
+> > > It looks like both the altperl and mkservice directories were recently
+> > > touched; there is, I believe, a cvsd process on the server that
+> > > periodically goes through to fix permissions.  Hourly, I believe that
+> > > happens.  So if there's a problem like this, it's worth waiting an hour
+> >
+> > to
+> >
+> > > see if it clears itself up.
+> >
+> > No, Darcy fixed it. He was notified via IRC ;)
+> > You committed those mkservice patches on March 30th, so it must have been
+> > broken since then. Somehow the permissions didn't get fixed
+> > automagically.
+>
+> And again...
+>
+> cvs update: failed to create lock directory for
+> `/slony1/slony1-engine/tests/testlogship'
+> (/slony1/slony1-engine/tests/testlogship/#cvs.lock): Permission deniedcvs
+> update: failed to obtain dir lock in repository
+> `/slony1/slony1-engine/tests/testlogship'
+> cvs [update aborted]: read lock failed - giving up
+
+fixed, and hopfully in a way that will prevent further failures of this sort.
+
+
+>
+>
+> Andrew
+
+-- 
+Darcy Buskermolen
+Command Prompt, Inc.
++1.503.667.4564 X 102
+http://www.commandprompt.com/
+PostgreSQL solutions since 1997
+From mdavidson at cctus.com  Tue Apr 24 12:16:52 2007
+From: mdavidson at cctus.com (Melvin Davidson)
+Date: Tue Apr 24 12:17:31 2007
+Subject: [Slony1-general] RE: Settings table IDs
+In-Reply-To: <20070424190003.2BE6B290BCC@main.slony.info>
+Message-ID: <2CC69F840555CB43B04195F218CCB57F8F4B84@COENGEX01.cctus.com>
+
+> What happens when I add a table that's higher up on the heirarchy?
+> For example now I want to add a companies table.
+
+Brad
+>If this scenario is one that you expect to face, I'd recommend leaving
+>gaps in your table id's so you can plug things in later without having
+>to do this.
+
+To reinforce what Brad has said, you will find it easier if you also
+prefix your table id with the set id.
+
+eg:
+...
+...
+CREATE SET (ID=1, ORIGIN=1, COMMENT='schema1 tables');
+
+SET ADD TABLE (SET ID=1, ORIGIN=1, ID=1010, FULLY QUALIFIED
+NAME='schema1.users', comment='Users') ;
+
+SET ADD TABLE (SET ID=1, ORIGIN=1, ID=1020, FULLY QUALIFIED
+NAME='schema1.articles', comment='Articles') ;
+...
+...
+
+That way, if you need to add the 'company' table later, it's easier to
+do.
+eg:
+
+...
+...
+#CREATE NEW TEMP SET
+CREATE SET ( ID=999, ORIGIN = 1, COMMENT = 'temporary new set' );
+
+#Add the table(s) and/or sequence(s) to the new temp set
+
+SET ADD TABLE (SET ID=999, ORIGIN=1, ID=1005, FULLY QUALIFIED
+NAME='schema1.company', comment='company') ;
+
+##SET ADD SEQUENCE ( SET ID=999, ORIGIN=1, ID=1005, FULLY QUALIFIED
+NAME='schema1.company_company_id_seq',
+COMMENT='company_company_id_seq');
+
+#Subscribe the slave(s) to the new set
+SUBSCRIBE SET ( ID = 999, PROVIDER = 1, RECEIVER = 101, FORWARD = NO );
+
+#Need to wait for 101 to confirm before continuing
+WAIT FOR EVENT (ORIGIN=1, CONFIRMED=101);
+
+MERGE SET( ID=1, ADD ID=999, ORIGIN=1 );
+
+_EOF_
+
+Melvin Davidson
+Database Developer
+Computer & Communication Technologies, Inc.
+6 Inverness Court East, Suite 220
+Englewood, CO  80112
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: Melvin Davidson.vcf
+Type: text/x-vcard
+Size: 407 bytes
+Desc: Melvin Davidson.vcf
+Url : http://lists.slony.info/pipermail/slony1-general/attachments/20070424/055f0d39/MelvinDavidson.vcf
+From pergesu at gmail.com  Tue Apr 24 15:27:08 2007
+From: pergesu at gmail.com (Pat Maddox)
+Date: Tue Apr 24 15:27:17 2007
+Subject: [Slony1-general] Settings table IDs
+In-Reply-To: <1177437973.6120.17.camel@dba5.int.libertyrms.com>
+References: <810a540e0704240439g7ea3cf77meff67e7af5437a41@mail.gmail.com>
+	<1177437973.6120.17.camel@dba5.int.libertyrms.com>
+Message-ID: <810a540e0704241527o53988023x44d4737e241f1d99@mail.gmail.com>
+
+On 4/24/07, Brad Nicholson <bnichols@ca.afilias.info> wrote:
+> On Tue, 2007-04-24 at 05:39 -0600, Pat Maddox wrote:
+> > I want to start using slony for replication, and have a question about
+> > setting table IDs when creating replication sets.  The docs say that
+> > you have to be careful in what IDs you assign to the tables - if
+> > there's a relationship between two tables, the parent needs to have a
+> > lower ID.
+> >
+> > So let's take two tables, users and articles.
+> >
+> > Users:
+> > id serial primary key
+> > name varchar(80)
+> >
+> > Articles:
+> > id serial primary key
+> > title varchar(80)
+> > body text
+> > user_id (foreign key on users.id)
+> >
+> > If I'm using slony to replicate this db, then I need to give the users
+> > table an id of 1, and articles should be 2, right?
+>
+> Correct.
+>
+> > What happens when I add a table that's higher up on the heirarchy?
+> > For example now I want to add a companies table.
+> >
+> >
+> > Companis:
+> > id serial primary key
+> > name varchar(80)
+> >
+> > Users:
+> > company_id (fkey on companies.id)
+> >
+> > Now would I have to reassign IDs for the tables?  companies->1,
+> > users->2, articles->3?
+>
+> That would be one way of doing it.  You would have to drop these tables
+> from replication and re-add them with the new id's though.
+>
+> If this scenario is one that you expect to face, I'd recommend leaving
+> gaps in your table id's so you can plug things in later without having
+> to do this.
+
+Thanks for the info.  Here's a response I got from someone on the
+postgres mailing list:
+
+http://cbbrowne.com/info/faq.html
+"Q: Is the ordering of tables in a set significant?
+
+A: Most of the time, it isn't. You might imagine it of some value to
+order the tables in some particular way in order that "parent" entries
+would make it in before their "children" in some foreign key
+relationship; that isn't the case since foreign key constraint triggers
+are turned off on subscriber nodes."
+
+How does that tie in?  I've read somewhere else that the locking
+issues crop up if you use table inheritance.  We definitely won't be.
+So do I still need to worry about the ordering of the IDs?
+
+Pat
+From gdh at laterooms.com  Wed Apr 25 01:35:58 2007
+From: gdh at laterooms.com (Gavin Hamill)
+Date: Wed Apr 25 01:36:23 2007
+Subject: [Slony1-general] Too much listening?
+In-Reply-To: <5a0a9d6f0704231520i79b24facg2af8ef8e9b67d79f@mail.gmail.com>
+References: <200704201913.43887.gdh@laterooms.com>
+	<5a0a9d6f0704231520i79b24facg2af8ef8e9b67d79f@mail.gmail.com>
+Message-ID: <462F12EE.90103@laterooms.com>
+
+Andrew Hammond wrote:
+> On 4/20/07, *Gavin Hamill* <gdh@laterooms.com 
+> <mailto:gdh@laterooms.com>> wrote:
+> 
+>     What I really wanted to know is... why does read-only node 2 care what
+>     read-only node 3 is doing? I must surely be able to remove 80% of
+>     the listens
+>     and associated acknowledgment overhead?
+> 
+> 
+> Because subscribers are not read-only. They have the ability to be 
+> promoted to origin status. If you don't ever intend to promote a node, 
+> you can set forward=false for it's subscription and achieve some savings 
+> on the node (by not storing log info).
+
+Hi Andrew :)
+
+I already set forward=false on all nodes except the one genuine backup 
+machine. I take it that even on such forward=false nodes, I must still 
+have bi-directional paths set up between two adjacent subscribers?
+
+> If you want subscribers that really don't cost any extra to the cluster, 
+> have you considered sl log shipping?
+
+I haven't - didn't want to introduce an rsync cronjob into the mix when 
+connections via postgresql seemed to operate OK - it's food for thought, 
+though :)
+
+Cheers,
+gdh
+From ian.clark at theseventhdomain.com  Wed Apr 25 02:38:57 2007
+From: ian.clark at theseventhdomain.com (ian.clark@theseventhdomain.com)
+Date: Wed Apr 25 02:39:13 2007
+Subject: [Slony1-general] Problem starting the slon daemons on windows
+Message-ID: <W9374922729239041177493937@webmail4>
+
+Hi,
+
+Can any one help? I am having a problem starting the slon daemons. I can start them from the windows command line using:-
+
+slon.exe -f shldbp03.master.conf
+
+and the daemon will start. However if I start the slony windows service nothing happens I get this message in the windows event viewer:-
+
+INFO   started 0 slon engine(s)
+
+My conf file is as follows:-
+
+cluster_name = 'provisioning_db_cluster'
+conn_info = 'dbname=provisioning host=localhost user=slony password=password'
+
+I have run slon with the -regservice and -addengine parameters and I now have the relevant registry entries:-
+
+[HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\Slony-I\Parameters\Engines]
+"C:\\mfuse\\slony scripts\\shldbp03.master.conf"="C:\\mfuse\\slony scripts\\shldbp03.master.conf"
+
+We are using Windows Server 2003 R2. This happens on both the master and the slave machines.
+
+Does anyone know why the service is not starting the daemons? Am I doing something silly?
+
+Kind regards
+
+Ian Clark
+
+
+
+From rod at iol.ie  Wed Apr 25 02:43:16 2007
+From: rod at iol.ie (Raymond O'Donnell)
+Date: Wed Apr 25 02:43:34 2007
+Subject: [Slony1-general] Problem starting the slon daemons on windows
+In-Reply-To: <W9374922729239041177493937@webmail4>
+References: <W9374922729239041177493937@webmail4>
+Message-ID: <462F22B4.6060905@iol.ie>
+
+On 25/04/2007 10:38, ian.clark@theseventhdomain.com wrote:
+
+> I have run slon with the -regservice and -addengine parameters and I
+
+Did you stop and restart the Slony service after doing -addengine? I'm a 
+novice at Slony, both on Windows and Linux, and that's the only thing I 
+can think of...
+
+Ray.
+
+
+---------------------------------------------------------------
+Raymond O'Donnell, Director of Music, Galway Cathedral, Ireland
+rod@iol.ie
+---------------------------------------------------------------
+From ian.clark at theseventhdomain.com  Wed Apr 25 02:51:46 2007
+From: ian.clark at theseventhdomain.com (ian.clark@theseventhdomain.com)
+Date: Wed Apr 25 02:52:01 2007
+Subject: [Slony1-general] Problem starting the slon daemons on windows
+Message-ID: <W9437320556296191177494706@webmail2>
+
+>
+>> I have run slon with the -regservice and -addengine parameters and I
+>
+>Did you stop and restart the Slony service after doing -addengine? I'm a 
+>novice at Slony, both on Windows and Linux, and that's the only thing I 
+>can think of...
+>
+>Ray.
+>
+
+Yes, many times now, always:-
+
+INFO started 0 slon engine(s)
+
+Ian Clark
+
+
+
+From andrew.george.hammond at gmail.com  Wed Apr 25 11:53:53 2007
+From: andrew.george.hammond at gmail.com (Andrew Hammond)
+Date: Wed Apr 25 11:54:00 2007
+Subject: [Slony1-general] Settings table IDs
+In-Reply-To: <810a540e0704241527o53988023x44d4737e241f1d99@mail.gmail.com>
+References: <810a540e0704240439g7ea3cf77meff67e7af5437a41@mail.gmail.com>
+	<1177437973.6120.17.camel@dba5.int.libertyrms.com>
+	<810a540e0704241527o53988023x44d4737e241f1d99@mail.gmail.com>
+Message-ID: <5a0a9d6f0704251153p594ad674qe808bef9b480261d@mail.gmail.com>
+
+On 4/24/07, Pat Maddox <pergesu@gmail.com> wrote:
+>
+>
+> Thanks for the info.  Here's a response I got from someone on the
+> postgres mailing list:
+>
+> http://cbbrowne.com/info/faq.html
+> "Q: Is the ordering of tables in a set significant?
+>
+> A: Most of the time, it isn't. You might imagine it of some value to
+> order the tables in some particular way in order that "parent" entries
+> would make it in before their "children" in some foreign key
+> relationship; that isn't the case since foreign key constraint triggers
+> are turned off on subscriber nodes."
+>
+> How does that tie in?  I've read somewhere else that the locking
+> issues crop up if you use table inheritance.  We definitely won't be.
+> So do I still need to worry about the ordering of the IDs?
+
+
+"Most of the time, it isn't" implies that some of the time it is. However we
+haven't documented when it actually matters and what will happen if you have
+the order wrong. I don't understand how the order of the table_ids matters
+in any way. I always understood that table_ids were arbitrary and the order
+didn't matter.
+
+Can anyone provide an example of a situation where table id ordering would
+actually matter? I can't think of any.
+
+Andrew
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20070425/=
+66a51f35/attachment.htm
+From ajs at crankycanuck.ca  Wed Apr 25 12:22:45 2007
+From: ajs at crankycanuck.ca (Andrew Sullivan)
+Date: Wed Apr 25 12:23:03 2007
+Subject: [Slony1-general] Settings table IDs
+In-Reply-To: <5a0a9d6f0704251153p594ad674qe808bef9b480261d@mail.gmail.com>
+References: <810a540e0704240439g7ea3cf77meff67e7af5437a41@mail.gmail.com>
+	<1177437973.6120.17.camel@dba5.int.libertyrms.com>
+	<810a540e0704241527o53988023x44d4737e241f1d99@mail.gmail.com>
+	<5a0a9d6f0704251153p594ad674qe808bef9b480261d@mail.gmail.com>
+Message-ID: <20070425192245.GE6002@phlogiston.dyndns.org>
+
+On Wed, Apr 25, 2007 at 11:53:53AM -0700, Andrew Hammond wrote:
+> Can anyone provide an example of a situation where table id ordering would
+> actually matter? I can't think of any.
+
+I'm pretty sure that if you're trying to use inheritance, it's
+critical.  I can't think of a case where it's otherwise a problem
+either, but I also learned BASIC on a PET, and therefore naturally
+number things sparsely :)
+
+A
+
+-- 
+Andrew Sullivan  | ajs@crankycanuck.ca
+The fact that technology doesn't work is no bar to success in the marketplace.
+		--Philip Greenspun
+From pergesu at gmail.com  Wed Apr 25 13:18:47 2007
+From: pergesu at gmail.com (Pat Maddox)
+Date: Wed Apr 25 13:18:55 2007
+Subject: [Slony1-general] Settings table IDs
+In-Reply-To: <20070425192245.GE6002@phlogiston.dyndns.org>
+References: <810a540e0704240439g7ea3cf77meff67e7af5437a41@mail.gmail.com>
+	<1177437973.6120.17.camel@dba5.int.libertyrms.com>
+	<810a540e0704241527o53988023x44d4737e241f1d99@mail.gmail.com>
+	<5a0a9d6f0704251153p594ad674qe808bef9b480261d@mail.gmail.com>
+	<20070425192245.GE6002@phlogiston.dyndns.org>
+Message-ID: <810a540e0704251318r2851a21al664d38e688a2e395@mail.gmail.com>
+
+On 4/25/07, Andrew Sullivan <ajs@crankycanuck.ca> wrote:
+> On Wed, Apr 25, 2007 at 11:53:53AM -0700, Andrew Hammond wrote:
+> > Can anyone provide an example of a situation where table id ordering would
+> > actually matter? I can't think of any.
+>
+> I'm pretty sure that if you're trying to use inheritance, it's
+> critical.  I can't think of a case where it's otherwise a problem
+> either, but I also learned BASIC on a PET, and therefore naturally
+> number things sparsely :)
+
+Since I'm not using inheritance (and never will in this db) will I be
+fine with sequential table IDs?
+
+Pat
+From cbbrowne at ca.afilias.info  Wed Apr 25 13:38:05 2007
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Wed Apr 25 13:38:14 2007
+Subject: [Slony1-general] Settings table IDs
+In-Reply-To: <810a540e0704251318r2851a21al664d38e688a2e395@mail.gmail.com>
+References: <810a540e0704240439g7ea3cf77meff67e7af5437a41@mail.gmail.com>	<1177437973.6120.17.camel@dba5.int.libertyrms.com>	<810a540e0704241527o53988023x44d4737e241f1d99@mail.gmail.com>	<5a0a9d6f0704251153p594ad674qe808bef9b480261d@mail.gmail.com>	<20070425192245.GE6002@phlogiston.dyndns.org>
+	<810a540e0704251318r2851a21al664d38e688a2e395@mail.gmail.com>
+Message-ID: <462FBC2D.7000304@ca.afilias.info>
+
+Pat Maddox wrote:
+> On 4/25/07, Andrew Sullivan <ajs@crankycanuck.ca> wrote:
+>> On Wed, Apr 25, 2007 at 11:53:53AM -0700, Andrew Hammond wrote:
+>> > Can anyone provide an example of a situation where table id
+>> ordering would
+>> > actually matter? I can't think of any.
+>>
+>> I'm pretty sure that if you're trying to use inheritance, it's
+>> critical.  I can't think of a case where it's otherwise a problem
+>> either, but I also learned BASIC on a PET, and therefore naturally
+>> number things sparsely :)
+>
+> Since I'm not using inheritance (and never will in this db) will I be
+> fine with sequential table IDs?
+>
+I'd expect so.  I haven't found cases yet where I *have* cared about
+table ID ordering, and that's after setting up replication on quite a
+large number of clusters.
+
+>"Most of the time, it isn't" implies that some of the time it is.
+
+No, it *doesn't* imply that the order is known to matter.
+
+What I meant when I wrote that is that "most of the time, there is *no*
+significance whatsoever to the ordering of the tables."  And I had no
+certainty of significance that I could attach to the remainder.
+
+In a more or less mathematical sense, most of the time, table IDs are
+not taken into *any* kind of consideration.  Most of the time, the slon
+sits there applying SYNC events, and the queries that are used for that
+do not order themselves based on table ID.  They are ordered based on
+"action sequence" (there's a sequence that gives out an "action
+sequence" value each time the logtrigger() function fires).  I can say,
+with some authority, that SYNC events do not make any use of table ID
+ordering.  So, for that "most of the time," table ID order forcibly
+*can't* matter, because it is not even considered.
+
+There are certain events that *consider* table ID ordering.  Notably,
+SUBSCRIBE SET (when it does the initial COPY), and EXECUTE SCRIPT. 
+These events do their work, table by table, in an order controlled by
+the table IDs within the set.
+
+It is a bit of an open question as to whether there is reason to expect
+there to be any significance to whether one table is processed *before*
+another, or *after.*  There might be some significance in the context of
+a set of replicated tables that involve inheritance relationships,
+although I haven't seen any evidence yet of any *known* significance,
+even in that case.  I haven't been able to rule it out, which is why I
+haven't been able to make any certain statement to the effect that "we
+know that table ID ordering DOES NOT MATTER."
+
+If someone's doing something bizarre enough, there may be some
+interaction where it will matter.  I'd be plenty interested in hearing
+about such a case; that should provide enough information to come up
+with a more categorical statement about where it does and doesn't matter. 
+
+Until then, it has to remain with just a little bit of uncertainty.  I
+don't know if P=NP.  And I don't know for certain that table ID ordering
+is of NO significance.
+From andrew.george.hammond at gmail.com  Wed Apr 25 16:02:58 2007
+From: andrew.george.hammond at gmail.com (Andrew Hammond)
+Date: Wed Apr 25 16:03:07 2007
+Subject: [Slony1-general] Settings table IDs
+In-Reply-To: <462FBC2D.7000304@ca.afilias.info>
+References: <810a540e0704240439g7ea3cf77meff67e7af5437a41@mail.gmail.com>
+	<1177437973.6120.17.camel@dba5.int.libertyrms.com>
+	<810a540e0704241527o53988023x44d4737e241f1d99@mail.gmail.com>
+	<5a0a9d6f0704251153p594ad674qe808bef9b480261d@mail.gmail.com>
+	<20070425192245.GE6002@phlogiston.dyndns.org>
+	<810a540e0704251318r2851a21al664d38e688a2e395@mail.gmail.com>
+	<462FBC2D.7000304@ca.afilias.info>
+Message-ID: <5a0a9d6f0704251602kc63c986y627ef42bfc15514f@mail.gmail.com>
+
+On 4/25/07, Christopher Browne <cbbrowne@ca.afilias.info> wrote:
+>
+> >"Most of the time, it isn't" implies that some of the time it is.
+>
+> No, it *doesn't* imply that the order is known to matter.
+
+
+I apologize for being casual in my use of the language. Allow me to
+rephrase:
+
+"Most of the time it isn't" _suggests_ that some of the time it is. Hence
+this thread.
+
+What I meant when I wrote that is that "most of the time, there is *no*
+> significance whatsoever to the ordering of the tables."  And I had no
+> certainty of significance that I could attach to the remainder.
+>
+> In a more or less mathematical sense, most of the time, table IDs are
+> not taken into *any* kind of consideration.  Most of the time, the slon
+> sits there applying SYNC events, and the queries that are used for that
+> do not order themselves based on table ID.  They are ordered based on
+> "action sequence" (there's a sequence that gives out an "action
+> sequence" value each time the logtrigger() function fires).  I can say,
+> with some authority, that SYNC events do not make any use of table ID
+> ordering.  So, for that "most of the time," table ID order forcibly
+> *can't* matter, because it is not even considered.
+
+
+Right. That makes sense to me.
+
+There are certain events that *consider* table ID ordering.  Notably,
+> SUBSCRIBE SET (when it does the initial COPY), and EXECUTE SCRIPT.
+> These events do their work, table by table, in an order controlled by
+> the table IDs within the set.
+>
+
+So, the only contexts in which table id ordering _may_ matter are SUBSCRIBE
+SET and EXECUTE SCRIPT.
+
+
+> It is a bit of an open question as to whether there is reason to expect
+> there to be any significance to whether one table is processed *before*
+> another, or *after.*  There might be some significance in the context of
+> a set of replicated tables that involve inheritance relationships,
+> although I haven't seen any evidence yet of any *known* significance,
+> even in that case.  I haven't been able to rule it out, which is why I
+> haven't been able to make any certain statement to the effect that "we
+> know that table ID ordering DOES NOT MATTER."
+>
+> If someone's doing something bizarre enough, there may be some
+> interaction where it will matter.  I'd be plenty interested in hearing
+> about such a case; that should provide enough information to come up
+> with a more categorical statement about where it does and doesn't matter.
+
+
+Agreed, that'd be interesting to see.
+
+Until then, it has to remain with just a little bit of uncertainty.  I
+> don't know if P=3DNP.  And I don't know for certain that table ID ordering
+> is of NO significance.
+>
+
+So should we update the documentation about this? ISTM that the current
+wording _suggests_ there's an issue when as far as we can tell there isn't.
+Instead why don't we say that table id's can be arbitrary and provide a
+footnote to the effect that we're pretty sure this is the case, but haven't
+managed to prove it yet. Maybe even go so far as to mention we have funny
+suspicions about interaction with inherited tables, but that they're just
+speculative at this point.
+
+It seems silly to encourage people to adopt a particular ordering when
+1) we have no evidence to demonstrate that ordering matters
+2) we haven't identified even a theoretical failure case that is based on
+ordering
+3) we can't reasonably believe that a given ordering is superior for
+avoiding an unknown issue
+
+We'd look especially silly if it did matter, and the order we've been
+endorsing is the wrong one.
+
+Andrew
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20070425/=
+b92574b2/attachment.htm
+From lukas at fmf.vtu.lt  Thu Apr 26 03:21:47 2007
+From: lukas at fmf.vtu.lt (Lukas)
+Date: Thu Apr 26 03:22:14 2007
+Subject: [Slony1-general] pg_dump slave DB
+In-Reply-To: <b35603930704260218v2c26f6bfqa94630aba916ccb7@mail.gmail.com>
+References: <000201c787d8$0492be40$6701a8c0@tablet>
+	<b35603930704260218v2c26f6bfqa94630aba916ccb7@mail.gmail.com>
+Message-ID: <60497.213.164.99.172.1177582907.squirrel@fmf.vtu.lt>
+
+Hello,
+
+ I am using Postgres 8.1 and slony 1.2.0,
+
+I am trying to dump one of the slave databases, but error:
+pg_dump: failed sanity check, parent table OID 3202430 of pg_rewrite entry
+OID 17455 not found
+
+stopped me.. what is possible to make in this situation?
+
+thx
+Lukas
+
+
+-- 
+This message has been scanned for viruses and
+dangerous content, and is believed to be clean.
+
+From ajs at crankycanuck.ca  Thu Apr 26 04:55:04 2007
+From: ajs at crankycanuck.ca (Andrew Sullivan)
+Date: Thu Apr 26 04:55:26 2007
+Subject: [Slony1-general] pg_dump slave DB
+In-Reply-To: <60497.213.164.99.172.1177582907.squirrel@fmf.vtu.lt>
+References: <000201c787d8$0492be40$6701a8c0@tablet>
+	<b35603930704260218v2c26f6bfqa94630aba916ccb7@mail.gmail.com>
+	<60497.213.164.99.172.1177582907.squirrel@fmf.vtu.lt>
+Message-ID: <20070426115504.GC8769@phlogiston.dyndns.org>
+
+On Thu, Apr 26, 2007 at 01:21:47PM +0300, Lukas wrote:
+> 
+> I am trying to dump one of the slave databases, but error:
+
+You can't pg_dump from a replica.  There's a utility shipped with Slony
+that allows you to do this.  I don't know how extensively it has been
+tested, so you'll want to make sure you test it.
+
+A
+
+-- 
+Andrew Sullivan  | ajs@crankycanuck.ca
+The whole tendency of modern prose is away from concreteness.
+		--George Orwell
+From mdavidson at cctus.com  Thu Apr 26 14:52:52 2007
+From: mdavidson at cctus.com (Melvin Davidson)
+Date: Thu Apr 26 14:53:02 2007
+Subject: [Slony1-general] RE: Settings table IDs
+In-Reply-To: <20070426190003.A9AA229043A@main.slony.info>
+Message-ID: <2CC69F840555CB43B04195F218CCB57F8F4CF2@COENGEX01.cctus.com>
+
+Andrew commented
+>It seems silly to encourage people to adopt a particular ordering when
+>1) we have no evidence to demonstrate that ordering matters
+>2) we haven't identified even a theoretical failure case that is based
+on
+>ordering
+>3) we can't reasonably believe that a given ordering is superior for
+>avoiding an unknown issue
+
+Actually, I have encountered a case where the sequence DOES MATTER!
+
+I have two tables with referencial Foreign Key constraints to each
+other.
+Don't ask why, because that is the way it was when I accepted the
+position
+and was told I could not change it. However if I find whom it was that
+did 
+it, I am sure they will require hospitalization for some trauma they
+will
+sustain. :)
+
+The bottom line is, the table that has an insert done on it first MUST
+have 
+a lower id than then second one, as subscribing will fail if the order
+is
+reversed. 
+
+Melvin Davidson
+Database Developer
+Computer & Communication Technologies, Inc.
+6 Inverness Court East, Suite 220
+Englewood, CO  80112
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: Melvin Davidson.vcf
+Type: text/x-vcard
+Size: 407 bytes
+Desc: Melvin Davidson.vcf
+Url : http://lists.slony.info/pipermail/slony1-general/attachments/20070426/2d0c5070/MelvinDavidson.vcf
+From cbbrowne at ca.afilias.info  Thu Apr 26 15:02:37 2007
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Thu Apr 26 15:02:45 2007
+Subject: [Slony1-general] RE: Settings table IDs
+In-Reply-To: <2CC69F840555CB43B04195F218CCB57F8F4CF2@COENGEX01.cctus.com>
+References: <2CC69F840555CB43B04195F218CCB57F8F4CF2@COENGEX01.cctus.com>
+Message-ID: <4631217D.8030906@ca.afilias.info>
+
+Melvin Davidson wrote:
+> Andrew commented
+>   
+>> It seems silly to encourage people to adopt a particular ordering when
+>> 1) we have no evidence to demonstrate that ordering matters
+>> 2) we haven't identified even a theoretical failure case that is based
+>>     
+> on
+>   
+>> ordering
+>> 3) we can't reasonably believe that a given ordering is superior for
+>> avoiding an unknown issue
+>>     
+>
+> Actually, I have encountered a case where the sequence DOES MATTER!
+>
+> I have two tables with referencial Foreign Key constraints to each
+> other.
+> Don't ask why, because that is the way it was when I accepted the
+> position
+> and was told I could not change it. However if I find whom it was that
+> did 
+> it, I am sure they will require hospitalization for some trauma they
+> will
+> sustain. :)
+>
+> The bottom line is, the table that has an insert done on it first MUST
+> have 
+> a lower id than then second one, as subscribing will fail if the order
+> is
+> reversed. 
+>   
+If you could provide an example (that doesn't cause anyone too much
+trauma about intellectual property concerns ;-)), I'd be pleased to try
+to add that into both test and documentation...
+From lukas at fmf.vtu.lt  Thu Apr 26 15:13:26 2007
+From: lukas at fmf.vtu.lt (Lukas)
+Date: Thu Apr 26 15:13:44 2007
+Subject: [Slony1-general] pg_dump slave DB
+In-Reply-To: <20070426115504.GC8769@phlogiston.dyndns.org>
+References: <000201c787d8$0492be40$6701a8c0@tablet>
+	<b35603930704260218v2c26f6bfqa94630aba916ccb7@mail.gmail.com>
+	<60497.213.164.99.172.1177582907.squirrel@fmf.vtu.lt>
+	<20070426115504.GC8769@phlogiston.dyndns.org>
+Message-ID: <3999.88.119.99.2.1177625606.squirrel@fmf.vtu.lt>
+
+Hello,
+
+about what tool are you talking? Can you give its name?
+
+L
+
+
+> On Thu, Apr 26, 2007 at 01:21:47PM +0300, Lukas wrote:
+>>
+>> I am trying to dump one of the slave databases, but error:
+>
+> You can't pg_dump from a replica.  There's a utility shipped with Slony
+> that allows you to do this.  I don't know how extensively it has been
+> tested, so you'll want to make sure you test it.
+>
+> A
+>
+> --
+> Andrew Sullivan  | ajs@crankycanuck.ca
+> The whole tendency of modern prose is away from concreteness.
+> 		--George Orwell
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general@lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+>
+> --
+> This message has been scanned for viruses and
+> dangerous content, and is believed to be clean.
+>
+>
+
+
+
+-- 
+This message has been scanned for viruses and
+dangerous content, and is believed to be clean.
+
+From andrew.george.hammond at gmail.com  Thu Apr 26 16:12:25 2007
+From: andrew.george.hammond at gmail.com (Andrew Hammond)
+Date: Thu Apr 26 16:12:35 2007
+Subject: [Slony1-general] pg_dump slave DB
+In-Reply-To: <3999.88.119.99.2.1177625606.squirrel@fmf.vtu.lt>
+References: <000201c787d8$0492be40$6701a8c0@tablet>
+	<b35603930704260218v2c26f6bfqa94630aba916ccb7@mail.gmail.com>
+	<60497.213.164.99.172.1177582907.squirrel@fmf.vtu.lt>
+	<20070426115504.GC8769@phlogiston.dyndns.org>
+	<3999.88.119.99.2.1177625606.squirrel@fmf.vtu.lt>
+Message-ID: <5a0a9d6f0704261612y2c887030g36a8752dc18dede8@mail.gmail.com>
+
+tools/slony1-dump.sh
+
+
+On 4/26/07, Lukas <lukas@fmf.vtu.lt> wrote:
+>
+> Hello,
+>
+> about what tool are you talking? Can you give its name?
+>
+> L
+>
+>
+> > On Thu, Apr 26, 2007 at 01:21:47PM +0300, Lukas wrote:
+> >>
+> >> I am trying to dump one of the slave databases, but error:
+> >
+> > You can't pg_dump from a replica.  There's a utility shipped with Slony
+> > that allows you to do this.  I don't know how extensively it has been
+> > tested, so you'll want to make sure you test it.
+> >
+> > A
+> >
+> > --
+> > Andrew Sullivan  | ajs@crankycanuck.ca
+> > The whole tendency of modern prose is away from concreteness.
+> >               --George Orwell
+> > _______________________________________________
+> > Slony1-general mailing list
+> > Slony1-general@lists.slony.info
+> > http://lists.slony.info/mailman/listinfo/slony1-general
+> >
+> > --
+> > This message has been scanned for viruses and
+> > dangerous content, and is believed to be clean.
+> >
+> >
+>
+>
+>
+> --
+> This message has been scanned for viruses and
+> dangerous content, and is believed to be clean.
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general@lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20070426/=
+3253bc29/attachment.htm
+From m.watts at eris.qinetiq.com  Fri Apr 27 03:02:10 2007
+From: m.watts at eris.qinetiq.com (Mark Watts)
+Date: Fri Apr 27 03:02:26 2007
+Subject: [Slony1-general] Compiling Slony 1.2.9 on Mandriva 2007.1
+Message-ID: <200704271102.10334.m.watts@eris.qinetiq.com>
+
+Skipped content of type multipart/mixed-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: not available
+Type: application/pgp-signature
+Size: 189 bytes
+Desc: not available
+Url : http://lists.slony.info/pipermail/slony1-general/attachments/20070427/bd21ce6b/attachment.pgp
+From devrim at CommandPrompt.com  Sat Apr 28 13:58:27 2007
+From: devrim at CommandPrompt.com (Devrim =?ISO-8859-1?Q?G=DCND=DCZ?=)
+Date: Sat Apr 28 13:59:11 2007
+Subject: [Slony1-general] Compiling Slony 1.2.9 on Mandriva 2007.1
+In-Reply-To: <200704271102.10334.m.watts@eris.qinetiq.com>
+References: <200704271102.10334.m.watts@eris.qinetiq.com>
+Message-ID: <1177793907.2991.14.camel@laptop.gunduz.org>
+
+SGksCgpPbiBGcmksIDIwMDctMDQtMjcgYXQgMTE6MDIgKzAxMDAsIE1hcmsgV2F0dHMgd3JvdGU6
+Cj4gQWZ0ZXIgdW5wYWNraW5nIGFuZCBydW5uaW5nIC4vY29uZmlndXJlLCBJIHJhbiAibWFrZSBy
+cG0iOgo+IAo+IEkndmUgYXR0YWNoZWQgdGhlIG91dHB1dCBvZiBib3RoIGNvbW1hbmRzIGluIHRo
+ZSBob3BlIHRoYXQgc29tZW9uZSBjYW4KPiBzaGVkICBzb21lIGxpZ2h0IG9uIHdoZXJlIHRoZSBl
+cnJvciBtYXkgYmUuIAoKQWZ0ZXIgdW5wYWNraW5nIHRhcmJhbGwsIGVkaXQgcG9zdGdyZXNxbC1z
+bG9ueTEtZW5naW5lLnNwZWMuaW4gYW5kIAoKY2hhbmdlCgoleyE/ZG9jczolZGVmaW5lIGRvY3Mg
+MX0KCnRvCgoleyE/ZG9jczolZGVmaW5lIGRvY3MgMH0KClRoZW4gLi9jb25maWd1cmUgJiYgbWFr
+ZSBycG0gd2lsbCB3b3JrLgoKUmVnYXJkcywKLS0gCkRldnJpbSBHw5xORMOcWgpQb3N0Z3JlU1FM
+IFJlcGxpY2F0aW9uLCBDb25zdWx0aW5nLCBDdXN0b20gRGV2ZWxvcG1lbnQsIDI0eDcgc3VwcG9y
+dApNYW5hZ2VkIFNlcnZpY2VzLCBTaGFyZWQgYW5kIERlZGljYXRlZCBIb3N0aW5nCkNvLUF1dGhv
+cnM6IHBsUEhQLCBPREJDbmcgLSBodHRwOi8vd3d3LmNvbW1hbmRwcm9tcHQuY29tLwoKCi0tLS0t
+LS0tLS0tLS0tIG5leHQgcGFydCAtLS0tLS0tLS0tLS0tLQpBIG5vbi10ZXh0IGF0dGFjaG1lbnQg
+d2FzIHNjcnViYmVkLi4uCk5hbWU6IG5vdCBhdmFpbGFibGUKVHlwZTogYXBwbGljYXRpb24vcGdw
+LXNpZ25hdHVyZQpTaXplOiAxODkgYnl0ZXMKRGVzYzogVGhpcyBpcyBhIGRpZ2l0YWxseSBzaWdu
+ZWQgbWVzc2FnZSBwYXJ0ClVybCA6IGh0dHA6Ly9saXN0cy5zbG9ueS5pbmZvL3BpcGVybWFpbC9z
+bG9ueTEtZ2VuZXJhbC9hdHRhY2htZW50cy8yMDA3MDQyOC8yNmEyMWNhZC9hdHRhY2htZW50LnBn
+cAo=
+From szoradi at t-email.hu  Sun Apr 29 14:20:50 2007
+From: szoradi at t-email.hu (=?ISO-8859-2?Q?Sz=F3r=E1di_Ervin?=)
+Date: Sun Apr 29 14:28:24 2007
+Subject: [Slony1-general] Slony on Windows
+In-Reply-To: <003201c7860e$2cd06ef0$b601a8c0@hiroshi6e67244>
+References: <4627B970.9040303@t-email.hu>
+	<0cad01c782b7$79d867c0$0202fea9@wiseknot.local>
+	<462B8F0E.2020505@t-email.hu>
+	<003201c7860e$2cd06ef0$b601a8c0@hiroshi6e67244>
+Message-ID: <46350C32.90309@t-email.hu>
+
+Hi.
+
+Yes, I did.
+
+I tried the slonik in cmd.
+It's worked.
+I could create cluster.
+The cluster name is replica.
+I used small letters only.
+I think it isn't work.
+Please see the picture and an attached files.
+
+
+
+Regards,
+Ervin Szoradi
+
+
+
+Hiroshi Saito =EDrta:
+> Hi.
+>
+> It is strange... I think there is a proposal to divide the problem.
+> Did you operate all with pgAdmin3 without using slonik?
+> Please operate it with slonik again if it is so.  I saw the screen
+> and a related problem of the capital letter and the small
+> letter was anxious. However, I think that there is BUG somewhere.
+> It is slonik and if it is certain, it might be a problem of pgAdmin3.
+> Anyway, Could you confirm it?
+> If it is possible, please send me those scripts again.
+>
+> Thanks!
+>
+> Regards,
+> Hiroshi Saito
+>
+> ----- Original Message ----- From: Sz=F3r=E1di Ervin
+> Cc: slony1-general@lists.slony.info
+> Sent: Monday, April 23, 2007 1:36 AM
+> Subject: Re: [Slony1-general] Slony on Windows
+>
+>
+> Hi.
+>
+> Thank You for your advice.
+> It was useful but I could only one create a cluster.
+> I don't know how!
+>
+> I have got 2 PC.
+> The system is WinXp + PostgreSql 8.1 + Slony 1.2.9. on computers.
+> Those computers database is same.
+> I created it by template / creator script.
+>
+> I made the following steps on two Pc:
+>
+> 1. -regservice pc1 / pc 2 It`s OK.
+> 2. addengines PC 1 C:\slony\master.conf  (slon Cluster =
+
+> "dbname=3DTimarvasker host=3Dlocalhost user=3Dpostgres") It`s OK.
+>                      PC 2 C:\slony\slave.conf    (slon Cluster =
+
+> "dbname=3DTimarvasker host=3Dlocalhost user=3Dpostgres") It`s OK.
+> 3. Create on Pc 1 Cluster (1 Master ;99 PgAdminNode) It`s OK.
+> 4. I try join existing cluster on Pc 2 and a receive the following =
+
+> message:
+>
+>
+>
+> Why???
+>
+> Please help Me!!
+>
+> The Japan is difficult.
+> Please rewrite it.
+>
+> Regards,
+>
+> Ervin Szoradi
+>
+> Hiroshi Saito =EDrta:
+> Hi.
+>
+> It is written here. However, it was not detailed yet.
+> http://main.slony.info/documentation/installation.html
+>
+> I have written the document of the usage in windows for Japan,
+> http://www.gihyo.co.jp/book/2006/232351/download/Slony-I.zip
+> It is scheduled to be rewritten in English. However, I'm late for the
+> reasons of very busy now.....
+>
+> Moreover, the usage is written in detail here.
+> http://www.pgadmin.org/docs/1.6/slony.html
+>
+> Regards,
+> Hiroshi Saito
+>
+> ----- Original Message ----- From: "Sz=F3r=E1di Ervin" <szoradi@t-email.h=
+u>
+> To: <slony1-general@lists.slony.info>
+> Sent: Friday, April 20, 2007 3:48 AM
+> Subject: [Slony1-general] Slony on Windows
+>
+>
+>
+> Hello.
+>
+> My name is Ervin Szoradi.
+>
+> I would like to use Slony-I but I don't know how can I configure it.
+>
+> My system is WinXp + PostgreSql 8.1 + Slony 1.2.9.
+>
+> Please write short example.
+>
+> Please help me!
+>
+> Thanks.
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general@lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+>
+>
+>
+>
+>
+>
+>
+>
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general@lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+>
+
+-------------- next part --------------
+slon replica "dbname=3DTimarvasker host=3Dlocalhost user=3Dpostgres"
+-------------- next part --------------
+CLUSTER NAME =3D replica;
+NODE 1 ADMIN CONNINFO =3D 'dbname=3DTimarvasker host=3D192.168.0.15 user=3D=
+postgres';
+NODE 2 ADMIN CONNINFO =3D 'dbname=3DTimarvasker host=3D192.168.0.12 user=3D=
+postgres';
+SUBSCRIBE SET ( ID=3D1, PROVIDER=3D1, RECEIVER=3D2, FORWARD=3DNO );
+-------------- next part --------------
+slon replica "dbname=3DTimarvasker host=3Dlocalhost user=3Dpostgres"
+-------------- next part --------------
+CLUSTER NAME =3D replica;
+NODE 1 ADMIN CONNINFO =3D 'dbname=3DTimarvasker host=3D192.168.0.15 user=3D=
+postgres';
+NODE 2 ADMIN CONNINFO =3D 'dbname=3DTimarvasker host=3D192.168.0.12 user=3D=
+postgres';
+INIT CLUSTER ( ID=3D1, COMMENT =3D 'Master Database' );
+CREATE SET ( ID=3D1, ORIGIN=3D1, COMMENT=3D'Replication' );
+SET ADD TABLE (SET ID=3D1, ORIGIN=3D1, ID=3D1, FULLY QUALIFIED NAME=3D'publ=
+ic.acc_trans', COMMENT=3D'acc_trans');
+SET ADD TABLE (SET ID=3D1, ORIGIN=3D1, ID=3D2, FULLY QUALIFIED NAME=3D'publ=
+ic.ap', COMMENT=3D'ap');
+SET ADD SEQUENCE (SET ID=3D1, ORIGIN=3D1, ID=3D3, FULLY QUALIFIED NAME=3D'p=
+ublic.id', COMMENT=3D'id');
+STORE NODE ( ID=3D2, COMMENT =3D 'Slave Database');
+STORE PATH ( SERVER=3D1, CLIENT=3D2, CONNINFO =3D 'dbname=3DTimarvasker hos=
+t=3D192.168.0.15 user=3Dpostgres');
+STORE PATH ( SERVER=3D2, CLIENT=3D1, CONNINFO =3D 'dbname=3DTimarvasker hos=
+t=3D192.168.0.12 user=3Dpostgres');
+STORE LISTEN ( ORIGIN=3D1, PROVIDER=3D1, RECEIVER=3D2 );
+STORE LISTEN ( ORIGIN=3D2, PROVIDER=3D2, RECEIVER=3D1 );
+From bwillits at cox.net  Mon Apr 30 22:57:33 2007
+From: bwillits at cox.net (Bill Willits)
+Date: Mon Apr 30 22:58:16 2007
+Subject: [Slony1-general] Implicit Sequences
+Message-ID: <008401c78bb5$9d27a130$6501a8c0@bwlaptop>
+
+Is it necessary to replicate sequences that are tied to table columns?  Or,=
+ does having the table as part of the replicated set sufficient to keep the=
+ sequence-dependant data in sync.
+
+eg.
+
+CREATE TABLE test1
+(
+  id serial NOT NULL, -- Unique identifier number (autoincrement)
+  ...
+  CONSTRAINT test1_pkey PRIMARY KEY (id)
+) =
+
+
+which creates "implicit sequence 'test1_id_seq' for SERIAL column 'test1.id=
+'"
+
+All of our sequences are this type and I would rather not add them to the r=
+eplication set unless necessary.
+
+Thanks in advance.
+BillW
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20070430/=
+eb252b79/attachment.htm
+From z-saito at guitar.ocn.ne.jp  Mon Apr 30 23:36:27 2007
+From: z-saito at guitar.ocn.ne.jp (Hiroshi Saito)
+Date: Mon Apr 30 23:37:10 2007
+Subject: [Slony1-general] Slony on Windows
+References: <4627B970.9040303@t-email.hu>
+	<0cad01c782b7$79d867c0$0202fea9@wiseknot.local>
+	<462B8F0E.2020505@t-email.hu>
+	<003201c7860e$2cd06ef0$b601a8c0@hiroshi6e67244>
+	<46350C32.90309@t-email.hu>
+Message-ID: <004301c78bbb$0beec0d0$b601a8c0@hiroshi6e67244>
+
+Hi.
+
+Sorry very late reaction.
+
+> Yes, I did.
+>
+> I tried the slonik in cmd.
+> It's worked.
+> I could create cluster.
+
+Ok. it mean there is no problem in Slony?
+
+> The cluster name is replica.
+> I used small letters only.
+> I think it isn't work.
+> Please see the picture and an attached files.
+
+Ahh, There might be a problem in the operation method for the reasons 
+that the GUI setting of pgAdminIII is more complex than that of slonik.
+Then,  to use slonik when being newly set it for the time being, 
+I recommend it. 
+
+P.S)
+I set the following scripts to your confirming the operation.
+http://winpg.jp/~saito/Slony-I-sample/
+Probably, some users should learn the usage of the slon service seeing it.
+
+Regards,
+Hiroshi Saito

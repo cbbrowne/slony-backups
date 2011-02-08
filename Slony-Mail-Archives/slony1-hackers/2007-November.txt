@@ -1,0 +1,153 @@
+From mailings at oopsware.de  Wed Nov  7 09:36:00 2007
+From: mailings at oopsware.de (Bernd Helmle)
+Date: Wed Nov  7 09:36:08 2007
+Subject: [Slony1-hackers] Broken builds with make install DESTDIR
+Message-ID: <CD28FF50E73C3E073F402908@imhotep.credativ.de>
+
+
+I found it quite annoying today that slony doesn't build properly with
+
+./configure --prefix=/dba/special/dir <--some-other-foo-magic>
+make
+make install DESTDIR=/tmp/test/dir
+
+when building against a 'virtual' postgresql installation done with DESTDIR 
+as well. This leads to a totally broken install directory layout, ending up 
+with files scattered in different directories. The attached diff shows the 
+most important changes i've done against config/acx_libpq.m4 to get that 
+running, mostly because it doesn't allow overriding pgpkglibdir with an 
+non-existing directory.
+
+There are some minor issues open, but i would like to hear opinions before 
+continuing to prepare a general patch to make that work. It would be 
+useful, since building PostgreSQL works quite well that way and i think 
+it's a common task to build RPMs as well.
+
+-- 
+  Thanks
+
+                    Bernd
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: acx_libpq.m4.diff
+Type: text/x-diff
+Size: 2372 bytes
+Desc: not available
+Url : http://lists.slony.info/pipermail/slony1-hackers/attachments/20071107/0205cac6/acx_libpq.m4.bin
+From cbbrowne at ca.afilias.info  Thu Nov 29 08:20:08 2007
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Thu Nov 29 08:20:15 2007
+Subject: [Slony1-hackers] Broken builds with make install DESTDIR
+In-Reply-To: <CD28FF50E73C3E073F402908@imhotep.credativ.de> (Bernd Helmle's
+	message of "Wed, 07 Nov 2007 18:36:00 +0100")
+References: <CD28FF50E73C3E073F402908@imhotep.credativ.de>
+Message-ID: <60ve7l81mv.fsf@dba2.int.libertyrms.com>
+
+Bernd Helmle <mailings@oopsware.de> writes:
+> There are some minor issues open, but i would like to hear opinions
+> before continuing to prepare a general patch to make that work. It
+> would be useful, since building PostgreSQL works quite well that way
+> and i think it's a common task to build RPMs as well.
+
+I have added this to Bugzilla...
+
+http://bugs.slony.info/bugzilla/show_bug.cgi?id=17
+
+If you set up a bugzilla account, there, I'd be happy to assign it to
+you :-).
+
+I don't have any strong opinions on this, as:
+
+  a) In the environments I'm involved with, we use plain builds from
+     sources, so
+
+  b) I don't make any use of packages such as RPMs.
+
+I'm cc'ing Devrim Gunduz and Peter Eisentraut, as they are involved
+with RPM/Debian packages, so would presumably have more relevant
+opinions.
+-- 
+let name="cbbrowne" and tld="linuxfinances.info" in name ^ "@" ^ tld;;
+http://cbbrowne.com/info/linuxxian.html
+Random hacker: Oz needs to be booted.
+RMS: Ok, I'll break open a window.
+From mailings at oopsware.de  Thu Nov 29 09:38:10 2007
+From: mailings at oopsware.de (Bernd Helmle)
+Date: Thu Nov 29 09:38:20 2007
+Subject: [Slony1-hackers] Broken builds with make install DESTDIR
+In-Reply-To: <60ve7l81mv.fsf@dba2.int.libertyrms.com>
+References: <CD28FF50E73C3E073F402908@imhotep.credativ.de>
+	<60ve7l81mv.fsf@dba2.int.libertyrms.com>
+Message-ID: <977552B0D9F43813E3D7BBA6@imhotep.credativ.de>
+
+--On Donnerstag, November 29, 2007 11:20:08 -0500 Christopher Browne 
+<cbbrowne@ca.afilias.info> wrote:
+
+> I have added this to Bugzilla...
+>
+> http://bugs.slony.info/bugzilla/show_bug.cgi?id=17
+>
+
+Oh, good (seems i've missed bugzilla is up for slony ;)
+
+> If you set up a bugzilla account, there, I'd be happy to assign it to
+> you :-).
+
+Done (look for mailings@oopsware.de).
+
+>
+> I don't have any strong opinions on this, as:
+>
+>   a) In the environments I'm involved with, we use plain builds from
+>      sources, so
+>
+>   b) I don't make any use of packages such as RPMs.
+>
+> I'm cc'ing Devrim Gunduz and Peter Eisentraut, as they are involved
+> with RPM/Debian packages, so would presumably have more relevant
+> opinions.
+
+I've already talked to Peter and parts of the patches are shamelessly 
+stolen from its debian package (well, that's why i have talked to him ;).
+
+Building with DESTDIR works so far, however there's one issue open i have 
+to get back to....
+
+-- 
+  Thanks
+
+                    Bernd
+From cbbrowne at ca.afilias.info  Fri Nov 30 14:42:59 2007
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Fri Nov 30 14:43:30 2007
+Subject: [Slony1-hackers] Revisions to SYNC grouping handling
+Message-ID: <607ijz5p8s.fsf@dba2.int.libertyrms.com>
+
+It seems warranted to do some cleaning up of the handling of SYNC
+grouping in -HEAD, as what is there now has a confusion of
+embarassment of riches in quantity of possible policy...
+
+There are a bunch of grouping-related options at present that seem to
+interact somewhat confusingly...
+
+- sync_group_maxsize - default 20, min 0, max 10000
+- desired_sync_time  - default 60000ms, min 0ms (which shuts this off), max 6000000ms
+
+It then interacts in a somewhat complex fashion, where we tend to
+start with processing 1 SYNC, then doubling and adding 1, with
+[various attempts to set upper limits].
+
+In some testing one of my colleagues was doing recently, it seemed to
+be interacting in a fashion that made it appear as though the
+configuration parameters were not all being considered.
+
+I'm going to throw this out to the -hackers list, for comment
+*without* yet tossing out the further thoughts that I have; I'll
+comment further on that next week.
+-- 
+output = reverse("moc.enworbbc" "@" "enworbbc")
+http://cbbrowne.com/info/x.html
+Rules of  the Evil Overlord #51.  "If one of my  dungeon guards begins
+expressing  concern over  the  conditions in  the beautiful  princess'
+cell,  I  will immediately  transfer  him  to  a less  people-oriented
+position." <http://www.eviloverlord.com/>

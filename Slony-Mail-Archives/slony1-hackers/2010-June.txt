@@ -1,0 +1,126 @@
+From ssinger at ca.afilias.info  Thu Jun 24 08:38:44 2010
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Thu, 24 Jun 2010 11:38:44 -0400
+Subject: [Slony1-hackers] out of order EXECUTE SCRIPT replication
+Message-ID: <4C237C04.6050805@ca.afilias.info>
+
+In going through some final pre release test results in preperation for 
+2.0.4 I MIGHT have hit the following circumstance (I haven't yet 
+confirmed that this happened but I think it is possible for this to happen)
+
+T1: transaction starts - via slonik EXECUTE SCRIPT
+T1: ddlScriptPrepare  creates a SYNC event in sl_event event #10
+T2: transaction starts - some sql session
+T2: INSERT into a table 'foo'
+T2: COMMITS  - this works so far T1 has had no reason to obtain any 
+locks on T1.
+T1:  executes the DDL script, this script ALTERS the table 'foo' and 
+renames a column.  This obtains the requisite locks on 'foo'.  T2 has 
+long since committed and released its locks
+T1: Inserts the DDL_SCRIPT event into sl_event event #11
+T3:  A worker thread generates the next normal sync event on the 
+database this is event #12
+
+The INSERT that T2 did will be picked up by sync #12 since it hadn't yet 
+committed when sync #10 happened.
+
+On the replica  the DDL script (event number #11) will happen before 
+event #12.  When it gets to sync #12 the data in sl_log for the insert 
+will reference the old columns of 'foo' which no longer exist.
+
+
+I THINK this has happened to me in testing (but I no longer have sl_log 
+and sl_event to confirm, just the logs).
+
+Looking at the code I think this is at least possible to happen.  Does 
+anyone disagree?
+
+
+How does should this effect our 2.0.4 plans?  If this an issue it's been 
+there all along in 2.0.x, because we lock all the tables in 1.2 on an 
+execute script it shouldn't be an issue there.  I don't see any quick 
+fixes to this
+
+
+
+
+-- 
+Steve Singer
+Afilias Canada
+Data Services Developer
+416-673-1142
+
+From ssinger at ca.afilias.info  Fri Jun 25 07:05:09 2010
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Fri, 25 Jun 2010 10:05:09 -0400
+Subject: [Slony1-hackers] A small patch for Slony
+In-Reply-To: <AANLkTileEeTrQUT-8-2j_c4e3xTb1k7j6zyER29g645_@mail.gmail.com>
+References: <AANLkTileEeTrQUT-8-2j_c4e3xTb1k7j6zyER29g645_@mail.gmail.com>
+Message-ID: <4C24B795.6070208@ca.afilias.info>
+
+Gurjeet Singh wrote:
+> Hi All,
+> 
+>     Attached is a patch of 2.0.3 with the following:
+> 
+> 1) New script slonik_add_node. This adds the capability to add a node to 
+> the cluster. This node could be from the fact that the config file was 
+> edited to add new node's info, or maybe it was previously dropped from 
+> the cluster.
+
+This looks fine to me
+
+
+> 
+> 2) An enhancement to the slonik_drop_node script. The original version 
+> assumed that $MASTERNODE is available for this operation to complete, 
+> but that might not always be the case. Now one needs to specify an 
+> event_node# which should be capable of sending the event notification to 
+> other nodes in the cluster.
+> 
+
+This looks fine.
+
+
+>     For backward compatibility the new parameter can be made optional.
+> 
+> 3) A minor improvement to the message emitted by slon_kill, to 
+> differentiate between when the Slon processes are being killed vs. when 
+> the watchdog processes are being killed.
+> 
+
+I'd rather see  $watchdog_suffix passed as an argument to 
+shut_off_process vs using a global argument.  I'd also encourage 
+declaring watchdog_suffix with my.  I know the scripts don't currently 
+work with 'use strict' but we should aim to get closer to that.
+
+Thanks for your patches.  If no one else has any concerns I'll plan on 
+committing these to the 2.0 branch sometime next week.
+
+
+> Regards,
+> -- 
+> gurjeet.singh
+> @ EnterpriseDB - The Enterprise Postgres Company
+> http://www.enterprisedb.com
+> 
+> singh.gurjeet@{ gmail | yahoo }.com
+> Twitter/Skype: singh_gurjeet
+> 
+> Mail sent from my BlackLaptop device
+> 
+> 
+> ------------------------------------------------------------------------
+> 
+> _______________________________________________
+> Slony1-hackers mailing list
+> Slony1-hackers at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-hackers
+
+
+-- 
+Steve Singer
+Afilias Canada
+Data Services Developer
+416-673-1142
+

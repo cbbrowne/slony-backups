@@ -1,0 +1,1272 @@
+From bugzilla-daemon at main.slony.info  Tue Jul  6 11:40:37 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Tue,  6 Jul 2010 11:40:37 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 75] Bugs: (1) Initialize forgotten
+ cs->plan_active_log. (2) Session_replication_role and "SET datestyle TO
+ 'ISO'" in slonik at connection start.
+In-Reply-To: <bug-75-4@http.www.slony.info/bugzilla/>
+References: <bug-75-4@http.www.slony.info/bugzilla/>
+Message-ID: <20100706184037.AEDE4290D4A@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=75
+
+--- Comment #1 from Jan Wieck <janwieck at yahoo.com> 2010-07-06 11:40:37 PDT ---
+plan_active_log can only be NULL on the very first trigger call in a session.
+At this time, the currentXid is invalid, so the check for !cs->plan_active_log
+is redundant.
+
+About setting date style and replication role, wouldn't committing the
+transaction instead of rolling it back have the desired effects? 
+
+
+Jan
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From cbbrowne at ca.afilias.info  Tue Jul  6 12:33:32 2010
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Tue, 06 Jul 2010 15:33:32 -0400
+Subject: [Slony1-bugs] [Bug 75] Bugs: (1) Initialize forgotten
+	cs->plan_active_log. (2) Session_replication_role and "SET
+	datestyle TO 'ISO'" in slonik at connection start.
+In-Reply-To: <20100706184037.AEDE4290D4A@main.slony.info>
+	(bugzilla-daemon@main.slony.info's message of "Tue,
+	6 Jul 2010 11:40:37 -0700 (PDT)")
+References: <bug-75-4@http.www.slony.info/bugzilla/>
+	<20100706184037.AEDE4290D4A@main.slony.info>
+Message-ID: <87y6doxv5f.fsf@cbbrowne.afilias-int.info>
+
+bugzilla-daemon at main.slony.info writes:
+> http://www.slony.info/bugzilla/show_bug.cgi?id=75
+>
+> --- Comment #1 from Jan Wieck <janwieck at yahoo.com> 2010-07-06 11:40:37 PDT ---
+> plan_active_log can only be NULL on the very first trigger call in a session.
+> At this time, the currentXid is invalid, so the check for !cs->plan_active_log
+> is redundant.
+>
+> About setting date style and replication role, wouldn't committing the
+> transaction instead of rolling it back have the desired effects? 
+
+My reading of the bug was that doing a COMMIT rather than ROLLBACK
+would have the desired effect of not rolling back these settings.
+That seems a good approach to me.
+-- 
+output = ("cbbrowne" "@" "ca.afilias.info")
+Christopher Browne
+"Bother,"  said Pooh,  "Eeyore, ready  two photon  torpedoes  and lock
+phasers on the Heffalump, Piglet, meet me in transporter room three"
+
+From bugzilla-daemon at main.slony.info  Wed Jul  7 08:07:49 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed,  7 Jul 2010 08:07:49 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 135] slon can get stuck waiting for a
+ sl_config_lock it already has
+In-Reply-To: <bug-135-4@http.www.slony.info/bugzilla/>
+References: <bug-135-4@http.www.slony.info/bugzilla/>
+Message-ID: <20100707150749.D9A832902C4@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=135
+
+Steve Singer <ssinger at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         Resolution|                            |FIXED
+             Status|NEW                         |RESOLVED
+
+--- Comment #1 from Steve Singer <ssinger at ca.afilias.info> 2010-07-07 08:07:49 PDT ---
+The fix has been committed to release the lock before sleeping
+
+This fix should be included in 2.0.5
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Jul  7 09:54:39 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed,  7 Jul 2010 09:54:39 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 136] listen paths not being rebuilt correctly
+In-Reply-To: <bug-136-4@http.www.slony.info/bugzilla/>
+References: <bug-136-4@http.www.slony.info/bugzilla/>
+Message-ID: <20100707165439.97B7C290D13@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=136
+
+--- Comment #3 from Jan Wieck <janwieck at yahoo.com> 2010-07-07 09:54:39 PDT ---
+It is actually intended to listen for events on the same node, that is the data
+provider for a subscription.
+
+In this case, nodes 4 and 5 are using node 2 as data provider for a set
+originating on node 1. If they would be listening for events from node 1
+anywhere else other than on node 2, they would possibly get those events BEFORE
+node 2 has finished replicating them. They cannot process them at that time
+anyway.
+
+
+Jan
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Thu Jul  8 11:13:25 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu,  8 Jul 2010 11:13:25 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 75] Bugs: (1) Initialize forgotten
+ cs->plan_active_log. (2) Session_replication_role and "SET datestyle TO
+ 'ISO'" in slonik at connection start.
+In-Reply-To: <bug-75-4@http.www.slony.info/bugzilla/>
+References: <bug-75-4@http.www.slony.info/bugzilla/>
+Message-ID: <20100708181325.250EC290D37@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=75
+
+--- Comment #2 from Dmitry Koterov <dmitry.koterov at gmail.com> 2010-07-08 11:13:25 PDT ---
+I do not remember exact details of this issue, but what I am clearly remenber -
+is that I spend many hours debugging this place a year ago and I discovered two
+bugs which correlate to each other and destroy the total effect then they are
+executed simultaneously. 
+
+Because of the first bug, Slony executes useless NULL query (please see what
+happens when cs->plan_active_log == NULL, what query is executed). I had seen
+these NULL queries in logs, so I corrected this (added ||
+!cs->plan_active_log), but when I had done this, the second bug (SET datestyle
+TO 'ISO' execution within rolled-back transaction) appeared.
+
+So, could you please review this bug report again? Sorry, I don't remember
+details and have no test cluster to reproduce it again...
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Thu Jul  8 11:33:45 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu,  8 Jul 2010 11:33:45 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 75] Bugs: (1) Initialize forgotten
+ cs->plan_active_log. (2) Session_replication_role and "SET datestyle TO
+ 'ISO'" in slonik at connection start.
+In-Reply-To: <bug-75-4@http.www.slony.info/bugzilla/>
+References: <bug-75-4@http.www.slony.info/bugzilla/>
+Message-ID: <20100708183345.101EA29026D@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=75
+
+--- Comment #3 from Jan Wieck <janwieck at yahoo.com> 2010-07-08 11:33:45 PDT ---
+Please note that cs->currentXid is initialized to InvalidTransactionId inside
+of getClusterStatus(), when it creates a new cs. So on the first call for this
+cluster, the conditional code is executed and initializes plan_active_log. I do
+not see any possible code path how plan_active_log could be the source of your
+NULL queries.
+
+Setting the date style to ISO should stick if we simply commit the transaction,
+instead of rolling it back.
+
+
+Jan
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Thu Jul  8 11:39:57 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu,  8 Jul 2010 11:39:57 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 139] New: sighandler is calling non async safe
+	functions
+Message-ID: <bug-139-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=139
+
+           Summary: sighandler is calling non async safe functions
+           Product: Slony-I
+           Version: 2.0
+          Platform: PC
+        OS/Version: Linux
+            Status: NEW
+          Severity: normal
+          Priority: low
+         Component: slon
+        AssignedTo: slony1-bugs at lists.slony.info
+        ReportedBy: ssinger at ca.afilias.info
+                CC: slony1-bugs at lists.slony.info
+   Estimated Hours: 0.0
+
+
+The sighandler function in slon.c calls slon_log() which in turn makes calls to
+non-async safe functions including pthread_mutex_lock() and malloc().
+
+We should not be doing this. Occasionally my slon process kill get in a state
+where it stops and I can't kill it unless I do a kill -9.   This might be the
+cause of that.
+
+We should alter sighandler to only call async safe signals (ie no slon_log)
+
+slon_terminate_worker should also not call slon_log since sighanlder calls it
+(but otherwise it seems safe)
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Thu Jul  8 11:40:07 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu,  8 Jul 2010 11:40:07 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 139] sighandler is calling non async safe
+	functions
+In-Reply-To: <bug-139-4@http.www.slony.info/bugzilla/>
+References: <bug-139-4@http.www.slony.info/bugzilla/>
+Message-ID: <20100708184007.30A9A290D3E@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=139
+
+Steve Singer <ssinger at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+           Priority|low                         |high
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Fri Jul  9 07:02:31 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Fri,  9 Jul 2010 07:02:31 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 75] Bugs: (1) Initialize forgotten
+ cs->plan_active_log. (2) Session_replication_role and "SET datestyle TO
+ 'ISO'" in slonik at connection start.
+In-Reply-To: <bug-75-4@http.www.slony.info/bugzilla/>
+References: <bug-75-4@http.www.slony.info/bugzilla/>
+Message-ID: <20100709140231.CC1D5290D54@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=75
+
+--- Comment #4 from Steve Singer <ssinger at ca.afilias.info> 2010-07-09 07:02:31 PDT ---
+I wrote up a patch to add a "commit transaction" at the top of
+remoteWorkerThread_main appended after the "set session_replication_role".
+
+When I test it I get warnings, "WARNING:  there is no transaction in progress".
+ Nor do I see where we start the transaction.  This was with 8.3 is there
+either a configuration option, environment variable or change with a newer
+version that makes libpq default to auto-commit=false?  Otherwise I don't see
+why the set session_replication would be rolled back because it isn't done as
+part of a transaction.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Fri Jul  9 11:13:28 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Fri,  9 Jul 2010 11:13:28 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 104] slon core in sched_add_fdset
+In-Reply-To: <bug-104-4@http.www.slony.info/bugzilla/>
+References: <bug-104-4@http.www.slony.info/bugzilla/>
+Message-ID: <20100709181328.49AE5290D37@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=104
+
+Steve Singer <ssinger at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         Resolution|FIXED                       |
+             Status|RESOLVED                    |REOPENED
+
+--- Comment #4 from Steve Singer <ssinger at ca.afilias.info> 2010-07-09 11:13:28 PDT ---
+The patch does not actually address fd being negative it is looking at fds.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Fri Jul  9 11:20:33 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Fri,  9 Jul 2010 11:20:33 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 120] store path - after slon has started does
+	not take effect
+In-Reply-To: <bug-120-4@http.www.slony.info/bugzilla/>
+References: <bug-120-4@http.www.slony.info/bugzilla/>
+Message-ID: <20100709182033.0A1B0290D34@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=120
+
+--- Comment #3 from Steve Singer <ssinger at ca.afilias.info> 2010-07-09 11:20:33 PDT ---
+Created an attachment (id=47)
+ --> (http://www.slony.info/bugzilla/attachment.cgi?id=47)
+new patch
+
+This patch replaces the previous patch.
+It directly addresses the CLONE NODE issue without having to change other parts
+of the code
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From nilapusa at yahoo.com  Fri Jul  9 15:31:46 2010
+From: nilapusa at yahoo.com (Rahul Reddy)
+Date: Fri, 9 Jul 2010 15:31:46 -0700 (PDT)
+Subject: [Slony1-bugs] Replication the whole database
+Message-ID: <997385.85975.qm@web65314.mail.ac2.yahoo.com>
+
+I have implemented slony replication but I have noticed that It only replicates a table instead of the whole database. Is there any way I can replicate the whole database instead of a single or couple of database ?
+
+Thanks 
+
+
+
+      
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-bugs/attachments/20100709/c6954cc9/attachment.htm 
+
+From cbbrowne at ca.afilias.info  Mon Jul 12 09:44:50 2010
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Mon, 12 Jul 2010 12:44:50 -0400
+Subject: [Slony1-bugs] Replication the whole database
+In-Reply-To: <997385.85975.qm@web65314.mail.ac2.yahoo.com> (Rahul Reddy's
+	message of "Fri, 9 Jul 2010 15:31:46 -0700 (PDT)")
+References: <997385.85975.qm@web65314.mail.ac2.yahoo.com>
+Message-ID: <8739voabul.fsf@cbbrowne.afilias-int.info>
+
+Rahul Reddy <nilapusa at yahoo.com> writes:
+>  I have implemented slony replication but I have noticed that It
+>  only replicates a table instead of the whole database. Is there any
+>  way I can replicate the whole database instead of a single or
+>  couple of database ?  Thanks
+
+If you want the entire database replicated, that's actually more of a
+use case for Continuous Archiving/PITR.
+  <http://www.postgresql.org/docs/8.4/static/continuous-archiving.html>
+
+There have been proposals to have Slony-I replicate all tables in a
+database.  Unfortunately, it is almost always the case that people
+want "all the tables, except for these ones," and making a user
+interface for "except these ones" is notably troublesome, particularly
+when my "except these ones" differ from your "except these ones."
+
+It's not difficult to use the view information_schema.tables to pull a
+list of all tables in your database:
+
+  psql -c "select table_schema, table_name from information_schema.tables where table_type = 'BASE TABLE' and table_schema not in ('pg_catalog', 'information_schema');"
+
+Putting this into a list as input for a Slonik script is not terribly
+difficult, and it seems to me that you probably need to do enough
+other verification work to ensure that these are the tables you were
+looking for that further automation wouldn't actually help terribly
+much.
+-- 
+output = ("cbbrowne" "@" "ca.afilias.info")
+Christopher Browne
+"Bother,"  said Pooh,  "Eeyore, ready  two photon  torpedoes  and lock
+phasers on the Heffalump, Piglet, meet me in transporter room three"
+
+From bugzilla-daemon at main.slony.info  Tue Jul 13 06:31:40 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Tue, 13 Jul 2010 06:31:40 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 104] slon core in sched_add_fdset
+In-Reply-To: <bug-104-4@http.www.slony.info/bugzilla/>
+References: <bug-104-4@http.www.slony.info/bugzilla/>
+Message-ID: <20100713133140.D5A18290D54@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=104
+
+--- Comment #5 from Steve Singer <ssinger at ca.afilias.info> 2010-07-13 06:31:40 PDT ---
+Created an attachment (id=48)
+ --> (http://www.slony.info/bugzilla/attachment.cgi?id=48)
+new attempt at fixing bug 104
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Tue Jul 13 10:25:23 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Tue, 13 Jul 2010 10:25:23 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 127] sync events are not generated on nodes that
+ are not a set origin
+In-Reply-To: <bug-127-4@http.www.slony.info/bugzilla/>
+References: <bug-127-4@http.www.slony.info/bugzilla/>
+Message-ID: <20100713172523.BC7F4290D76@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=127
+
+--- Comment #2 from Steve Singer <ssinger at ca.afilias.info> 2010-07-13 10:25:23 PDT ---
+Created an attachment (id=49)
+ --> (http://www.slony.info/bugzilla/attachment.cgi?id=49)
+patch against 2.0 to restore sync generating on all nodes
+
+This patch reverts the checkin (updated to the 2.0 stream) the original commit
+that disabled generating sync messages on leaf nodes.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Tue Jul 13 13:18:27 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Tue, 13 Jul 2010 13:18:27 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 75] Bugs: (1) Initialize forgotten
+ cs->plan_active_log. (2) Session_replication_role and "SET datestyle TO
+ 'ISO'" in slonik at connection start.
+In-Reply-To: <bug-75-4@http.www.slony.info/bugzilla/>
+References: <bug-75-4@http.www.slony.info/bugzilla/>
+Message-ID: <20100713201827.A51A8290D6D@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=75
+
+--- Comment #5 from Steve Singer <ssinger at ca.afilias.info> 2010-07-13 13:18:27 PDT ---
+Created an attachment (id=50)
+ --> (http://www.slony.info/bugzilla/attachment.cgi?id=50)
+patch to commit session changes right away
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Mon Jul 19 07:41:22 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Mon, 19 Jul 2010 07:41:22 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 140] New: DBI::Pg?
+Message-ID: <bug-140-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=140
+
+           Summary: DBI::Pg?
+           Product: Slony-I
+           Version: 2.0
+          Platform: PC
+        OS/Version: Linux
+            Status: NEW
+          Severity: minor
+          Priority: low
+         Component: altperl
+        AssignedTo: slony1-bugs at lists.slony.info
+        ReportedBy: peter_e at gmx.net
+                CC: slony1-bugs at lists.slony.info
+   Estimated Hours: 0.0
+
+
+configure prints
+
+checking for DBI::Pg
+
+whereas the module is called DBD::Pg (there is also another reference in the
+code spelled "DBI:Pg").  I don't think this code actually does anything, but
+the typos should be fixed at least.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Mon Jul 19 08:06:17 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Mon, 19 Jul 2010 08:06:17 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 118] initial copy of an inherited table can
+ leave the table empty
+In-Reply-To: <bug-118-4@http.www.slony.info/bugzilla/>
+References: <bug-118-4@http.www.slony.info/bugzilla/>
+Message-ID: <20100719150617.2ED08290CA4@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=118
+
+--- Comment #3 from Steve Singer <ssinger at ca.afilias.info> 2010-07-19 08:06:17 PDT ---
+This patch was committed to the 2.0 branch but has not yet been committed to
+1.2
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Mon Jul 19 09:04:46 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Mon, 19 Jul 2010 09:04:46 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 138] groff detection in configure broken
+In-Reply-To: <bug-138-4@http.www.slony.info/bugzilla/>
+References: <bug-138-4@http.www.slony.info/bugzilla/>
+Message-ID: <20100719160446.227E3290D3C@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=138
+
+--- Comment #1 from Steve Singer <ssinger at ca.afilias.info> 2010-07-19 09:04:46 PDT ---
+Created an attachment (id=51)
+ --> (http://www.slony.info/bugzilla/attachment.cgi?id=51)
+patch to define GROFF
+
+This patch should define GROFF
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Thu Jul 22 13:55:46 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu, 22 Jul 2010 13:55:46 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 141] New: altertablerestore() is obsolete in 2.0+
+Message-ID: <bug-141-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=141
+
+           Summary: altertablerestore() is obsolete in 2.0+
+           Product: Slony-I
+           Version: 2.0
+          Platform: PC
+        OS/Version: Linux
+            Status: NEW
+          Severity: enhancement
+          Priority: low
+         Component: stored procedures
+        AssignedTo: slony1-bugs at lists.slony.info
+        ReportedBy: cbbrowne at ca.afilias.info
+                CC: slony1-bugs at lists.slony.info
+   Estimated Hours: 0.0
+
+
+Note from the comments below that this function is only relevant to pre-2.0
+Slony-I installations.
+
+========================================================================
+comment on function @NAMESPACE at .alterTableRestore (int4) is
+'alterTableRestore (tab_id)
+
+Note: This function only functions properly when used on pre-2.0
+systems being converted into 2.0 form.  In Slony-I 2.0, the trigger
+handling has changed substantially, such that:
+
+- There are *two* triggers on each table, created at "creation time", and
+- There is no need to run "restore" as part of the DDL/EXECUTE SCRIPT process.
+========================================================================
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Thu Jul 22 14:04:56 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu, 22 Jul 2010 14:04:56 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 140] DBI::Pg?
+In-Reply-To: <bug-140-4@http.www.slony.info/bugzilla/>
+References: <bug-140-4@http.www.slony.info/bugzilla/>
+Message-ID: <20100722210457.0539F290D24@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=140
+
+Steve Singer <ssinger at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         Resolution|                            |FIXED
+             Status|NEW                         |RESOLVED
+
+--- Comment #1 from Steve Singer <ssinger at ca.afilias.info> 2010-07-22 14:04:57 PDT ---
+Fixed in master and REL_2_0_STABLE
+
+commit 850c75518db516a35aeda0bdc8fd01e0909a2c39
+commit e2b6a0a807094e0514fcd66cc4ca7703b955b0b8
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Thu Jul 22 14:33:03 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu, 22 Jul 2010 14:33:03 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 141] altertablerestore() is obsolete in 2.0+
+In-Reply-To: <bug-141-4@http.www.slony.info/bugzilla/>
+References: <bug-141-4@http.www.slony.info/bugzilla/>
+Message-ID: <20100722213303.9CA73290C82@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=141
+
+--- Comment #1 from Christopher Browne <cbbrowne at ca.afilias.info> 2010-07-22 14:33:03 PDT ---
+Created an attachment (id=52)
+ --> (http://www.slony.info/bugzilla/attachment.cgi?id=52)
+Patch versus Slony-I 2.0
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Thu Jul 22 14:37:34 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu, 22 Jul 2010 14:37:34 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 141] altertablerestore() is obsolete in 2.0+
+In-Reply-To: <bug-141-4@http.www.slony.info/bugzilla/>
+References: <bug-141-4@http.www.slony.info/bugzilla/>
+Message-ID: <20100722213734.E36AE290C82@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=141
+
+Christopher Browne <cbbrowne at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+             Status|NEW                         |ASSIGNED
+                URL|                            |http://github.com/cbbrowne/
+                   |                            |slony1-engine/tree/bug-141-
+                   |                            |2.0
+
+--- Comment #2 from Christopher Browne <cbbrowne at ca.afilias.info> 2010-07-22 14:37:34 PDT ---
+Note that I have published a Git branch for this...  See
+http://github.com/cbbrowne/slony1-engine/tree/bug-141-2.0
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Thu Jul 22 14:39:14 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu, 22 Jul 2010 14:39:14 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 142] New: Minimize security profile
+Message-ID: <bug-142-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=142
+
+           Summary: Minimize security profile
+           Product: Slony-I
+           Version: devel
+          Platform: All
+        OS/Version: All
+            Status: NEW
+          Severity: enhancement
+          Priority: low
+         Component: slon
+        AssignedTo: slony1-bugs at lists.slony.info
+        ReportedBy: cbbrowne at ca.afilias.info
+                CC: slony1-bugs at lists.slony.info
+   Estimated Hours: 0.0
+
+
+At present, there are somewhat indeterminate parts of Slony-I that require
+superuser database access, and it's pretty much simplest to "have slon be a
+superuser."
+
+It would be highly desirable to reduce the usage of the superuser to a minimum,
+and, in addition, to have that usage be done explicitly on request, so that it
+could normally be unavailable.
+
+There are a limited number of places where superuser access is actually
+required, so we should be able to use SET ROLE=superuser/RESET ROLE in order to
+apply it minimally.
+
+Requirements:
+
+- Need a configuration parameter to indicate the superuser role to be used
+
+  superuser_role is a proposed name
+
+- Need a pair of functions to use/reset the role
+
+- Those functions need to get used in apropos places
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Thu Jul 22 15:16:25 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu, 22 Jul 2010 15:16:25 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 142] Minimize security profile
+In-Reply-To: <bug-142-4@http.www.slony.info/bugzilla/>
+References: <bug-142-4@http.www.slony.info/bugzilla/>
+Message-ID: <20100722221625.229C9290C82@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=142
+
+Christopher Browne <cbbrowne at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         AssignedTo|slony1-bugs at lists.slony.inf |cbbrowne at ca.afilias.info
+                   |o                           |
+             Status|NEW                         |ASSIGNED
+         Depends on|                            |141
+
+--- Comment #1 from Christopher Browne <cbbrowne at ca.afilias.info> 2010-07-22 15:16:25 PDT ---
+Reviewing...  The requirement for superuser is actually *really* shallow.
+
+There are only two places where updates are done to the catalog (e.g. - updates
+to tables in pg_catalog):
+
+1.  In altertablerestore(), which is an obsolete function.  See bug #141.
+
+This function should be removed, in bug #141.
+
+2.  In preparetableforcopy() and finishtableaftercopy(), there are updates to
+pg_class to "hack" relhasindex.
+
+I propose to add a pair of security definer functions to activate/deactivate
+the indices.
+
+We do NOT need a config parameter for slon; instead, we just need to have a
+superuser role available during UPDATE FUNCTIONS, and to do two things there:
+
+ - Claim the superuser role briefly
+ - ALTER ownership on the two new functions
+ - Set the functions as security definers
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Thu Jul 22 15:16:25 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu, 22 Jul 2010 15:16:25 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 141] altertablerestore() is obsolete in 2.0+
+In-Reply-To: <bug-141-4@http.www.slony.info/bugzilla/>
+References: <bug-141-4@http.www.slony.info/bugzilla/>
+Message-ID: <20100722221625.5984E290D24@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=141
+
+Christopher Browne <cbbrowne at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+             Blocks|                            |142
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Fri Jul 23 05:25:14 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Fri, 23 Jul 2010 05:25:14 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 143] New: definition of sl_status.st_lag_time
+	suspicious
+Message-ID: <bug-143-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=143
+
+           Summary: definition of sl_status.st_lag_time suspicious
+           Product: Slony-I
+           Version: 2.0
+          Platform: All
+        OS/Version: All
+            Status: NEW
+          Severity: normal
+          Priority: low
+         Component: stored procedures
+        AssignedTo: slony1-bugs at lists.slony.info
+        ReportedBy: peter_e at gmx.net
+                CC: slony1-bugs at lists.slony.info
+   Estimated Hours: 0.0
+
+
+The column sl_status.st_lag_time is currently defined as
+
+now() - ce.ev_timestamp::timestamp with time zone AS st_lag_time
+
+This is pretty weird, because if nothing happens, such as on a slave, the lag
+grows without bound, even though there is nothing wrong.  Monitoring systems
+such as munin and nagios usually use this column to monitor the health of a
+replication setup, but this makes it much less useful.
+
+By contrast, the column st_lag_num_events is
+
+e.ev_seqno - c.con_seqno AS st_lag_num_events
+
+so it would make more sense in my mind to make st_lag_time
+
+e.ev_timestamp - ce.ev_timestamp AS st_lag_time
+
+Or at least the difference and inconsistency  between these two values should
+be more clearly explained somewhere in the docs.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Fri Jul 23 09:18:52 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Fri, 23 Jul 2010 09:18:52 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 142] Minimize security profile
+In-Reply-To: <bug-142-4@http.www.slony.info/bugzilla/>
+References: <bug-142-4@http.www.slony.info/bugzilla/>
+Message-ID: <20100723161852.24F40290D53@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=142
+
+--- Comment #2 from Christopher Browne <cbbrowne at ca.afilias.info> 2010-07-23 09:18:52 PDT ---
+I have opened up a branch for this:
+http://github.com/cbbrowne/slony1-engine/tree/bug-142-HEAD
+
+It presently has just the small change to factor the superuser-needing
+functionality out of mainline code, and puts it into two security definer
+functions.
+
+http://github.com/cbbrowne/slony1-engine/commit/393e0f77dd29227202dac0283e57812f07f44a69
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Tue Jul 27 08:27:46 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Tue, 27 Jul 2010 08:27:46 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 144] New: replicate_partition stored procedure
+ doesn't start replicating changes to the new table
+Message-ID: <bug-144-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=144
+
+           Summary: replicate_partition stored procedure doesn't start
+                    replicating changes to the new table
+           Product: Slony-I
+           Version: 1.2
+          Platform: PC
+        OS/Version: Linux
+            Status: NEW
+          Severity: enhancement
+          Priority: low
+         Component: stored procedures
+        AssignedTo: slony1-bugs at lists.slony.info
+        ReportedBy: ssinger at ca.afilias.info
+                CC: slony1-bugs at lists.slony.info
+   Estimated Hours: 0.0
+
+
+Create a set 1 and add table a to set 1 and subscribe at least one receiver to
+the set.
+
+Then create an inherited table b (that inherits from a).
+
+The http://www.slony.info/documentation/partitioning.html leads one to belive
+that you can do 
+
+ SELECT _test.replicate_partition(2,'public','b','b_pkey','none');
+
+and that seems to work (ie it gives no error) but it leaves slony in a not so
+good state.  
+
+If you run this on the origin you get
+-A row in sl_table with tab_altered=f.  B on the origin does NOT have hte log
+trigger installed
+-This command does nto change sl_table on subscribers.
+
+The issues I see are
+
+-add_empty_table_to_replication calls setAddTable_int not setAddTable.
+setAddTable_int does NOT create a SET_ADD_TABLE event so the subscriber is
+never told to change its state(sl_table)
+-After calling setAddTable the add_empty_table_to_replication function calls
+alterTableRestore() on the table which deletes the log trigger.
+
+Was there a reason for this?  Further to note, setAddTable will check to make
+sure the set is not subscribed (which it probably is, see the motiviation at
+the top of the documentation page linked above)
+
+I think we want to replace teh alterTableRestore() call with a SET_ADD_TABLE
+create event
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Tue Jul 27 08:58:42 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Tue, 27 Jul 2010 08:58:42 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 122] bad error message: subscribe a set with no
+ paths to a dropped node
+In-Reply-To: <bug-122-4@http.www.slony.info/bugzilla/>
+References: <bug-122-4@http.www.slony.info/bugzilla/>
+Message-ID: <20100727155842.17931290D13@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=122
+
+--- Comment #2 from Steve Singer <ssinger at ca.afilias.info> 2010-07-27 08:58:42 PDT ---
+Created an attachment (id=53)
+ --> (http://www.slony.info/bugzilla/attachment.cgi?id=53)
+propsed patch for bug 122
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Tue Jul 27 11:29:21 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Tue, 27 Jul 2010 11:29:21 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 143] definition of sl_status.st_lag_time
+	suspicious
+In-Reply-To: <bug-143-4@http.www.slony.info/bugzilla/>
+References: <bug-143-4@http.www.slony.info/bugzilla/>
+Message-ID: <20100727182921.E10CE290D72@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=143
+
+--- Comment #1 from Steve Singer <ssinger at ca.afilias.info> 2010-07-27 11:29:21 PDT ---
+I think the idea behind this was that if no events are being generated
+something IS wrong.
+
+A node should always have a slon running on it and the slon should be
+generating sync events even if there is nothing to sync.   Unfortunately this
+is not happening in some versions of slony for leaf nodes(See bug #127) 
+
+If your slon is killed (or maybe all of your slons are killed) no events will
+be generated but you still want sl_status to show something is wrong.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Tue Jul 27 11:55:26 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Tue, 27 Jul 2010 11:55:26 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 133] DROP set in the middle of a subscribe to
+ the same set confuses slon
+In-Reply-To: <bug-133-4@http.www.slony.info/bugzilla/>
+References: <bug-133-4@http.www.slony.info/bugzilla/>
+Message-ID: <20100727185526.81BCF290D34@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=133
+
+--- Comment #2 from Steve Singer <ssinger at ca.afilias.info> 2010-07-27 11:55:26 PDT ---
+I am worried that marking that we can't just ignore+mark confirmed the
+subscribe set event on nodes where the set does not exist in sl_set.
+
+node 5 would have no way of knowing if their is no row in sl_set because a DROP
+SET has already been processed or if it is because the CREATE SET has not yet
+been received by node 5.   Both the create set and the drop set will be coming
+from the origin but the subscribe set could be coming from a receiver.
+
+We could try to 'remmeber' the set after a DROP SET for some period of
+time/messages but what would that period be? An arbitrary value would only
+delay the issue.   You could remember all old sets, 
+
+We could try to make the subscribe set come from the origin not from the
+provider. This would mean that it comes from the same place as the create/drop
+set commands but that will have implications elsewhere.
+
+Ideas welcome
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Tue Jul 27 22:24:01 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Tue, 27 Jul 2010 22:24:01 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 145] New: Document Mistake
+Message-ID: <bug-145-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=145
+
+           Summary: Document Mistake
+           Product: Slony-I
+           Version: 2.0
+          Platform: All
+        OS/Version: All
+            Status: NEW
+          Severity: enhancement
+          Priority: low
+         Component: docs
+        AssignedTo: slony1-bugs at lists.slony.info
+        ReportedBy: katsumata.tomonari at oss.ntt.co.jp
+                CC: slony1-bugs at lists.slony.info
+   Estimated Hours: 0.0
+
+
+Hi.
+
+I've been checking the document of Slony-I.
+I found some mistakes.
+# I've checked the Document for 2.0.4.
+
+The list is below.
+--
+[Run-time Configuration]
+  - "Boolean values may be written as ON, OFF, FALSE, YES, NO, 1, 0 or
+    any unambiguous prefix of these."
+    ... I think it's natural including "TRUE".
+
+
+[Slonik Command Summary]
+  - "psqllacks the ability to maintain multiple connections with open
+ransactions."
+    ... It should start with "psql lacks the ability ..."
+
+
+[Log Analysis]
+  - "?DEBUG3: remoteWorkerThread_%d: table %s Slony-I serial key added local
+     ?DEBUG2: remoteWorkerThread_%d: Begin COPY of table %s"
+    ... It should be explanation for these log messages.
+
+  - "?DEBUG1: remoteWorkerThread_%d: copy_set %d done in %.3f seconds
+       Indicates the total time required to complete copy_set... This indicates
+       a successful subscription!
+
+     ?DEBUG1: remoteWorkerThread_%d: copy_set %d done in %.3f seconds
+       Indicates the total time required to complete copy_set... This indicates
+       a successful subscription!"
+    ... above sentences are same.
+
+  - "These events should occur frequently and routinely as nodes report
+     confirations of the events they receive."
+    ... type miss? "confirations" --> "confirmations"
+
+  - "This would typically happen if you submit SLONIK STORE NODE gainst
+     a node that has already been set up with the Slony-I schema. "
+    ... type miss? "gainst" --> "against"
+
+[Slon daemons]
+  - "One slon service is installed, and a seperate configuration file
+     registered for each node to be serviced by that machine."
+    ... type miss? "seperate" --> "separate"
+
+
+[Subscribing Nodes]
+  - "In that failure case, that subscriber node will never pick up the
+subscriber."
+    ... Is this sentence right? I think "the subscriber" is "the provider".
+
+
+[Doing swtchover and failover with Slony-I]
+  - "Resubscribe (using SLONIK SUBSCRIBE SET ech node that is to be kept in the
+     reformation of the cluster that is not already subscribed to the intended
+     data provider."
+    ... lack of ")" after "SUBSCRIBE SET".
+        and type miss? "ech" --> "each"
+
+
+[Defining Slony-I Clusters]
+  - "Note that, as recorded in the "" under How can I renumber nodes?,
+     the node number is immutable, so it is not possible to change a node's
+     node number after it has been set up."
+    ... What does "" mean ? I think it's "FAQ", right?
+
+
+[Reshaping a Cluster]
+  - "If you want a node that is a subscriber to become the origin for a
+     particular replication set, you will have to issue a suitable slonik
+     MOVE SET operation."
+    ... "slonik" is linkied to another page.
+        It should be linked "SLONIK MOVE SET" page.
+
+
+[Log Shipping - Slony-I with Files]
+  - "Optional conninfo for the destination database. If given, the log shipper
+     will connect to thisdatabase, and apply logs to it."
+    ... type miss? "thisdatabase" --> "this database"
+
+  - "Pre- and post-processign commands are executed via system(3). "
+    ... type miss? "processign" --> "processing"
+
+  - "Similarly, SET_DROP_TABLE, SET_DROP_SEQUENCE, SET_MOVE_TABLE,
+     SET_MOVE_SEQUENCE DROP_SET, MERGE_SET, will be handled "appropriately"."
+    ... It should be comma between "SET_MOVE_SEQUENCE" and "DROP_SET".
+
+
+[Defining Slony-I Replication Sets]
+  - "If your application is not somehow referencing the index by name,
+     the this should not lose you anything, and it gives you the clear design
+     benefit that a primary key has been declared for the table."
+    ... type miss? "the" --> "then"
+
+
+[Slony-I Path Communications]
+  - "DB5 and and DB6 are counterparts to DB1 and DB2, but are, at present,
+     configured as subscribers."
+    ... "and" is doubled.
+
+
+[Slony-I listen paths]
+  - "it gets events for nodes 1, 3, and 4 throw node 1, and gets events
+     for nodes 5 and 6 from node 5."
+    ... type miss? "throw" --> "through"
+
+  - "Until Slony-I, there is no automated way at this point to do this
+"reshaping"."
+    ... I dont't know which Slony-I version.
+
+
+[SLONIK MERGE SET]
+  - "# Assuming that set 1 has direct subscribers 2 and 3"
+    ... I think "provider 1" is better than "set 1".
+
+
+[SLONIK STORE NODE]
+  - "The SPOOLNODE parameter was introduced in version 1.1, but was vestigal
+     in that version. "
+    ... type miss? "vestigal" --> "vestigial"
+
+
+[SLONIK TABLE ADD KEY]
+  - "That leaves the "kludgy" columns created via TABLE ADD KEY as the only
+     thing that prevents SLONIK UNINSTALL NODE from being comprised of the SQL
+     statement drop schema _ClusterName cascade;."
+    ... type miss? "kludgy" --> "kludgey"
+
+
+[SLONIK WAIT FOR EVENT]
+  - "# Assuming that set 1 has direct subscribers 2 and 3"
+    ... I think "provider 1" is better than "set 1".
+
+
+[Slony-I FAQ]
+  - "Node 3 - subscriber to node 3 - node that should keep replicating"
+    ... I think "node 3" is better than "node 3".
+
+--
+
+Sorry for late reporting.
+Please check them.
+
+regards,
+----------
+Tomonari Katsumata
+NTT Open Source Software Center
+E-Mail: katsumata.tomonari at oss.ntt.co.jp
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Jul 28 07:04:29 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed, 28 Jul 2010 07:04:29 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 143] definition of sl_status.st_lag_time
+	suspicious
+In-Reply-To: <bug-143-4@http.www.slony.info/bugzilla/>
+References: <bug-143-4@http.www.slony.info/bugzilla/>
+Message-ID: <20100728140429.A3C3E290D82@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=143
+
+--- Comment #2 from Peter Eisentraut <peter_e at gmx.net> 2010-07-28 07:04:29 PDT ---
+That also explains it.  I guess I never seriously used a version before bug
+#127.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Fri Jul 30 08:57:00 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Fri, 30 Jul 2010 08:57:00 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 136] listen paths not being rebuilt correctly
+In-Reply-To: <bug-136-4@http.www.slony.info/bugzilla/>
+References: <bug-136-4@http.www.slony.info/bugzilla/>
+Message-ID: <20100730155700.F213F290384@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=136
+
+--- Comment #4 from Steve Singer <ssinger at ca.afilias.info> 2010-07-30 08:57:00 PDT ---
+
+The issues described in this bug can also show up in a case like this
+
+1==>3===>4
+||  \\   
+2     5   
+
+
+
+FAILOVER 1===>4
+
+Slonik executes failedNode2 on node 3.  This means that node 3 has a FAILOVER
+event in its sl_event with an origin of node 1.  That failover event needs to
+propogate to node 4.
+
+The issue is that the FAILOVER command 'looks' like it is coming from node 1
+but it is sitting on the queue at node 3.
+
+The sl_listen configuration at node 4  looks as follows (after failedNode() has
+been executed on node 4, the backup node)
+select * FROM _disorder_replica.sl_listen where li_receiver=4;
+ li_origin | li_provider | li_receiver 
+-----------+-------------+-------------
+         2 |           2 |           4
+         3 |           3 |           4
+         5 |           5 |           4
+         2 |           5 |           4
+         3 |           5 |           4
+         3 |           2 |           4
+         5 |           2 |           4
+         2 |           3 |           4
+         5 |           3 |           4
+         1 |           2 |           4
+
+ select * FROM _disorder_replica.sl_subscribe ;
+ sub_set | sub_provider | sub_receiver | sub_forward | sub_active 
+---------+--------------+--------------+-------------+------------
+       1 |            2 |            4 | t           | t
+       1 |            4 |            2 | t           | t
+       1 |            4 |            3 | t           | t
+       1 |            4 |            5 | t           | t
+(4 rows)
+
+
+This is because failedNode() has already modified sl_subscribe so node 2 and
+node 3 are receiving data from node 4.
+
+Because node 4 has a sl_subscribe row saying it gets the set from node 2 (and
+set 1 is still set to have node 1 as an origin) node 4 stops listening for node
+1 origin events from node3.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+

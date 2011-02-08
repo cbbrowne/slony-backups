@@ -1,0 +1,648 @@
+From cbbrowne at ca.afilias.info  Tue Jan 11 09:52:17 2011
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Tue, 11 Jan 2011 12:52:17 -0500
+Subject: [Slony1-hackers] automatic WAIT FOR proposal
+In-Reply-To: <4D126DED.4090001@ca.afilias.info> (Steve Singer's message of
+	"Wed, 22 Dec 2010 16:30:21 -0500")
+References: <4D0236DD.1080509@ca.afilias.info>
+	<87y67xz42f.fsf@cbbrowne.afilias-int.info>
+	<4D121D2C.5020009@ca.afilias.info> <4D126DED.4090001@ca.afilias.info>
+Message-ID: <87hbdfba5q.fsf@cbbrowne.afilias-int.info>
+
+Steve Singer <ssinger at ca.afilias.info> writes:
+> This means that if IF  a) we can somehow avoid race conditions at the
+> event nodes AND  b) implement the rule "apply all events that were
+> visible on the event origin before applying the event" then we can
+> eliminate race conditions.
+>
+> i) I feel (a) needs to be handled by slonik and can be handled by
+> slonik waiting for the next event node to be caught up to previous
+> event nodes before submitting an event to it (discussed in a previous
+> email on this thread, though I have not formally tried to prove this
+>
+> ii) can be implemented by adding a new column to sl_event that stores
+> an array of event tuples - which consist of the highest events from
+> each node confirmed on the node at the time sl_event is generated.
+> The a remoteWorker won't apply an event to its local node until the
+> pre-conditions have been met.
+>
+> Questions:  What is the performance impact of getting the highest
+> confirmed event id values? This is unknown - but will probably involve
+> querying sl_event and/or sl_confirm.
+
+That's a very interesting approach; it changes visible behaviour by
+evaluating events in a different ordering than might be true today.
+
+But by establishing a consistent ordering of application of events
+(e.g. - when there are events coming in from multiple nodes), it should
+provide some consistency that doesn't exist today.
+
+I would expect the cost of finding the highest confirmed events to be
+fairly low, albeit increasing when there are a lot of nodes, though a
+little benchmark isn't confirming that notably well...
+
+I ran the following a bunch of times on a node to inject ~12K sl_confirm
+entries similar to those existing:
+
+  insert into sl_confirm (con_origin, con_received, con_seqno) select
+  con_origin, con_received, max(con_seqno) + 1 from sl_confirm group by
+  con_origin, con_received;
+
+The query that provides the relevant data is the following summarization
+of sl_confirm:
+
+slonyregress1 at localhost-> select con_origin, max(con_seqno) from
+sl_confirm group by con_origin;
+
+ con_origin |    max
+------------+------------
+          1 | 5000005860
+          2 | 5000005855
+(2 rows)
+
+slonyregress1 at localhost->  explain analyze select con_origin,
+max(con_seqno) from sl_confirm group by con_origin;
+                            QUERY PLAN
+---------------------------------------------------------------------------------------------------------------------
+ HashAggregate  (cost=250.96..250.99 rows=2 width=12) (actual time=3.588..3.589 rows=2 loops=1)
+   ->  Seq Scan on sl_confirm  (cost=0.00..192.31 rows=11731 width=12) (actual time=0.008..1.001 rows=11712 loops=1)
+Total runtime: 3.619 ms
+
+While it's not ultra-slow, I observe that this isn't helped in the
+slightest by the presence of reasonable indices on sl_confirm.  We could
+presumably take advantage of an index if we ran a query for each node
+searching for the maximum confirmed sequence; that should apply one or
+another of the indices, albeit at the cost that we need to have a stored
+function that evaluates a query for each node.
+
+But I'm jumping at internals of implementation here.
+
+> I feel this produces a solution to wait for where slonik only needs to
+> wait to make sure the next event node has received all events so far.
+
+The problem with this comes if there is a failure of some "secondary"
+node; that could cause downstream nodes to lag on feeding in data from
+their providers because there's something broken about the "secondary"
+node.
+
+The theory seems sound enough, but if it makes behaviour degrade on a
+degraded cluster, that mightn't be a "win." :-(
+-- 
+select 'cbbrowne' || '@' || 'afilias.info';
+Christopher Browne
+"Bother,"  said Pooh,  "Eeyore, ready  two photon  torpedoes  and lock
+phasers on the Heffalump, Piglet, meet me in transporter room three"
+
+From ronald.arias at smartmatic.com  Fri Jan 14 05:20:51 2011
+From: ronald.arias at smartmatic.com (Ronald Arias)
+Date: Fri, 14 Jan 2011 08:50:51 -0430
+Subject: [Slony1-hackers] Problem with postgresql & slony1 replication
+	cluster
+Message-ID: <4D304DB3.6000101@smartmatic.com>
+
+Hello,
+
+I'm having a problem with postgresql, slony1 and pgadmin3. The 
+environment is set as follows:
+
+O.S: Ubuntu 10.04
+pgadmin version: 1.10
+postgres version: 8.4
+slony version: 1.2
+
+I installed everything from Sinaptic Repository.
+
+When I try to use pgadmin to create a cluster using the "new slony-I 
+cluster" option, it shows me a message "slony-I creation scripts not 
+available".
+I have configured "File > Options" to add the slony-I path to 
+"/usr/share/slony1" where the "xxid.sql" and "slony_funcs.sql" scripts 
+are, but I still getting the same error.
+
+Please, could you tell if this is a bug? or there is a way to fix this 
+problem? Thanks in advance.
+
+Best Regards,
+
+-- 
+
+vineta *Ronald Arias
+*cid:3365146942_189683  Software Engineer
+cid:3365146942_169641 *Ph:* (+58 212) 706.2500 / *Ext.* 5505
+cid:3365146942_189677 *Mobile:* (+58 412) 090.4549
+www.smartmatic.com <http://www.smartmatic.com>
+cid:3365146942_200891
+The information contained in this communication is confidential, is 
+intended only for the use of the recipient named above, and may be 
+legally privileged. If the reader of this message is not the intended 
+recipient, you are hereby notified that any dissemination, distribution, 
+or copying of this communication, or any of its contents, is strictly 
+prohibited. If you have received this communication in error, please 
+re-send this communication to the sender and delete the original message 
+and any copy of it from your computer system.
+
+cid:3365146942_197257
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-hackers/attachments/20110114/93536b2c/attachment-0001.html 
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: not available
+Type: image/gif
+Size: 180 bytes
+Desc: not available
+Url : http://lists.slony.info/pipermail/slony1-hackers/attachments/20110114/93536b2c/attachment-0002.gif 
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: not available
+Type: image/gif
+Size: 183 bytes
+Desc: not available
+Url : http://lists.slony.info/pipermail/slony1-hackers/attachments/20110114/93536b2c/attachment-0003.gif 
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: not available
+Type: image/png
+Size: 4328 bytes
+Desc: not available
+Url : http://lists.slony.info/pipermail/slony1-hackers/attachments/20110114/93536b2c/attachment-0002.png 
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: not available
+Type: image/png
+Size: 11633 bytes
+Desc: not available
+Url : http://lists.slony.info/pipermail/slony1-hackers/attachments/20110114/93536b2c/attachment-0003.png 
+
+From JanWieck at Yahoo.com  Thu Jan 20 07:14:34 2011
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Thu, 20 Jan 2011 10:14:34 -0500
+Subject: [Slony1-hackers] automatic WAIT FOR proposal
+In-Reply-To: <4D0236DD.1080509@ca.afilias.info>
+References: <4D0236DD.1080509@ca.afilias.info>
+Message-ID: <4D38515A.9080907@Yahoo.com>
+
+On 12/10/2010 9:19 AM, Steve Singer wrote:
+> This an initial proposal describes an approach to dealing with automatic
+> wait for in slony 2.1.
+>
+> Overview
+> --------------
+> In current (<=2.0) versions of slony some events are submitted to an
+> event node by slonik.  These events (that exist as rows in sl_event) get
+> propogated to other nodes via replication (slon).  When these events are
+> processed on the other node the other node runs the code (usually a
+> stored procedure) associated with the event.  Slonik thinks it is
+> finished with the command as soon as the event is created and the stored
+> procedure that slonik called has completed.
+>
+> Just because slonik has moved onto the next line of the script doesn't
+> mean that the previous command has yet been processed everywhere.   To
+> address this issue slonik has the 'WAIT FOR' command where you can tell
+> slonik to wait until the last event submitted a particular node has been
+> confirmed by other nodes.
+>
+> Properly written slonik scripts will 'WAIT FOR' some events to be
+> processed on other nodes before trying different things.
+>
+> The Problem
+> ----------------
+> The problem with the above statement is that it is very imprecise. It
+> has never been clearly defined when you need to wait and against which
+> node.  Furthermore the answer to that question differs based on the
+> version of slony you are using because it is dependent on the internal
+> operation of slony.
+>
+>
+> An informal survey of the slony mailing list shows that almost no users
+> understand how WAIT FOR should be used.
+>
+> Proposal
+> ------------
+> The goal is to make slonik handle the proper waiting between events. If
+> based on the previous set of slonik commands the next command needs to
+> wait until a previous command is confirmed by another node then slonik
+> should be smart enough to figure this out and to wait.
+>
+> When should slonik wait?
+>
+> Slonik can connect to any node in the cluster (or at least any one it
+> has an admin conninfo for) to submit commands against.  If in a single
+> slonik script, slonik submits a command against a node (say node (a) )
+> and then later submits a command against a different node (say node (b))
+> then it would be a really good idea to ensure that any event generated
+> by the last command on node (a) has been processed on node (b) before
+> slonik submits a command to node (b).
+>
+> If slonik were to submit the command to node (b) before the previous
+> command reaches (b) then you might have different behaviour than if the
+> command were to be submitted to (b) after the previous event reaches (b).
+>
+> Question: Does slonik have to wait until the event from node (a) has
+> been submitted to all nodes or just node (b)?
+>
+> To answer this we assume the answer is 'no'.  Let us have another node
+> (c).  If the event from node (b) (say e2) reaches node (c) before the
+> event from node (a) (event e1) then do we have a problem?
+>
+> Consider the example of a user submitting a 'store node' command to a to
+> create a new node (d).  Then the user submits a 'drop node' command to
+> node (b).  If node drop node is processed on node (c) before the store
+> node then we will have an issue.
+> So yes,  this is a problem.
+>
+> Can this actually happen?
+>
+> Say node (c) is in the middle of subscribing to a set directly from node
+> (a).  The remote worker on (c) will not process e1 until after the
+> subscription is finished.  However, the remote worker on (c) for node
+> (b) will be able to see and process e2 earlier.
+>
+>
+> So the answer is 'yes', slonik must wait for the event to be confirmed
+> by more nodes than just the ones involved in the commands.
+>
+> part of the problem is that there is no total-ordering of events. Each
+> event gets a sequence number with respect to the event node the event
+> was created on.  There is no direct way of node (c) to be sequencing
+> events from node (a) and events from node (b) in the original order.
+>
+> What would solve this?
+>
+> 1) If we had a global ordering on events maybe assigned by a cluster
+> coordinator node (c) would be able to process the events in the right order.
+> 2) When a event is created on node (b) if we store the fact that it has
+> already seen/confirmed event (a),1234 from node (a) we could transmit
+> this pre-condition as part of the event so node (c) can know that it
+> can't process the event from b until it has seen 1234 from (a).  This
+> way node (c) will process things in the right order but we can submit
+> events to (b) - which is up to date without having to wait for the busy
+> node (c) to get caught up.
+> 3) We could disallow or discourage the use of multiple event nodes and
+> require all slonik command events to originate on a single cluster node
+> (other than store path and maybe subscribe set) and provide facilities
+> for dealing with cases where that event node fails or is split.
+> 4) We really do require the cluster be caught up before using a
+> different event node.  This is where we automatically do the WAIT FOR ALL.
+>
+>
+> The approach proposed here is to go with (4) where before switching
+> event nodes slonik will WAIT FOR all nodes to confirm the last event
+>
+>
+> Implications/Drawbacks
+> --------------------------
+>
+> If a user does invokes slonik multiple times ie 1 slonik invocation per
+> command then this feature provides nothing.
+>
+> If a node in the cluster is behind maybe because it is subscribing to a
+> large set or has fallen behind by a lot then slonik commands need to be
+> restricted to a single event node. We will explore the implications of
+> this later on (below).
+>
+>
+> If a user starts a second slonik instance while the first one is waiting
+> then they have no protection.  This is no worse than they are today
+>
+> What are the implications of having to wait until the cluster is caught
+> up before switching event nodes?  The following are cases where you
+> might switch event/command nodes.
+>
+> 1) STORE PATH - the event node is dictated by how you are setting up the
+> path. Furthoremore if the backwards path isn't yet set up the node won't
+> recive the confirm message
+> 2) SUBSCRIBE set (in 2.0.5+) always gets submitted at the origin.  So if
+> you are subscribing multiple sets slonik will switch event nodes. This
+> means that subscribing to multiple sets (with different set origins) in
+> parallel will be harder (you will need to disable automatic wait-for or
+> use different slonik invocations). You can still do parallel subscribes
+> to the same set because the subscribe set always goes to the origin in
+> 2.0.5+ not the provider or the receiver.
+> 3) STORE/DROP listen goes to specific nodes based on the arguments but
+> you shouldn't need STORE/DROP listen commands anyway in 1.2 or 2.0
+> 4) CREATE/DROP SET must go to the set origin. If your creating sets the
+> cluster probably needs to be caught up.
+> 5) ADD TABLE/ADD SEQUENCE - must go to the origin.  Again if your
+> manipulating sets you must stick to a single set origin or have your
+> cluster be caught up
+> 6) MOVE TABLE goes to the origin - but the docs already warn you about
+> trying this if your cluster isn't caught up (with respect to this set)
+> 8) MOVE SET - Doing this with a behind cluster is already a bad idea
+> 9) FAILOVER - See multi-node failover discussion
+>
+>
+> STORE PATH
+> -----------
+> A WAIT FOR ALL nodes won't work unless all of the paths are stored.
+> When I say 'all' I mean there must exist a route from every node to
+> every other node.  The routes don't need to be direct. There are certain
+> common usage patterns that shouldn't be excluded. It would be good if
+> slonik could detect missing paths before 'changing things' because
+> otherwise users might be left with a half complete script.
+>
+> To do this slonik will:
+> -Connect to each event node and query sl_path and build an in-memory
+> representation of the cluster configuration
+> -Walk the parse tree of the slonik script and find places where the
+> event node changes.  At each of these places it will verify that the
+> path network is complete.   If the path network is not complete slonik
+> will throw an error.
+> -An implicit WAIT FOR ALL command will be inserted into the parse tree
+> -Nodes that have not yet been created (but have admin conninfo) data
+> will not generate 'incomplete' errors.   This means that STORE NODE,
+> DROP NODE and FAILOVER events must be picked up during parse tree
+> analysis and adjust sloniks internal state
+> -STORE PATH/DROP PATH commands also must be picked up by the parse tree
+> analysis.
+>
+> Consider this slonik script:
+> -------------------------------
+> store node(id=2,event node=1)
+> try {
+>     subscribe set(set id=1,provider=1,receiver=2);
+>     store path( client=1,server=2,...);
+>     store path(client=2,server=1,....);
+> }
+> on error {
+> echo 'let us ignore errors';
+> }
+> create set(id=2,origin=2);
+> -------------------------------------
+>
+> Is it valid?
+> If the subscribe set works then paths will exist for the create set
+> (something that would require an implicit wait for to preceed it).
+>
+> But if the subscribe set fails then the paths never get created and it
+> is not possible do a wait for before the create set.
+>
+> The easy answer is: Don't write scripts that can leave your cluster in
+> an indetermined state.   What we should do if someone tries is an open
+> question.  We could a) check that all code paths (cross product) leave
+> the cluster consistent/complete.  b) Assume the try blocks always finish
+> successfully c) don't do the parse tree analysis described above for the
+> entire script at parse time but instead do it for each block before
+> entering that block.
+> I am leaning towards c.
+>
+> Subscription Reshaping
+> --------------------------
+> A common use-case is
+> 1-->2--->3
+> and node 2 goes offline.  You might want to create a node 4 (to replace
+> node 2) and make node 3 feed off node a until node 4 is caught up then
+> have node 3 feed off node 4.  You think node (2) will come back up in a
+> while so you don't want to drop it from the cluster.
+>
+> subscribe set(id=1, provider=1,receiver=3);
+> create node(id=4,event node=4);
+> store path(client=4,server=3..);
+> store path(client=3,server=4...);
+> subscribe set(id=1,provider=1,receiver=4);
+>
+> The above script will work and will not require any implicit WAIT FOR
+
+Unless the paths between 1 and 3 exist already, the script will not work 
+because the first subscribe set will fail due to a missing path to the 
+data provider.
+
+If those paths were originally missing, then the script must start with
+
+store path(client=3,server=1...);
+store path(client=1,server=3...);
+
+rebuildListenNetwork() however will not use the path 1->3 to listen for 
+events from 1, because it doesn't know that node 2, its current data 
+provider, is offline.
+
+Thinking of this some more, this is actually one reason why the 
+subscribe set command must be initiated against the subscriber. Even if 
+the paths existed, the listen network is configured so that node 3 
+listens on 2 for events from 1, so it will never receive the new 
+subscribe set while 2 is down. I think we need a separate discussion 
+about reversing this change reversal, since this affects several 
+versions and is IMHO critical.
+
+> commands since the origin for the subscribe sets AND the store node is
+> 1.  It is also worth noting that the first subscribe set (the reshape)
+> will also connect directly to node 3 and reconfigure the node 3 listen
+> network to pay attention to events from node 1 directly.
+>
+> Now consider the case where node 3 is also the origin for a set being
+> replicated to node 2 and we now want to replicate it to node 4 as well.
+>
+>
+> subscribe set(id=1, provider=1,receiver=3);
+> create node(id=4,event node=4);
+
+Can the new node be the event node of a create node?
+
+> store path(client=4,server=3..);
+> store path(client=3,server=4...);
+> subscribe set(id=1,provider=1,receiver=4);
+> --An IMPLICT WAIT FOR will be inserted here
+> subscribe set(id=2,provider=3,receiver=4);
+>
+> The above script won't ever complete (until node 2 comes back online)
+> because the WAIT FOR ALL will be waiting for the events to be confirmed
+> by node 2.
+>
+> Solutions to this could be to say to users 'tough' execute that second
+> subscribe set in another slonik....
+>
+> How does this situation behave today:  It is pretty important the the
+> subscribe set (id=2...) does not get processed until the create
+> node(id=4) makes it to node 3.  The script as written above might not
+> work.  You would need a explicit WAIT FOR before the subsribe set
+> (id=2).   WAIT FOR(..confirmed=all) won't ever complete because node 2
+> is behind.
+>
+> If I were manually writing the script I could do
+> WAIT FOR(id=1, confirmed=3, ...).
+> The problem is today - that when node 2 comes back online it might see
+> the SUBSCRIBE SET(id=2...) from node 3 BEFORE it learns about node 4.
+> Or is there some reason I don't see why this isn't a problem today?
+> This also applies to sites that intentionally lag one of their slons by
+> a few hours.  Automatic WAIT FOR is incompatible in practice with this
+> use case but I don't see how they aren't exceptionally vunerable to race
+> conditions today.
+>
+>
+> FAILOVER
+> ---------------
+> Most failover scenarios are not done as part of an existing script but
+> are scripts done with the 'failover' in mind.
+> To that end the failover script might involve adding some paths and then
+> executing the failover command which shouldn't require any waiting
+>
+> Because the STORE PATH for the path from the receiver to the backup node
+> (if one is required) will be executed by slonik on the backup node then
+> the failover path checking logic that runs on the backup node will
+> always see that path (if the path was created) and no WAIT FOR is required.
+
+Slonik executes the store path command always against the client. The 
+backup node (new origin) is naturally the server part of that path and 
+thus, will not know about the path until the event has propagated to it.
+
+>
+> cluster reshaping will typically happen after the failover command -
+> because most cluster reshaping involves submitting events to the set
+> origin (which is inaccessible before the failover).
+>
+> After the failover commands to other nodes would require an implicit
+> WAIT FOR.. ALL.  This is fine as long as the 'failed' node is marked as
+> disabled so the ALL doesn't include the failed node (this does not
+> happen today, to be safe oyu would have to manually include a wait for
+> to each of the individual non failover target nodes).
+>
+> Slonik will need to be modified to see the FAILOVER and know that means
+> it should exclude the failed node from its list of 'all nodes to wait
+> for' just like it will need to do for drop node.
+>
+>
+> Disabling Automatic WAIT FOR
+> ----------------------------
+> Automatic WAIT FOR can be disabled in a script by adding a command like:
+> "SET CONFIRM_DELAY=off"
+> or turned on with
+> "SET CONFIRM_DELAY=on"
+>
+> (or someone should put forward different syntax)
+>
+> Open Questions
+> ---------------------
+> - Is the analysis above correct?
+> - How do we want to handle TRY blocks. See discussion above
+> -Are we willing to live with the above limitations?
+>
+>
+>
+> Comments?
+> _______________________________________________
+> Slony1-hackers mailing list
+> Slony1-hackers at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-hackers
+
+
+-- 
+Anyone who trades liberty for security deserves neither
+liberty nor security. -- Benjamin Franklin
+
+From cbbrowne at ca.afilias.info  Tue Jan 25 14:59:02 2011
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Tue, 25 Jan 2011 17:59:02 -0500
+Subject: [Slony1-hackers] Bulk add of tables
+Message-ID: <87r5c0oaix.fsf@cbbrowne.afilias-int.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=181
+
+I have set up a branch where I'm testing this, which has a regresison
+test.
+   https://github.com/cbbrowne/slony1-engine/tree/bulk-adding
+
+I'm getting a segfault problem, with the following slonik script:
+
+postgres at cbbrowne [05:53:26] [~/slony1-engine.github/tests] [bulk-adding *]
+-> % cat /tmp/slony-regress.rZSbvU/slonik.script
+include </tmp/slony-regress.rZSbvU/slonik.preamble>;
+#init cluster (id=1, comment = 'Regress test node');
+echo 'update functions on node 1 after initializing it';
+update functions (id=1);
+#create set (id=1, origin=1, comment='All test1 tables');
+set add table (set id = 1, tables='public.*');
+
+Errors reported thus:
+
+-> % slonik /tmp/slony-regress.rZSbvU/slonik.script
+/tmp/slony-regress.rZSbvU/slonik.script:3: update functions on node 1 after initializing it                                                                                         /tmp/slony-regress.rZSbvU/slonik.script:4: Possible unsupported PostgreSQL version (90100) 9.1, defaulting to 8.3 support
+/tmp/slony-regress.rZSbvU/slonik.script:4: WARNING:  This node is running PostgreSQL 8.3 - cannot apply TRUNCATE triggers
+CONTEXT:  SQL statement "SELECT "_slony_regress1".add_truncate_triggers()"
+PL/pgSQL function "upgradeschema" line 12 at PERFORM
+/tmp/slony-regress.rZSbvU/slonik.script:7: PGRES_FATAL_ERROR select max(tab_id) FROM "_slony_regress1".sl_table - ERROR:  schema "_slony_regress1" does not exist
+LINE 1: select max(tab_id) FROM "_slony_regress1".sl_table
+                                ^
+[2]    29188 segmentation fault  slonik /tmp/slony-regress.rZSbvU/slonik.script
+
+It's blowing up in slonik_get_next_tab_id(), somewhere near the end of
+the function.
+
+Something's suspicious about the way queries are getting free'ed.
+-- 
+let name="cbbrowne" and tld="afilias.info" in String.concat "@" [name;tld];;
+Christopher Browne
+"Bother,"  said Pooh,  "Eeyore, ready  two photon  torpedoes  and lock
+phasers on the Heffalump, Piglet, meet me in transporter room three"
+
+From ssinger at ca.afilias.info  Wed Jan 26 07:20:47 2011
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Wed, 26 Jan 2011 10:20:47 -0500
+Subject: [Slony1-hackers] Bulk add of tables
+In-Reply-To: <87r5c0oaix.fsf@cbbrowne.afilias-int.info>
+References: <87r5c0oaix.fsf@cbbrowne.afilias-int.info>
+Message-ID: <4D403BCF.4040108@ca.afilias.info>
+
+On 11-01-25 05:59 PM, Christopher Browne wrote:
+> http://www.slony.info/bugzilla/show_bug.cgi?id=181
+>
+> I have set up a branch where I'm testing this, which has a regresison
+> test.
+>     https://github.com/cbbrowne/slony1-engine/tree/bulk-adding
+>
+> I'm getting a segfault problem, with the following slonik script:
+>
+
+Shame on me.
+
+For some reason I though I tested this stuff after I put in the code to 
+ignore nodes without slony installed.  Clearly I didn't.  Your segfault 
+was caused by me failing to allocate/init one of the SlonDString 
+variables before writing to it.  However there where some more 
+fundamental problems with the logic.
+
+
+I've pushed
+https://github.com/ssinger/slony1-engine/commit/06970a7788a651f9ba68cb3dbaeac05c7e7c4e3b 
+  to my bulk-adding branch.
+
+
+I will try to find a place in the clustertest tests to add tests that 
+cover all of:
+
+* having a conninfo to a database where we can't connect to postgres
+* having a conninfo to a database where we can connect but a database of 
+that name does not exist.
+* having a conninfo to a database that exists but does not have slony 
+installed
+
+
+
+
+> postgres at cbbrowne [05:53:26] [~/slony1-engine.github/tests] [bulk-adding *]
+> ->  % cat /tmp/slony-regress.rZSbvU/slonik.script
+> include</tmp/slony-regress.rZSbvU/slonik.preamble>;
+> #init cluster (id=1, comment = 'Regress test node');
+> echo 'update functions on node 1 after initializing it';
+> update functions (id=1);
+> #create set (id=1, origin=1, comment='All test1 tables');
+> set add table (set id = 1, tables='public.*');
+>
+> Errors reported thus:
+>
+> ->  % slonik /tmp/slony-regress.rZSbvU/slonik.script
+> /tmp/slony-regress.rZSbvU/slonik.script:3: update functions on node 1 after initializing it                                                                                         /tmp/slony-regress.rZSbvU/slonik.script:4: Possible unsupported PostgreSQL version (90100) 9.1, defaulting to 8.3 support
+> /tmp/slony-regress.rZSbvU/slonik.script:4: WARNING:  This node is running PostgreSQL 8.3 - cannot apply TRUNCATE triggers
+> CONTEXT:  SQL statement "SELECT "_slony_regress1".add_truncate_triggers()"
+> PL/pgSQL function "upgradeschema" line 12 at PERFORM
+> /tmp/slony-regress.rZSbvU/slonik.script:7: PGRES_FATAL_ERROR select max(tab_id) FROM "_slony_regress1".sl_table - ERROR:  schema "_slony_regress1" does not exist
+> LINE 1: select max(tab_id) FROM "_slony_regress1".sl_table
+>                                  ^
+> [2]    29188 segmentation fault  slonik /tmp/slony-regress.rZSbvU/slonik.script
+>
+> It's blowing up in slonik_get_next_tab_id(), somewhere near the end of
+> the function.
+>
+> Something's suspicious about the way queries are getting free'ed.
+
+

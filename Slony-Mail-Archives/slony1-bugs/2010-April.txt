@@ -1,0 +1,529 @@
+From jcasanov at systemguards.com.ec  Mon Apr  5 22:17:55 2010
+From: jcasanov at systemguards.com.ec (Jaime Casanova)
+Date: Tue, 6 Apr 2010 01:17:55 -0400
+Subject: [Slony1-bugs] [slony1-bugs] replicating wrong table
+Message-ID: <v2k3073cc9b1004052217ydb68732ao595c9f8e7ce1467a@mail.gmail.com>
+
+Hi,
+
+I'm starting a replica, i divided it in 3 sets (actually i'm adding a
+new node after upgrading os and pg version)...
+
+slony version 1.2.20 pg version 8.4.3
+
+i had no problem with set 1 and set 2 but when replicating set 3, it
+never finish copying tables and when i look for errors in the slave
+postgres log i found this:
+"""
+2010-04-05 00:36:38 GMT [10017]: [4-1] 192.168.1.50(60202) STATEMENT:
+select "_sncp_incop_cluster".setAddTable_int(3, 287,
+'"audit_log"."tcom_puja_backup"', 'tcom_puja_pkey', '');
+2010-04-05 00:42:36 GMT [10017]: [5-1] 192.168.1.50(60202) ERROR:
+Slony-I: setAddTable_int(): table "audit_log"."tcom_puja_backup" has
+no index tcom_puja_pkey
+"""
+
+but when searching that table on sl_table i get this:
+"""
+mic=# select * from _sncp_incop_cluster.sl_table where tab_id =287;
+ tab_id | tab_reloid | tab_relname | tab_nspname | tab_set |
+tab_idxname   | tab_altered | tab_comment
+--------+------------+-------------+-------------+---------+----------------+-------------+-------------
+    287 |      21940 | tcom_puja   | audit_log   |       3 |
+tcom_puja_pkey | t           |
+(1 row)
+"""
+
+so, obviously it is trying to replicate the wrong table, if i try to
+fix this mess by dropping the table from replication using "set drop
+table(origin=1, ID = 287 );" i get this:
+"""
+<stdin>:3: PGRES_FATAL_ERROR select
+"_sncp_incop_cluster".setDropTable(287);  - ERROR:  Slony-I:
+alterTableRestore(): Table with id 287 not found
+CONTEXT:  SQL statement "SELECT  "_sncp_incop_cluster".alterTableRestore( $1 )"
+PL/pgSQL function "setdroptable_int" line 52 at PERFORM
+SQL statement "SELECT  "_sncp_incop_cluster".setDropTable_int( $1 )"
+PL/pgSQL function "setdroptable" line 40 at PERFORM
+"""
+
+now, the table that is being replicated "doesn't" have a pkey while
+the table that should have been in the replication (and that i put in
+the script) do have a pkey (the pkey that is being assigned by slony
+to the other table)...
+
+the problem is that somehow the tab_reloid is for that recors is the
+oid of the other table... i can't simply change that because the other
+table has the trigger...
+so, i'm accepting ideas...
+
+what i'm thinking first is to add the pkey to the table (i will rename
+an existing pkey on the other table and create i new one with this
+name here) but don't know if i have to fix tab_relname
+
+ideas?
+
+-- 
+Atentamente,
+Jaime Casanova
+Soporte y capacitaci?n de PostgreSQL
+Asesor?a y desarrollo de sistemas
+Guayaquil - Ecuador
+Cel. +59387171157
+
+From gordon at collectiveintellect.com  Tue Apr  6 06:22:18 2010
+From: gordon at collectiveintellect.com (Gordon Shannon)
+Date: Tue, 6 Apr 2010 07:22:18 -0600
+Subject: [Slony1-bugs] [slony1-bugs] replicating wrong table
+In-Reply-To: <v2k3073cc9b1004052217ydb68732ao595c9f8e7ce1467a@mail.gmail.com>
+References: <v2k3073cc9b1004052217ydb68732ao595c9f8e7ce1467a@mail.gmail.com>
+Message-ID: <FA98507C-E4F2-48C3-B463-3B1BAA11A887@collectiveintellect.com>
+
+Looks like tab_id 287 used to be tcom_puja_backup, but now is tcom_puja.
+
+The tab_id's must match on both sides.   The most disturbing question is how did this get this way, and what else is broken?  You might want to DROP SET and resubscribe. 
+
+If that's impractical, then I would shut down all slons, and update the sl_table on the subscriber side to make them match the origin.  Be careful that the tab_reloid's are correct within that node as well as tab_id. Then restart and hope.
+
+Gordon
+
+
+On Apr 5, 2010, at 11:17 PM, Jaime Casanova wrote:
+
+> Hi,
+> 
+> I'm starting a replica, i divided it in 3 sets (actually i'm adding a
+> new node after upgrading os and pg version)...
+> 
+> slony version 1.2.20 pg version 8.4.3
+> 
+> i had no problem with set 1 and set 2 but when replicating set 3, it
+> never finish copying tables and when i look for errors in the slave
+> postgres log i found this:
+> """
+> 2010-04-05 00:36:38 GMT [10017]: [4-1] 192.168.1.50(60202) STATEMENT:
+> select "_sncp_incop_cluster".setAddTable_int(3, 287,
+> '"audit_log"."tcom_puja_backup"', 'tcom_puja_pkey', '');
+> 2010-04-05 00:42:36 GMT [10017]: [5-1] 192.168.1.50(60202) ERROR:
+> Slony-I: setAddTable_int(): table "audit_log"."tcom_puja_backup" has
+> no index tcom_puja_pkey
+> """
+> 
+> but when searching that table on sl_table i get this:
+> """
+> mic=# select * from _sncp_incop_cluster.sl_table where tab_id =287;
+> tab_id | tab_reloid | tab_relname | tab_nspname | tab_set |
+> tab_idxname   | tab_altered | tab_comment
+> --------+------------+-------------+-------------+---------+----------------+-------------+-------------
+>    287 |      21940 | tcom_puja   | audit_log   |       3 |
+> tcom_puja_pkey | t           |
+> (1 row)
+> """
+> 
+> so, obviously it is trying to replicate the wrong table, if i try to
+> fix this mess by dropping the table from replication using "set drop
+> table(origin=1, ID = 287 );" i get this:
+> """
+> <stdin>:3: PGRES_FATAL_ERROR select
+> "_sncp_incop_cluster".setDropTable(287);  - ERROR:  Slony-I:
+> alterTableRestore(): Table with id 287 not found
+> CONTEXT:  SQL statement "SELECT  "_sncp_incop_cluster".alterTableRestore( $1 )"
+> PL/pgSQL function "setdroptable_int" line 52 at PERFORM
+> SQL statement "SELECT  "_sncp_incop_cluster".setDropTable_int( $1 )"
+> PL/pgSQL function "setdroptable" line 40 at PERFORM
+> """
+> 
+> now, the table that is being replicated "doesn't" have a pkey while
+> the table that should have been in the replication (and that i put in
+> the script) do have a pkey (the pkey that is being assigned by slony
+> to the other table)...
+> 
+> the problem is that somehow the tab_reloid is for that recors is the
+> oid of the other table... i can't simply change that because the other
+> table has the trigger...
+> so, i'm accepting ideas...
+> 
+> what i'm thinking first is to add the pkey to the table (i will rename
+> an existing pkey on the other table and create i new one with this
+> name here) but don't know if i have to fix tab_relname
+> 
+> ideas?
+> 
+> -- 
+> Atentamente,
+> Jaime Casanova
+> Soporte y capacitaci?n de PostgreSQL
+> Asesor?a y desarrollo de sistemas
+> Guayaquil - Ecuador
+> Cel. +59387171157
+> _______________________________________________
+> Slony1-bugs mailing list
+> Slony1-bugs at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-bugs
+
+
+From jcasanov at systemguards.com.ec  Tue Apr  6 12:12:48 2010
+From: jcasanov at systemguards.com.ec (Jaime Casanova)
+Date: Tue, 6 Apr 2010 15:12:48 -0400
+Subject: [Slony1-bugs] [slony1-bugs] replicating wrong table
+In-Reply-To: <FA98507C-E4F2-48C3-B463-3B1BAA11A887@collectiveintellect.com>
+References: <v2k3073cc9b1004052217ydb68732ao595c9f8e7ce1467a@mail.gmail.com> 
+	<FA98507C-E4F2-48C3-B463-3B1BAA11A887@collectiveintellect.com>
+Message-ID: <l2k3073cc9b1004061212pda82922dle4d4061cf789b4ac@mail.gmail.com>
+
+On Tue, Apr 6, 2010 at 9:22 AM, Gordon Shannon
+<gordon at collectiveintellect.com> wrote:
+> Looks like tab_id 287 used to be tcom_puja_backup, but now is tcom_puja.
+>
+
+yeah but that was in september, and i installed slony 2 or 3 weeks ago.
+Besides, audit_log.tcom_puja_backup had no pk
+
+> The tab_id's must match on both sides. ? The most disturbing question is how did this get this way, and what else is broken? ?You might want to DROP SET and resubscribe.
+>
+
+after fixing this i did this to confirm there is no problems with other tables
+"""
+ select tab_reloid::regclass, tab_reloid, tab_nspname, tab_relname
+   from _sncp_incop_cluster.sl_table
+ where tab_reloid <> (tab_nspname || '.' || tab_relname)::regclass;
+"""
+
+and get no rows, so seems like there is no more problems... but still
+want to know what happens first time...
+
+> If that's impractical, then I would shut down all slons, and update the sl_table on the subscriber side to make them match the origin. ?Be careful that the tab_reloid's are correct within that node as well as tab_id. Then restart and hope.
+>
+
+what i did is to rename an existing index on audit_log.tcom_puja an
+create the pk for audit_log.tcom_puja_backup with name of the index i
+just free up.
+
+then after that table get copied and successfully subscribed... i
+dropped it, fix tha names of indexes on both tables and added them
+again in a new set and then merge... seems like everything is working
+now
+
+-- 
+Atentamente,
+Jaime Casanova
+Soporte y capacitaci?n de PostgreSQL
+Asesor?a y desarrollo de sistemas
+Guayaquil - Ecuador
+Cel. +59387171157
+
+From bugzilla-daemon at main.slony.info  Fri Apr  9 06:11:38 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Fri,  9 Apr 2010 06:11:38 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 113] Upgrade from 2.0.2 to 2.0.3-RC3 fails
+In-Reply-To: <bug-113-4@http.www.slony.info/bugzilla/>
+References: <bug-113-4@http.www.slony.info/bugzilla/>
+Message-ID: <20100409131138.96051290278@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=113
+
+Steve Singer <ssinger at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         Resolution|                            |FIXED
+             Status|NEW                         |RESOLVED
+
+--- Comment #1 from Steve Singer <ssinger at ca.afilias.info> 2010-04-09 06:11:38 PDT ---
+This patch was applied in 2.0.3rc4 which should fix the issue
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Sat Apr 17 13:36:53 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Sat, 17 Apr 2010 13:36:53 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 108] #!perl
+In-Reply-To: <bug-108-4@http.www.slony.info/bugzilla/>
+References: <bug-108-4@http.www.slony.info/bugzilla/>
+Message-ID: <20100417203654.0855E290192@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=108
+
+Peter Eisentraut <peter_e at gmx.net> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         Resolution|FIXED                       |
+             Status|RESOLVED                    |REOPENED
+
+--- Comment #3 from Peter Eisentraut <peter_e at gmx.net> 2010-04-17 13:36:53 PDT ---
+The original issue in test_slony_replication.pl is still not fixed in 1.2 or
+2.0.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Sun Apr 18 02:15:08 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Sun, 18 Apr 2010 02:15:08 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 108] #!perl
+In-Reply-To: <bug-108-4@http.www.slony.info/bugzilla/>
+References: <bug-108-4@http.www.slony.info/bugzilla/>
+Message-ID: <20100418091508.40D63290CA0@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=108
+
+Devrim GUNDUZ <devrim at gunduz.org> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         Resolution|                            |FIXED
+             Status|REOPENED                    |RESOLVED
+
+--- Comment #4 from Devrim GUNDUZ <devrim at gunduz.org> 2010-04-18 02:15:08 PDT ---
+Fixed in CVS.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Apr 21 01:00:17 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed, 21 Apr 2010 01:00:17 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 81] duplicate key sl_nodelock-pkey and duplicate
+ slon(8) processes not detected
+In-Reply-To: <bug-81-4@http.www.slony.info/bugzilla/>
+References: <bug-81-4@http.www.slony.info/bugzilla/>
+Message-ID: <20100421080018.06F53290423@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=81
+
+--- Comment #5 from Devrim GUNDUZ <devrim at gunduz.org> 2010-04-21 01:00:17 PDT ---
+FWIW, I could not reproduce this error after connecting postgresql+slony
+directly, instead of using pgbouncer in the middle...
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Fri Apr 23 02:07:07 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Fri, 23 Apr 2010 02:07:07 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 117] New: syslog=2,
+ messages go both to syslog and the standard output.
+Message-ID: <bug-117-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=117
+
+           Summary: syslog=2, messages go both to syslog and the standard
+                    output.
+           Product: Slony-I
+           Version: 1.2
+          Platform: PC
+        OS/Version: Linux
+            Status: NEW
+          Severity: normal
+          Priority: low
+         Component: slon
+        AssignedTo: slony1-bugs at lists.slony.info
+        ReportedBy: marian.krucina at linuxbox.cz
+                CC: slony1-bugs at lists.slony.info
+   Estimated Hours: 0.0
+
+
+In file /etc/slon.conf I have syslog=2 and messages go both to syslog and the
+standard output (not only to syslog).
+It make big files in /var/log.
+
+In function slon_log (file src/slon/misc.c) fwrite is always called.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Fri Apr 23 10:02:28 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Fri, 23 Apr 2010 10:02:28 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 111] node -1 not found in runtime configuration
+In-Reply-To: <bug-111-4@http.www.slony.info/bugzilla/>
+References: <bug-111-4@http.www.slony.info/bugzilla/>
+Message-ID: <20100423170228.D0D71290C84@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=111
+
+--- Comment #1 from Steve Singer <ssinger at ca.afilias.info> 2010-04-23 10:02:28 PDT ---
+See, 
+http://lists.slony.info/pipermail/slony1-general/2010-April/010574.html
+
+What we think is happening is that the subscription information for the set on
+the subscriber is being deleted (ie by an unsubscribe set, but a merge set
+might be similar?) before the ENABLE SUBSCRIPTION is processed by the slon. 
+When the event is finally processed the row in sl_subscription has already been
+deleted.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Thu Apr 29 10:57:14 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu, 29 Apr 2010 10:57:14 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 118] New: initial copy of an inherited table can
+ leave the table empty
+Message-ID: <bug-118-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=118
+
+           Summary: initial copy of an inherited table can leave the table
+                    empty
+           Product: Slony-I
+           Version: 2.0
+          Platform: PC
+        OS/Version: Linux
+            Status: NEW
+          Severity: enhancement
+          Priority: low
+         Component: slon
+        AssignedTo: slony1-bugs at lists.slony.info
+        ReportedBy: ssinger at ca.afilias.info
+                CC: slony1-bugs at lists.slony.info
+   Estimated Hours: 0.0
+
+
+This issue was discussed
+http://lists.slony.info/pipermail/slony1-general/2010-March/010452.html and 
+http://lists.slony.info/pipermail/slony1-general/2009-October/010076.html
+
+If you have a table master
+
+CREATE TABLE master(id serial, PRIMARY KEY (id));
+
+and a second table that inherits from it
+
+create table sub1 (
+) inherits (master);
+alter table sub1 add primary key(id);
+
+Then if you add them to a replication set where sub1 has a lower slony table id
+than master.
+
+Ie 
+set add table (id=1, set id=1, origin=1, fully qualified name = 'public.sub1',
+comment='sub table 1');\n"
+set add table (id=4, set id=1, origin=1, fully qualified name =
+'public.master', comment='master table');\n"
+
+on subscription we will have 
+
+TRUNCATE sub
+COPY sub1
+TRUNCATE master;
+COPY master;
+
+When using postgrsql 8.4 this seems to leave us with no data in the table on
+the subscriber.  This works fine with 8.3.  The regression test 'testinherit'
+seems to produce this issue.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Thu Apr 29 12:41:17 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu, 29 Apr 2010 12:41:17 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 118] initial copy of an inherited table can
+ leave the table empty
+In-Reply-To: <bug-118-4@http.www.slony.info/bugzilla/>
+References: <bug-118-4@http.www.slony.info/bugzilla/>
+Message-ID: <20100429194117.8C8FF2903A2@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=118
+
+--- Comment #1 from Jan Wieck <janwieck at yahoo.com> 2010-04-29 12:41:17 PDT ---
+We apparently missed that what TRUNCATE used to do in 8.3 is TRUNCATE ONLY in
+8.4.
+
+
+Jan
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From jcasanov at systemguards.com.ec  Thu Apr 29 12:55:14 2010
+From: jcasanov at systemguards.com.ec (Jaime Casanova)
+Date: Thu, 29 Apr 2010 14:55:14 -0500
+Subject: [Slony1-bugs] [Bug 118] initial copy of an inherited table can
+	leave the table empty
+In-Reply-To: <20100429194117.8C8FF2903A2@main.slony.info>
+References: <bug-118-4@http.www.slony.info/bugzilla/>
+	<20100429194117.8C8FF2903A2@main.slony.info>
+Message-ID: <s2l3073cc9b1004291255q9aabf6e7v265c78600deba3db@mail.gmail.com>
+
+On Thu, Apr 29, 2010 at 2:41 PM,  <bugzilla-daemon at main.slony.info> wrote:
+> http://www.slony.info/bugzilla/show_bug.cgi?id=118
+>
+> --- Comment #1 from Jan Wieck <janwieck at yahoo.com> 2010-04-29 12:41:17 PDT ---
+> We apparently missed that what TRUNCATE used to do in 8.3 is TRUNCATE ONLY in
+> 8.4.
+>
+>
+
+yeah! i just remembered that when reading the bug report... so that
+was probably my problem
+
+-- 
+Atentamente,
+Jaime Casanova
+Soporte y capacitaci?n de PostgreSQL
+Asesor?a y desarrollo de sistemas
+Guayaquil - Ecuador
+Cel. +59387171157
+
+From JanWieck at Yahoo.com  Thu Apr 29 13:56:42 2010
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Thu, 29 Apr 2010 16:56:42 -0400
+Subject: [Slony1-bugs] [Bug 118] initial copy of an inherited table can
+ leave the table empty
+In-Reply-To: <s2l3073cc9b1004291255q9aabf6e7v265c78600deba3db@mail.gmail.com>
+References: <bug-118-4@http.www.slony.info/bugzilla/>	<20100429194117.8C8FF2903A2@main.slony.info>
+	<s2l3073cc9b1004291255q9aabf6e7v265c78600deba3db@mail.gmail.com>
+Message-ID: <4BD9F28A.7060903@Yahoo.com>
+
+On 4/29/2010 3:55 PM, Jaime Casanova wrote:
+> On Thu, Apr 29, 2010 at 2:41 PM,  <bugzilla-daemon at main.slony.info> wrote:
+>> http://www.slony.info/bugzilla/show_bug.cgi?id=118
+>>
+>> --- Comment #1 from Jan Wieck <janwieck at yahoo.com> 2010-04-29 12:41:17 PDT ---
+>> We apparently missed that what TRUNCATE used to do in 8.3 is TRUNCATE ONLY in
+>> 8.4.
+>>
+>>
+> 
+> yeah! i just remembered that when reading the bug report... so that
+> was probably my problem
+
+We will have to fix that. Since this is a real bugfix to fully support 
+8.4, this qualifies to be backpatched into the stable branches.
+
+
+Jan
+
+-- 
+Anyone who trades liberty for security deserves neither
+liberty nor security. -- Benjamin Franklin
+

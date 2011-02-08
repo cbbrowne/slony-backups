@@ -1,0 +1,4251 @@
+From hatuan05 at gmail.com  Thu Jan  1 23:26:37 2009
+From: hatuan05 at gmail.com (Tuan Hoang Anh)
+Date: Thu Jan  1 23:33:25 2009
+Subject: [Slony1-general] Can slony support meger replication like SQL
+	Server?
+Message-ID: <495DC1AD.2020704@gmail.com>
+
+Can slony support meger replication like SQL Server ?
+I am going to change my database to PostgreSQL but don't know type of 
+replicate Slony support.
+Please help me.
+
+Thank in advance.
+(Sorry for my English)
+Tuan Hoang Anh
+From glynastill at yahoo.co.uk  Fri Jan  2 10:20:25 2009
+From: glynastill at yahoo.co.uk (Glyn Astill)
+Date: Fri Jan  2 10:20:37 2009
+Subject: [Slony1-general] Can slony support meger replication like SQL
+	Server?
+In-Reply-To: <495DC1AD.2020704@gmail.com>
+Message-ID: <398470.85890.qm@web23605.mail.ird.yahoo.com>
+
+> Can slony support meger replication like SQL Server ?
+> I am going to change my database to PostgreSQL but
+> don't know type of replicate Slony support.
+> Please help me.
+>
+
+I think you mean "Merge" replication, and I think the simple answer is no, but you could probably achieve something similar by carefully partitioning your data up and then replicate using slony.
+
+
+      
+From hatuan05 at gmail.com  Fri Jan  2 10:47:09 2009
+From: hatuan05 at gmail.com (Tuan Hoang Anh)
+Date: Fri Jan  2 10:54:13 2009
+Subject: [Slony1-general] Can slony support meger replication like SQL
+	Server?
+In-Reply-To: <398470.85890.qm@web23605.mail.ird.yahoo.com>
+References: <398470.85890.qm@web23605.mail.ird.yahoo.com>
+Message-ID: <495E612D.7020601@gmail.com>
+
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20090103/cb37a008/attachment.htm
+From glynastill at yahoo.co.uk  Sat Jan  3 06:47:41 2009
+From: glynastill at yahoo.co.uk (Glyn Astill)
+Date: Sat Jan  3 06:47:46 2009
+Subject: [Slony1-general] Can slony support meger replication like SQL
+	Server?
+In-Reply-To: <495E612D.7020601@gmail.com>
+Message-ID: <574813.24810.qm@web23601.mail.ird.yahoo.com>
+
+> 
+> Could you tell me the detail, how many master or slaver ?
+
+1 "master" (origin) to many "slaves" (subscribers) and you can have downstream providers too (you can have slaves replicated from other slaves that are setup as providers rather than directly to the master). Slony works in replication sets, so if you had 3 servers and you'd partitioned your data into 3 sets where each server was responsible for changes to its own set you could setup replication something like
+
+Set A on origin 1 -> subscribers 2 & 3
+Set B on origin 2 -> subscribers 1 & 3
+Set C on origin 3 -> subscribers 1 & 2
+
+You really need to read the docs for yourself though:
+
+http://slony.info/documentation/concepts.html
+
+
+      
+From cbbrowne at ca.afilias.info  Mon Jan  5 08:03:47 2009
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Mon Jan  5 08:03:54 2009
+Subject: [Slony1-general] specifics on using EXECUTE SCRIPT
+In-Reply-To: <4954D5D5.1010809@serioustechnology.com> (Geoffrey's message of
+	"Fri, 26 Dec 2008 08:02:13 -0500")
+References: <4954D5D5.1010809@serioustechnology.com>
+Message-ID: <877i59buzg.fsf@dba2.int.libertyrms.com>
+
+Geoffrey <lists@serioustechnology.com> writes:
+> I've got a couple of questions regarding the use of EXECUTE SCRIPT.
+>
+> If I'm using the altperl scripts to maintain my replication and add a
+> table to my database via 'execute script.'  I'm assuming I would add
+> the necessary entries to my slon_tools.conf file after I've run the
+> 'execute script' but before I have to restart any slon daemons.
+>
+> That is assuming that the slon_tools.conf file is only used when the
+> slony is initialized and started.  Once it's up and replicating the
+> slon_tools.conf file(s) are not referenced?
+
+Hmm.  The scripts "slon_start" and "slon_stop" reference
+slon_tools.conf; if you use those to manage the slon processes, then
+*that* would be a pair of ongoing references.  
+
+But that usage doesn't do *anything* about managing tables, so it
+doesn't seem like an interesting exception.
+
+> Another question.  I see the following in the documentation:
+>
+> "Each replicated table receives an exclusive lock, on the origin node,
+> in order to remove the replication triggers; after the DDL script
+> completes, those locks will be cleared."
+>
+> Is this saying that the slony triggers on replicated tables are, for
+> some reason, removed?
+
+Yes.  While running EXECUTE SCRIPT, the triggers are removed so that
+the DDL runs "as if they were not there."
+
+The process is thus:
+
+ - At the start, the system runs ddlscript_prepare() (on the origin)
+   or ddlscript_prepare_int() (on subscribers).  
+
+   This removes the triggers.
+
+ - Then, the statements that comprise the DDL script are executed, one
+   by one.
+
+ - Finally, the system runs ddlscript_complete_int() (on both
+   origin and subscribers).
+
+   This puts the triggers back.
+-- 
+output = ("cbbrowne" "@" "linuxdatabases.info")
+http://www3.sympatico.ca/cbbrowne/linuxxian.html
+Life's a duck, and then you sigh.
+From wwong at avaya.com  Mon Jan  5 13:49:29 2009
+From: wwong at avaya.com (Wong, Wayne (Wayne))
+Date: Mon Jan  5 13:50:30 2009
+Subject: [Slony1-general] Slony (2.0.0rc2) SLAVE Failures ... Help....
+In-Reply-To: <20889792.post@talk.nabble.com>
+References: <20829231.post@talk.nabble.com><3a0028490812050717x7a88fc7dmd66591a0f6f2663e@mail.gmail.com>
+	<20889792.post@talk.nabble.com>
+Message-ID: <7AE5EC837603F440BCE72C521BACFB5C0209DE40@306181ANEX2.global.avaya.com>
+
+Hi,
+
+I also ran this exact same problem when I started using Slony 2.0
+(failover worked just fine for me in 1.2.x). I compared the
+failoverSet_int() functions in slony1_funcs.sql for 1.2.15 and 2.0 and
+found this difference:
+
+Version 1.2.15 (fields and values match up fine):
+
+                insert into @NAMESPACE@.sl_event
+                                (ev_origin, ev_seqno, ev_timestamp,
+                                ev_minxid, ev_maxxid, ev_xip,
+                                ev_type, ev_data1, ev_data2, ev_data3,
+ev_data4)
+                                values
+                                (p_backup_node,
+"pg_catalog".nextval(''@NAMESPACE@.sl_event_seq''), CURRENT_TIMESTAMP,
+                                ''0'', ''0'', '''',
+                                ''ACCEPT_SET'', p_set_id::text,
+                                p_failed_node::text,
+p_backup_node::text,
+                                p_wait_seqno::text);
+
+Version 2.0 (ev_minxid, ev_maxxid, and ev_xip fields are replaced by
+ev_snapshot, but values remain the same):
+
+                insert into @NAMESPACE@.sl_event
+                                (ev_origin, ev_seqno, ev_timestamp,
+                                ev_snapshot,
+                                ev_type, ev_data1, ev_data2, ev_data3,
+ev_data4)
+                                values
+                                (p_backup_node,
+"pg_catalog".nextval('@NAMESPACE@.sl_event_seq'), CURRENT_TIMESTAMP,
+                                '0', '0', '0:0:',
+                                'ACCEPT_SET', p_set_id::text,
+                                p_failed_node::text,
+p_backup_node::text,
+                                p_wait_seqno::text);
+
+
+Assuming that this is the cause of the problem, I am not sure whether
+the fields need to fixed (remove ev_snapshot and add back the 3 fields
+that were there before), or the values (remove ''0'', ''0'', and '''',
+and insert the proper value for ev_snapshot). Any ideas?
+
+Thanks,
+Wayne
+
+
+
+>> Second problem:
+>> when i'm executing the "failover" script (as described in the
+>> documetnation)
+>> i get some  weird errors :
+>>
+>>     ERROR:  INSERT has more expressions than target columns
+>>      CONTEXT:  SQL statement "INSERT INTO "_esa_cluster".sl_event
+>> (ev_origin,         ev_seqno, ev_timestamp, ev_snapshot, ev_type,
+>> ev_data1,
+>> ev_data2, ev_data3, ev_data4)      values ( $1 ,
+>> "pg_catalog".nextval('"_esa_cluster".sl_event_seq'), 
+>> CURRENT_TIMESTAMP, '0', '0', '0:0:', 'ACCEPT_SET',  $2 ::text,  $3 
+>> ::text,  $1 ::text,  $4 ::text)"
+>>     PL/pgSQL function "failoverset_int" line 35 at SQL statement
+>>     SQL statement "SELECT  "_esa_cluster".failoverSet_int( $1 ,  $2 ,
+
+>> $3 ,
+>> $4 )"
+>>     PL/pgSQL function "failednode2" line 39 at PERFORM
+>>
+>> The net result of the two problems is that the slave is not usable , 
+>> so i cannot use slony...
+>>
+>> I'm using Debian ,and everything was built from sourcecode
+>> (postgres-8.3.4
+>> ,
+>> slony1-2.0.0-rc2)
+>>
+>>
+>> Any help would be appreciated...
+From stephane.schildknecht at postgresqlfr.org  Tue Jan  6 03:41:46 2009
+From: stephane.schildknecht at postgresqlfr.org (=?ISO-8859-15?Q?=22St=E9phane_A=2E_Schildknecht=22?=)
+Date: Tue Jan  6 03:42:49 2009
+Subject: [Slony1-general] yum install of slony1-2.0
+Message-ID: <4963437A.8030704@postgresqlfr.org>
+
+-----BEGIN PGP SIGNED MESSAGE-----
+Hash: SHA1
+
+Hi,
+
+Happy new year to everyone !
+
+Is there an rpm build of slony1, version 2.0, that I could install with yum
+once I configured yum.pgsqlrpms.org as the repo for PG/slony stuff ?
+
+I could install slony1 version 1.2 that way, but I don't know where to look for
+2.0 version packages.
+
+Thanks in advance.
+
+Regards,
+- --
+St?phane Schildknecht
+PostgreSQLFr - http://www.postgresql.fr
+Dalibo - http://www.dalibo.com
+-----BEGIN PGP SIGNATURE-----
+Version: GnuPG v1.4.6 (GNU/Linux)
+Comment: Using GnuPG with Mozilla - http://enigmail.mozdev.org
+
+iD8DBQFJY0N6A+REPKWGI0ERAjnPAJ0fs1wU5KM676keSwNCm+aXSvWYwgCgsFa3
+iKE0PGESsat7VfDrfyjQwek=
+=2elV
+-----END PGP SIGNATURE-----
+
+From yingc at iwgroup.com.cn  Tue Jan  6 03:59:22 2009
+From: yingc at iwgroup.com.cn (=?gb2312?B?5N7u8Q==?=)
+Date: Tue Jan  6 04:00:03 2009
+Subject: [Slony1-general] help!my slonyI does not work now
+Message-ID: <20090106115959.AA90D290272@main.slony.info>
+
+SGkgCgpJIGFtIGEgc2xvbnlJIHVzZXIgZnJvbSBDaGluYS4KCkmhr20gcnVubmluZyBTbG9ueS0x
+LjIuNiBvbiBQb3N0Z3JlU1FMIDguMS4zLCBhbmQgaW4gdGhlIHBhc3QgZmV3IGRheXMsIEkKYWx3
+YXlzIHNlZSB0aGUgcHJvY2VzcyBvZiBzbG9ueUkgc2hvdyChsGZldGNoIDEwMCBmcm9tIExPR6Gx
+LCBCdXQgSSBmb3VuZAp0aGF0IG5vIGRhdGEgdHJhbnNtaXNzaW9uIGZyb20gdGhlIG9yaWdpbiB0
+byB0aGUgcmVjZWl2ZXIsYW5kIHRoZXJlIGlzIG5vCmVycm9yIG1lc3NhZ2UgaW4gdGhlIGxvZ3Mg
+b2YgZGF0YWJhc2UKCk5vdyBzbF9sb2dfMSBoYXMgNjQ0MjEyMiByb3dzIGluIGl0LiBzbF9sb2df
+MiBoYXMgMTc2ODExMTIgcm93cyBpbiBpdCwgYW5kCnRoZXkgc3RpbGwgY29udGludWUgdG8gZ3Jv
+dwoKSSB0cmllZCB0byBtYWRlIHRoZSBmb2xsb3dpbmcgZWZmb3J0czogCgoxLnJlc3RhcnQgdGhl
+IHNsb255SSBzZXJ2aWNlCgoyLmtpbGwgdGhlIHByb2Nlc3MKCkhvd2V2ZXIsIHRoZSBwcm9ibGVt
+IHN0aWxsIGV4aXN0cwoKIAoKSXMgdGhlcmUgYW55dGhpbmcgZWxzZSB3ZSBjYW4gYmUgZG9pbmcg
+dG8gaGVscCBpdCBhbG9uZz8gSSB3b3VsZCBsaWtlIGNyYXp5CgogCgpCZWZvcmUgcHJvYmxlbXMg
+b2NjdXIsIEkgaGF2ZSBhbiBvcGVyYXRpb24gOiBpbnNlcnQgaW50byB0YWJsZSBzZWxlY3QgKiBm
+cm9tCnRlbXBfdGFibGUsdGhlcmUgYXJlIDcwMDAwMDAgcm93cyBpbiB0aGUgdGVtcF90YWJsZS4g
+VGhpcyBhY3Rpb24gaXMgcmVsYXRlZAp3aXRoIHRoZSBwcm9ibGVtPwoKIAoKVGhhbmtzIGZvciBh
+bnkgYWR2aWNlIHlvdSBjYW4gb2ZmZXIuCgogCgpqdWx5CgotLS0tLS0tLS0tLS0tLSBuZXh0IHBh
+cnQgLS0tLS0tLS0tLS0tLS0KQW4gSFRNTCBhdHRhY2htZW50IHdhcyBzY3J1YmJlZC4uLgpVUkw6
+IGh0dHA6Ly9saXN0cy5zbG9ueS5pbmZvL3BpcGVybWFpbC9zbG9ueTEtZ2VuZXJhbC9hdHRhY2ht
+ZW50cy8yMDA5MDEwNi9iOWVjNWZhNi9hdHRhY2htZW50Lmh0bQo=
+From ajs at crankycanuck.ca  Tue Jan  6 04:37:19 2009
+From: ajs at crankycanuck.ca (Andrew Sullivan)
+Date: Tue Jan  6 04:37:57 2009
+Subject: [Slony1-general] help!my slonyI does not work now
+In-Reply-To: <20090106115959.AA90D290272@main.slony.info>
+References: <20090106115959.AA90D290272@main.slony.info>
+Message-ID: <20090106123719.GA52985@shinkuro.com>
+
+On Tue, Jan 06, 2009 at 07:59:22PM +0800, ?? wrote:
+
+> always see the process of slonyI show ?fetch 100 from LOG?, But I found
+> that no data transmission from the origin to the receiver,and there is no
+> error message in the logs of database
+> 
+> Now sl_log_1 has 6442122 rows in it. sl_log_2 has 17681112 rows in it, and
+> they still continue to grow
+
+It's working.  It's moving 100 rows at a time from the origin to the
+receiver.  You might be able to improve things by increasing the -g
+parameter, but I don't really think that will help you.  The main
+thing I'd say is that you have to wait.
+ 
+> I tried to made the following efforts: 
+> 
+> 1.restart the slonyI service
+> 
+> 2.kill the process
+> 
+> However, the problem still exists
+
+By doing this, you rolled back the work you did on the replica.  I bet
+you need to vacuum -- possibly both systems now.
+
+> Before problems occur, I have an operation : insert into table select * from
+> temp_table,there are 7000000 rows in the temp_table. This action is related
+> with the problem?
+
+Yep, that's the problem.  All 7 000 000 rows need to be sent to the
+replica.  In a Slony environment you almost never want to do large
+operations like that, for exactly the reason you're seeing.
+
+I think if it were me, I'd drop the replica and rebuild it from
+scratch.
+
+A
+
+
+
+-- 
+Andrew Sullivan
+ajs@crankycanuck.ca
+From cedric.villemain at dalibo.com  Tue Jan  6 05:51:05 2009
+From: cedric.villemain at dalibo.com (=?UTF-8?B?Q8OpZHJpYyBWaWxsZW1haW4=?=)
+Date: Tue Jan  6 05:51:19 2009
+Subject: [Slony1-general] help!my slonyI does not work now
+In-Reply-To: <20090106123719.GA52985@shinkuro.com>
+References: <20090106115959.AA90D290272@main.slony.info>
+	<20090106123719.GA52985@shinkuro.com>
+Message-ID: <496361C9.9010806@dalibo.com>
+
+-----BEGIN PGP SIGNED MESSAGE-----
+Hash: SHA1
+
+Andrew Sullivan a ?crit :
+> On Tue, Jan 06, 2009 at 07:59:22PM +0800, ?? wrote:
+> 
+>> always see the process of slonyI show ?fetch 100 from LOG?, But I found
+>> that no data transmission from the origin to the receiver,and there is no
+>> error message in the logs of database
+>>
+>> Now sl_log_1 has 6442122 rows in it. sl_log_2 has 17681112 rows in it, and
+>> they still continue to grow
+> 
+> It's working.  It's moving 100 rows at a time from the origin to the
+> receiver.  You might be able to improve things by increasing the -g
+> parameter, but I don't really think that will help you.  The main
+> thing I'd say is that you have to wait.
+>  
+>> I tried to made the following efforts: 
+>>
+>> 1.restart the slonyI service
+>>
+>> 2.kill the process
+>>
+>> However, the problem still exists
+> 
+> By doing this, you rolled back the work you did on the replica.  I bet
+> you need to vacuum -- possibly both systems now.
+> 
+>> Before problems occur, I have an operation : insert into table select * from
+>> temp_table,there are 7000000 rows in the temp_table. This action is related
+>> with the problem?
+> 
+> Yep, that's the problem.  All 7 000 000 rows need to be sent to the
+> replica.  In a Slony environment you almost never want to do large
+> operations like that, for exactly the reason you're seeing.
+> 
+> I think if it were me, I'd drop the replica and rebuild it from
+> scratch.
+> 
+> A
+> 
+> 
+> 
+
+Search the mailing list for tips about that issue.
+1/ there is some patch to increase the size of the cursor
+2/ AFAIR there is some enable_indexscan=off or something like that in the slony
+code, disabling this in the code can be usefull too.
+
+- --
+C?dric Villemain
+Administrateur de Base de Donn?es
+Cel: +33 (0)6 74 15 56 53
+http://dalibo.com - http://dalibo.org
+-----BEGIN PGP SIGNATURE-----
+Version: GnuPG v1.4.9 (GNU/Linux)
+
+iEYEARECAAYFAkljYcQACgkQo/dppWjpEvyK6QCguHgGFO0Q7ofClesOVPEnKDgU
+qXgAni13rYADwe0nEllNSffKtTarmx3W
+=sdqn
+-----END PGP SIGNATURE-----
+From devrim at gunduz.org  Tue Jan  6 06:14:21 2009
+From: devrim at gunduz.org (Devrim =?ISO-8859-1?Q?G=DCND=DCZ?=)
+Date: Tue Jan  6 06:14:23 2009
+Subject: [Slony1-general] yum install of slony1-2.0
+In-Reply-To: <4963437A.8030704@postgresqlfr.org>
+References: <4963437A.8030704@postgresqlfr.org>
+Message-ID: <1231251261.3106.86.camel@laptop.gunduz.org>
+
+T24gVHVlLCAyMDA5LTAxLTA2IGF0IDEyOjQxICswMTAwLCAiU3TDqXBoYW5lIEEuIFNjaGlsZGtu
+ZWNodCIgd3JvdGU6Cj4gCj4gSXMgdGhlcmUgYW4gcnBtIGJ1aWxkIG9mIHNsb255MSwgdmVyc2lv
+biAyLjAsIHRoYXQgSSBjb3VsZCBpbnN0YWxsCj4gd2l0aCB5dW0gb25jZSBJIGNvbmZpZ3VyZWQg
+eXVtLnBnc3FscnBtcy5vcmcgYXMgdGhlIHJlcG8gZm9yIFBHL3Nsb255Cj4gc3R1ZmYgPwoKQWN0
+dWFsbHkgSSBhbSAob3Igc2F5LCB3YXMpIGluY2xpbmVkIHRvIHB1c2ggU2xvbnktSSAyLjAgb25s
+eSB0bwpGZWRvcmEtMTAuIFJlYXNvbnM6CgoqIDEuMiAtPiAyLjAgdXBncmFkZSBpcyBub3QgZWFz
+eSwgQUZBSUNTIGZyb20gbWFpbGluZyBsaXN0cy4KKiBJJ20gbm90IHN1cmUgYWJvdXQgdGhlIHN0
+YWJpbGl0eSBvZiBTbG9ueS1JIDIuMAoKQW4gYWx0ZXJuYXRpdmUgY291bGQgYmUgY3JlYXRpbmcg
+c2xvbnkyIHBhY2thZ2UsIHNvIHRvIGluc3RhbGwgc2xvbnktSQoyLjAsCgp5dW0gaW5zdGFsbCBz
+bG9ueTIKCndpbGwgd29yay4KClRob3VnaHRzPwoKUmVnYXJkcywKLS0gCkRldnJpbSBHw5xORMOc
+WiwgUkhDRQpkZXZyaW1+Z3VuZHV6Lm9yZywgZGV2cmltflBvc3RncmVTUUwub3JnLCBkZXZyaW0u
+Z3VuZHV6fmxpbnV4Lm9yZy50cgogICAgICAgICAgICAgICAgICAgaHR0cDovL3d3dy5ndW5kdXou
+b3JnCi0tLS0tLS0tLS0tLS0tIG5leHQgcGFydCAtLS0tLS0tLS0tLS0tLQpBIG5vbi10ZXh0IGF0
+dGFjaG1lbnQgd2FzIHNjcnViYmVkLi4uCk5hbWU6IG5vdCBhdmFpbGFibGUKVHlwZTogYXBwbGlj
+YXRpb24vcGdwLXNpZ25hdHVyZQpTaXplOiAxOTcgYnl0ZXMKRGVzYzogVGhpcyBpcyBhIGRpZ2l0
+YWxseSBzaWduZWQgbWVzc2FnZSBwYXJ0ClVybCA6IGh0dHA6Ly9saXN0cy5zbG9ueS5pbmZvL3Bp
+cGVybWFpbC9zbG9ueTEtZ2VuZXJhbC9hdHRhY2htZW50cy8yMDA5MDEwNi8zYTNjYTUzNS9hdHRh
+Y2htZW50LnBncAo=
+From stephane.schildknecht at postgresqlfr.org  Tue Jan  6 06:36:44 2009
+From: stephane.schildknecht at postgresqlfr.org (=?ISO-8859-15?Q?=22St=E9phane_A=2E_Schildknecht=22?=)
+Date: Tue Jan  6 06:36:58 2009
+Subject: [Slony1-general] yum install of slony1-2.0
+In-Reply-To: <1231251261.3106.86.camel@laptop.gunduz.org>
+References: <4963437A.8030704@postgresqlfr.org>
+	<1231251261.3106.86.camel@laptop.gunduz.org>
+Message-ID: <49636C7C.6060706@postgresqlfr.org>
+
+-----BEGIN PGP SIGNED MESSAGE-----
+Hash: SHA1
+
+Devrim G?ND?Z a ?crit :
+> On Tue, 2009-01-06 at 12:41 +0100, "St?phane A. Schildknecht" wrote:
+>> Is there an rpm build of slony1, version 2.0, that I could install
+>> with yum once I configured yum.pgsqlrpms.org as the repo for PG/slony
+>> stuff ?
+> 
+> Actually I am (or say, was) inclined to push Slony-I 2.0 only to
+> Fedora-10. Reasons:
+> 
+> * 1.2 -> 2.0 upgrade is not easy, AFAICS from mailing lists.
+> * I'm not sure about the stability of Slony-I 2.0
+> 
+> An alternative could be creating slony2 package, so to install slony-I
+> 2.0,
+> 
+> yum install slony2
+> 
+> will work.
+> 
+> Thoughts?
+> 
+> Regards,
+
+Hi Devrim,
+
+Thank you for the answer.
+I would say you can't upgrade from slony 1.2 to slony 2.0, so I'm enclined to
+think installation of slony 2.0 could be done in parallel, and why not as "yum
+install slony2".
+
+I didn't test far enough to know real stability of 2.0 version, but, I could do
+some testing if you gave me RHEL 5 package for slony :-)
+
+Regards,
+- --
+St?phane Schildknecht
+PostgreSQLFr - http://www.postgresql.fr
+Dalibo - http://www.dalibo.com
+-----BEGIN PGP SIGNATURE-----
+Version: GnuPG v1.4.6 (GNU/Linux)
+Comment: Using GnuPG with Mozilla - http://enigmail.mozdev.org
+
+iD8DBQFJY2x8A+REPKWGI0ERArR7AJwKLZuN6LIWpr/4sTT2QI0NUP5CrQCeIcfc
+Wyw+YDgDBZR3DhHPKb9CH0Q=
+=vN6a
+-----END PGP SIGNATURE-----
+From cedric.villemain at dalibo.com  Tue Jan  6 07:32:21 2009
+From: cedric.villemain at dalibo.com (=?ISO-8859-15?Q?C=E9dric_Villemain?=)
+Date: Tue Jan  6 07:32:38 2009
+Subject: [Slony1-general] yum install of slony1-2.0
+In-Reply-To: <49636C7C.6060706@postgresqlfr.org>
+References: <4963437A.8030704@postgresqlfr.org>	<1231251261.3106.86.camel@laptop.gunduz.org>
+	<49636C7C.6060706@postgresqlfr.org>
+Message-ID: <49637985.30304@dalibo.com>
+
+-----BEGIN PGP SIGNED MESSAGE-----
+Hash: SHA1
+
+St?phane A. Schildknecht a ?crit :
+> Devrim G?ND?Z a ?crit :
+>> On Tue, 2009-01-06 at 12:41 +0100, "St?phane A. Schildknecht" wrote:
+>>> Is there an rpm build of slony1, version 2.0, that I could install
+>>> with yum once I configured yum.pgsqlrpms.org as the repo for PG/slony
+>>> stuff ?
+>> Actually I am (or say, was) inclined to push Slony-I 2.0 only to
+>> Fedora-10. Reasons:
+> 
+>> * 1.2 -> 2.0 upgrade is not easy, AFAICS from mailing lists.
+>> * I'm not sure about the stability of Slony-I 2.0
+> 
+>> An alternative could be creating slony2 package, so to install slony-I
+>> 2.0,
+> 
+>> yum install slony2
+> 
+>> will work.
+> 
+>> Thoughts?
+> 
+>> Regards,
+> 
+> Hi Devrim,
+> 
+> Thank you for the answer.
+> I would say you can't upgrade from slony 1.2 to slony 2.0, so I'm enclined to
+> think installation of slony 2.0 could be done in parallel, and why not as "yum
+> install slony2".
+
+Ahem, I am not sure it is a good idea because of the confusion slony-I/slony-II
+(the ghost project).
+
+Why not doing like Postgresql ? slony1|slony-1.1 and slony-1.2 ...
+
+> 
+> I didn't test far enough to know real stability of 2.0 version, but, I could do
+> some testing if you gave me RHEL 5 package for slony :-)
+> 
+> Regards,
+_______________________________________________
+Slony1-general mailing list
+Slony1-general@lists.slony.info
+http://lists.slony.info/mailman/listinfo/slony1-general
+
+- --
+C?dric Villemain
+Administrateur de Base de Donn?es
+Cel: +33 (0)6 74 15 56 53
+http://dalibo.com - http://dalibo.org
+-----BEGIN PGP SIGNATURE-----
+Version: GnuPG v1.4.9 (GNU/Linux)
+
+iEYEARECAAYFAkljeX8ACgkQo/dppWjpEvzb8ACgh6EyqtbgpsiQ/cIBAlu+A7Mb
+1cUAniNXljbOqaL6Sh3Ro4xeTO7liABs
+=VvXk
+-----END PGP SIGNATURE-----
+From devrim at gunduz.org  Tue Jan  6 08:09:36 2009
+From: devrim at gunduz.org (Devrim =?ISO-8859-1?Q?G=DCND=DCZ?=)
+Date: Tue Jan  6 08:09:40 2009
+Subject: [Slony1-general] yum install of slony1-2.0
+In-Reply-To: <49637985.30304@dalibo.com>
+References: <4963437A.8030704@postgresqlfr.org>
+	<1231251261.3106.86.camel@laptop.gunduz.org>
+	<49636C7C.6060706@postgresqlfr.org>  <49637985.30304@dalibo.com>
+Message-ID: <1231258176.3106.93.camel@laptop.gunduz.org>
+
+T24gVHVlLCAyMDA5LTAxLTA2IGF0IDE2OjMyICswMTAwLCBDw6lkcmljIFZpbGxlbWFpbiB3cm90
+ZToKPiAKPiAKPiBBaGVtLCBJIGFtIG5vdCBzdXJlIGl0IGlzIGEgZ29vZCBpZGVhIGJlY2F1c2Ug
+b2YgdGhlIGNvbmZ1c2lvbgo+IHNsb255LUkvc2xvbnktSUkgKHRoZSBnaG9zdCBwcm9qZWN0KS4K
+ClNsb255MiAhPSBTbG9ueS1JSSA7KQoKPiBXaHkgbm90IGRvaW5nIGxpa2UgUG9zdGdyZXNxbCA/
+IHNsb255MXxzbG9ueS0xLjEgYW5kIHNsb255LTEuMiAuLi4KCjEuMiB3aWxsIGJlIHRha2VuIGFz
+IHJlbGVhc2UgbnVtYmVyLCBzbyAyLjAgPiAxLjIuCgotLSAKRGV2cmltIEfDnE5Ew5xaLCBSSENF
+CmRldnJpbX5ndW5kdXoub3JnLCBkZXZyaW1+UG9zdGdyZVNRTC5vcmcsIGRldnJpbS5ndW5kdXp+
+bGludXgub3JnLnRyCiAgICAgICAgICAgICAgICAgICBodHRwOi8vd3d3Lmd1bmR1ei5vcmcKLS0t
+LS0tLS0tLS0tLS0gbmV4dCBwYXJ0IC0tLS0tLS0tLS0tLS0tCkEgbm9uLXRleHQgYXR0YWNobWVu
+dCB3YXMgc2NydWJiZWQuLi4KTmFtZTogbm90IGF2YWlsYWJsZQpUeXBlOiBhcHBsaWNhdGlvbi9w
+Z3Atc2lnbmF0dXJlClNpemU6IDE5NyBieXRlcwpEZXNjOiBUaGlzIGlzIGEgZGlnaXRhbGx5IHNp
+Z25lZCBtZXNzYWdlIHBhcnQKVXJsIDogaHR0cDovL2xpc3RzLnNsb255LmluZm8vcGlwZXJtYWls
+L3Nsb255MS1nZW5lcmFsL2F0dGFjaG1lbnRzLzIwMDkwMTA2LzcwYTM3OWNlL2F0dGFjaG1lbnQu
+cGdwCg==
+From devrim at gunduz.org  Thu Jan  8 13:32:07 2009
+From: devrim at gunduz.org (Devrim =?ISO-8859-1?Q?G=DCND=DCZ?=)
+Date: Thu Jan  8 13:32:20 2009
+Subject: [Slony1-general] www.slony.info scheduled maintenance
+Message-ID: <1231450327.3156.53.camel@laptop.gunduz.org>
+
+SGksCgpXZSB3aWxsIGJlIGRvaW5nIHNvbWUgbWFpbnRlbmFuY2Ugb24gU2xvbnkuaW5mbyBzZXJ2
+ZXIgYXQgMTA6MTUgcG0gUFNUCnRvbmlnaHQgKEphbiA4LCAyMDA5KS4gV2UgZG9uJ3QgZXhwZWN0
+IGRvd250aW1lIGZvciBtb3JlIHRoYW4gMTAgbWlucy4KCkknbGwgbGV0IHlvdSBrbm93IG9uY2Ug
+dGhlIHNlcnZlciB3aWxsIGNvbWUgdXAgYWdhaW4uCgpTaW5jZXJlbHksCi0tIApEZXZyaW0gR8Oc
+TkTDnFosIFJIQ0UKZGV2cmltfmd1bmR1ei5vcmcsIGRldnJpbX5Qb3N0Z3JlU1FMLm9yZywgZGV2
+cmltLmd1bmR1en5saW51eC5vcmcudHIKICAgICAgICAgICAgICAgICAgIGh0dHA6Ly93d3cuZ3Vu
+ZHV6Lm9yZwotLS0tLS0tLS0tLS0tLSBuZXh0IHBhcnQgLS0tLS0tLS0tLS0tLS0KQSBub24tdGV4
+dCBhdHRhY2htZW50IHdhcyBzY3J1YmJlZC4uLgpOYW1lOiBub3QgYXZhaWxhYmxlClR5cGU6IGFw
+cGxpY2F0aW9uL3BncC1zaWduYXR1cmUKU2l6ZTogMTk3IGJ5dGVzCkRlc2M6IFRoaXMgaXMgYSBk
+aWdpdGFsbHkgc2lnbmVkIG1lc3NhZ2UgcGFydApVcmwgOiBodHRwOi8vbGlzdHMuc2xvbnkuaW5m
+by9waXBlcm1haWwvc2xvbnkxLWdlbmVyYWwvYXR0YWNobWVudHMvMjAwOTAxMDgvMzU1ZjFlMjEv
+YXR0YWNobWVudC5wZ3AK
+From devrim at gunduz.org  Thu Jan  8 22:11:14 2009
+From: devrim at gunduz.org (Devrim =?ISO-8859-1?Q?G=DCND=DCZ?=)
+Date: Thu Jan  8 22:11:36 2009
+Subject: [Slony1-general] Re: [Slony1-hackers] www.slony.info scheduled
+	maintenance
+In-Reply-To: <1231450327.3156.53.camel@laptop.gunduz.org>
+References: <1231450327.3156.53.camel@laptop.gunduz.org>
+Message-ID: <1231481474.3156.60.camel@laptop.gunduz.org>
+
+SGksCgpPbiBUaHUsIDIwMDktMDEtMDggYXQgMjM6MzIgKzAyMDAsIERldnJpbSBHw5xORMOcWiB3
+cm90ZToKCj4gV2Ugd2lsbCBiZSBkb2luZyBzb21lIG1haW50ZW5hbmNlIG9uIFNsb255LmluZm8g
+c2VydmVyIGF0IDEwOjE1IHBtIFBTVAo+IHRvbmlnaHQgKEphbiA4LCAyMDA5KS4gV2UgZG9uJ3Qg
+ZXhwZWN0IGRvd250aW1lIGZvciBtb3JlIHRoYW4gMTAgbWlucy4KCkFsbCB0aGUgc2VydmljZXMg
+YXJlIHVwIGFuZCBydW5uaW5nLgoKUmVnYXJkcywKLS0gCkRldnJpbSBHw5xORMOcWiwgUkhDRQpk
+ZXZyaW1+Z3VuZHV6Lm9yZywgZGV2cmltflBvc3RncmVTUUwub3JnLCBkZXZyaW0uZ3VuZHV6fmxp
+bnV4Lm9yZy50cgogICAgICAgICAgICAgICAgICAgaHR0cDovL3d3dy5ndW5kdXoub3JnCi0tLS0t
+LS0tLS0tLS0tIG5leHQgcGFydCAtLS0tLS0tLS0tLS0tLQpBIG5vbi10ZXh0IGF0dGFjaG1lbnQg
+d2FzIHNjcnViYmVkLi4uCk5hbWU6IG5vdCBhdmFpbGFibGUKVHlwZTogYXBwbGljYXRpb24vcGdw
+LXNpZ25hdHVyZQpTaXplOiAxOTcgYnl0ZXMKRGVzYzogVGhpcyBpcyBhIGRpZ2l0YWxseSBzaWdu
+ZWQgbWVzc2FnZSBwYXJ0ClVybCA6IGh0dHA6Ly9saXN0cy5zbG9ueS5pbmZvL3BpcGVybWFpbC9z
+bG9ueTEtZ2VuZXJhbC9hdHRhY2htZW50cy8yMDA5MDEwOS81MTI4OWI4MS9hdHRhY2htZW50LnBn
+cAo=
+From steven at maxpointinteractive.com  Fri Jan  9 14:46:19 2009
+From: steven at maxpointinteractive.com (Steven Graham)
+Date: Fri Jan  9 14:46:40 2009
+Subject: [Slony1-general] log switch issues
+Message-ID: <4967D3BB.2060909@maxpointinteractive.com>
+
+
+All,
+
+I've been using slony 2.0 (RC2 and RC1...now on 2.0REL)  for a while now 
+replicating a single table. Things were going okay then it started to 
+slow down and my slave db got out of sync, I tweaked some parameters on 
+the master and slave to get the slave "caught" up with replication and 
+things are okay for now.
+
+One thing I noticed in the master node is that I keep getting the 'log 
+switch to sl_log_2 still in progress - sl_log_1 not truncated' message, 
+and my sl_log_2 table is around 12GB (sl_log_1 is small). I'm getting 
+around a 30-40 second delay to first row in the log files (on the 
+slave), which was .001 seconds when I first started replicating several 
+months ago. This growth in time makes sense since the table is getting 
+larger and larger. From what I can tell the logs should flip back and 
+forth from sl_log_1 and sl_log_2 and truncate the old logs to keep these 
+tables to a minimum size and thus it shouldn't take 30 seconds to get 
+all the SYNC events.
+
+My question is this: What are the steps needed to unwedge this log 
+switch scenario, I can't see any obvious functions to call to force it. 
+ From what I can tell the two tables are in sync. sl_status() shows lag 
+of 1-2
+If I'm understanding the system correctly the logswitch code is waiting 
+for the transactions that remain in the 'old' log to be taken care of 
+before it truncates and complets the switch to log_2. Is there something 
+that can tell the slon daemons to take a look at these dangling 
+transactions, or a function to flush(delete) them? Or is starting 
+completely over the solution?
+
+I've looked through the docs and other archives on how to troubleshoot 
+this and didn't find anything to usefull. I've REINDEX'd the tables, 
+vacuumed them just for good measure and I still see the same amount of 
+time to perform the sync.
+
+There is also a chance that there could be things hanging around if 
+there were issues with the other release candidates, this is the second 
+time the issue happend. The first time it happened I just dropped the 
+slave node and resynced to a new db. I'm willing to setup everything 
+from scratch again. I just want to know what to do if I run into this 
+situation again after starting over.
+
+Software setup:
+Ubuntu linux 7.10
+Master: Postgres 8.3.3
+Slave: Postgres 8.3.1
+Slony: 2.0.0
+
+Thanks in advance.
+-Steve
+From nimesh.satam at gmail.com  Mon Jan 12 02:50:32 2009
+From: nimesh.satam at gmail.com (Nimesh Satam)
+Date: Mon Jan 12 02:50:59 2009
+Subject: [Slony1-general] Re: Slony1-general Digest, Vol 23, Issue 7
+In-Reply-To: <20090110200004.8E5B829026F@main.slony.info>
+References: <20090110200004.8E5B829026F@main.slony.info>
+Message-ID: <65f3e23d0901120250i581d1406w680db2f7bdb9885@mail.gmail.com>
+
+Steven,
+
+We faced a similar kind of problem with the slony version 2.0.0.
+
+In order to solve the problem we have set the slon parameter
+"cleanup_deletelogs" in the slony config file. You can then pass the
+file path to the slon through the '-f' param.
+
+"cleanup_deletelogs=ON"
+
+This is a boolean variable and deletes logs which are older than a
+particular transaction id.
+
+Regards,
+Nimesh.
+
+
+On Sun, Jan 11, 2009 at 1:30 AM,
+<slony1-general-request@lists.slony.info> wrote:
+> Send Slony1-general mailing list submissions to
+>        slony1-general@lists.slony.info
+>
+> To subscribe or unsubscribe via the World Wide Web, visit
+>        http://lists.slony.info/mailman/listinfo/slony1-general
+> or, via email, send a message with subject or body 'help' to
+>        slony1-general-request@lists.slony.info
+>
+> You can reach the person managing the list at
+>        slony1-general-owner@lists.slony.info
+>
+> When replying, please edit your Subject line so it is more specific
+> than "Re: Contents of Slony1-general digest..."
+>
+>
+> Today's Topics:
+>
+>   1. log switch issues (Steven Graham)
+>
+>
+> ----------------------------------------------------------------------
+>
+> Message: 1
+> Date: Fri, 09 Jan 2009 16:46:19 -0600
+> From: Steven Graham <steven@maxpointinteractive.com>
+> Subject: [Slony1-general] log switch issues
+> To: slony1-general@lists.slony.info
+> Message-ID: <4967D3BB.2060909@maxpointinteractive.com>
+> Content-Type: text/plain; charset=ISO-8859-1; format=flowed
+>
+>
+> All,
+>
+> I've been using slony 2.0 (RC2 and RC1...now on 2.0REL)  for a while now
+> replicating a single table. Things were going okay then it started to
+> slow down and my slave db got out of sync, I tweaked some parameters on
+> the master and slave to get the slave "caught" up with replication and
+> things are okay for now.
+>
+> One thing I noticed in the master node is that I keep getting the 'log
+> switch to sl_log_2 still in progress - sl_log_1 not truncated' message,
+> and my sl_log_2 table is around 12GB (sl_log_1 is small). I'm getting
+> around a 30-40 second delay to first row in the log files (on the
+> slave), which was .001 seconds when I first started replicating several
+> months ago. This growth in time makes sense since the table is getting
+> larger and larger. From what I can tell the logs should flip back and
+> forth from sl_log_1 and sl_log_2 and truncate the old logs to keep these
+> tables to a minimum size and thus it shouldn't take 30 seconds to get
+> all the SYNC events.
+>
+> My question is this: What are the steps needed to unwedge this log
+> switch scenario, I can't see any obvious functions to call to force it.
+>  From what I can tell the two tables are in sync. sl_status() shows lag
+> of 1-2
+> If I'm understanding the system correctly the logswitch code is waiting
+> for the transactions that remain in the 'old' log to be taken care of
+> before it truncates and complets the switch to log_2. Is there something
+> that can tell the slon daemons to take a look at these dangling
+> transactions, or a function to flush(delete) them? Or is starting
+> completely over the solution?
+>
+> I've looked through the docs and other archives on how to troubleshoot
+> this and didn't find anything to usefull. I've REINDEX'd the tables,
+> vacuumed them just for good measure and I still see the same amount of
+> time to perform the sync.
+>
+> There is also a chance that there could be things hanging around if
+> there were issues with the other release candidates, this is the second
+> time the issue happend. The first time it happened I just dropped the
+> slave node and resynced to a new db. I'm willing to setup everything
+> from scratch again. I just want to know what to do if I run into this
+> situation again after starting over.
+>
+> Software setup:
+> Ubuntu linux 7.10
+> Master: Postgres 8.3.3
+> Slave: Postgres 8.3.1
+> Slony: 2.0.0
+>
+> Thanks in advance.
+> -Steve
+>
+>
+> ------------------------------
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general@lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+>
+>
+> End of Slony1-general Digest, Vol 23, Issue 7
+> *********************************************
+>
+From info at zhukcity.ru  Mon Jan 12 03:44:30 2009
+From: info at zhukcity.ru (Nickolay)
+Date: Mon Jan 12 06:35:57 2009
+Subject: [Slony1-general] Re: Slony1-general Digest, Vol 23, Issue 7
+In-Reply-To: <65f3e23d0901120250i581d1406w680db2f7bdb9885@mail.gmail.com>
+References: <20090110200004.8E5B829026F@main.slony.info>
+	<65f3e23d0901120250i581d1406w680db2f7bdb9885@mail.gmail.com>
+Message-ID: <29474.87.245.133.239.1231760670.webmail@*.masterhost.ru>
+
+Nimesh,
+
+Be careful with cleanup_deletelogs parameter.
+In my experience replication did not work properly with this parameter
+turned on.
+It would erase even some unconfirmed log entries which would cause lost
+(not replicated) transactions and rows on slave nodes.
+
+
+Nimesh Satam wrote:
+> Steven,
+>
+> We faced a similar kind of problem with the slony version 2.0.0.
+>
+> In order to solve the problem we have set the slon parameter
+> "cleanup_deletelogs" in the slony config file. You can then pass the
+> file path to the slon through the '-f' param.
+>
+> "cleanup_deletelogs=ON"
+>
+> This is a boolean variable and deletes logs which are older than a
+> particular transaction id.
+>
+> Regards,
+> Nimesh.
+>
+
+-- 
+Best regards, Nickolay.
+
+From m.perugini at 4it.it  Mon Jan 12 10:17:12 2009
+From: m.perugini at 4it.it (marco perugini)
+Date: Mon Jan 12 10:17:23 2009
+Subject: [Slony1-general] heartbeat + slony
+Message-ID: <496B8928.207@4it.it>
+
+hi list!
+i'm trying to set up an HA database cluster so designed: there are two 
+[master/slave] redundant servers with postgres and drbd managed by 
+heartbeat in crm mode. it works very well but now i've to replicate the 
+db to another similar db cluster to achieve a shadow/readonly copy. i 
+guess slony-I is the answer to my problem but i don't know if an ocf to 
+manage this already exists. does anyone know it? does anyone set up 
+something like this?
+
+my sw scenario's:
+centOS 5.2
+heartbeat 2.1.4
+drbd82-8.2.6
+postgresql 8.3.5
+slonyI-2.0.0
+
+i'm both an english newbie and a heartbeat newbie.. so i'm sorry..
+thanks in advance for feedback!
+
+marco
+From nimesh.satam at gmail.com  Mon Jan 12 23:54:34 2009
+From: nimesh.satam at gmail.com (Nimesh Satam)
+Date: Mon Jan 12 23:55:02 2009
+Subject: [Slony1-general] Re: Slony1-general Digest, Vol 23, Issue 7
+In-Reply-To: <29474.87.245.133.239.1231760670.webmail@*.masterhost.ru>
+References: <20090110200004.8E5B829026F@main.slony.info>
+	<65f3e23d0901120250i581d1406w680db2f7bdb9885@mail.gmail.com>
+	<29474.87.245.133.239.1231760670.webmail@*.masterhost.ru>
+Message-ID: <65f3e23d0901122354g68b76174nec7dafbd6faca772@mail.gmail.com>
+
+Nickolay,
+
+Thanks for your reply. Can you let me know, when the sl_log_1 and
+sl_log_2 gets empty.
+
+The function logswitchfinish check for row count in both the tables
+before truncating sl_log_1 and sl_log_2. But we never found them
+getting empty. When we set the cleanup parameter things started
+working properly.
+
+Regards,
+Nimesh
+
+On 1/12/09, Nickolay <info@zhukcity.ru> wrote:
+> Nimesh,
+>
+> Be careful with cleanup_deletelogs parameter.
+> In my experience replication did not work properly with this parameter
+> turned on.
+> It would erase even some unconfirmed log entries which would cause lost
+> (not replicated) transactions and rows on slave nodes.
+>
+>
+> Nimesh Satam wrote:
+> > Steven,
+> >
+> > We faced a similar kind of problem with the slony version 2.0.0.
+> >
+> > In order to solve the problem we have set the slon parameter
+> > "cleanup_deletelogs" in the slony config file. You can then pass the
+> > file path to the slon through the '-f' param.
+> >
+> > "cleanup_deletelogs=ON"
+> >
+> > This is a boolean variable and deletes logs which are older than a
+> > particular transaction id.
+> >
+> > Regards,
+> > Nimesh.
+> >
+>
+> --
+> Best regards, Nickolay.
+>
+>
+From dr.michi at gmail.com  Tue Jan 13 09:56:06 2009
+From: dr.michi at gmail.com (Michael Weber)
+Date: Tue Jan 13 09:56:17 2009
+Subject: [Slony1-general] Problems upgrading 8.2/1.2.11 -> 8.3/1.2.15
+Message-ID: <4b15b0190901130956l4197d305re0406a181a22f525@mail.gmail.com>
+
+I was trying to upgrade slony to 1.2.15 and at the same time update
+the postgres database (on debian etch / backports systems).
+
+First I installed the 8.3 postgres packages along with the
+corresponding slony library.
+Then I upgraded the databases to 8.3 (using pg_upgradecluster).
+Then I ran slonik_update
+
+Now I get (in logfiles of both nodes)
+2009-01-13 18:49:16 CET ERROR  Slony-I schema version is 1.2.11
+2009-01-13 18:49:16 CET ERROR  please upgrade Slony-I schema to version 1.2.15
+2009-01-13 18:49:16 CET ERROR  Slony-I module version is 1.2.11
+2009-01-13 18:49:16 CET ERROR  please upgrade Slony-I shared module to
+version 1.2.15
+2009-01-13 18:49:16 CET ERROR  remoteListenThread_3:
+db_checkSchemaVersion() failed
+
+Any ideas what is going wrong? Where is the old version (1.2.11)
+coming from? I tried
+select _st1.slonyVersionPatchlevel() ;
+slonyversionpatchlevel
+------------------------
+                     15
+
+I also removed the old postgres installation to make sure nothing goes
+wrong. Did not help either.
+
+
+Has anybody an idea?
+
+Michael
+From glynastill at yahoo.co.uk  Wed Jan 14 02:33:00 2009
+From: glynastill at yahoo.co.uk (Glyn Astill)
+Date: Wed Jan 14 02:33:29 2009
+Subject: [Slony1-general] Problems upgrading 8.2/1.2.11 -> 8.3/1.2.15
+References: <4b15b0190901130956l4197d305re0406a181a22f525@mail.gmail.com>
+Message-ID: <48950.34032.qm@web23604.mail.ird.yahoo.com>
+
+By "I ran slonik update" I presume you mean you ran UPDATE FUNCTIONS ( ID = <node number> ); through slonik for each node?
+
+Does "select _st1.getModuleVersion();" also show 12.2.15 ?
+
+
+
+----- Original Message ----
+> From: Michael Weber <dr.michi@gmail.com>
+> To: slony1-general@lists.slony.info
+> Sent: Tuesday, 13 January, 2009 17:56:06
+> Subject: [Slony1-general] Problems upgrading 8.2/1.2.11 -> 8.3/1.2.15
+> 
+> I was trying to upgrade slony to 1.2.15 and at the same time update
+> the postgres database (on debian etch / backports systems).
+> 
+> First I installed the 8.3 postgres packages along with the
+> corresponding slony library.
+> Then I upgraded the databases to 8.3 (using pg_upgradecluster).
+> Then I ran slonik_update
+> 
+> Now I get (in logfiles of both nodes)
+> 2009-01-13 18:49:16 CET ERROR  Slony-I schema version is 1.2.11
+> 2009-01-13 18:49:16 CET ERROR  please upgrade Slony-I schema to version 1.2.15
+> 2009-01-13 18:49:16 CET ERROR  Slony-I module version is 1.2.11
+> 2009-01-13 18:49:16 CET ERROR  please upgrade Slony-I shared module to
+> version 1.2.15
+> 2009-01-13 18:49:16 CET ERROR  remoteListenThread_3:
+> db_checkSchemaVersion() failed
+> 
+> Any ideas what is going wrong? Where is the old version (1.2.11)
+> coming from? I tried
+> select _st1.slonyVersionPatchlevel() ;
+> slonyversionpatchlevel
+> ------------------------
+>                      15
+> 
+> I also removed the old postgres installation to make sure nothing goes
+> wrong. Did not help either.
+> 
+> 
+> Has anybody an idea?
+> 
+> Michael
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general@lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+
+
+
+      
+From m.perugini at 4it.it  Wed Jan 14 04:13:47 2009
+From: m.perugini at 4it.it (marco perugini)
+Date: Wed Jan 14 04:14:18 2009
+Subject: [Slony1-general] configure slony 2.0 with postgres 8.3.5
+Message-ID: <496DD6FB.6060804@4it.it>
+
+hi list!
+on my db server i installed these rpms:
+postgresql-8.3.5-1PGDG.rhel5.x86_64.rpm
+postgresql-libs-8.3.5-1PGDG.rhel5.x86_64.rpm
+postgresql-server-8.3.5-1PGDG.rhel5.x86_64.rpm
+
+now i'm trying to install slony 2.0.0 but i can't find pg_config to run 
+./configure. does anyone know how i can solve it?
+
+i'm both an english newbie and a slony newbie.. so i'm sorry..
+thanks in advance for feedback!
+
+marco
+From glynastill at yahoo.co.uk  Wed Jan 14 05:12:49 2009
+From: glynastill at yahoo.co.uk (Glyn Astill)
+Date: Wed Jan 14 05:12:53 2009
+Subject: [Slony1-general] Problems upgrading 8.2/1.2.11 -> 8.3/1.2.15
+References: <4b15b0190901130956l4197d305re0406a181a22f525@mail.gmail.com>
+	<48950.34032.qm@web23604.mail.ird.yahoo.com>
+	<4b15b0190901140405x799db40fvde856936c22bb34e@mail.gmail.com>
+Message-ID: <172711.86721.qm@web23602.mail.ird.yahoo.com>
+
+----- Original Message ----
+
+> From: Michael Weber <dr.michi@gmail.com>
+
+> I think I have a hint. I have 3 nodes, but only 2 under my control. So
+> I tried to do the update only on nodes 1 & 2, and leave the node 3 out
+> for now (I misspelled the hostname3 in the config so that it does not
+> get connected to).
+> 
+
+That sound's like it, all slony versions need to be the same across all nodes afaik.
+
+And that error message is coming from node 3, I bet if you run "select _st1.getModuleVersion();" on node 3 it'll say 1.2.11
+
+This possibly explains why the error message displayed is in remoteListenThread_3
+
+> But I guess that is not enough. I will now try to get the node3
+> updated also, it should not matter if postgres is a different version,
+> right?
+
+Postgres versions can be different, slony and it's schemas cannot.
+
+
+
+      
+From m.perugini at 4it.it  Wed Jan 14 05:39:52 2009
+From: m.perugini at 4it.it (marco perugini)
+Date: Wed Jan 14 05:39:56 2009
+Subject: [Slony1-general] configure slony 2.0 with postgres 8.3.5
+In-Reply-To: <496DD6FB.6060804@4it.it>
+References: <496DD6FB.6060804@4it.it>
+Message-ID: <496DEB28.3030302@4it.it>
+
+or does someone know where i can find rpm of 2.0 rel?
+
+marco perugini ha scritto:
+> hi list!
+> on my db server i installed these rpms:
+> postgresql-8.3.5-1PGDG.rhel5.x86_64.rpm
+> postgresql-libs-8.3.5-1PGDG.rhel5.x86_64.rpm
+> postgresql-server-8.3.5-1PGDG.rhel5.x86_64.rpm
+>
+> now i'm trying to install slony 2.0.0 but i can't find pg_config to 
+> run ./configure. does anyone know how i can solve it?
+>
+> i'm both an english newbie and a slony newbie.. so i'm sorry..
+> thanks in advance for feedback!
+>
+> marco
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general@lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+>
+>
+
+From info at zhukcity.ru  Wed Jan 14 07:39:27 2009
+From: info at zhukcity.ru (Nickolay)
+Date: Wed Jan 14 07:53:16 2009
+Subject: [Slony1-general] configure slony 2.0 with postgres 8.3.5
+Message-ID: <13100.87.245.133.239.1231947567.webmail@*.masterhost.ru>
+
+Hi,
+
+Run ./configure --with-pgconfigdir=PATH_TO_PG_CONFIG
+replace PATH_TO_PG_CONFIG to directory path where pg_config script is
+located. You can determine it by using "locate pg_config" command or by
+using midnight commander Command -> Find File menu.
+
+
+14 Jan 2009, 16:39 marco perugini wrote:
+> or does someone know where i can find rpm of 2.0 rel?
+>
+> marco perugini ha scritto:
+>> hi list!
+>> on my db server i installed these rpms:
+>> postgresql-8.3.5-1PGDG.rhel5.x86_64.rpm
+>> postgresql-libs-8.3.5-1PGDG.rhel5.x86_64.rpm
+>> postgresql-server-8.3.5-1PGDG.rhel5.x86_64.rpm
+>>
+>> now i'm trying to install slony 2.0.0 but i can't find pg_config to
+>> run ./configure. does anyone know how i can solve it?
+>>
+>> i'm both an english newbie and a slony newbie.. so i'm sorry..
+>> thanks in advance for feedback!
+>>
+>> marco
+
+
+From m.perugini at 4it.it  Wed Jan 14 09:07:31 2009
+From: m.perugini at 4it.it (marco perugini)
+Date: Wed Jan 14 09:07:39 2009
+Subject: [Slony1-general] configure slony 2.0 with postgres 8.3.5
+In-Reply-To: <12806.87.245.133.239.1231947501.webmail@*.masterhost.ru>
+References: <496DD6FB.6060804@4it.it> <496DEB28.3030302@4it.it>
+	<12806.87.245.133.239.1231947501.webmail@*.masterhost.ru>
+Message-ID: <496E1BD3.6070000@4it.it>
+
+dGhhbmtzIG5pY2tvbGF5IQppIGRpZG4ndCBoYXZlIHBnX2NvbmZpZyBbaSB0cmllZCB0byBmaW5k
+IGl0IHdpdGggbG9jYXRlIGFuZCBmaW5kXSBidXQgaSAKbm90aWNlZCB0aGF0IHNsb255IG5lZWRz
+IGEgcGctZGV2ZWwgcGFja2FnZSAKW3Bvc3RncmVzcWwtZGV2ZWwtOC4zLjUtMVBHREcucmhlbDUu
+eDg2XzY0LnJwbV07IGkgaW5zdGFsbGVkIGl0LCBpIGZvdW5kIApwZ19jb25maWcgYW5kIG5vdyBl
+dmVyeXRoaW5nJ3Mgd29ya2luZyA6KQoKdGhhbmtzIGEgbG90LAptYXJjbwoKTmlja29sYXkgaGEg
+c2NyaXR0bzoKPiBIaSwKPgo+IFJ1biAuL2NvbmZpZ3VyZSAtLXdpdGgtcGdjb25maWdkaXI9UEFU
+SF9UT19QR19DT05GSUcKPiByZXBsYWNlIFBBVEhfVE9fUEdfQ09ORklHIHRvIGRpcmVjdG9yeSBw
+YXRoIHdoZXJlIHBnX2NvbmZpZyBzY3JpcHQgaXMKPiBsb2NhdGVkLiBZb3UgY2FuIGRldGVybWlu
+ZSBpdCBieSB1c2luZyAibG9jYXRlIHBnX2NvbmZpZyIgY29tbWFuZCBvciBieQo+IHVzaW5nIG1p
+ZG5pZ2h0IGNvbW1hbmRlciBDb21tYW5kIC0+IEZpbmQgRmlsZSBtZW51Lgo+Cj4KPiAxNCBKYW4g
+MjAwOSwgMTY6MzkgbWFyY28gcGVydWdpbmkgd3JvdGU6Cj4gICAKPj4gb3IgZG9lcyBzb21lb25l
+IGtub3cgd2hlcmUgaSBjYW4gZmluZCBycG0gb2YgMi4wIHJlbD8KPj4KPj4gbWFyY28gcGVydWdp
+bmkgaGEgc2NyaXR0bzoKPj4gICAgIAo+Pj4gaGkgbGlzdCEKPj4+IG9uIG15IGRiIHNlcnZlciBp
+IGluc3RhbGxlZCB0aGVzZSBycG1zOgo+Pj4gcG9zdGdyZXNxbC04LjMuNS0xUEdERy5yaGVsNS54
+ODZfNjQucnBtCj4+PiBwb3N0Z3Jlc3FsLWxpYnMtOC4zLjUtMVBHREcucmhlbDUueDg2XzY0LnJw
+bQo+Pj4gcG9zdGdyZXNxbC1zZXJ2ZXItOC4zLjUtMVBHREcucmhlbDUueDg2XzY0LnJwbQo+Pj4K
+Pj4+IG5vdyBpJ20gdHJ5aW5nIHRvIGluc3RhbGwgc2xvbnkgMi4wLjAgYnV0IGkgY2FuJ3QgZmlu
+ZCBwZ19jb25maWcgdG8KPj4+IHJ1biAuL2NvbmZpZ3VyZS4gZG9lcyBhbnlvbmUga25vdyBob3cg
+aSBjYW4gc29sdmUgaXQ/Cj4+Pgo+Pj4gaSdtIGJvdGggYW4gZW5nbGlzaCBuZXdiaWUgYW5kIGEg
+c2xvbnkgbmV3YmllLi4gc28gaSdtIHNvcnJ5Li4KPj4+IHRoYW5rcyBpbiBhZHZhbmNlIGZvciBm
+ZWVkYmFjayEKPj4+Cj4+PiBtYXJjbwo+Pj4gX19fX19fX19fX19fX19fX19fX19fX19fX19fX19f
+X19fX19fX19fX19fX19fX18KPj4+IFNsb255MS1nZW5lcmFsIG1haWxpbmcgbGlzdAo+Pj4gU2xv
+bnkxLWdlbmVyYWxAbGlzdHMuc2xvbnkuaW5mbwo+Pj4gaHR0cDovL2xpc3RzLnNsb255LmluZm8v
+bWFpbG1hbi9saXN0aW5mby9zbG9ueTEtZ2VuZXJhbAo+Pj4KPj4+Cj4+PiAgICAgICAKPj4gX19f
+X19fX19fX19fX19fX19fX19fX19fX19fX19fX19fX19fX19fX19fX19fX18KPj4gU2xvbnkxLWdl
+bmVyYWwgbWFpbGluZyBsaXN0Cj4+IFNsb255MS1nZW5lcmFsQGxpc3RzLnNsb255LmluZm8KPj4g
+aHR0cDovL2xpc3RzLnNsb255LmluZm8vbWFpbG1hbi9saXN0aW5mby9zbG9ueTEtZ2VuZXJhbAo+
+Pgo+PiAgICAgCj4KPgo+ICAgCgoKLS0gCgo0aXQKCgkKCio0SVQgKipTLnIubC4KKipNYXJjbyBQ
+ZXJ1Z2luaSogKnwganVuaW9yLWxpdHRsZS1uZXdiaWUtYmFieS1taW5pLXN5c3RlbS1hZG1pbmlz
+dHJhdG9yKiogKgotLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0t
+LS0tLS0tLS0tLS0KVmlhIFVkaW5lIDMwLTM2LCAwMDE2MSBSb21hClBob25lICszOSAwNiA5NzYw
+MTY4MApNb2JpbGUgKzM5IDMzOS4zOS44MS4yNDYKRmF4ICszOSAwNiA5NzYwMTY4MwptLnBlcnVn
+aW5pQDRpdC5pdCA8bWFpbHRvOm0ucGVydWdpbmlANGl0Lml0Pgp3d3cuNGl0Lml0IDxodHRwOi8v
+d3d3LjRpdC5pdC8+CgrigJxJbCBwcmVzZW50ZSBtZXNzYWdnaW8gZSBnbGkgZXZlbnR1YWxpIGFs
+bGVnYXRpIHNvbm8gZGkgbmF0dXJhIApjb25maWRlbnppYWxlLiBRdWFsb3JhIHZpIGZvc3NlIHBl
+cnZlbnV0byBwZXIgZXJyb3JlLCB2aSBwcmVnaGlhbW8gZGkgCmNhbmNlbGxhcmxvIGltbWVkaWF0
+YW1lbnRlIGRhbCB2b3N0cm8gc2lzdGVtYSBlIGRpIGF2dmlzYXJlIGlsIG1pdHRlbnRlLiAKR3Jh
+emllLuKAnQoK4oCcVGhpcyBlbGVjdHJvbmljIG1haWwgdHJhbnNtaXNzaW9uIGFuZCBhbnkgYWNj
+b21wYW55aW5nIGF0dGFjaG1lbnRzIApjb250YWluIGNvbmZpZGVudGlhbCBpbmZvcm1hdGlvbi4g
+SWYgeW91IGhhdmUgcmVjZWl2ZWQgdGhpcyAKY29tbXVuaWNhdGlvbiBpbiBlcnJvciwgcGxlYXNl
+IGltbWVkaWF0ZWx5IGRlbGV0ZSB0aGUgRS1tYWlsIGFuZCBlaXRoZXIgCm5vdGlmeSB0aGUgc2Vu
+ZGVyLiBUaGFuayB5b3Uu4oCdCgoKLS0tLS0tLS0tLS0tLS0gbmV4dCBwYXJ0IC0tLS0tLS0tLS0t
+LS0tClNraXBwZWQgY29udGVudCBvZiB0eXBlIG11bHRpcGFydC9yZWxhdGVk
+From steven at maxpointinteractive.com  Wed Jan 14 12:31:20 2009
+From: steven at maxpointinteractive.com (Steven Graham)
+Date: Wed Jan 14 12:31:33 2009
+Subject: [Slony1-general] Replicating only INSERT
+Message-ID: <496E4B98.8090305@maxpointinteractive.com>
+
+
+Does anyone know if there is a general config option to replicate only 
+inserts?
+
+I have a scenario where I want to replicated data for some analytics and 
+I want that data to persist longer than it does on the master table. Can 
+this be done easily, or has anyone tried?
+
+Thanks,
+Steve
+From drees76 at gmail.com  Wed Jan 14 12:35:57 2009
+From: drees76 at gmail.com (David Rees)
+Date: Wed Jan 14 12:36:08 2009
+Subject: [Slony1-general] Replicating only INSERT
+In-Reply-To: <496E4B98.8090305@maxpointinteractive.com>
+References: <496E4B98.8090305@maxpointinteractive.com>
+Message-ID: <72dbd3150901141235w38b54326m2342536bc87859fe@mail.gmail.com>
+
+On Wed, Jan 14, 2009 at 12:31 PM, Steven Graham
+<steven@maxpointinteractive.com> wrote:
+> Does anyone know if there is a general config option to replicate only
+> inserts?
+
+No, you have to replicate an entire table.
+
+> I have a scenario where I want to replicated data for some analytics and I
+> want that data to persist longer than it does on the master table. Can this
+> be done easily, or has anyone tried?
+
+You could do this by creating a trigger on the master table which on
+any insert, also inserts the same data into another. No slony
+required.
+
+-Dave
+From steven at maxpointinteractive.com  Wed Jan 14 12:39:16 2009
+From: steven at maxpointinteractive.com (Steven Graham)
+Date: Wed Jan 14 12:39:48 2009
+Subject: [Slony1-general] Replicating only INSERT
+In-Reply-To: <72dbd3150901141235w38b54326m2342536bc87859fe@mail.gmail.com>
+References: <496E4B98.8090305@maxpointinteractive.com>
+	<72dbd3150901141235w38b54326m2342536bc87859fe@mail.gmail.com>
+Message-ID: <496E4D74.2070809@maxpointinteractive.com>
+
+
+Thanks David. I had thought of some general solutions like you =
+
+mentioned, just wondering if it could be done with slony out of the box. =
+
+Thanks again.
+
+-Steve
+
+David Rees wrote:
+> On Wed, Jan 14, 2009 at 12:31 PM, Steven Graham
+> <steven@maxpointinteractive.com> wrote:
+>   =
+
+>> Does anyone know if there is a general config option to replicate only
+>> inserts?
+>>     =
+
+>
+> No, you have to replicate an entire table.
+>
+>   =
+
+>> I have a scenario where I want to replicated data for some analytics and=
+ I
+>> want that data to persist longer than it does on the master table. Can t=
+his
+>> be done easily, or has anyone tried?
+>>     =
+
+>
+> You could do this by creating a trigger on the master table which on
+> any insert, also inserts the same data into another. No slony
+> required.
+>
+> -Dave
+>
+>
+>   =
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20090114/=
+4687ccd6/attachment.htm
+From hongyuan1306 at gmail.com  Wed Jan 14 22:32:34 2009
+From: hongyuan1306 at gmail.com (Yuan HOng)
+Date: Wed Jan 14 22:33:01 2009
+Subject: [Slony1-general] PGRES_FATAL_ERROR ERROR: Slony-I:
+	alterTableRestore(): Table " public"."department" is not in
+	altered state
+Message-ID: <91320d220901142232ob207404l34f870758b817025@mail.gmail.com>
+
+SGksIGxpc3QsCgpJIGhhdmUgYSBzaW5nbGUgbWFzdGVyIC8gc2luZ2xlIHNsYXZlIHNldCB1cCB3
+aXRoIFNsb255LUkgMS4yLjExIGFuZCBQRyA4LjIuCkl0IGhhcyBiZWVuIHJ1bm5pbmcgd2VsbCBm
+b3IgcXVpdGUgYSBsb25nIHRpbWUgdW50aWwgeWVzdGVyZGF5LCB3aGVuIGFmdGVyCmV4ZWN1dGlu
+ZyBhIERETCBzY3JpcHQgb24gdGhlIG1hc3RlciBzZXJ2ZXIsIHRoZSByZXBsaWNhdGlvbiBicm9r
+ZS4gVGhlIERETApzY3JpcHQganVzdCBhZGRlZCBhIGNvbHVtbiB0byBhIHRhYmxlIGluIHRoZSBy
+ZXBsaWNhdGlvbiBzZXQuCgpUaGUgc2xhdmUgbG9nIHNob3dzIHRoZSBmb2xsb3dpbmcgZW50cmll
+czoKCi4uLgoyMDA5LTAxLTE1IDEzOjAzOjQ4IEdNVC04IERFQlVHMiByZW1vdGVMaXN0ZW5UaHJl
+YWRfMTogcXVldWUgZXZlbnQgMSwyNTE3MDg1ClNZTkMKMjAwOS0wMS0xNSAxMzowMzo0OCBHTVQt
+OCBFUlJPUiAgcmVtb3RlV29ya2VyVGhyZWFkXzE6ICJzZWxlY3QKIl9ob21lbWFzdGVyIi5kZGxT
+Y3JpcHRfcHJlcGFyZV9pbnQoMSwgLTEpOyAiIFBHUkVTX0ZBVEFMX0VSUk9SIEVSUk9SOgpTbG9u
+eS1JOiBhbHRlclRhYmxlUmVzdG9yZSgpOiBUYWJsZSAiCnB1YmxpYyIuImRlcGFydG1lbnQiIGlz
+IG5vdCBpbiBhbHRlcmVkIHN0YXRlCkNPTlRFWFQ6ICBTUUwgc3RhdGVtZW50ICJTRUxFQ1QgICJf
+aG9tZW1hc3RlciIuYWx0ZXJUYWJsZVJlc3RvcmUoICQxICkiClBML3BnU1FMIGZ1bmN0aW9uICJk
+ZGxzY3JpcHRfcHJlcGFyZV9pbnQiIGxpbmUgNDYgYXQgcGVyZm9ybQoyMDA5LTAxLTE1IDEzOjAz
+OjQ4IEdNVC04IEVSUk9SICByZW1vdGVXb3JrZXJUaHJlYWRfMTogRERMIHByZXBhcmF0aW9uCmZh
+aWxlZCAtIHNldCAxIC0gb25seSBvbiBub2RlICUKMjAwOS0wMS0xNSAxMzowMzo0OCBHTVQtOCBE
+RUJVRzIgc2xvbl9yZXRyeSgpIGZyb20gcGlkPTU5ODEKMjAwOS0wMS0xNSAxMzowMzo0OCBHTVQt
+OCBERUJVRzEgc2xvbjogcmV0cnkgcmVxdWVzdGVkCjIwMDktMDEtMTUgMTM6MDM6NDggR01ULTgg
+REVCVUcyIHNsb246IG5vdGlmeSB3b3JrZXIgcHJvY2VzcyB0byBzaHV0ZG93bgoKInB1YmxpYyIu
+ImRlcGFydG1lbnQiIGlzIHRoZSBmaXJzdCB0YWJsZSBpbiB0aGUgcmVwbGljYXRpb24gc2V0LCBi
+dXQgbm90IHRoZQp0YWJsZSB3aG9zZSBzY2hlbWEgaXMgbW9kaWZpZWQuIEkgYnJvd3NlZCB0aHJv
+dWdodCB0aGUgY29kZSBhbmQgZm91bmQgdGhhdAppbiBkbGxzY3JpcHRfcHJlcGFyZV9pbnQsIGFs
+dGVyVGFibGVSZXN0b3JlIGlzIGNhbGxlZCBvbiBhbGwgdGFibGVzIGluIHRoZQpyZXBsaWNhdGlv
+biBzZXQsIGFuZCBpbiB0aGlzIGZ1bmN0aW9uLCB0aGUgZmllbGQgInRhYl9hbHRlcmVkIiBpcyBj
+aGVja2VkIHRvCnNlZSBpZiB0aGUgdGFibGUgaXMgYWx0ZXJlZC4KCkkgZm91bmQgdGhhdCBpbiBz
+bF90YWJsZSBvbiB0aGUgbWFzdGVyIG5vZGUsIHRoZSAidGFiX2FsdGVyZWQiIGZpZWxkIGlzIHNl
+dAp0byBUcnVlIGZvciBhbGwgdGFibGVzLCB3aGlsZSBvbiB0aGUgc2xhdmUgbm9kZSwgaXQgaXMg
+c2V0IHRvIEZhbHNlLgoKSWYgdGhlIGZ1bmN0aW9uIGFsdGVyVGFibGVSZXN0b3JlIGlzIHJ1biBv
+biB0aGUgc2xhdmUgbm9kZSwgdGhlIEZhbHNlIHZhbHVlCm9mIHRoZSAndGFiX2FsdGVyZWQnIHdv
+dWxkIGNhdXNlIHRoZSBhYm92ZSBlcnJvci4gQnV0IEkgZG9uJ3Qga25vdyB3aGF0CmNhdXNlZCB0
+aGUgZXJyb3IgYW5kIGhvdyB0byBmaXggaXQuIEFueSBpbmZvcm1hdGlvbiB3b3VsZCBiZSBoaWdo
+bHkKYXBwcmVjaWF0ZWQuIFRoYW5rcyEKCi0tIApIb25nIFl1YW4KCrTzudy80s34yc+9qLLEs6zK
+0ArXsNDe17Dk6r2ossTSu9W+yr25us7vCmh0dHA6Ly93d3cuaG9tZW1hc3Rlci5jbgotLS0tLS0t
+LS0tLS0tLSBuZXh0IHBhcnQgLS0tLS0tLS0tLS0tLS0KQW4gSFRNTCBhdHRhY2htZW50IHdhcyBz
+Y3J1YmJlZC4uLgpVUkw6IGh0dHA6Ly9saXN0cy5zbG9ueS5pbmZvL3BpcGVybWFpbC9zbG9ueTEt
+Z2VuZXJhbC9hdHRhY2htZW50cy8yMDA5MDExNS8wZTNjZTE2Ni9hdHRhY2htZW50Lmh0bQo=
+From evanderhoek at osm.net.au  Wed Jan 14 23:50:38 2009
+From: evanderhoek at osm.net.au (Ted Vanderhoek)
+Date: Wed Jan 14 23:51:55 2009
+Subject: [Slony1-general] Failover fails on small replication clusters
+Message-ID: <018501c976e5$f505dbc0$df119340$@net.au>
+
+We have just migrated to Postgres for a small deployable set of
+applications.  The deployed system can be anywhere from 2 to 10+ nodes.
+
+Our first cut at implementing replication is on a 2 node system (keeping it
+simple) and this works fine.
+
+We are two  implementing failure strategies using Slonik scripts:
+
+ 
+
+1.       Soft change over master when all nodes are present.  This works
+fine by using "move set"
+
+2.       Hard change over master when the existing master node is not
+present.  Trying to use "failover" but no go.
+
+ 
+
+ In the soft case the commands used are:
+
+ 
+
+lock set (id = 1, origin = 1);
+
+wait for event (origin = 1, confirmed = 2);
+
+move set (id = 1, old origin = 1, new origin = 2);
+
+wait for event (origin = 1, confirmed = 2);
+
+ 
+
+In the hard case the command is simply:
+
+ 
+
+failover (id=1, backup node = 2)
+
+ 
+
+The failover command does not seem to have any effect at all.
+
+ 
+
+I have not been able to find the slon error log (Windows platform) to
+determine why.
+
+ 
+
+Any suggestions??
+
+ 
+
+Thx Ted
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20090115/d75ae613/attachment.htm
+From glynastill at yahoo.co.uk  Thu Jan 15 08:33:12 2009
+From: glynastill at yahoo.co.uk (Glyn Astill)
+Date: Thu Jan 15 08:33:20 2009
+Subject: [Slony1-general] Failover fails on small replication clusters
+References: <018501c976e5$f505dbc0$df119340$@net.au>
+Message-ID: <767262.26286.qm@web23603.mail.ird.yahoo.com>
+
+CgoKCgpfX19fX19fX19fX19fX19fX19fX19fX19fX19fX19fXwpGcm9tOiBUZWQgVmFuZGVyaG9l
+ayA8ZXZhbmRlcmhvZWtAb3NtLm5ldC5hdT4KCiAKSW4gdGhlIGhhcmQgY2FzZSB0aGUgY29tbWFu
+ZCBpcyBzaW1wbHk6CiAKZmFpbG92ZXIgKGlkPTEsIGJhY2t1cCBub2RlID0gMikKIApUaGUgZmFp
+bG92ZXIgY29tbWFuZCBkb2VzIG5vdCBzZWVtIHRvIGhhdmUgYW55IGVmZmVjdCBhdAphbGwuCiAK
+SSBoYXZlIG5vdCBiZWVuIGFibGUgdG8gZmluZCB0aGUgc2xvbiBlcnJvciBsb2cgKFdpbmRvd3MK
+cGxhdGZvcm0pIHRvIGRldGVybWluZSB3aHkuCiAKQW55IHN1Z2dlc3Rpb25zPz8KIAoKRm9yZ2l2
+ZSBtZSBmb3IgcG9pbnRpbmcgb3V0IHRoZSB0cml2aWFsLCBidXQgeW91J3JlIG1pc3NpbmcgdGhl
+IHNlbWljb2xvbiBvbiB0aGUgZW5kIHRoZXJlLCBwZXJoYXBzIGl0J3MgdGhhdD8KCgoKICAgICAg
+Ci0tLS0tLS0tLS0tLS0tIG5leHQgcGFydCAtLS0tLS0tLS0tLS0tLQpBbiBIVE1MIGF0dGFjaG1l
+bnQgd2FzIHNjcnViYmVkLi4uClVSTDogaHR0cDovL2xpc3RzLnNsb255LmluZm8vcGlwZXJtYWls
+L3Nsb255MS1nZW5lcmFsL2F0dGFjaG1lbnRzLzIwMDkwMTE1LzJmYTJmOTQwL2F0dGFjaG1lbnQu
+aHRtCg==
+From ahodgson at simkin.ca  Thu Jan 15 10:45:24 2009
+From: ahodgson at simkin.ca (Alan Hodgson)
+Date: Thu Jan 15 10:45:37 2009
+Subject: [Slony1-general] PGRES_FATAL_ERROR ERROR: Slony-I:
+	alterTableRestore(): Table " public"."department" is not in
+	altered state
+In-Reply-To: <91320d220901142232ob207404l34f870758b817025@mail.gmail.com>
+References: <91320d220901142232ob207404l34f870758b817025@mail.gmail.com>
+Message-ID: <200901151045.24643@hal.medialogik.com>
+
+On Wednesday 14 January 2009, "Yuan HOng" <hongyuan1306@gmail.com> wrote:
+> Hi, list,
+>
+> I have a single master / single slave set up with Slony-I 1.2.11 and PG
+> 8.2. It has been running well for quite a long time until yesterday, when
+> after executing a DDL script on the master server, the replication broke.
+> The DDL script just added a column to a table in the replication set.
+
+1.2.11 had a bug that could cause this in the event of a temporary problem 
+applying DDL scripts. Fortunately it was fixed in 1.2.12, which was 
+released well over a year ago.
+
+Unfortunately, your replication is almost certainly hosed. But if you 
+upgrade Slony and resubscribe your slave(s), you won't experience the same 
+problem again.
+
+You might also consider tracking bug-fix releases a bit more closely.
+
+-- 
+Current Peeve: The mindset that the Internet is some sort of school for
+novice sysadmins and that everyone -not- doing stupid dangerous things
+should act like patient teachers with the ones who are. -- Bill Cole, NANAE 
+From vivek at khera.org  Thu Jan 15 11:24:11 2009
+From: vivek at khera.org (Vick Khera)
+Date: Thu Jan 15 11:24:22 2009
+Subject: [Slony1-general] execute script locking
+Message-ID: <2968dfd60901151124i27fc11cfyfbd82adc79d8a5e1@mail.gmail.com>
+
+if i run execute script() with the "execute only on" option to limit
+it to one node, does slony only take locks on that node, or does it
+lock all tables on all nodes?  i'm using it to run some table
+compaction.  alternatively is it safe to run a query like this outside
+of execute script: "alter table user_event_log alter column user_id
+type integer;" where the user_id is already an integer (and is the
+PK).  this is the trick i use to compact the table and indexes after a
+large data purge.
+
+I'm running Pg 8.3 and slonly 1.2.14 on freebsd 7.0
+
+thanks!
+From evanderhoek at osm.net.au  Thu Jan 15 14:46:14 2009
+From: evanderhoek at osm.net.au (Ted Vanderhoek)
+Date: Thu Jan 15 14:47:47 2009
+Subject: [Slony1-general] Failover fails on small replication clusters
+In-Reply-To: <767262.26286.qm@web23603.mail.ird.yahoo.com>
+References: <018501c976e5$f505dbc0$df119340$@net.au>
+	<767262.26286.qm@web23603.mail.ird.yahoo.com>
+Message-ID: <01f501c97763$126b9d80$3742d880$@net.au>
+
+VGhhbmtzIEdseW4sIGFsd2F5cyB0aGUgdHJpdmlhbCB0aGF0IGVzY2FwZXMgZGlzY292ZXJ5LgoK
+IAoKQlRXCgogCgpJcyB0aGVyZSBhIG1lY2hhbmlzbSB2aWEgU2xvbmlrIChvciBvdGhlciBzY3Jp
+cHRhYmxlIG1lYW5zKSB0aGF0IHJlbW92ZXMgYSByZXBsaWNhdGlvbiBjbHVzdGVyPwoKRG9jdW1l
+bnRhdGlvbiBkb2VzIG5vdCBpbmRpY2F0ZSB0aGlzIGlzIHBvc3NpYmxlLgoKIAoKVGVkCgogCgog
+CgogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAg
+ICAgICAgICAgICAgICAgICAgICAgICAgCgpGcm9tOiBHbHluIEFzdGlsbCBbbWFpbHRvOmdseW5h
+c3RpbGxAeWFob28uY28udWtdIApTZW50OiBGcmlkYXksIDE2IEphbnVhcnkgMjAwOSAzOjMzIEFN
+ClRvOiBldmFuZGVyaG9la0Bvc20ubmV0LmF1OyBzbG9ueTEtZ2VuZXJhbEBsaXN0cy5zbG9ueS5p
+bmZvClN1YmplY3Q6IFJlOiBbU2xvbnkxLWdlbmVyYWxdIEZhaWxvdmVyIGZhaWxzIG9uIHNtYWxs
+IHJlcGxpY2F0aW9uIGNsdXN0ZXJzCgogCgogCgogCgogIF9fX19fICAKCkZyb206IFRlZCBWYW5k
+ZXJob2VrIDxldmFuZGVyaG9la0Bvc20ubmV0LmF1PgoKIAoKSW4gdGhlIGhhcmQgY2FzZSB0aGUg
+Y29tbWFuZCBpcyBzaW1wbHk6CgogCgpmYWlsb3ZlciAoaWQ9MSwgYmFja3VwIG5vZGUgPSAyKQoK
+IAoKVGhlIGZhaWxvdmVyIGNvbW1hbmQgZG9lcyBub3Qgc2VlbSB0byBoYXZlIGFueSBlZmZlY3Qg
+YXQgYWxsLgoKIAoKSSBoYXZlIG5vdCBiZWVuIGFibGUgdG8gZmluZCB0aGUgc2xvbiBlcnJvciBs
+b2cgKFdpbmRvd3MgcGxhdGZvcm0pIHRvIGRldGVybWluZSB3aHkuCgogCgpBbnkgc3VnZ2VzdGlv
+bnM/PwoKIAoKIAoKRm9yZ2l2ZSBtZSBmb3IgcG9pbnRpbmcgb3V0IHRoZSB0cml2aWFsLCBidXQg
+eW91J3JlIG1pc3NpbmcgdGhlIHNlbWljb2xvbiBvbiB0aGUgZW5kIHRoZXJlLCBwZXJoYXBzIGl0
+J3MgdGhhdD8KCiAKCi0tLS0tLS0tLS0tLS0tIG5leHQgcGFydCAtLS0tLS0tLS0tLS0tLQpBbiBI
+VE1MIGF0dGFjaG1lbnQgd2FzIHNjcnViYmVkLi4uClVSTDogaHR0cDovL2xpc3RzLnNsb255Lmlu
+Zm8vcGlwZXJtYWlsL3Nsb255MS1nZW5lcmFsL2F0dGFjaG1lbnRzLzIwMDkwMTE2L2Y4NTQxYTdm
+L2F0dGFjaG1lbnQuaHRtCg==
+From glynastill at yahoo.co.uk  Thu Jan 15 15:25:28 2009
+From: glynastill at yahoo.co.uk (Glyn Astill)
+Date: Thu Jan 15 15:25:48 2009
+Subject: [Slony1-general] Failover fails on small replication clusters
+References: <018501c976e5$f505dbc0$df119340$@net.au>
+	<767262.26286.qm@web23603.mail.ird.yahoo.com>
+	<01f501c97763$126b9d80$3742d880$@net.au>
+Message-ID: <552260.3247.qm@web23602.mail.ird.yahoo.com>
+
+PkZyb20gaW5kaXZpZHVhbCBub2RlcywgZHJvcCBub2RlCgpodHRwOi8vd3d3LnNsb255LmluZm8v
+ZG9jdW1lbnRhdGlvbi9zdG10ZHJvcG5vZGUuaHRtbAoKCgpfX19fX19fX19fX19fX19fX19fX19f
+X19fX19fX19fXwpGcm9tOiBUZWQgVmFuZGVyaG9layA8ZXZhbmRlcmhvZWtAb3NtLm5ldC5hdT4K
+VG86IEdseW4gQXN0aWxsIDxnbHluYXN0aWxsQHlhaG9vLmNvLnVrPjsgc2xvbnkxLWdlbmVyYWxA
+bGlzdHMuc2xvbnkuaW5mbwpTZW50OiBUaHVyc2RheSwgMTUgSmFudWFyeSwgMjAwOSAyMjo0Njox
+NApTdWJqZWN0OiBSRTogW1Nsb255MS1nZW5lcmFsXSBGYWlsb3ZlciBmYWlscyBvbiBzbWFsbCBy
+ZXBsaWNhdGlvbiBjbHVzdGVycwoKIApUaGFua3MgR2x5biwgYWx3YXlzIHRoZSB0cml2aWFsIHRo
+YXQgZXNjYXBlcyBkaXNjb3ZlcnkuCiAKQlRXCiAKSXMgdGhlcmUgYSBtZWNoYW5pc20gdmlhIFNs
+b25payAob3Igb3RoZXIgc2NyaXB0YWJsZSBtZWFucykgdGhhdApyZW1vdmVzIGEgcmVwbGljYXRp
+b24gY2x1c3Rlcj8KRG9jdW1lbnRhdGlvbiBkb2VzIG5vdCBpbmRpY2F0ZSB0aGlzIGlzIHBvc3Np
+YmxlLgogClRlZAogCiAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAg
+ICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIApGcm9tOkdseW4gQXN0aWxsIFtt
+YWlsdG86Z2x5bmFzdGlsbEB5YWhvby5jby51a10gClNlbnQ6IEZyaWRheSwgMTYgSmFudWFyeSAy
+MDA5IDM6MzMgQU0KVG86IGV2YW5kZXJob2VrQG9zbS5uZXQuYXU7IHNsb255MS1nZW5lcmFsQGxp
+c3RzLnNsb255LmluZm8KU3ViamVjdDogUmU6IFtTbG9ueTEtZ2VuZXJhbF0gRmFpbG92ZXIgZmFp
+bHMgb24gc21hbGwgcmVwbGljYXRpb24KY2x1c3RlcnMKIAogCiAKCl9fX19fX19fX19fX19fX19f
+X19fX19fX19fX19fX19fCiAKRnJvbTpUZWQgVmFuZGVyaG9lawo8ZXZhbmRlcmhvZWtAb3NtLm5l
+dC5hdT4KIApJbgp0aGUgaGFyZCBjYXNlIHRoZSBjb21tYW5kIGlzIHNpbXBseToKIApmYWlsb3Zl
+ciAoaWQ9MSwgYmFja3VwIG5vZGUgPSAyKQogClRoZQpmYWlsb3ZlciBjb21tYW5kIGRvZXMgbm90
+IHNlZW0gdG8gaGF2ZSBhbnkgZWZmZWN0IGF0IGFsbC4KIApJCmhhdmUgbm90IGJlZW4gYWJsZSB0
+byBmaW5kIHRoZSBzbG9uIGVycm9yIGxvZyAoV2luZG93cyBwbGF0Zm9ybSkgdG8gZGV0ZXJtaW5l
+CndoeS4KIApBbnkKc3VnZ2VzdGlvbnM/PwogCiAKRm9yZ2l2ZQptZSBmb3IgcG9pbnRpbmcgb3V0
+IHRoZSB0cml2aWFsLCBidXQgeW91J3JlIG1pc3NpbmcgdGhlIHNlbWljb2xvbiBvbiB0aGUgZW5k
+CnRoZXJlLCBwZXJoYXBzIGl0J3MgdGhhdD8KCgogICAgICAKLS0tLS0tLS0tLS0tLS0gbmV4dCBw
+YXJ0IC0tLS0tLS0tLS0tLS0tCkFuIEhUTUwgYXR0YWNobWVudCB3YXMgc2NydWJiZWQuLi4KVVJM
+OiBodHRwOi8vbGlzdHMuc2xvbnkuaW5mby9waXBlcm1haWwvc2xvbnkxLWdlbmVyYWwvYXR0YWNo
+bWVudHMvMjAwOTAxMTUvNzEwNGNhMTIvYXR0YWNobWVudC5odG0K
+From hongyuan1306 at gmail.com  Thu Jan 15 19:43:59 2009
+From: hongyuan1306 at gmail.com (Yuan HOng)
+Date: Thu Jan 15 19:44:22 2009
+Subject: [Slony1-general] PGRES_FATAL_ERROR ERROR: Slony-I:
+	alterTableRestore(): Table " public"."department" is not in
+	altered state
+In-Reply-To: <200901151045.24643@hal.medialogik.com>
+References: <91320d220901142232ob207404l34f870758b817025@mail.gmail.com>
+	<200901151045.24643@hal.medialogik.com>
+Message-ID: <91320d220901151943k4409f1fchc57ff550df7d199e@mail.gmail.com>
+
+T24gRnJpLCBKYW4gMTYsIDIwMDkgYXQgMjo0NSBBTSwgQWxhbiBIb2Rnc29uIDxhaG9kZ3NvbkBz
+aW1raW4uY2E+IHdyb3RlOgoKPgo+ID4gSSBoYXZlIGEgc2luZ2xlIG1hc3RlciAvIHNpbmdsZSBz
+bGF2ZSBzZXQgdXAgd2l0aCBTbG9ueS1JIDEuMi4xMSBhbmQgUEcKPiA+IDguMi4gSXQgaGFzIGJl
+ZW4gcnVubmluZyB3ZWxsIGZvciBxdWl0ZSBhIGxvbmcgdGltZSB1bnRpbCB5ZXN0ZXJkYXksIHdo
+ZW4KPiA+IGFmdGVyIGV4ZWN1dGluZyBhIERETCBzY3JpcHQgb24gdGhlIG1hc3RlciBzZXJ2ZXIs
+IHRoZSByZXBsaWNhdGlvbiBicm9rZS4KPiA+IFRoZSBEREwgc2NyaXB0IGp1c3QgYWRkZWQgYSBj
+b2x1bW4gdG8gYSB0YWJsZSBpbiB0aGUgcmVwbGljYXRpb24gc2V0Lgo+Cj4gMS4yLjExIGhhZCBh
+IGJ1ZyB0aGF0IGNvdWxkIGNhdXNlIHRoaXMgaW4gdGhlIGV2ZW50IG9mIGEgdGVtcG9yYXJ5IHBy
+b2JsZW0KPiBhcHBseWluZyBEREwgc2NyaXB0cy4gRm9ydHVuYXRlbHkgaXQgd2FzIGZpeGVkIGlu
+IDEuMi4xMiwgd2hpY2ggd2FzCj4gcmVsZWFzZWQgd2VsbCBvdmVyIGEgeWVhciBhZ28uCj4KPiBV
+bmZvcnR1bmF0ZWx5LCB5b3VyIHJlcGxpY2F0aW9uIGlzIGFsbW9zdCBjZXJ0YWlubHkgaG9zZWQu
+IEJ1dCBpZiB5b3UKPiB1cGdyYWRlIFNsb255IGFuZCByZXN1YnNjcmliZSB5b3VyIHNsYXZlKHMp
+LCB5b3Ugd29uJ3QgZXhwZXJpZW5jZSB0aGUgc2FtZQo+IHByb2JsZW0gYWdhaW4uCj4KClRoYW5r
+cyBBbGFuLgoKQnkgJ2hvc2VkJyBJIHRha2UgaXQgdGhhdCB5b3UgbWVhbiB0aGUgcmVwbGljYXRp
+b24gaXMgYnJva2VuIGJleW9uZCByZXBhaXIKKHNvcnJ5IEkgYW0gbm8gbmF0aXZlIEVuZ2xpc2gg
+c3BlYWtlcik/IFRvIGJlIHN1cmUsIGlzIHRoZSBmb2xsb3dpbmcgdGhlCmNvcnJlY3Qgd2F5IHRv
+IHByb2NlZWQ6CgoxLiBPbiB0aGUgbWFzdGVyIG5vZGUsIHJ1biBzbG9uaWsgd2l0aDoKICAgIHVu
+c3Vic2NyaWJlIHNldCAoaWQ9MSwgcmVjZWl2ZXI9MikKMi4gU3RvcCBzbG9uIG9uIGJvdGggbWFz
+dGVyIGFuZCBzbGF2ZSBhbmQgdXBncmFkZSBzbG9ueSB2ZXJzaW9uIGFuZCBzdGFydApzbG9uIG9u
+IGJvdGggbm9kZXMKMy4gT24gdGhlIG1hc3RlciBub2RlLCBydW4gc2xvbmlrIHdpdGg6CiAgICBz
+dWJzY3JpYmUgc2V0KGlkPTEsIHByb3ZpZGVyPTEsIHJlY2VpdmVyPTIsIGZvcndhcmQ9eWVzKQoK
+SXMgdGhhdCBhbGwgYW5kIEkgZG9uJ3QgbmVlZCB0byB0b3VjaCB0aGUgdGFibGVzIHRoYXQgd2Vy
+ZSByZXBsaWNhdGVkIGFuZAphcmUgbm93IG91dCBvZiBzeW5jIG9uIHRoZSBzbGF2ZT8KCi0tIApI
+b25nIFl1YW4KCrTzudy80s34yc+9qLLEs6zK0ArXsNDe17Dk6r2ossTSu9W+yr25us7vCmh0dHA6
+Ly93d3cuaG9tZW1hc3Rlci5jbgotLS0tLS0tLS0tLS0tLSBuZXh0IHBhcnQgLS0tLS0tLS0tLS0t
+LS0KQW4gSFRNTCBhdHRhY2htZW50IHdhcyBzY3J1YmJlZC4uLgpVUkw6IGh0dHA6Ly9saXN0cy5z
+bG9ueS5pbmZvL3BpcGVybWFpbC9zbG9ueTEtZ2VuZXJhbC9hdHRhY2htZW50cy8yMDA5MDExNi80
+Njc5M2UyNS9hdHRhY2htZW50Lmh0bQo=
+From kevink at consistentstate.com  Fri Jan 16 05:31:28 2009
+From: kevink at consistentstate.com (Kevin Kempter)
+Date: Fri Jan 16 06:21:45 2009
+Subject: [Slony1-general] adding a new node to an existing cluster
+Message-ID: <200901160631.28577.kevink@consistentstate.com>
+
+Hi all;
+
+anyone have any samples (or links to docs) per preparing and adding a new node 
+to an existing SLONY cluster ?
+
+Thanks in advance
+From vivek at khera.org  Fri Jan 16 07:44:12 2009
+From: vivek at khera.org (Vick Khera)
+Date: Fri Jan 16 07:44:24 2009
+Subject: [Slony1-general] adding a new node to an existing cluster
+In-Reply-To: <200901160631.28577.kevink@consistentstate.com>
+References: <200901160631.28577.kevink@consistentstate.com>
+Message-ID: <2968dfd60901160744o37b46930j6709698fd4dca63a@mail.gmail.com>
+
+On Fri, Jan 16, 2009 at 8:31 AM, Kevin Kempter
+<kevink@consistentstate.com> wrote:
+> Hi all;
+>
+> anyone have any samples (or links to docs) per preparing and adding a new node
+> to an existing SLONY cluster ?
+
+first, install the *same* slony1 version on the new node.
+
+create the DB, and load a copy of the exact same schema onto it
+(without the slony stuff).  there is a script in the source
+distribution that will extract the schema for you from the master
+node..
+
+next, run a slonik script to "store node" the new node, and "store
+path" a path from every other node to and from this new node.
+
+start running the slon daemon on the new node
+
+run "subscribe set" to tell the new node to start replicating.
+
+sit back and watch the replica copy data (you will have to watch the
+logs because you won't see any data in the tables until the
+transaction is complete).
+
+have a beer/tea/whatever to celebrate.
+From vivek at khera.org  Fri Jan 16 08:49:23 2009
+From: vivek at khera.org (Vick Khera)
+Date: Fri Jan 16 08:49:38 2009
+Subject: [Slony1-general] Re: execute script locking
+In-Reply-To: <2968dfd60901151124i27fc11cfyfbd82adc79d8a5e1@mail.gmail.com>
+References: <2968dfd60901151124i27fc11cfyfbd82adc79d8a5e1@mail.gmail.com>
+Message-ID: <2968dfd60901160849g536101eeud4c8aa8c46cd8934@mail.gmail.com>
+
+to answer my own question, it seems to only lock the tables on that one node.
+
+On Thu, Jan 15, 2009 at 2:24 PM, Vick Khera <vivek@khera.org> wrote:
+> if i run execute script() with the "execute only on" option to limit
+> it to one node, does slony only take locks on that node, or does it
+> lock all tables on all nodes?  i'm using it to run some table
+>
+From troy at troywolf.com  Fri Jan 16 09:06:34 2009
+From: troy at troywolf.com (Troy Wolf)
+Date: Fri Jan 16 09:06:43 2009
+Subject: [Slony1-general] BUG? Logshipping causes failure when slony waiting
+	on older transactions to finish
+Message-ID: <e0d7c3f50901160906k580248efxb9959832aa831da3@mail.gmail.com>
+
+I consider things carefully before throwing out the "BUG" word. I
+believe I have uncovered a bug that is related to logshipping. This is
+not a show-stopper bug and does not cause missing data or data
+corruption or anything like that. However it is a repeatable pattern
+and makes my life with Slony more difficult than necessary.
+
+We are a growing organization with a rapidly changing schema. So we
+have a relatively frequent need to add new tables into the schema and
+also into replication. I developed a slonik shell script to make
+adding new tables easy. It creates a temporary set (ID = 999), adds
+the table to it, subscribes the new set, then merges set 999 into my
+real set (ID = 1). When the database is not busy, this works
+perfectly.
+
+Before I started using log shipping, we would often see the pattern
+that looks like lines 1 through 12 in the log below. We would then do
+our investigating to figure out what the older transaction was and
+eliminate it or simply let Slony wait for that older transaction to
+complete naturally. In either case, once the older transaction was out
+of the way, Slony would complete the merge successfully.
+
+After log shipping, we see the pattern you see below, and it will
+happen every time the merge is waiting behind older transactions. What
+you see below is the merge starts (line 1), then fails because there
+are older transactions in the way. Slony sleeps for 15 seconds and
+tries again. He fails again because the older transactions are still
+in the way. Slony sleeps for 30 seconds then tries again. This time,
+the older transaction(s) have cleared up, so Slony tries to continue
+with the merge request. However, he fails because he is unable to
+write to the log shipping archive file (line 16).
+
+The BUG, I believe, has something to do with Slony closing the file
+handle or otherwise losing access to the file when he hits the wait
+condition. There is nothing, in reality, wrong with that tmp file--no
+other reason Slony is unable to write to it.
+
+At this point, the way I "fix" this is to simply stop and restart the
+slon process on the subscriber node. (The node who creates the log
+shipping files.) I also have to then manually dropset my temp set (ID
+= 999) and start my merge over when the database is not so busy.
+
+By the way, my configuration uses log_level=1 to reduce noise in the
+log files. The lines below are all the lines in that time period. I
+modified the schema, table, and dir path name to protect the innocent.
+
+=========================================================================================================
+01: 2009-01-15 16:29:07 EST CONFIG storeSet: set_id=999 set_origin=1
+set_comment='temporary merge set to add a table into an existing set'
+02: 2009-01-15 16:29:07 EST CONFIG storeSubscribe: sub_set=999
+sub_provider=1 sub_forward='t'
+03: 2009-01-15 16:29:07 EST CONFIG storeListen: li_origin=1
+li_receiver=2 li_provider=1
+04: 2009-01-15 16:29:07 EST DEBUG1 copy_set 999
+05: 2009-01-15 16:29:07 EST DEBUG1 remoteWorkerThread_1: connected to
+provider DB
+06: 2009-01-15 16:29:07 EST WARN   remoteWorkerThread_1: transactions
+earlier than XID 1077488892 are still in progress
+07: 2009-01-15 16:29:07 EST WARN   remoteWorkerThread_1: data copy for
+set 999 failed - sleep 15 seconds
+08: 2009-01-15 16:29:22 EST DEBUG1 copy_set 999
+09: 2009-01-15 16:29:22 EST DEBUG1 remoteWorkerThread_1: connected to
+provider DB
+10: 2009-01-15 16:29:22 EST WARN   remoteWorkerThread_1: transactions
+earlier than XID 1077488892 are still in progress
+11: 2009-01-15 16:29:22 EST WARN   remoteWorkerThread_1: data copy for
+set 999 failed - sleep 30 seconds
+12: WARNING:  there is no transaction in progress
+13: 2009-01-15 16:29:52 EST DEBUG1 copy_set 999
+14: 2009-01-15 16:29:52 EST DEBUG1 remoteWorkerThread_1: connected to
+provider DB
+15: NOTICE:  truncate of "my_schema"."my_new_table" succeeded
+16: 2009-01-15 16:29:52 EST ERROR  remoteWorkerThread_1: Cannot write
+to archive file /opt/slony/slony1_log_2_00000000000001428342.sql.tmp -
+not open
+17: 2009-01-15 16:29:52 EST WARN   remoteWorkerThread_1: data copy for
+set 999 failed - sleep 60 seconds
+18: WARNING:  there is no transaction in progress
+=========================================================================================================
+From cbbrowne at ca.afilias.info  Fri Jan 16 09:38:55 2009
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Fri Jan 16 09:39:04 2009
+Subject: [Slony1-general] adding a new node to an existing cluster
+In-Reply-To: <200901160631.28577.kevink@consistentstate.com> (Kevin Kempter's
+	message of "Fri, 16 Jan 2009 06:31:28 -0700")
+References: <200901160631.28577.kevink@consistentstate.com>
+Message-ID: <87bpu7m9qo.fsf@dba2.int.libertyrms.com>
+
+Kevin Kempter <kevink@consistentstate.com> writes:
+> anyone have any samples (or links to docs) per preparing and adding a new node 
+> to an existing SLONY cluster ?
+
+I would like to think that the documentation isn't *totally* deficient
+in this area...
+
+   http://slony.info/documentation/addthings.html
+-- 
+let name="cbbrowne" and tld="cbbrowne.com" in String.concat "@" [name;tld];;
+http://linuxfinances.info/info/wp.html
+Rules of the Evil Overlord #85. "I  will not use any plan in which the
+final step is horribly complicated, e.g. "Align the 12 Stones of Power
+on the sacred altar then activate the medallion at the moment of total
+eclipse."  Instead  it will  be  more along  the  lines  of "Push  the
+button." <http://www.eviloverlord.com/>
+From mark.keisler at motorola.com  Fri Jan 16 11:48:59 2009
+From: mark.keisler at motorola.com (Mark Keisler)
+Date: Fri Jan 16 11:49:14 2009
+Subject: [Slony1-general] adding a new node to an existing cluster
+In-Reply-To: <87bpu7m9qo.fsf@dba2.int.libertyrms.com>
+References: <200901160631.28577.kevink@consistentstate.com>
+	<87bpu7m9qo.fsf@dba2.int.libertyrms.com>
+Message-ID: <4970E4AB.6070108@motorola.com>
+
+
+
+Christopher Browne wrote:
+> Kevin Kempter <kevink@consistentstate.com> writes:
+>   
+>> anyone have any samples (or links to docs) per preparing and adding a new node 
+>> to an existing SLONY cluster ?
+>>     
+>
+> I would like to think that the documentation isn't *totally* deficient
+> in this area...
+>
+>    http://slony.info/documentation/addthings.html
+>   
+If you use the perl admin scripts: add the node to your config file then
+use the slonik_store_node and slonik_subscribe_set scripts.
+
+-- 
+Mark K
+
+From cbbrowne at ca.afilias.info  Fri Jan 16 15:07:33 2009
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Fri Jan 16 15:07:51 2009
+Subject: [Slony1-general] BUG? Logshipping causes failure when slony
+	waiting on older transactions to finish
+In-Reply-To: <e0d7c3f50901160906k580248efxb9959832aa831da3@mail.gmail.com>
+	(Troy Wolf's message of "Fri, 16 Jan 2009 11:06:34 -0600")
+References: <e0d7c3f50901160906k580248efxb9959832aa831da3@mail.gmail.com>
+Message-ID: <871vv2n93e.fsf@dba2.int.libertyrms.com>
+
+"Troy Wolf" <troy@troywolf.com> writes:
+> The BUG, I believe, has something to do with Slony closing the file
+> handle or otherwise losing access to the file when he hits the wait
+> condition. There is nothing, in reality, wrong with that tmp file--no
+> other reason Slony is unable to write to it.
+
+I do recall that we found an bug of a similar *sort* of nature with
+log shipping where the slon was getting rather confused when there
+were multiple nodes as it only had one file handle for accessing the
+archive files, and [mumble, mumble, something about multithreading]
+led to that file handle getting lost.
+
+How many nodes have you got?  Just two?  Or more?
+-- 
+(reverse (concatenate 'string "gro.mca" "@" "enworbbc"))
+http://www3.sympatico.ca/cbbrowne/nonrdbms.html
+M$ is  for people  who want a  half-way implementation  of yesterday's
+ideas tomorrow.
+From troy at troywolf.com  Sat Jan 17 06:35:41 2009
+From: troy at troywolf.com (Troy Wolf)
+Date: Sat Jan 17 06:35:47 2009
+Subject: [Slony1-general] BUG? Logshipping causes failure when slony
+	waiting on older transactions to finish
+In-Reply-To: <871vv2n93e.fsf@dba2.int.libertyrms.com>
+References: <e0d7c3f50901160906k580248efxb9959832aa831da3@mail.gmail.com>
+	<871vv2n93e.fsf@dba2.int.libertyrms.com>
+Message-ID: <e0d7c3f50901170635r1a7506c5kd6fea3e2cf01d47b@mail.gmail.com>
+
+On Fri, Jan 16, 2009 at 5:07 PM, Christopher Browne
+<cbbrowne@ca.afilias.info> wrote:
+> "Troy Wolf" <troy@troywolf.com> writes:
+>> The BUG, I believe, has something to do with Slony closing the file
+>> handle or otherwise losing access to the file when he hits the wait
+>> condition. There is nothing, in reality, wrong with that tmp file--no
+>> other reason Slony is unable to write to it.
+>
+> I do recall that we found an bug of a similar *sort* of nature with
+> log shipping where the slon was getting rather confused when there
+> were multiple nodes as it only had one file handle for accessing the
+> archive files, and [mumble, mumble, something about multithreading]
+> led to that file handle getting lost.
+>
+> How many nodes have you got?  Just two?  Or more?
+> --
+> (reverse (concatenate 'string "gro.mca" "@" "enworbbc"))
+> http://www3.sympatico.ca/cbbrowne/nonrdbms.html
+> M$ is  for people  who want a  half-way implementation  of yesterday's
+> ideas tomorrow.
+>
+
+Thanks for the reply!  I have 2 "normal" nodes. That is, node 1 is the
+origin and node 2 is the subscriber.  Of course I also have a 3rd node
+that is being replicated using logshipping. I say "of course" because
+why would I have logshipping enabled unless I had at least a 3rd node.
+This problem would occur regardless of the existence of that 3rd node
+as long as node 2 is configured to generate the logship files.
+
+You think this issue has possible come up before then....I wonder if
+any work-around was developed. (Other than, put the database in
+single-user mode! <g>)
+From troy at troywolf.com  Sat Jan 17 06:40:43 2009
+From: troy at troywolf.com (TroyWolf)
+Date: Sat Jan 17 06:40:48 2009
+Subject: [Slony1-general] ADD TABLE or SUBSCRIBE conflicts with
+	logshipping?
+In-Reply-To: <e0d7c3f50812181233y60006df4s3eeeea260d63cb4c@mail.gmail.com>
+References: <e0d7c3f50812181233y60006df4s3eeeea260d63cb4c@mail.gmail.com>
+Message-ID: <21517090.post@talk.nabble.com>
+
+
+In searching the maillist archives, I realize that I am following up on my
+own issue in this newer post:
+http://www.nabble.com/BUG--Logshipping-causes-failure-when-slony-waiting-on-older-transactions-to-finish-td21503953.html#a21503953
+
+Please read it if you want want to know more about this situation.
+
+
+TroyWolf wrote:
+> 
+> This is a preemptive strike to see if this is a familiar issue with any of
+> you. Share your experience if this rings a bell.
+> 
+> Postgres 8.2
+> Slony 1.2
+> Linux
+> 
+> 3 Nodes, 1 origin, 1 normal subscriber, 1 logshipping subscriber, 1
+> replication set with many tables and sequences
+> 
+> This has happened enough times now that I think a pattern is emerging. I
+> have a shell script that we use to add tables into replication. The script
+> uses slonik to:
+> 
+> 1. Create a "dummy" set (id=999)
+> 2. Add the new table to set 999
+> 3. Subscribe to the new set 999
+> 3. Merge set 999 with set 1
+> 
+> We've used this script many times without issue before logshipping.
+> However,
+> now that we've added logshipping into the replication stew, when we use
+> this
+> script to add a new table into the replication set, we have a problem
+> where
+> it appears the temporary set is created, but the subscribe fails. Notice
+> line #11 below. What could possibly be happening inside Slony that would
+> cause it to suddenly have trouble writing to it's current logshipping
+> file?
+> 
+> (I have log_level set to 1 to reduce noise in the logs.)
+> 
+> ---------------------------------------------------------------------------------
+>    1| 2008-12-18 09:21:01 EST CONFIG storeSet: set_id=999 set_origin=1
+> set_comment='temporary merge set to add a table into an existing set'
+>    2| 2008-12-18 09:21:03 EST CONFIG storeSubscribe: sub_set=999
+> sub_provider=1 sub_forward='t'
+>    3| 2008-12-18 09:21:03 EST CONFIG storeListen: li_origin=1
+> li_receiver=2
+> li_provider=1
+>    4| 2008-12-18 09:21:03 EST DEBUG1 copy_set 999
+>    5| 2008-12-18 09:21:03 EST DEBUG1 remoteWorkerThread_1: connected to
+> provider DB
+>    6| 2008-12-18 09:21:03 EST WARN   remoteWorkerThread_1: transactions
+> earlier than XID 1022212361 are still in progress
+>    7| 2008-12-18 09:21:03 EST WARN   remoteWorkerThread_1: data copy for
+> set
+> 999 failed - sleep 15 seconds
+>    8| 2008-12-18 09:21:18 EST DEBUG1 copy_set 999
+>    9| 2008-12-18 09:21:18 EST DEBUG1 remoteWorkerThread_1: connected to
+> provider DB
+>   10| NOTICE:  truncate of "my_schema"."my_new_table" succeeded
+> * 11| 2008-12-18 09:21:18 EST ERROR  remoteWorkerThread_1: Cannot write to
+> archive file
+> /opt/data/slony/logship/slony1_log_2_00000000000001183550.sql.tmp - not
+> open
+>   12| 2008-12-18 09:21:18 EST WARN   remoteWorkerThread_1: data copy for
+> set
+> 999 failed - sleep 30 seconds
+>   13| WARNING:  there is no transaction in progress
+> ----------------------------------------------------------------------------------
+> 
+> At this same time on the origin, we start seeing this:
+> 
+> ----------------------------------------------------------------------------------
+>    1| 2008-12-18 09:21:01 EST CONFIG storeSet: set_id=999 set_origin=1
+> set_comment='temporary merge set to add a table into an existing set'
+>    2| 2008-12-18 09:21:03 EST CONFIG storeListen: li_origin=2
+> li_receiver=1
+> li_provider=2
+>    3| 2008-12-18 09:21:03 EST CONFIG storeListen: li_origin=2
+> li_receiver=1
+> li_provider=2
+>    4| NOTICE:  Slony-I: cleanup stale sl_nodelock entry for pid=31321
+>    5| CONTEXT:  SQL statement "SELECT  "_slony".cleanupNodelock()"
+>    6| PL/pgSQL function "cleanupevent" line 77 at perform
+>    7| NOTICE:  Slony-I: cleanup stale sl_nodelock entry for pid=31327
+>    8| CONTEXT:  SQL statement "SELECT  "_slony".cleanupNodelock()"
+>    9| PL/pgSQL function "cleanupevent" line 77 at perform
+>   10| NOTICE:  Slony-I: cleanup stale sl_nodelock entry for pid=31341
+>   11| CONTEXT:  SQL statement "SELECT  "_slony".cleanupNodelock()"
+>   12| PL/pgSQL function "cleanupevent" line 77 at perform
+> ----------------------------------------------------------------------------------
+> 
+> Today, when this happened, I just stopped slony and restarted (on the
+> normal
+> subscriber) and the problem went away. In the past, I've had to stop
+> slony,
+> configure it NOT to do logshipping, start slony, problem goes away, stop
+> slony, configure logshipping on, start slony. Of course the danger in this
+> second scenario is that any changes that flowed through while logshipping
+> was off never make it to my logshipping-subscribed node.
+> 
+> Troy Wolf
+> 
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general@lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+> 
+> 
+
+-- 
+View this message in context: http://www.nabble.com/ADD-TABLE-or-SUBSCRIBE-conflicts-with-logshipping--tp21080405p21517090.html
+Sent from the Slony-I -- General mailing list archive at Nabble.com.
+
+From hannu at 2ndQuadrant.com  Sun Jan 18 09:24:31 2009
+From: hannu at 2ndQuadrant.com (Hannu Krosing)
+Date: Sun Jan 18 09:30:19 2009
+Subject: [Slony1-general] Replicating only INSERT
+In-Reply-To: <496E4D74.2070809@maxpointinteractive.com>
+References: <496E4B98.8090305@maxpointinteractive.com>
+	<72dbd3150901141235w38b54326m2342536bc87859fe@mail.gmail.com>
+	<496E4D74.2070809@maxpointinteractive.com>
+Message-ID: <1232299471.7710.5.camel@huvostro>
+
+On Wed, 2009-01-14 at 14:39 -0600, Steven Graham wrote:
+> 
+> Thanks David. I had thought of some general solutions like you
+> mentioned, just wondering if it could be done with slony out of the
+> box. Thanks again.
+
+Check out https://developer.skype.com/SkypeGarage/DbProjects/SkyTools
+(and especially it's pgQ part), which uses similar mechanics to Slony
+but allows finer control of what is done .
+
+> -Steve
+> 
+> David Rees wrote: 
+> > On Wed, Jan 14, 2009 at 12:31 PM, Steven Graham
+> > <steven@maxpointinteractive.com> wrote:
+> >   
+> > > Does anyone know if there is a general config option to replicate only
+> > > inserts?
+> > >     
+> > 
+> > No, you have to replicate an entire table.
+> > 
+> >   
+> > > I have a scenario where I want to replicated data for some analytics and I
+> > > want that data to persist longer than it does on the master table. Can this
+> > > be done easily, or has anyone tried?
+> > >     
+> > 
+> > You could do this by creating a trigger on the master table which on
+> > any insert, also inserts the same data into another. No slony
+> > required.
+> > 
+> > -Dave
+> > 
+> > 
+> >   
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general@lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+-- 
+------------------------------------------
+Hannu Krosing   http://www.2ndQuadrant.com
+PostgreSQL Scalability and Availability 
+   Services, Consulting and Training
+
+From alessio.iannone at nextant.it  Mon Jan 19 09:28:56 2009
+From: alessio.iannone at nextant.it (Alessio Iannone)
+Date: Mon Jan 19 10:14:59 2009
+Subject: [Slony1-general] Unable to get the cluster example to work
+Message-ID: <4974B858.2000008@nextant.it>
+
+Hi all,
+I am new about slony. I am reading the documentation about slony1 2.0.0 
+release, and i am trying to be able to run the first example the one 
+that is using pgbench.
+
+I have tried to launch the scripts founded in section 2.3.1 of 
+"Replicating Your First Database" chapter of the guide
+
+i get  this error: <stdin>:32: ERROR: syntax error at or near table.
+
+I also noticed that the compilation of slony doesn't create any xxid.so 
+library.
+
+Any hints?
+
+Thanks a lot Alessio
+
+-- 
+===================================
+Alessio Iannone - Software Engineer
+Nextant SpA - Navcomm Applications
+Via Andrea Noale, 345/B - 00155 RM
+alessio.iannone@nextant.it
+Tel +39 06 22454.407/408 (Fax .406)
+===================================
+
+From cbbrowne at ca.afilias.info  Mon Jan 19 14:25:13 2009
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Mon Jan 19 14:25:35 2009
+Subject: [Slony1-general] Unable to get the cluster example to work
+In-Reply-To: <4974B858.2000008@nextant.it> (Alessio Iannone's message of "Mon, 
+	19 Jan 2009 18:28:56 +0100")
+References: <4974B858.2000008@nextant.it>
+Message-ID: <8763kbkk6u.fsf@dba2.int.libertyrms.com>
+
+Alessio Iannone <alessio.iannone@nextant.it> writes:
+> Hi all,
+> I am new about slony. I am reading the documentation about slony1
+> 2.0.0 release, and i am trying to be able to run the first example the
+> one that is using pgbench.
+>
+> I have tried to launch the scripts founded in section 2.3.1 of
+> "Replicating Your First Database" chapter of the guide
+>
+> i get  this error: <stdin>:32: ERROR: syntax error at or near table.
+>
+> I also noticed that the compilation of slony doesn't create any
+> xxid.so library.
+>
+> Any hints?
+
+A downside to the example there is that, by embedding generation of
+the Slonik code into a shell script, that makes it more difficult to
+track down exactly where the error occurred :-(.
+
+Probably the easiest way of setting up replication from a "keeping the
+errors simple to track down" perspective is the shell script,
+tools/configure-replication.sh, documented in
+tools/configure-replication.txt
+
+That generates a series of slonik scripts, which should make it easier
+to pin down exactly where something broke, and the first time around,
+there's a lot of value to that.  Any little configuration error will
+make something break, and it's not much fun tracing things down
+remotely based on guessing the output of things :-(.
+
+The one thing I *can* point to is that it is not an error that xxid.so
+is not there.  In Slony-I version 2.0, xxid.so is no longer necessary
+because the built-in data type "txid" (new in PostgreSQL 8.3) replaces
+its functionality.
+-- 
+output = reverse("ofni.sesabatadxunil" "@" "enworbbc")
+http://linuxdatabases.info/info/spreadsheets.html
+"Moebius strippers only show you their back side." -- Unknown
+From kevink at consistentstate.com  Mon Jan 19 14:46:13 2009
+From: kevink at consistentstate.com (Kevin Kempter)
+Date: Mon Jan 19 14:46:33 2009
+Subject: [Slony1-general] controlling how often a slave checks for updates
+Message-ID: <200901191546.13642.kevink@consistentstate.com>
+
+Hi All;
+
+Is there a way to control how often a slave checks the master for updates ?
+
+Thanks in advance
+From cbbrowne at ca.afilias.info  Mon Jan 19 15:31:31 2009
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Mon Jan 19 15:31:47 2009
+Subject: [Slony1-general] controlling how often a slave checks for updates
+In-Reply-To: <200901191546.13642.kevink@consistentstate.com> (Kevin Kempter's
+	message of "Mon, 19 Jan 2009 15:46:13 -0700")
+References: <200901191546.13642.kevink@consistentstate.com>
+Message-ID: <87y6x6kh4c.fsf@dba2.int.libertyrms.com>
+
+Kevin Kempter <kevink@consistentstate.com> writes:
+> Is there a way to control how often a slave checks the master for updates ?
+
+Yes, this is controllable, via the parameters listed here:
+   http://slony.info/documentation/slon-config-interval.html
+
+sync_interval and sync_interval_timeout are the usual parameters to
+use to tune this.
+
+These may be controlled either via using a config file for the slons,
+or via a command line parameter.
+
+-s SYNC check interval
+
+    The sync_interval, measured in milliseconds, indicates how often
+    slon should check to see if a SYNC should be introduced. Default
+    is 2000 ms. The main loop in sync_Thread_main() sleeps for
+    intervals of sync_interval milliseconds between iterations.
+
+-t SYNC interval timeout
+
+    At the end of each sync_interval_timeout timeout period, a SYNC
+    will be generated on the "local" node even if there has been no
+    replicable data updated that would have caused a SYNC to be
+    generated.
+
+    If application activity ceases, whether because the application is
+    shut down, or because human users have gone home and stopped
+    introducing updates, the slon will iterate away, waking up every
+    sync_interval milliseconds, and, as no updates are being made, no
+    SYNC events would be generated. Without this timeout parameter, no
+    SYNC events would be generated, and it would appear that
+    replication was falling behind.
+-- 
+output = ("cbbrowne" "@" "linuxdatabases.info")
+http://linuxfinances.info/info/internet.html
+PALM BEACH COUNTY: We put the "duh" in Florida.
+From alessio.iannone at nextant.it  Tue Jan 20 00:44:07 2009
+From: alessio.iannone at nextant.it (Alessio Iannone)
+Date: Tue Jan 20 00:44:34 2009
+Subject: [Slony1-general] Unable to get the cluster example to work
+In-Reply-To: <8763kbkk6u.fsf@dba2.int.libertyrms.com>
+References: <4974B858.2000008@nextant.it>
+	<8763kbkk6u.fsf@dba2.int.libertyrms.com>
+Message-ID: <49758ED7.3090108@nextant.it>
+
+Christopher Browne ha scritto:
+> Alessio Iannone <alessio.iannone@nextant.it> writes:
+>   
+>> Hi all,
+>> I am new about slony. I am reading the documentation about slony1
+>> 2.0.0 release, and i am trying to be able to run the first example the
+>> one that is using pgbench.
+>>
+>> I have tried to launch the scripts founded in section 2.3.1 of
+>> "Replicating Your First Database" chapter of the guide
+>>
+>> i get  this error: <stdin>:32: ERROR: syntax error at or near table.
+>>
+>> I also noticed that the compilation of slony doesn't create any
+>> xxid.so library.
+>>
+>> Any hints?
+>>     
+>
+> A downside to the example there is that, by embedding generation of
+> the Slonik code into a shell script, that makes it more difficult to
+> track down exactly where the error occurred :-(.
+>
+> Probably the easiest way of setting up replication from a "keeping the
+> errors simple to track down" perspective is the shell script,
+> tools/configure-replication.sh, documented in
+> tools/configure-replication.txt
+>
+> That generates a series of slonik scripts, which should make it easier
+> to pin down exactly where something broke, and the first time around,
+> there's a lot of value to that.  Any little configuration error will
+> make something break, and it's not much fun tracing things down
+> remotely based on guessing the output of things :-(.
+>
+> The one thing I *can* point to is that it is not an error that xxid.so
+> is not there.  In Slony-I version 2.0, xxid.so is no longer necessary
+> because the built-in data type "txid" (new in PostgreSQL 8.3) replaces
+> its functionality.
+>   
+Thanks for your reply, I am now trying to test the PostgreSQL Plus 
+Installer wich bundle Slony 1.2.15.
+After this test i will try however to use slony 2.0.0 using your suggestion.
+I have a question: Slony1 2.0.0 Coulbe be considered ready for a 
+production site?
+
+Best Regards Alessio Iannone
+From cscetbon.ext at orange-ftgroup.com  Tue Jan 20 06:41:26 2009
+From: cscetbon.ext at orange-ftgroup.com (Cyril Scetbon)
+Date: Tue Jan 20 06:41:31 2009
+Subject: [Slony1-general] Timing in Slony1 2.0
+Message-ID: <4975E296.3070201@orange-ftgroup.com>
+
+Hi,
+
+I've read monitoring.html from the new documentation and I do not 
+understand some points :
+
+- what are the units of the counter "large tuples" ?
+- how do you find that it took 0.108s to process the SYNC 19
+- what are the differences between sync_event and sync_helper (it should 
+be great to add it in the documentation, and in the code)
+
+thanks
+-- 
+Cyril SCETBON Happy New Year
+From cscetbon.ext at orange-ftgroup.com  Tue Jan 20 07:50:17 2009
+From: cscetbon.ext at orange-ftgroup.com (Cyril Scetbon)
+Date: Tue Jan 20 07:50:52 2009
+Subject: [Slony1-general] Slony 1.2.15 and test_slony_state
+Message-ID: <4975F2B9.7050606@orange-ftgroup.com>
+
+My configuration is as follows :
+
+psql db1 -c 'select * from "_CLUSTER1".sl_subscribe'
+sub_set | sub_provider | sub_receiver | sub_forward | sub_active
+---------+--------------+--------------+-------------+------------
+     1 |            3 (M2)|            1 (M1)| t           | t
+     1 |            1 (M1)|            2 (S1) | t           | t
+     1 |            3 (M2)|            4 (S2) | t           | t
+
+
+When I check sl_confirm using the script provided I get :
+
+ con_origin | con_received |  minseq  |  maxseq  |   age1   |   age2   | 
+tooold
+------------+--------------+----------+----------+----------+----------+--------
+          1 |            2 | 29365860 | 29365951 | 00:00:00 | 00:15:00 | f
+          1 |            3 | 29365860 | 29365952 | 00:00:00 | 00:15:00 | f
+          1 |            4 | 29365860 | 29365952 | 00:00:00 | 00:15:00 | f
+          2 |            4 |   337242 |   337333 | 00:00:00 | 00:15:00 | f
+          3 |            1 | 19073648 | 19074557 | 00:00:00 | 00:15:00 | f
+          3 |            2 | 19073648 | 19074551 | 00:00:00 | 00:15:00 | f
+          3 |            4 | 19073650 | 19074558 | 00:00:00 | 00:15:00 | f
+          4 |            1 | 14353126 | 14353217 | 00:00:00 | 00:15:00 | f
+          4 |            2 | 14353126 | 14353217 | 00:00:00 | 00:15:00 | f
+          4 |            3 | 14353126 | 14353217 | 00:00:00 | 00:15:00 | f
+
+psql db1 -c 'select pa_server,pa_client from "_CLUSTER1".sl_path'
+
+
+  pa_server | pa_client
+-----------+-----------
+         1 |         4
+         3 |         4
+         1 |         3
+         4 |         3
+         3 |         1
+         4 |         1
+         2 |         4
+         2 |         3
+         2 |         1
+         1 |         2
+         3 |         2
+         4 |         2
+
+Do I have to worry about the fact that no event are sent from node 2 to 
+nodes 1 and 3. I can see in sl_listen that all combinations of paths 
+have been created. But, Why node 1 send events to node 3 and node 4 and 
+node 2 does not send events to his provider ?
+
+Regards
+-- 
+Cyril SCETBON
+Happy New Year
+From ajs at crankycanuck.ca  Wed Jan 21 05:39:55 2009
+From: ajs at crankycanuck.ca (Andrew Sullivan)
+Date: Wed Jan 21 05:40:01 2009
+Subject: [Slony1-general] Replicating only INSERT
+In-Reply-To: <1232299471.7710.5.camel@huvostro>
+References: <496E4B98.8090305@maxpointinteractive.com>
+	<72dbd3150901141235w38b54326m2342536bc87859fe@mail.gmail.com>
+	<496E4D74.2070809@maxpointinteractive.com>
+	<1232299471.7710.5.camel@huvostro>
+Message-ID: <20090121133955.GE8308@shinkuro.com>
+
+On Sun, Jan 18, 2009 at 07:24:31PM +0200, Hannu Krosing wrote:
+> > Thanks David. I had thought of some general solutions like you
+> > mentioned, just wondering if it could be done with slony out of the
+> > box. Thanks again.
+> 
+> Check out https://developer.skype.com/SkypeGarage/DbProjects/SkyTools
+> (and especially it's pgQ part), which uses similar mechanics to Slony
+> but allows finer control of what is done .
+
+You could also do this with Slony by running a STORE TRIGGER that, on
+the replica, had a DO INSTEAD NOTHING effect for UPDATEs and DELETEs.
+It's going to be tricky, though, if your UPDATEs change things that
+will later cause a violation of a unique index on the replica.  So you
+may need to tune the indexes as well.
+
+A
+
+-- 
+Andrew Sullivan
+ajs@crankycanuck.ca
+From dr.michi at gmail.com  Wed Jan 21 08:25:42 2009
+From: dr.michi at gmail.com (Michael Weber)
+Date: Wed Jan 21 08:25:51 2009
+Subject: [Slony1-general] Problems upgrading 8.2/1.2.11 -> 8.3/1.2.15
+In-Reply-To: <172711.86721.qm@web23602.mail.ird.yahoo.com>
+References: <4b15b0190901130956l4197d305re0406a181a22f525@mail.gmail.com>
+	<48950.34032.qm@web23604.mail.ird.yahoo.com>
+	<4b15b0190901140405x799db40fvde856936c22bb34e@mail.gmail.com>
+	<172711.86721.qm@web23602.mail.ird.yahoo.com>
+Message-ID: <4b15b0190901210825i1157423alfa9bb87bc5054d32@mail.gmail.com>
+
+After a version upgrade (1.2.11 -> 1.2.15)
+I now have all 3 servers at sony 1.2.15 (postgres version is 8.3 on
+master1/slave2 and 8.2 on slave3).
+
+slave3 ran out of disk space, but when I restarted slony it started
+catching up. But now slave3 is in sync with node2, but both are behind
+the master. Is there a way to get everything back to sync again?
+
+log of master (after latest restart) looks like:
+
+2009-01-21 15:56:26 CET CONFIG main: slon version 1.2.15 starting up
+2009-01-21 15:56:26 CET DEBUG2 slon: watchdog process started
+2009-01-21 15:56:26 CET DEBUG2 slon: watchdog ready - pid = 27145
+2009-01-21 15:56:26 CET DEBUG2 slon: worker process created - pid = 27148
+2009-01-21 15:56:27 CET CONFIG main: local node id = 1
+2009-01-21 15:56:27 CET DEBUG2 main: main process started
+2009-01-21 15:56:27 CET CONFIG main: launching sched_start_mainloop
+2009-01-21 15:56:27 CET CONFIG main: loading current cluster configuration
+2009-01-21 15:56:27 CET CONFIG storeNode: no_id=2 no_comment='Node 2 - '
+2009-01-21 15:56:27 CET DEBUG2 setNodeLastEvent: no_id=2 event_seq=3705271
+2009-01-21 15:56:27 CET CONFIG storeNode: no_id=3 no_comment='Node 3 - '
+2009-01-21 15:56:27 CET DEBUG2 setNodeLastEvent: no_id=3 event_seq=2571462
+2009-01-21 15:56:27 CET CONFIG storePath: pa_server=2 pa_client=1
+2009-01-21 15:56:27 CET CONFIG storePath: pa_server=3 pa_client=1
+2009-01-21 15:56:27 CET CONFIG storeListen: li_origin=2 li_receiver=1
+li_provider=2
+2009-01-21 15:56:27 CET CONFIG storeListen: li_origin=3 li_receiver=1
+li_provider=2
+2009-01-21 15:56:27 CET CONFIG storeListen: li_origin=3 li_receiver=1
+li_provider=3
+2009-01-21 15:56:27 CET CONFIG storeListen: li_origin=2 li_receiver=1
+li_provider=3
+2009-01-21 15:56:27 CET CONFIG storeSet: set_id=1 set_origin=1
+set_comment='Set 1 for st1'
+2009-01-21 15:56:27 CET DEBUG2 sched_wakeup_node(): no_id=1 (0 threads
++ worker signaled)
+2009-01-21 15:56:27 CET CONFIG storeSet: set_id=2 set_origin=2
+set_comment='Set 2 for st1'
+2009-01-21 15:56:27 CET WARN   remoteWorker_wakeup: node 2 - no worker thread
+2009-01-21 15:56:27 CET DEBUG2 sched_wakeup_node(): no_id=2 (0 threads
++ worker signaled)
+2009-01-21 15:56:27 CET DEBUG2 main: last local event sequence = 3090600
+2009-01-21 15:56:28 CET CONFIG main: configuration complete - starting threads
+2009-01-21 15:56:28 CET DEBUG1 localListenThread: thread starts
+From nimesh.satam at gmail.com  Wed Jan 21 23:36:15 2009
+From: nimesh.satam at gmail.com (Nimesh Satam)
+Date: Wed Jan 21 23:36:42 2009
+Subject: [Slony1-general] Info needed about cleanup_deletelogs in slony
+	2.0.0.
+Message-ID: <65f3e23d0901212336s3373b7e6x1273520561013560@mail.gmail.com>
+
+Hi,
+
+Can any body let us know if we should be keeping the
+"cleanup_deletelogs" parameters as true? We are facing problem in
+getting sl_log_1 and sl_log_2 been truncated.  Will keeping this
+parameter on help us?
+
+Regards,
+Nimesh.
+From nitro at zhukcity.ru  Thu Jan 22 03:30:03 2009
+From: nitro at zhukcity.ru (Nickolay)
+Date: Thu Jan 22 03:30:51 2009
+Subject: [Slony1-general] Info needed about cleanup_deletelogs in slony
+	2.0.0.
+In-Reply-To: <65f3e23d0901212336s3373b7e6x1273520561013560@mail.gmail.com>
+References: <65f3e23d0901212336s3373b7e6x1273520561013560@mail.gmail.com>
+Message-ID: <497858BB.6020001@zhukcity.ru>
+
+Hi,
+
+Chris has posted update for slony1_funcs script. You should update yours.
+Anyway, even though I had problems when I was trying to use 
+cleanup_deletelogs parameter, it doesn't mean it's connected to this 
+parameter. May be something else went wrong. It's just that my nodes 
+were out of sync (differ too much), but sl_status showed they are in 
+sync. You should just compare your nodes' data and make sure they all match.
+
+Nimesh Satam wrote:
+> Hi,
+>
+> Can any body let us know if we should be keeping the
+> "cleanup_deletelogs" parameters as true? We are facing problem in
+> getting sl_log_1 and sl_log_2 been truncated.  Will keeping this
+> parameter on help us?
+>
+> Regards,
+> Nimesh.
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general@lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+>
+>
+>   
+From nimesh.satam at gmail.com  Thu Jan 22 03:57:54 2009
+From: nimesh.satam at gmail.com (Nimesh Satam)
+Date: Thu Jan 22 03:58:25 2009
+Subject: [Slony1-general] Info needed about cleanup_deletelogs in slony 
+	2.0.0.
+In-Reply-To: <497858BB.6020001@zhukcity.ru>
+References: <65f3e23d0901212336s3373b7e6x1273520561013560@mail.gmail.com>
+	<497858BB.6020001@zhukcity.ru>
+Message-ID: <65f3e23d0901220357s7ce6742br9a5fc1b096f6432@mail.gmail.com>
+
+Nickolay,
+
+Thanks for your help. I am new to slony and not sure from where to get
+the new updates and bug fixes. Can you direct me where I can get this
+patch?
+
+Also would really appreciate if you can give me some guidelines about
+the sl_log_1 and sl_log_2 tables. Most of the replication if working
+fine, But the two tables never seem to get empty.
+
+Thanks for all your help.
+
+Regards,
+Nimesh.
+
+
+
+On Thu, Jan 22, 2009 at 5:00 PM, Nickolay <nitro@zhukcity.ru> wrote:
+> Hi,
+>
+> Chris has posted update for slony1_funcs script. You should update yours.
+> Anyway, even though I had problems when I was trying to use
+> cleanup_deletelogs parameter, it doesn't mean it's connected to this
+> parameter. May be something else went wrong. It's just that my nodes were
+> out of sync (differ too much), but sl_status showed they are in sync. You
+> should just compare your nodes' data and make sure they all match.
+>
+> Nimesh Satam wrote:
+>>
+>> Hi,
+>>
+>> Can any body let us know if we should be keeping the
+>> "cleanup_deletelogs" parameters as true? We are facing problem in
+>> getting sl_log_1 and sl_log_2 been truncated.  Will keeping this
+>> parameter on help us?
+>>
+>> Regards,
+>> Nimesh.
+>> _______________________________________________
+>> Slony1-general mailing list
+>> Slony1-general@lists.slony.info
+>> http://lists.slony.info/mailman/listinfo/slony1-general
+>>
+>>
+>>
+>
+From eteo78 at hotmail.com  Wed Jan 21 23:12:05 2009
+From: eteo78 at hotmail.com (ET78)
+Date: Thu Jan 22 08:03:52 2009
+Subject: [Slony1-general] Switchover Error
+Message-ID: <21598970.post@talk.nabble.com>
+
+
+Hi,
+
+I am currently encountering some problem when I attempt to perform a
+switchover. Locking of set seems successful, but failed something after the
+locking when it's attempting the move set I guess.
+
+1) The switchover process keeps on complaining about a missing trigger which
+I don't know where to find.
+
+pgplus@amkfis141-z2:>> switchover_db.sh
+WARNING! U are attempting to perform a Switchover from amkatdcmb to
+amkatdcma!!
+Confirm switchover from amkatdcmb to amkatdcma? (Y/N): Y
+<stdin>:20: Cluster arcdcm_rep Node amkatdcmb 2 set 1 lock successful.
+<stdin>:26: PGRES_FATAL_ERROR select "_arcdcm_rep".moveSet(1, 1);  - ERROR: 
+trigger "_arcdcm_rep_logtrigger_1" for table "attribute_map" does not exist
+CONTEXT:  SQL statement "drop trigger "_arcdcm_rep_logtrigger_1" on
+"dccmgr"."attribute_map""
+PL/pgSQL function "altertablerestore" line 56 at execute statement
+SQL statement "SELECT  "_arcdcm_rep".alterTableRestore( $1 )"
+PL/pgSQL function "moveset_int" line 33 at perform
+SQL statement "SELECT  "_arcdcm_rep".moveSet_int( $1 ,  $2 ,  $3 , 0)"
+PL/pgSQL function "moveset" line 61 at perform
+<stdin>:30: ERROR moving Cluster arcdcm_rep amkatdcmb Node 2 set 1.
+<stdin>:32: Unlock the set before exiting ...
+<stdin>:42: Cluster arcdcm_rep Node amkatdcmb 2 set 1 lock unlock
+successful.
+ERROR! Error when performing slonik set switchover. Exiting ...
+
+
+2) I have configured a master and a slave node. Now I'm unable to do any
+insert/delete/update on either of the host. It just complain about me doing
+the insert/delete/update on a subscriber node.
+
+
+Appreciate any opinion or suggestions.
+
+Thanks in advance.
+Eugene
+-- 
+View this message in context: http://www.nabble.com/Switchover-Error-tp21598970p21598970.html
+Sent from the Slony-I -- General mailing list archive at Nabble.com.
+
+From nitro at zhukcity.ru  Thu Jan 22 09:00:30 2009
+From: nitro at zhukcity.ru (Nickolay)
+Date: Thu Jan 22 09:00:53 2009
+Subject: [Slony1-general] Info needed about cleanup_deletelogs in slony
+	2.0.0.
+In-Reply-To: <65f3e23d0901220357s7ce6742br9a5fc1b096f6432@mail.gmail.com>
+References: <65f3e23d0901212336s3373b7e6x1273520561013560@mail.gmail.com>	
+	<497858BB.6020001@zhukcity.ru>
+	<65f3e23d0901220357s7ce6742br9a5fc1b096f6432@mail.gmail.com>
+Message-ID: <4978A62E.50508@zhukcity.ru>
+
+Here it is: =
+
+http://lists.slony.info/pipermail/slony1-commit/2009-January/002423.html
+I don't know if you should see sl_log tables not empty, I guess they =
+
+shouldn't be if your database is updating often.
+
+Nimesh Satam wrote:
+> Nickolay,
+>
+> Thanks for your help. I am new to slony and not sure from where to get
+> the new updates and bug fixes. Can you direct me where I can get this
+> patch?
+>
+> Also would really appreciate if you can give me some guidelines about
+> the sl_log_1 and sl_log_2 tables. Most of the replication if working
+> fine, But the two tables never seem to get empty.
+>
+> Thanks for all your help.
+>
+> Regards,
+> Nimesh.
+>
+>
+>
+> On Thu, Jan 22, 2009 at 5:00 PM, Nickolay <nitro@zhukcity.ru> wrote:
+>   =
+
+>> Hi,
+>>
+>> Chris has posted update for slony1_funcs script. You should update yours.
+>> Anyway, even though I had problems when I was trying to use
+>> cleanup_deletelogs parameter, it doesn't mean it's connected to this
+>> parameter. May be something else went wrong. It's just that my nodes were
+>> out of sync (differ too much), but sl_status showed they are in sync. You
+>> should just compare your nodes' data and make sure they all match.
+>>
+>> Nimesh Satam wrote:
+>>     =
+
+>>> Hi,
+>>>
+>>> Can any body let us know if we should be keeping the
+>>> "cleanup_deletelogs" parameters as true? We are facing problem in
+>>> getting sl_log_1 and sl_log_2 been truncated.  Will keeping this
+>>> parameter on help us?
+>>>
+>>> Regards,
+>>> Nimesh.
+>>> _______________________________________________
+>>> Slony1-general mailing list
+>>> Slony1-general@lists.slony.info
+>>> http://lists.slony.info/mailman/listinfo/slony1-general
+>>>
+>>>
+>>>
+>>>       =
+
+>
+>
+>   =
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20090122/=
+f8892078/attachment.htm
+From cbbrowne at ca.afilias.info  Thu Jan 22 09:46:59 2009
+From: cbbrowne at ca.afilias.info (cbbrowne)
+Date: Thu Jan 22 09:47:09 2009
+Subject: [Slony1-general] Info needed about cleanup_deletelogs in slony
+	2.0.0.
+In-Reply-To: <65f3e23d0901220357s7ce6742br9a5fc1b096f6432@mail.gmail.com>
+References: <65f3e23d0901212336s3373b7e6x1273520561013560@mail.gmail.com>	<497858BB.6020001@zhukcity.ru>
+	<65f3e23d0901220357s7ce6742br9a5fc1b096f6432@mail.gmail.com>
+Message-ID: <4978B113.40701@ca.afilias.info>
+
+Nimesh Satam wrote:
+> Nickolay,
+>
+> Thanks for your help. I am new to slony and not sure from where to get
+> the new updates and bug fixes. Can you direct me where I can get this
+> patch?
+>
+> Also would really appreciate if you can give me some guidelines about
+> the sl_log_1 and sl_log_2 tables. Most of the replication if working
+> fine, But the two tables never seem to get empty.
+>   
+You should only expect for one or the other table to be emptied once in 
+a while; if there is regularly data coming into your database, I would 
+not be surprised if you would *never* see both tables totally empty.
+
+There was a bug in how the trimming was evaluated; see the following 
+commit log:
+
+http://lists.slony.info/pipermail/slony1-commit/2009-January/002423.html
+
+The email contains the patch; you could also consult the CVS repository 
+directly via the instructions here:
+
+http://slony.info/scm/
+
+-- 
+output = reverse("ofni.sailifa.ac" "@" "enworbbc")
+<http://dba2.int.libertyrms.com/>
+Christopher Browne
+(416) 673-4124 (land)
+
+From cbbrowne at ca.afilias.info  Thu Jan 22 14:12:38 2009
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Thu Jan 22 14:12:53 2009
+Subject: [Slony1-general] Problems upgrading 8.2/1.2.11 -> 8.3/1.2.15
+In-Reply-To: <4b15b0190901210825i1157423alfa9bb87bc5054d32@mail.gmail.com>
+	(Michael Weber's message of "Wed, 21 Jan 2009 17:25:42 +0100")
+References: <4b15b0190901130956l4197d305re0406a181a22f525@mail.gmail.com>
+	<48950.34032.qm@web23604.mail.ird.yahoo.com>
+	<4b15b0190901140405x799db40fvde856936c22bb34e@mail.gmail.com>
+	<172711.86721.qm@web23602.mail.ird.yahoo.com>
+	<4b15b0190901210825i1157423alfa9bb87bc5054d32@mail.gmail.com>
+Message-ID: <87tz7rc7mx.fsf@dba2.int.libertyrms.com>
+
+Michael Weber <dr.michi@gmail.com> writes:
+> After a version upgrade (1.2.11 -> 1.2.15)
+> I now have all 3 servers at sony 1.2.15 (postgres version is 8.3 on
+> master1/slave2 and 8.2 on slave3).
+>
+> slave3 ran out of disk space, but when I restarted slony it started
+> catching up. But now slave3 is in sync with node2, but both are behind
+> the master. Is there a way to get everything back to sync again?
+
+The information in the origin's log tends not to be terribly
+interesting, as the only work it does is to run SYNC events every so
+often.  The slon for that node doesn't do any real replication work.
+
+The question I always ask, at this point, is "what was the output of
+test_slony_state???"
+
+It is a pretty longstanding "best practice" to run that fairly
+frequently (I ask that our DBAs run it against all our clusters on an
+hourly basis), as it represents a very good "early warning" test for a
+number of sorts of misconfiguration that have historically caused
+people problems.
+
+There are a number of ways in which nodes 2 and 3 might be behind, and
+I haven't read anything to distinguish what the cause might be.
+
+- Supposing the disk space outage caused the slons not to run (e.g. -
+  all slons were running on the same host as slave3), then the
+  subscribers could be working their way through one Really Giant SYNC.
+
+  There is a way to avoid this, namely to run generate_syncs.sh
+  reasonably regularly against the origin.
+
+- Perhaps some configuration problem is causing nodes 2/3 to fail to
+  pull data from node 1.
+
+- Supposing the arrangement is 1 --> 2 --> 3, that is,
+    node 2 subscribes to 1, and node 3 subscribes to 2,
+  then there *might* be some benefit to resubscribing node 3 directly
+  to #1.
+
+- It is not evident whether the problem is that:
+
+  a) nodes 2 and 3 are doing work, but just not catching up quickly, or
+
+  b) nodes 2 and 3 are "stuck" somewhere, and aren't progressing.
+
+- I would anticipate the most interesting logs to be those for node
+  #2.
+
+  Particularly interesting would be any error messages.  Grep for
+  "ERROR" :-).
+-- 
+"cbbrowne","@","linuxfinances.info"
+http://cbbrowne.com/info/slony.html
+"X is like pavement:  once you figure out how to lay  it on the ground
+and  paint yellow  lines on  it, there  isn't much  left to  say about
+it. The exciting new developments  are happening in things that run ON
+TOP of  the pavement, like  cars, bicycles, trucks,  and motorcycles."
+-- Eugene O'Neil <eugene@cs.umb.edu>
+From dr.michi at gmail.com  Thu Jan 22 15:26:14 2009
+From: dr.michi at gmail.com (Michael Weber)
+Date: Thu Jan 22 15:26:32 2009
+Subject: [Slony1-general] Problems upgrading 8.2/1.2.11 -> 8.3/1.2.15
+In-Reply-To: <87tz7rc7mx.fsf@dba2.int.libertyrms.com>
+References: <4b15b0190901130956l4197d305re0406a181a22f525@mail.gmail.com>
+	<48950.34032.qm@web23604.mail.ird.yahoo.com>
+	<4b15b0190901140405x799db40fvde856936c22bb34e@mail.gmail.com>
+	<172711.86721.qm@web23602.mail.ird.yahoo.com>
+	<4b15b0190901210825i1157423alfa9bb87bc5054d32@mail.gmail.com>
+	<87tz7rc7mx.fsf@dba2.int.libertyrms.com>
+Message-ID: <4b15b0190901221526i13253facud8d250f2f378c5bb@mail.gmail.com>
+
+Christopher,
+
+thanks a lot for the comments,
+
+test_slony_state did not report anything out of the usual (when
+running against the master, against the slave nodes it reported some
+missing listen paths from 3 to 1), and there were no ERRORs in the
+logfile of node2 & node3. But there were also no INSERTS with a
+rowcount higher than zero (the database is not very busy usually,
+daytime it is one row per 5 minutes). But sl_log_2 had many rows, and
+was growing.
+
+Unfortunately I got annoyed by the problem, dropped the slony schemas,
+truncated the replicated tables, recreated & started slony (thanks to
+the nice slonik_scripts a piece of cake). All of this took 10 minutes,
+even though I would have liked to find the actual problem.
+
+I think I messed up the system last week in trying to get replication
+started on node2 without node3 being up-to-date (version wise), and
+not knowing that node3 was running out of disk space.
+
+Thanks again for your help, and sorry for not reading enough before
+asking stupid questions (I read about the test script only yesterday,
+and I had never looked into the sl_* tables before yesterday either.
+
+About the setup:
+I have 2 sets: set1 master  is on Tenerife, node2 and node3 are two
+machines here in Potsdam (D). set2 master is node2, node3 is the copy
+of it (it is data created in Potsdam from the Tenerife data). That is
+why I pull the data for node3 from node2 (a tip I had gotten on this
+list).
+
+Another question: We have mostly meta-data in our database, the "real"
+data is kept in binary files transported via rsync (8 to 32MB
+uncompressed, compresses to about half). Would postgresql & slony be
+efficient in handling those things also?
+
+Michael
+>
+> The information in the origin's log tends not to be terribly
+> interesting, as the only work it does is to run SYNC events every so
+> often.  The slon for that node doesn't do any real replication work.
+>
+> The question I always ask, at this point, is "what was the output of
+> test_slony_state???"
+>
+> It is a pretty longstanding "best practice" to run that fairly
+> frequently (I ask that our DBAs run it against all our clusters on an
+> hourly basis), as it represents a very good "early warning" test for a
+> number of sorts of misconfiguration that have historically caused
+> people problems.
+>
+> There are a number of ways in which nodes 2 and 3 might be behind, and
+> I haven't read anything to distinguish what the cause might be.
+>
+> - Supposing the disk space outage caused the slons not to run (e.g. -
+>  all slons were running on the same host as slave3), then the
+>  subscribers could be working their way through one Really Giant SYNC.
+>
+>  There is a way to avoid this, namely to run generate_syncs.sh
+>  reasonably regularly against the origin.
+>
+> - Perhaps some configuration problem is causing nodes 2/3 to fail to
+>  pull data from node 1.
+>
+> - Supposing the arrangement is 1 --> 2 --> 3, that is,
+>    node 2 subscribes to 1, and node 3 subscribes to 2,
+>  then there *might* be some benefit to resubscribing node 3 directly
+>  to #1.
+>
+> - It is not evident whether the problem is that:
+>
+>  a) nodes 2 and 3 are doing work, but just not catching up quickly, or
+>
+>  b) nodes 2 and 3 are "stuck" somewhere, and aren't progressing.
+>
+> - I would anticipate the most interesting logs to be those for node
+>  #2.
+>
+>  Particularly interesting would be any error messages.  Grep for
+>  "ERROR" :-).
+> --
+> "cbbrowne","@","linuxfinances.info"
+> http://cbbrowne.com/info/slony.html
+> "X is like pavement:  once you figure out how to lay  it on the ground
+> and  paint yellow  lines on  it, there  isn't much  left to  say about
+> it. The exciting new developments  are happening in things that run ON
+> TOP of  the pavement, like  cars, bicycles, trucks,  and motorcycles."
+> -- Eugene O'Neil <eugene@cs.umb.edu>
+>
+From cscetbon.ext at orange-ftgroup.com  Fri Jan 23 04:46:08 2009
+From: cscetbon.ext at orange-ftgroup.com (Cyril Scetbon)
+Date: Fri Jan 23 04:46:45 2009
+Subject: [Slony1-general] Timing in Slony1 2.0
+In-Reply-To: <4975E296.3070201@orange-ftgroup.com>
+References: <4975E296.3070201@orange-ftgroup.com>
+Message-ID: <4979BC10.3000403@orange-ftgroup.com>
+
+no information ?
+
+Cyril Scetbon wrote:
+> Hi,
+>
+> I've read monitoring.html from the new documentation and I do not 
+> understand some points :
+>
+> - what are the units of the counter "large tuples" ?
+> - how do you find that it took 0.108s to process the SYNC 19
+> - what are the differences between sync_event and sync_helper (it 
+> should be great to add it in the documentation, and in the code)
+>
+> thanks
+
+-- 
+Cyril SCETBON Happy New Year
+From cbbrowne at ca.afilias.info  Mon Jan 26 09:51:10 2009
+From: cbbrowne at ca.afilias.info (cbbrowne)
+Date: Mon Jan 26 09:51:20 2009
+Subject: [Slony1-general] Timing in Slony1 2.0
+In-Reply-To: <4979BC10.3000403@orange-ftgroup.com>
+References: <4975E296.3070201@orange-ftgroup.com>
+	<4979BC10.3000403@orange-ftgroup.com>
+Message-ID: <497DF80E.6020409@ca.afilias.info>
+
+Cyril Scetbon wrote:
+> no information ?
+>
+> Cyril Scetbon wrote:
+>> Hi,
+>>
+>> I've read monitoring.html from the new documentation and I do not 
+>> understand some points :
+>>
+>> - what are the units of the counter "large tuples" ?
+>> - how do you find that it took 0.108s to process the SYNC 19
+>> - what are the differences between sync_event and sync_helper (it 
+>> should be great to add it in the documentation, and in the code)
+>>
+>> thanks
+>
+1.  Units are number of characters, the value of octet_length(log_cmddata).
+
+I'm adding that to the long description.
+
+2.  We track timestamps in the slon process.  In version 2.0, there's a 
+lot more use of timestamps to evaluate how much time was spent running 
+queries against provider & subscriber.
+
+3.  The basic point of sync_helper() is to be the body of a thread that 
+does part of the work of a SYNC.
+
+-- 
+output = reverse("ofni.sailifa.ac" "@" "enworbbc")
+<http://dba2.int.libertyrms.com/>
+Christopher Browne
+(416) 673-4124 (land)
+
+From cscetbon.ext at orange-ftgroup.com  Tue Jan 27 01:09:55 2009
+From: cscetbon.ext at orange-ftgroup.com (Cyril Scetbon)
+Date: Tue Jan 27 01:10:25 2009
+Subject: [Slony1-general] Timing in Slony1 2.0
+In-Reply-To: <497DF80E.6020409@ca.afilias.info>
+References: <4975E296.3070201@orange-ftgroup.com>
+	<4979BC10.3000403@orange-ftgroup.com>
+	<497DF80E.6020409@ca.afilias.info>
+Message-ID: <497ECF63.103@orange-ftgroup.com>
+
+
+cbbrowne wrote:
+>> Cyril Scetbon wrote:
+>>> Hi,
+>>>
+>>> I've read monitoring.html from the new documentation and I do not 
+>>> understand some points :
+>>>
+>>> - what are the units of the counter "large tuples" ?
+>>> - how do you find that it took 0.108s to process the SYNC 19
+>>> - what are the differences between sync_event and sync_helper (it 
+>>> should be great to add it in the documentation, and in the code)
+>>>
+>>> thanks
+>>
+> 1.  Units are number of characters, the value of 
+> octet_length(log_cmddata).
+>
+> I'm adding that to the long description.
+>
+> 2.  We track timestamps in the slon process.  In version 2.0, there's 
+> a lot more use of timestamps to evaluate how much time was spent 
+> running queries against provider & subscriber.
+How do you calculate 0.108s in the documentation ?
+>
+> 3.  The basic point of sync_helper() is to be the body of a thread 
+> that does part of the work of a SYNC.
+>
+
+-- 
+Cyril SCETBON Happy New Year
+From cbbrowne at ca.afilias.info  Wed Jan 28 14:07:29 2009
+From: cbbrowne at ca.afilias.info (cbbrowne)
+Date: Wed Jan 28 14:07:45 2009
+Subject: [Slony1-general] Timing in Slony1 2.0
+In-Reply-To: <497ECF63.103@orange-ftgroup.com>
+References: <4975E296.3070201@orange-ftgroup.com>
+	<4979BC10.3000403@orange-ftgroup.com>
+	<497DF80E.6020409@ca.afilias.info>
+	<497ECF63.103@orange-ftgroup.com>
+Message-ID: <4980D721.9000501@ca.afilias.info>
+
+Cyril Scetbon wrote:
+>> ider & subscriber.
+> How do you calculate 0.108s in the documentation ?
+Ah, oops.  That was a typo.  It should have been 1.272s.  I just 
+committed that change.
+
+-- 
+(format nil "~S@~S" "cbbrowne" "ca.afilias.info")
+<http://dba2.int.libertyrms.com/>
+Christopher Browne
+(416) 673-4124 (land)
+
+From cbbrowne at ca.afilias.info  Wed Jan 28 14:50:08 2009
+From: cbbrowne at ca.afilias.info (cbbrowne)
+Date: Wed Jan 28 14:50:25 2009
+Subject: [Slony1-general] Problems upgrading 8.2/1.2.11 -> 8.3/1.2.15
+In-Reply-To: <4b15b0190901221526i13253facud8d250f2f378c5bb@mail.gmail.com>
+References: <4b15b0190901130956l4197d305re0406a181a22f525@mail.gmail.com>	
+	<48950.34032.qm@web23604.mail.ird.yahoo.com>	
+	<4b15b0190901140405x799db40fvde856936c22bb34e@mail.gmail.com>	
+	<172711.86721.qm@web23602.mail.ird.yahoo.com>	
+	<4b15b0190901210825i1157423alfa9bb87bc5054d32@mail.gmail.com>	
+	<87tz7rc7mx.fsf@dba2.int.libertyrms.com>
+	<4b15b0190901221526i13253facud8d250f2f378c5bb@mail.gmail.com>
+Message-ID: <4980E120.4080100@ca.afilias.info>
+
+Michael Weber wrote:
+> Christopher,
+>
+> thanks a lot for the comments,
+>
+> test_slony_state did not report anything out of the usual (when
+> running against the master, against the slave nodes it reported some
+> missing listen paths from 3 to 1), and there were no ERRORs in the
+> logfile of node2 & node3. But there were also no INSERTS with a
+> rowcount higher than zero (the database is not very busy usually,
+> daytime it is one row per 5 minutes). But sl_log_2 had many rows, and
+> was growing.
+>
+> Unfortunately I got annoyed by the problem, dropped the slony schemas,
+> truncated the replicated tables, recreated & started slony (thanks to
+> the nice slonik_scripts a piece of cake). All of this took 10 minutes,
+> even though I would have liked to find the actual problem.
+>
+> I think I messed up the system last week in trying to get replication
+> started on node2 without node3 being up-to-date (version wise), and
+> not knowing that node3 was running out of disk space.
+>
+> Thanks again for your help, and sorry for not reading enough before
+> asking stupid questions (I read about the test script only yesterday,
+> and I had never looked into the sl_* tables before yesterday either.
+>   
+You asked questions eventually, so that's a good thing ;-).  
+Unfortunately, Slony-I isn't entirely forgiving to "uncarefulness." :-(
+> About the setup:
+> I have 2 sets: set1 master  is on Tenerife, node2 and node3 are two
+> machines here in Potsdam (D). set2 master is node2, node3 is the copy
+> of it (it is data created in Potsdam from the Tenerife data). That is
+> why I pull the data for node3 from node2 (a tip I had gotten on this
+> list).
+>
+> Another question: We have mostly meta-data in our database, the "real"
+> data is kept in binary files transported via rsync (8 to 32MB
+> uncompressed, compresses to about half). Would postgresql & slony be
+> efficient in handling those things also?
+>   
+Hmm.  If you use ssh connections (an option in pg_hba.conf), or set up 
+an ssh tunnel, then that could compress the data "in flight" between 
+sites, which could reduce bandwidth usage over uncompressed handling.
+
+In our environment, we haven't done that, but it *might* make using 
+Slony-I as transport at least comparable to rsync.
+
+Slony-I basically uses plain SQL statements, so you can use things like 
+ssh tunnelling or ssh connections to improve things over uncompressed 
+behaviour.  I don't imagine that would be notably *better* than rsync, 
+but I'd expect it to be "not much worse."
+
+-- 
+let name="cbbrowne" and tld="ca.afilias.info" in name ^ "@" ^ tld;;
+<http://dba2.int.libertyrms.com/>
+Christopher Browne
+(416) 673-4124 (land)
+
+From lists at serioustechnology.com  Wed Jan 28 16:08:05 2009
+From: lists at serioustechnology.com (Geoffrey)
+Date: Wed Jan 28 16:08:23 2009
+Subject: [Slony1-general] adding tables
+Message-ID: <4980F365.70400@serioustechnology.com>
+
+We have determined that we will have to shutdown slony in order to add 
+tables to our databases.  This is because we have code that stops all 
+triggers from firing, thus we've had to set our Slony triggers to 
+'enable always'.
+
+That being said, would it be possible to add a table to our master 
+database while slony is active without causing problems to our replication?
+
+Further, would it then be possible to add the changes to our slave at a 
+later time and permit slony to properly 'catch up' on that table, while 
+simply picking up where it left off on the others?
+
+The reason for this effort is that we are in need to add a table to our 
+master ASAP, but don't have the opportunity to take the downtime in 
+order to properly make the changes to the slave as well.
+
+-- 
+Until later, Geoffrey
+
+Those who would give up essential Liberty, to purchase a little
+temporary Safety, deserve neither Liberty nor Safety.
+  - Benjamin Franklin
+From steven at maxpointinteractive.com  Wed Jan 28 23:12:39 2009
+From: steven at maxpointinteractive.com (Steven Graham)
+Date: Wed Jan 28 23:13:07 2009
+Subject: [Slony1-general] Is it possible to replicate a table to a different
+	schema?
+Message-ID: <498156E7.5030403@maxpointinteractive.com>
+
+
+I've got a table public.table_one, is it possible to replicate this 
+table to a different schema? eg: fooschema.table_one.
+
+ From what I can tell there isn't anything in the slon_tools.conf to 
+indicate this would be possible and I didn't see anythign in the docs.
+
+Thanks,
+Steve
+From fellugh at gmail.com  Thu Jan 29 00:58:08 2009
+From: fellugh at gmail.com (Fellugh)
+Date: Thu Jan 29 00:58:39 2009
+Subject: [Slony1-general] [Newbie] - Problem running Slonik_move_set
+Message-ID: <49816FA0.5080406@gmail.com>
+
+Morning List,
+
+I have successfully installed Slony1-2.0.0 against postgreSQL8.3.3.
+Slony is running on one server, and master and slave DB are on 2 two 
+servers.
+The replication is working fine but I having troubles to run 
+slonik_move_set script.
+
+$ ./slonik_move_set 1 1 2
+cluster name = my_cluster;
+ node 1 admin conninfo='host=MasterSrv dbname=MasterDB user=postgres 
+port=5432';
+ node 2 admin conninfo='host=SlaveSrv dbname=SlaveDB user=postgres 
+port=5432';
+  echo 'Locking down set 1 on node 1';
+  lock set (id = 1, origin = 1);
+  wait for event (origin = 1, confirmed = 2);
+  echo 'Locked down - moving it';
+  move set (id = 1, old origin = 1, new origin = 2);
+  echo 'Replication set 1 moved from node 1 to 2.  Remember to';
+  echo 'update your configuration file, if necessary, to note the new 
+location';
+  echo 'for the set.';
+
+$ ./slonik_move_set 1 1 2 | slonik
+<stdin>:7: Error: No admin conninfo provided for node -1
+
+If someone could point me to a direction to slove my problem...
+
+Thanks in advance
+
+Fel
+
+
+From m.perugini at 4it.it  Thu Jan 29 04:17:01 2009
+From: m.perugini at 4it.it (marco perugini)
+Date: Thu Jan 29 04:17:36 2009
+Subject: [Slony1-general] trigger and stored procedure
+Message-ID: <49819E3D.8000106@4it.it>
+
+hi list!
+i'm going to replicate a db which has triggers and stored procedures 
+that replicate some insert to another db;
+so this is my question for you: if i insert a raw in a triggered-table 
+on masterdb does the slavedb repeat the trigger? [i made "pg_dump -s" to 
+replicate the schema to the slavedb]
+i've to delete the trigger on the slavedb to avoid the "undesired double"?
+
+
+masterdb --> otherdb [original trigger] --> that's right!
+     |
+     |
+     |
+    V
+slavedb --> otherdb [replicated trigger] --> i don't want this!!
+
+thanks a lot for your feedback and i'm sorry for my bad english..
+marco
+From ajs at crankycanuck.ca  Thu Jan 29 05:21:02 2009
+From: ajs at crankycanuck.ca (Andrew Sullivan)
+Date: Thu Jan 29 05:21:07 2009
+Subject: [Slony1-general] adding tables
+In-Reply-To: <4980F365.70400@serioustechnology.com>
+References: <4980F365.70400@serioustechnology.com>
+Message-ID: <20090129132101.GA38339@shinkuro.com>
+
+On Wed, Jan 28, 2009 at 07:08:05PM -0500, Geoffrey wrote:
+> We have determined that we will have to shutdown slony in order to add  
+> tables to our databases.  This is because we have code that stops all  
+> triggers from firing, thus we've had to set our Slony triggers to  
+> 'enable always'.
+
+Sounds like you ought to fix your code ;-)
+
+> That being said, would it be possible to add a table to our master  
+> database while slony is active without causing problems to our 
+> replication?
+
+Yes.  Slony cares about what's in its sets, not about tables it knows
+nothing about.  Add the table and start using it; just remember that
+it won't be copied.
+
+> Further, would it then be possible to add the changes to our slave at a  
+> later time and permit slony to properly 'catch up' on that table, while  
+> simply picking up where it left off on the others?
+
+Maybe.  I'm not sure I understand what you mean.  But what you do,
+when you're ready to make the change, is create a new set, add the
+table to it, and let it sync up with the replica.  When it's caught up
+more or less, then you can merge set if you want.
+
+A
+
+-- 
+Andrew Sullivan
+ajs@crankycanuck.ca
+From stephane.schildknecht at postgresqlfr.org  Thu Jan 29 06:24:25 2009
+From: stephane.schildknecht at postgresqlfr.org (=?ISO-8859-15?Q?=22St=E9phane_A=2E_Schildknecht=22?=)
+Date: Thu Jan 29 06:24:15 2009
+Subject: [Slony1-general] trigger and stored procedure
+In-Reply-To: <49819E3D.8000106@4it.it>
+References: <49819E3D.8000106@4it.it>
+Message-ID: <4981BC19.5030605@postgresqlfr.org>
+
+-----BEGIN PGP SIGNED MESSAGE-----
+Hash: SHA1
+
+marco perugini a ?crit :
+> hi list!
+> i'm going to replicate a db which has triggers and stored procedures
+> that replicate some insert to another db;
+> so this is my question for you: if i insert a raw in a triggered-table
+> on masterdb does the slavedb repeat the trigger? [i made "pg_dump -s" to
+> replicate the schema to the slavedb]
+> i've to delete the trigger on the slavedb to avoid the "undesired double"?
+> 
+> 
+> masterdb --> otherdb [original trigger] --> that's right!
+>     |
+>     |
+>     |
+>    V
+> slavedb --> otherdb [replicated trigger] --> i don't want this!!
+> 
+> thanks a lot for your feedback and i'm sorry for my bad english..
+> marco
+
+Hi,
+
+Slony does deactivate already existing triggers on the slave.
+
+SAS
+-----BEGIN PGP SIGNATURE-----
+Version: GnuPG v1.4.6 (GNU/Linux)
+Comment: Using GnuPG with Mozilla - http://enigmail.mozdev.org
+
+iD8DBQFJgbwZA+REPKWGI0ERAqwfAJ9NusMTB7GXaCFoZstdiMG68xgSfQCg0IYb
+Fu7nW8KOKxxnn14VSJVgcu4=
+=3KZx
+-----END PGP SIGNATURE-----
+From cbbrowne at ca.afilias.info  Thu Jan 29 07:42:43 2009
+From: cbbrowne at ca.afilias.info (cbbrowne)
+Date: Thu Jan 29 07:42:50 2009
+Subject: [Slony1-general] Is it possible to replicate a table to a
+	different schema?
+In-Reply-To: <498156E7.5030403@maxpointinteractive.com>
+References: <498156E7.5030403@maxpointinteractive.com>
+Message-ID: <4981CE73.4030901@ca.afilias.info>
+
+Steven Graham wrote:
+>
+> I've got a table public.table_one, is it possible to replicate this 
+> table to a different schema? eg: fooschema.table_one.
+>
+> From what I can tell there isn't anything in the slon_tools.conf to 
+> indicate this would be possible and I didn't see anythign in the docs.
+In principle, it ought to be possible to do such a thing, but Slony-I 
+doesn't have a way to indicate the change in table name, and I have 
+thought a bit about this, and haven't arrived at any reasonably elegant 
+way to configure this sort of capability.  It's a capability that seems 
+plausible enough that several people have thought of it, but it hasn't 
+gotten to the "irritation point" where it was worth saying "let's drop 
+everything and figure out how to MAKE this happen."
+
+If we knew how to configure it, implementation ought to be not too 
+wildly difficult ;-).
+
+-- 
+output = ("cbbrowne" "@" "ca.afilias.info")
+<http://dba2.int.libertyrms.com/>
+Christopher Browne
+(416) 673-4124 (land)
+
+From steven at maxpointinteractive.com  Thu Jan 29 08:52:50 2009
+From: steven at maxpointinteractive.com (Steven Graham)
+Date: Thu Jan 29 08:53:06 2009
+Subject: [Slony1-general] Is it possible to replicate a table to a
+	different schema?
+In-Reply-To: <4981CE73.4030901@ca.afilias.info>
+References: <498156E7.5030403@maxpointinteractive.com>
+	<4981CE73.4030901@ca.afilias.info>
+Message-ID: <4981DEE2.2000902@maxpointinteractive.com>
+
+Cool, just seeing if it was there. It would be nice, but I agree that 
+it's not worth dropping everything to implement... And yeah it doesn't 
+seem like there would be an elegant solution as to where to configure 
+it. There would have to be some kind of table/schema mapping rules of 
+some sort. Thanks for the quick response.
+
+-Steve
+
+cbbrowne wrote:
+> Steven Graham wrote:
+>>
+>> I've got a table public.table_one, is it possible to replicate this 
+>> table to a different schema? eg: fooschema.table_one.
+>>
+>> From what I can tell there isn't anything in the slon_tools.conf to 
+>> indicate this would be possible and I didn't see anythign in the docs.
+> In principle, it ought to be possible to do such a thing, but Slony-I 
+> doesn't have a way to indicate the change in table name, and I have 
+> thought a bit about this, and haven't arrived at any reasonably 
+> elegant way to configure this sort of capability.  It's a capability 
+> that seems plausible enough that several people have thought of it, 
+> but it hasn't gotten to the "irritation point" where it was worth 
+> saying "let's drop everything and figure out how to MAKE this happen."
+>
+> If we knew how to configure it, implementation ought to be not too 
+> wildly difficult ;-).
+>
+From lists at serioustechnology.com  Thu Jan 29 09:35:36 2009
+From: lists at serioustechnology.com (Geoffrey)
+Date: Thu Jan 29 09:35:46 2009
+Subject: [Slony1-general] adding tables
+In-Reply-To: <20090129132101.GA38339@shinkuro.com>
+References: <4980F365.70400@serioustechnology.com>
+	<20090129132101.GA38339@shinkuro.com>
+Message-ID: <4981E8E8.7010500@serioustechnology.com>
+
+Andrew Sullivan wrote:
+> On Wed, Jan 28, 2009 at 07:08:05PM -0500, Geoffrey wrote:
+>> We have determined that we will have to shutdown slony in order to add  
+>> tables to our databases.  This is because we have code that stops all  
+>> triggers from firing, thus we've had to set our Slony triggers to  
+>> 'enable always'.
+> 
+> Sounds like you ought to fix your code ;-)
+
+I'm working on that, but there's a difference in philosophy here.  I've 
+just got to convince them I'm right and their wrong. ;(
+
+>> That being said, would it be possible to add a table to our master  
+>> database while slony is active without causing problems to our 
+>> replication?
+> 
+> Yes.  Slony cares about what's in its sets, not about tables it knows
+> nothing about.  Add the table and start using it; just remember that
+> it won't be copied.
+
+Awesome, as I thought.
+
+>> Further, would it then be possible to add the changes to our slave at a  
+>> later time and permit slony to properly 'catch up' on that table, while  
+>> simply picking up where it left off on the others?
+> 
+> Maybe.  I'm not sure I understand what you mean.  But what you do,
+> when you're ready to make the change, is create a new set, add the
+> table to it, and let it sync up with the replica.  When it's caught up
+> more or less, then you can merge set if you want.
+
+Actually, I think you do. ;)
+
+So I would not add it to an existing set, I would simply create a new 
+set, with that table in it?  That really is a better approach then I was 
+considering.
+
+So, the fact that I use the altperl scripts and the slon_tools.conf 
+configuration file approach to my databases, I can simply add a new set 
+to my existing configuration and then run the appropriate commands to 
+get that table to sync?
+
+-- 
+Until later, Geoffrey
+
+Those who would give up essential Liberty, to purchase a little
+temporary Safety, deserve neither Liberty nor Safety.
+  - Benjamin Franklin
+From devrim at gunduz.org  Thu Jan 29 10:32:01 2009
+From: devrim at gunduz.org (Devrim =?ISO-8859-1?Q?G=DCND=DCZ?=)
+Date: Thu Jan 29 10:32:11 2009
+Subject: [Slony1-general] www.slony.info scheduled maintenance
+Message-ID: <1233253921.9773.143.camel@laptop.gunduz.org>
+
+SGksCgpXZSAoQ01EKSB3aWxsIGJlIGRvaW5nIHNvbWUgbWFpbnRlbmFuY2Ugb24gU2xvbnkuaW5m
+byBzZXJ2ZXIgYXQgNzoxNSBwbQpQU1QgdG9uaWdodCAoSmFuIDI5LCAyMDA5KS4gV2UgZG9uJ3Qg
+ZXhwZWN0IGRvd250aW1lIGZvciBtb3JlIHRoYW4gMTAKbWlucy4KCkknbGwgbGV0IHlvdSBrbm93
+IG9uY2UgdGhlIHNlcnZlciB3aWxsIGNvbWUgdXAgYWdhaW4uCgpTaW5jZXJlbHksCi0tIApEZXZy
+aW0gR8OcTkTDnFosIFJIQ0UKZGV2cmltfmd1bmR1ei5vcmcsIGRldnJpbX5Qb3N0Z3JlU1FMLm9y
+ZywgZGV2cmltLmd1bmR1en5saW51eC5vcmcudHIKICAgICAgICAgICAgICAgICAgIGh0dHA6Ly93
+d3cuZ3VuZHV6Lm9yZwotLS0tLS0tLS0tLS0tLSBuZXh0IHBhcnQgLS0tLS0tLS0tLS0tLS0KQSBu
+b24tdGV4dCBhdHRhY2htZW50IHdhcyBzY3J1YmJlZC4uLgpOYW1lOiBub3QgYXZhaWxhYmxlClR5
+cGU6IGFwcGxpY2F0aW9uL3BncC1zaWduYXR1cmUKU2l6ZTogMTk3IGJ5dGVzCkRlc2M6IFRoaXMg
+aXMgYSBkaWdpdGFsbHkgc2lnbmVkIG1lc3NhZ2UgcGFydApVcmwgOiBodHRwOi8vbGlzdHMuc2xv
+bnkuaW5mby9waXBlcm1haWwvc2xvbnkxLWdlbmVyYWwvYXR0YWNobWVudHMvMjAwOTAxMjkvN2Vl
+M2JjNTUvYXR0YWNobWVudC5wZ3AK
+From ajs at crankycanuck.ca  Thu Jan 29 11:48:49 2009
+From: ajs at crankycanuck.ca (Andrew Sullivan)
+Date: Thu Jan 29 11:49:05 2009
+Subject: [Slony1-general] adding tables
+In-Reply-To: <4981E8E8.7010500@serioustechnology.com>
+References: <4980F365.70400@serioustechnology.com>
+	<20090129132101.GA38339@shinkuro.com>
+	<4981E8E8.7010500@serioustechnology.com>
+Message-ID: <20090129194848.GM38339@shinkuro.com>
+
+On Thu, Jan 29, 2009 at 12:35:36PM -0500, Geoffrey wrote:
+> So I would not add it to an existing set, I would simply create a new  
+> set, with that table in it?  That really is a better approach then I was  
+> considering.
+
+That's in fact the only way to do it.  You can't add a new table to an
+existing set.  This is covered in the manual.
+
+A
+-- 
+Andrew Sullivan
+ajs@crankycanuck.ca
+From lists at serioustechnology.com  Thu Jan 29 11:57:56 2009
+From: lists at serioustechnology.com (Geoffrey)
+Date: Thu Jan 29 11:58:08 2009
+Subject: [Slony1-general] adding tables
+In-Reply-To: <20090129194848.GM38339@shinkuro.com>
+References: <4980F365.70400@serioustechnology.com>
+	<20090129132101.GA38339@shinkuro.com>
+	<4981E8E8.7010500@serioustechnology.com>
+	<20090129194848.GM38339@shinkuro.com>
+Message-ID: <49820A44.4030000@serioustechnology.com>
+
+Andrew Sullivan wrote:
+> On Thu, Jan 29, 2009 at 12:35:36PM -0500, Geoffrey wrote:
+>> So I would not add it to an existing set, I would simply create a new  
+>> set, with that table in it?  That really is a better approach then I was  
+>> considering.
+> 
+> That's in fact the only way to do it.  You can't add a new table to an
+> existing set.  This is covered in the manual.
+
+Ouch, seems I missed that detail, thanks.
+
+-- 
+Until later, Geoffrey
+
+Those who would give up essential Liberty, to purchase a little
+temporary Safety, deserve neither Liberty nor Safety.
+  - Benjamin Franklin
+From ahodgson at simkin.ca  Thu Jan 29 12:04:17 2009
+From: ahodgson at simkin.ca (Alan Hodgson)
+Date: Thu Jan 29 12:04:29 2009
+Subject: [Slony1-general] adding tables
+In-Reply-To: <49820A44.4030000@serioustechnology.com>
+References: <4980F365.70400@serioustechnology.com>
+	<20090129194848.GM38339@shinkuro.com>
+	<49820A44.4030000@serioustechnology.com>
+Message-ID: <200901291204.17244@hal.medialogik.com>
+
+On Thursday 29 January 2009, Geoffrey <lists@serioustechnology.com> wrote:
+> Andrew Sullivan wrote:
+> > On Thu, Jan 29, 2009 at 12:35:36PM -0500, Geoffrey wrote:
+> >> So I would not add it to an existing set, I would simply create a new
+> >> set, with that table in it?  That really is a better approach then I
+> >> was considering.
+> >
+> > That's in fact the only way to do it.  You can't add a new table to an
+> > existing set.  This is covered in the manual.
+>
+> Ouch, seems I missed that detail, thanks.
+
+
+There is a mostly undocumented function that can add an empty table to an 
+existing set. It's buggy; you have to make sure the execute script that 
+runs it is applied to exactly the same set, and if the table has foreign 
+keys pointed to it it will break due to the use of truncate on the slaves, 
+but it works otherwise:
+
+select _cluster.add_empty_table_to_replication (set id, table id, schema, 
+table_name, index name, comments)
+
+ ... run in an execute script.
+
+
+
+-- 
+Current Peeve: The mindset that the Internet is some sort of school for
+novice sysadmins and that everyone -not- doing stupid dangerous things
+should act like patient teachers with the ones who are. -- Bill Cole, NANAE 
+From m.perugini at 4it.it  Thu Jan 29 16:11:36 2009
+From: m.perugini at 4it.it (marco perugini)
+Date: Thu Jan 29 16:11:54 2009
+Subject: [Slony1-general] trigger and stored procedure
+In-Reply-To: <4981BC19.5030605@postgresqlfr.org>
+References: <49819E3D.8000106@4it.it> <4981BC19.5030605@postgresqlfr.org>
+Message-ID: <498245B8.3030705@4it.it>
+
+does Slony deactivate already existing triggers on the master also? this sh=
+ould be a problem.. :(
+
+thnaks a lot!
+m.
+
+
+
+
+
+St=E9phane A. Schildknecht ha scritto:
+> -----BEGIN PGP SIGNED MESSAGE-----
+> Hash: SHA1
+>
+> marco perugini a =E9crit :
+>   =
+
+>> hi list!
+>> i'm going to replicate a db which has triggers and stored procedures
+>> that replicate some insert to another db;
+>> so this is my question for you: if i insert a raw in a triggered-table
+>> on masterdb does the slavedb repeat the trigger? [i made "pg_dump -s" to
+>> replicate the schema to the slavedb]
+>> i've to delete the trigger on the slavedb to avoid the "undesired double=
+"?
+>>
+>>
+>> masterdb --> otherdb [original trigger] --> that's right!
+>>     |
+>>     |
+>>     |
+>>    V
+>> slavedb --> otherdb [replicated trigger] --> i don't want this!!
+>>
+>> thanks a lot for your feedback and i'm sorry for my bad english..
+>> marco
+>>     =
+
+>
+> Hi,
+>
+> Slony does deactivate already existing triggers on the slave.
+>
+> SAS
+> -----BEGIN PGP SIGNATURE-----
+> Version: GnuPG v1.4.6 (GNU/Linux)
+> Comment: Using GnuPG with Mozilla - http://enigmail.mozdev.org
+>
+> iD8DBQFJgbwZA+REPKWGI0ERAqwfAJ9NusMTB7GXaCFoZstdiMG68xgSfQCg0IYb
+> Fu7nW8KOKxxnn14VSJVgcu4=3D
+> =3D3KZx
+> -----END PGP SIGNATURE-----
+>
+>
+>   =
+
+
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20090130/=
+2122db51/attachment.htm
+From devrim at gunduz.org  Thu Jan 29 19:19:04 2009
+From: devrim at gunduz.org (Devrim =?ISO-8859-1?Q?G=DCND=DCZ?=)
+Date: Thu Jan 29 19:19:30 2009
+Subject: [Slony1-general] Re: www.slony.info scheduled maintenance
+In-Reply-To: <1233253921.9773.143.camel@laptop.gunduz.org>
+References: <1233253921.9773.143.camel@laptop.gunduz.org>
+Message-ID: <1233285544.9773.171.camel@laptop.gunduz.org>
+
+SGksCgpPbiBUaHUsIDIwMDktMDEtMjkgYXQgMjA6MzIgKzAyMDAsIERldnJpbSBHw5xORMOcWiB3
+cm90ZToKCj4gV2UgKENNRCkgd2lsbCBiZSBkb2luZyBzb21lIG1haW50ZW5hbmNlIG9uIFNsb255
+LmluZm8gc2VydmVyIGF0IDc6MTUgcG0KPiBQU1QgdG9uaWdodCAoSmFuIDI5LCAyMDA5KS4gV2Ug
+ZG9uJ3QgZXhwZWN0IGRvd250aW1lIGZvciBtb3JlIHRoYW4gMTAKPiBtaW5zLgo+IAo+IEknbGwg
+bGV0IHlvdSBrbm93IG9uY2UgdGhlIHNlcnZlciB3aWxsIGNvbWUgdXAgYWdhaW4uCgpBbGwgc2Vy
+dmljZXMgYXJlIGF2YWlsYWJsZSBub3cuCgpSZWdhcmRzLAotLSAKRGV2cmltIEfDnE5Ew5xaLCBS
+SENFCmRldnJpbX5ndW5kdXoub3JnLCBkZXZyaW1+UG9zdGdyZVNRTC5vcmcsIGRldnJpbS5ndW5k
+dXp+bGludXgub3JnLnRyCiAgICAgICAgICAgICAgICAgICBodHRwOi8vd3d3Lmd1bmR1ei5vcmcK
+LS0tLS0tLS0tLS0tLS0gbmV4dCBwYXJ0IC0tLS0tLS0tLS0tLS0tCkEgbm9uLXRleHQgYXR0YWNo
+bWVudCB3YXMgc2NydWJiZWQuLi4KTmFtZTogbm90IGF2YWlsYWJsZQpUeXBlOiBhcHBsaWNhdGlv
+bi9wZ3Atc2lnbmF0dXJlClNpemU6IDE5NyBieXRlcwpEZXNjOiBUaGlzIGlzIGEgZGlnaXRhbGx5
+IHNpZ25lZCBtZXNzYWdlIHBhcnQKVXJsIDogaHR0cDovL2xpc3RzLnNsb255LmluZm8vcGlwZXJt
+YWlsL3Nsb255MS1nZW5lcmFsL2F0dGFjaG1lbnRzLzIwMDkwMTMwLzlhMzVhMzlhL2F0dGFjaG1l
+bnQucGdwCg==
+From guillaume at lelarge.info  Thu Jan 29 23:09:14 2009
+From: guillaume at lelarge.info (Guillaume Lelarge)
+Date: Thu Jan 29 23:09:42 2009
+Subject: [Slony1-general] trigger and stored procedure
+In-Reply-To: <498245B8.3030705@4it.it>
+References: <49819E3D.8000106@4it.it> <4981BC19.5030605@postgresqlfr.org>
+	<498245B8.3030705@4it.it>
+Message-ID: <4982A79A.3090202@lelarge.info>
+
+marco perugini a ?crit :
+> does Slony deactivate already existing triggers on the master also? this
+> should be a problem.. :(
+> 
+
+No, only on the slaves.
+
+
+-- 
+Guillaume.
+ http://www.postgresqlfr.org
+ http://dalibo.com
+From madan.feedback at gmail.com  Fri Jan 30 03:18:34 2009
+From: madan.feedback at gmail.com (Madan Thapa)
+Date: Fri Jan 30 03:19:05 2009
+Subject: [Slony1-general] slony-I master/slave replication
+Message-ID: <3a4237470901300318h7abdc3d0k93f13a292f03d6d0@mail.gmail.com>
+
+Hello,
+
+I am new to postgresql and slony  and looking for some help on the
+following.
+
+
+I have read many articles about  slony-I master/slave replication, which
+talks about replication a database from master to sql.  I have confusion
+about one thing.
+
+Does it not automatically replicate all database from master to slave , or
+do we need to setup replication for each database from master to slave?
+What if we added new database , do we need to setup replication for that or
+it is being replicated from master to slave automatically? ( like in mysql )
+
+
+
+Please advise.
+
+
+
+Thank you
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20090130/=
+ee69ccd2/attachment.htm
+From madan.feedback at gmail.com  Fri Jan 30 03:59:40 2009
+From: madan.feedback at gmail.com (Madan Thapa)
+Date: Fri Jan 30 04:00:14 2009
+Subject: [Slony1-general] pg_config for slony1 install
+Message-ID: <3a4237470901300359x54e625bdsc6b2ce8253b5b9a4@mail.gmail.com>
+
+Hi,
+
+
+I have installed postgresql using yum.
+
+
+-bash-3.2# rpm -qa |  grep postgres
+postgresql-libs-8.3.5-1PGDG.rhel5
+postgresql-8.3.5-1PGDG.rhel5
+postgresql-server-8.3.5-1PGDG.rhel5
+compat-postgresql-libs-4-1PGDG.rhel5
+
+
+
+-bash-3.2# ps faux |  egrep 'pgsql|postgres'
+postgres 23733  0.0  0.7  40716  4108 ?        S    Jan29   0:02
+/usr/bin/postmaster -p 5432 -D /var/lib/pgsql/data
+postgres 23758  0.0  0.1  12040   888 ?        Ss   Jan29   0:00  \_
+postgres: logger process
+postgres 23761  0.0  0.2  40716  1228 ?        Ss   Jan29   0:00  \_
+postgres: writer process
+postgres 23763  0.0  0.1  40716  1028 ?        Ss   Jan29   0:00  \_
+postgres: wal writer process
+postgres 23764  0.0  0.2  40848  1136 ?        Ss   Jan29   0:00  \_
+postgres: autovacuum launcher process
+postgres 23765  0.0  0.1  12036   920 ?        Ss   Jan29   0:00  \_
+postgres: stats collector process
+root     11393  0.0  0.1   2992   704 pts/0    S+   05:44   0:00      \_
+egrep pgsql|postgres
+-bash-3.2#
+
+
+
+
+Now to install slony what would be pg_config path ?
+
+Docs sasy:
+*Normally,* it ought to be sufficient to run configure
+--with-pgconfigdir=3D/some/path/somewhere, where /some/path/somewhere is the
+place where the PostgreSQL program *pg_config* is located. From *pg_config*,
+the configure script can determine the various locations where
+PostgreSQLcomponents are found, which indicates where the essential
+components of
+Slony-I must be installed.
+
+
+-bash-3.2# locate pg_config
+locate: can not open `/var/lib/mlocate/mlocate.db': No such file or
+directory
+-bash-3.2# updatedb
+-bash-3.2# locate pg_config
+-bash-3.2# ls /var/lib/pgsql/data/
+base    pg_clog      pg_ident.conf  pg_multixact  pg_tblspc    PG_VERSION
+postgresql.conf  postmaster.pid
+global  pg_hba.conf  pg_log         pg_subtrans   pg_twophase  pg_xlog
+postmaster.opts
+-bash-3.2#
+
+
+
+-bash-3.2# find / -name pg_config
+-bash-3.2#
+-bash-3.2#
+
+
+
+
+
+Path of some important binaries on my system are
+#################################################
+/usr/bin/psql
+/usr/bin/createdb
+/usr/bin/createlang
+/usr/bin/createuser
+/usr/bin/pg_dump
+
+
+
+
+Please advise.
+
+
+Thanks
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20090130/=
+1de8e972/attachment.htm
+From madan.feedback at gmail.com  Fri Jan 30 04:40:38 2009
+From: madan.feedback at gmail.com (Madan Thapa)
+Date: Fri Jan 30 04:41:12 2009
+Subject: [Slony1-general] Re: pg_config for slony1 install
+In-Reply-To: <3a4237470901300359x54e625bdsc6b2ce8253b5b9a4@mail.gmail.com>
+References: <3a4237470901300359x54e625bdsc6b2ce8253b5b9a4@mail.gmail.com>
+Message-ID: <3a4237470901300440u36ac67b3q532eaca107cfc678@mail.gmail.com>
+
+>
+>
+> I have installed postgresql using yum.
+>
+>
+> -bash-3.2# rpm -qa |  grep postgres
+> postgresql-libs-8.3.5-1PGDG.rhel5
+> postgresql-8.3.5-1PGDG.rhel5
+> postgresql-server-8.3.5-1PGDG.rhel5
+> compat-postgresql-libs-4-1PGDG.rhel5
+>
+>
+>
+> -bash-3.2# ps faux |  egrep 'pgsql|postgres'
+> postgres 23733  0.0  0.7  40716  4108 ?        S    Jan29   0:02
+> /usr/bin/postmaster -p 5432 -D /var/lib/pgsql/data
+> postgres 23758  0.0  0.1  12040   888 ?        Ss   Jan29   0:00  \_
+> postgres: logger process
+> postgres 23761  0.0  0.2  40716  1228 ?        Ss   Jan29   0:00  \_
+> postgres: writer process
+> postgres 23763  0.0  0.1  40716  1028 ?        Ss   Jan29   0:00  \_
+> postgres: wal writer process
+> postgres 23764  0.0  0.2  40848  1136 ?        Ss   Jan29   0:00  \_
+> postgres: autovacuum launcher process
+> postgres 23765  0.0  0.1  12036   920 ?        Ss   Jan29   0:00  \_
+> postgres: stats collector process
+> root     11393  0.0  0.1   2992   704 pts/0    S+   05:44   0:00      \_
+> egrep pgsql|postgres
+> -bash-3.2#
+>
+>
+>
+>
+> Now to install slony what would be pg_config path ?
+>
+> Docs sasy:
+> *Normally,* it ought to be sufficient to run configure
+> --with-pgconfigdir=3D/some/path/somewhere, where /some/path/somewhere is =
+the
+> place where the PostgreSQL program *pg_config* is located. From *pg_config
+> *, the configure script can determine the various locations where
+> PostgreSQL components are found, which indicates where the essential
+> components of Slony-I must be installed.
+>
+>
+> -bash-3.2# locate pg_config
+> locate: can not open `/var/lib/mlocate/mlocate.db': No such file or
+> directory
+> -bash-3.2# updatedb
+> -bash-3.2# locate pg_config
+> -bash-3.2# ls /var/lib/pgsql/data/
+> base    pg_clog      pg_ident.conf  pg_multixact  pg_tblspc    PG_VERSION
+> postgresql.conf  postmaster.pid
+> global  pg_hba.conf  pg_log         pg_subtrans   pg_twophase  pg_xlog
+> postmaster.opts
+> -bash-3.2#
+>
+>
+>
+> -bash-3.2# find / -name pg_config
+> -bash-3.2#
+> -bash-3.2#
+>
+>
+>
+>
+>
+> Path of some important binaries on my system are
+> #################################################
+> /usr/bin/psql
+> /usr/bin/createdb
+> /usr/bin/createlang
+> /usr/bin/createuser
+> /usr/bin/pg_dump
+>
+>
+>
+>
+> Please advise.
+>
+>
+> Thanks
+>
+>
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D>
+
+*yum install slony1   did it*
+
+
+-bash-3.2# yum install slony1
+pgdg83                    100% |=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D| 1.9 kB    00:00
+rpmforge                  100% |=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D| 1.1 kB    00:00
+base                      100% |=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D| 1.1 kB    00:00
+updates                   100% |=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D|  951 B    00:00
+addons                    100% |=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D|  951 B    00:00
+extras                    100% |=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D| 1.1 kB    00:00
+Setting up Install Process
+Parsing package install arguments
+Resolving Dependencies
+--> Running transaction check
+---> Package slony1.i386 0:1.2.15-3.rhel5 set to be updated
+--> Processing Dependency: perl(DBI) for package: slony1
+--> Processing Dependency: perl-DBD-Pg for package: slony1
+--> Running transaction check
+---> Package perl-DBD-Pg.i386 0:2.11.5-1.el5.rf set to be updated
+--> Processing Dependency: perl(version) for package: perl-DBD-Pg
+---> Package perl-DBI.i386 0:1.607-1.el5.rf set to be updated
+--> Processing Dependency: perl(RPC::PlServer) >=3D 0.2001 for package:
+perl-DBI
+--> Processing Dependency: perl(RPC::PlClient) >=3D 0.2000 for package:
+perl-DBI
+--> Running transaction check
+---> Package perl-version.i386 0:0.74-1.el5.rf set to be updated
+---> Package perl-PlRPC.noarch 0:0.2020-1.el5.rf set to be updated
+--> Processing Dependency: perl(Net::Daemon) for package: perl-PlRPC
+--> Processing Dependency: perl(Net::Daemon::Log) for package: perl-PlRPC
+--> Processing Dependency: perl(Net::Daemon::Test) for package: perl-PlRPC
+--> Running transaction check
+---> Package perl-Net-Daemon.noarch 0:0.43-1.el5.rf set to be updated
+--> Finished Dependency Resolution
+
+Dependencies Resolved
+
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D
+ Package                 Arch       Version          Repository        Size
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D
+Installing:
+ slony1                  i386       1.2.15-3.rhel5   pgdg83            267 k
+Installing for dependencies:
+ perl-DBD-Pg             i386       2.11.5-1.el5.rf  rpmforge          301 k
+ perl-DBI                i386       1.607-1.el5.rf   rpmforge          866 k
+ perl-Net-Daemon         noarch     0.43-1.el5.rf    rpmforge           44 k
+ perl-PlRPC              noarch     0.2020-1.el5.rf  rpmforge           33 k
+ perl-version            i386       0.74-1.el5.rf    rpmforge           76 k
+
+Transaction Summary
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D
+Install      6 Package(s)
+Update       0 Package(s)
+Remove       0 Package(s)
+
+Total download size: 1.6 M
+Is this ok [y/N]: y
+Downloading Packages:
+(1/6): slony1-1.2.15-3.rh 100% |=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D| 267 kB    00:00
+(2/6): perl-PlRPC-0.2020- 100% |=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D|  33 kB    00:00
+(3/6): perl-version-0.74- 100% |=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D|  76 kB    00:00
+(4/6): perl-Net-Daemon-0. 100% |=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D|  44 kB    00:00
+(5/6): perl-DBD-Pg-2.11.5 100% |=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D| 301 kB    00:00
+(6/6): perl-DBI-1.607-1.e 100% |=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D| 866 kB    00:02
+Running rpm_check_debug
+Running Transaction Test
+Finished Transaction Test
+Transaction Test Succeeded
+Running Transaction
+  Installing: perl-version                 ######################### [1/6]
+  Installing: perl-Net-Daemon              ######################### [2/6]
+  Installing: perl-PlRPC                   ######################### [3/6]
+  Installing: perl-DBI                     ######################### [4/6]
+  Installing: perl-DBD-Pg                  ######################### [5/6]
+  Installing: slony1                       ######################### [6/6]
+
+Installed: slony1.i386 0:1.2.15-3.rhel5
+Dependency Installed: perl-DBD-Pg.i386 0:2.11.5-1.el5.rf perl-DBI.i386
+0:1.607-1.el5.rf perl-Net-Daemon.noarch 0:0.43-1.el5.rf perl-PlRPC.noarch
+0:0.2020-1.el5.rf perl-version.i386 0:0.74-1.el5.rf
+Complete!
+
+
+
+-bash-3.2# slo
+slogin                          slonik_drop_set
+slonik_subscribe_set
+slon                            slonik_drop_table
+slonik_uninstall_nodes
+slon_kill                       slonik_execute_script
+slonik_unsubscribe_set
+slon_start                      slonik_failover
+slonik_update_nodes
+slon_watchdog                   slonik_init_cluster
+slony-cluster-analysis-mass.sh
+slon_watchdog2                  slonik_merge_sets
+slony-cluster-analysis.sh
+slonik                          slonik_move_set
+slony1_dump.sh
+slonik_build_env                slonik_print_preamble
+slony1_extract_schema.sh
+slonik_create_set               slonik_restart_node
+slony_logshipper
+slonik_drop_node                slonik_store_node
+slony_show_configuration
+-bash-3.2# slo
+slogin                          slonik_drop_set
+slonik_subscribe_set
+slon                            slonik_drop_table
+slonik_uninstall_nodes
+slon_kill                       slonik_execute_script
+slonik_unsubscribe_set
+slon_start                      slonik_failover
+slonik_update_nodes
+slon_watchdog                   slonik_init_cluster
+slony-cluster-analysis-mass.sh
+slon_watchdog2                  slonik_merge_sets
+slony-cluster-analysis.sh
+slonik                          slonik_move_set
+slony1_dump.sh
+slonik_build_env                slonik_print_preamble
+slony1_extract_schema.sh
+slonik_create_set               slonik_restart_node
+slony_logshipper
+slonik_drop_node                slonik_store_node
+slony_show_configuration
+-bash-3.2#
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20090130/=
+745eebf8/attachment-0001.htm
+From guillaume at lelarge.info  Fri Jan 30 05:09:48 2009
+From: guillaume at lelarge.info (Guillaume Lelarge)
+Date: Fri Jan 30 05:09:52 2009
+Subject: [Slony1-general] slony-I master/slave replication
+In-Reply-To: <3a4237470901300318h7abdc3d0k93f13a292f03d6d0@mail.gmail.com>
+References: <3a4237470901300318h7abdc3d0k93f13a292f03d6d0@mail.gmail.com>
+Message-ID: <4982FC1C.9080109@lelarge.info>
+
+Hi,
+
+Madan Thapa a ?crit :
+> [...]
+> Does it not automatically replicate all database from master to slave , or
+> do we need to setup replication for each database from master to slave?
+
+You need to specify each object you want to replicate, which means a
+list of tables and sequences.
+
+> What if we added new database , do we need to setup replication for that or
+> it is being replicated from master to slave automatically? ( like in mysql )
+> 
+
+It's not automatic. You need to tell Slony to replicate all objects in
+the new database.
+
+
+-- 
+Guillaume.
+ http://www.postgresqlfr.org
+ http://dalibo.com
+From tilman.baumann at collax.com  Fri Jan 30 08:18:04 2009
+From: tilman.baumann at collax.com (Tilman Baumann)
+Date: Fri Jan 30 08:18:13 2009
+Subject: [Slony1-general] setup where slave nodes can not connect each other
+Message-ID: <4983283C.7000001@collax.com>
+
+My cluster has gone out of sync since I added another node.
+
+The setup has one master and two slaves. The master can connect both =
+
+slaves but each of the slaves can only connect to the master not the =
+
+other slave.
+Is this setup feasible?
+
+The Master has a store path for each of the slaves. But the slaves have =
+
+only one to the master.
+But each node Listens every other. This was created by the slonik =
+
+command subscribe set.
+Am I right in assuming that listen does not necessaryly implies dorect =
+
+db connection aka. store path?
+
+
+I could make a connection between the nodes, but I would prefer not to. =
+
+Especially because it would need VPN setups into networks outside of our =
+
+company.
+
+I have attached the output of test_slony_state-dbi.pl
+
+-- =
+
+Tilman Baumann
+Software Developer
+Collax GmbH . Boetzinger Strasse 60 . 79111 Freiburg . Germany
+
+p: +49 (0) 89-990157-0
+f: +49 (0) 89-990157-11
+
+Geschaeftsfuehrer: Boris Nalbach
+AG Muenchen HRB 158898, Ust.-IdNr: DE 814464942
+-------------- next part --------------
+DSN: dbi:Pg:dbname=3Dlicenseserver;host=3D172.16.64.5;port=3D5432;user=3Dli=
+censeserver;password=3DXXX
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D
+Rummage for DSNs
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D
+Query:
+
+   select p.pa_server, p.pa_conninfo
+   from "_licenseserver_cluster".sl_path p
+--   where exists (select * from "_licenseserver_cluster".sl_subscribe s wh=
+ere
+--                          (s.sub_provider =3D p.pa_server or s.sub_receiv=
+er =3D p.pa_server) and
+--                          sub_active =3D 't')
+   group by pa_server, pa_conninfo;
+
+
+Tests for node 4 - DSN =3D dbname=3Dlicenseserver host=3D172.16.254.7 port=
+=3D5432 user=3Dlicenseserver password=3DXXX
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D
+pg_listener info:
+Pages: 16
+Tuples: 2
+
+Size Tests
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D
+       sl_log_1        19 692.000000
+       sl_log_2        28 266.000000
+      sl_seqlog      1910 275820.000000
+
+Listen Path Analysis
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D
+No problems found with sl_listen
+
+---------------------------------------------------------------------------=
+-----
+Summary of event info
+ Origin  Min SYNC  Max SYNC Min SYNC Age Max SYNC Age
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D
+      3   1073918   1073918 2 days 01:54:00 2 days 01:54:00    1
+      1    920955    990060     00:00:00 8 days 01:44:00    0
+      4         1     35015     00:00:00 4 days 05:26:00    0
+
+
+---------------------------------------------------------------------------=
+------
+Summary of sl_confirm aging
+   Origin   Receiver   Min SYNC   Max SYNC  Age of latest SYNC  Age of elde=
+st SYNC
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D
+        1          3     920955     920955  8 days 01:44:00  8 days 01:44:0=
+0    1
+        1          4     989563     989563      01:23:00      01:23:00    1
+        3          1    1073918    1073918  2 days 01:54:00  2 days 01:54:0=
+0    1
+        3          4    1073918    1073918  2 days 01:54:00  2 days 01:54:0=
+0    1
+        4          1      34946      35015      00:00:00      00:11:00    0
+        4          3          0          0  4 days 05:26:00  4 days 05:26:0=
+0    1
+
+
+---------------------------------------------------------------------------=
+---
+
+Listing of old open connections
+       Database             PID            User    Query Age               =
+ Query
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D
+
+
+Tests for node 1 - DSN =3D dbname=3Dlicenseserver host=3D172.16.64.5 port=
+=3D5432 user=3Dlicenseserver password=3DXXX
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D
+pg_listener info:
+Pages: 16
+Tuples: 2
+
+Size Tests
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D
+       sl_log_1        19 692.000000
+       sl_log_2        28 266.000000
+      sl_seqlog      1910 275820.000000
+
+Listen Path Analysis
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D
+No problems found with sl_listen
+
+---------------------------------------------------------------------------=
+-----
+Summary of event info
+ Origin  Min SYNC  Max SYNC Min SYNC Age Max SYNC Age
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D
+      3   1073918   1073918 2 days 01:54:00 2 days 01:54:00    1
+      1    920955    990060     00:00:00 8 days 01:44:00    0
+      4         1     35015     00:00:00 4 days 05:26:00    0
+
+
+---------------------------------------------------------------------------=
+------
+Summary of sl_confirm aging
+   Origin   Receiver   Min SYNC   Max SYNC  Age of latest SYNC  Age of elde=
+st SYNC
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D
+        1          3     920955     920955  8 days 01:44:00  8 days 01:44:0=
+0    1
+        1          4     989563     989563      01:23:00      01:23:00    1
+        3          1    1073918    1073918  2 days 01:54:00  2 days 01:54:0=
+0    1
+        3          4    1073918    1073918  2 days 01:54:00  2 days 01:54:0=
+0    1
+        4          1      34946      35015      00:00:00      00:11:00    0
+        4          3          0          0  4 days 05:26:00  4 days 05:26:0=
+0    1
+
+
+---------------------------------------------------------------------------=
+---
+
+Listing of old open connections
+       Database             PID            User    Query Age               =
+ Query
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D
+
+
+Tests for node 3 - DSN =3D dbname=3Dlicenseserver host=3D172.16.254.5 port=
+=3D5432 user=3Dwww72 password=3DXXX
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D
+pg_listener info:
+Pages: 16
+Tuples: 2
+
+Size Tests
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D
+       sl_log_1        19 692.000000
+       sl_log_2        28 266.000000
+      sl_seqlog      1910 275820.000000
+
+Listen Path Analysis
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D
+No problems found with sl_listen
+
+---------------------------------------------------------------------------=
+-----
+Summary of event info
+ Origin  Min SYNC  Max SYNC Min SYNC Age Max SYNC Age
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D
+      3   1073918   1073918 2 days 01:54:00 2 days 01:54:00    1
+      1    920955    990060     00:00:00 8 days 01:44:00    0
+      4         1     35015     00:00:00 4 days 05:26:00    0
+
+
+---------------------------------------------------------------------------=
+------
+Summary of sl_confirm aging
+   Origin   Receiver   Min SYNC   Max SYNC  Age of latest SYNC  Age of elde=
+st SYNC
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D
+        1          3     920955     920955  8 days 01:44:00  8 days 01:44:0=
+0    1
+        1          4     989563     989563      01:23:00      01:23:00    1
+        3          1    1073918    1073918  2 days 01:54:00  2 days 01:54:0=
+0    1
+        3          4    1073918    1073918  2 days 01:54:00  2 days 01:54:0=
+0    1
+        4          1      34946      35016      00:00:00      00:11:00    0
+        4          3          0          0  4 days 05:26:00  4 days 05:26:0=
+0    1
+
+
+---------------------------------------------------------------------------=
+---
+
+Listing of old open connections
+       Database             PID            User    Query Age               =
+ Query
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D
+
+
+
+Sending message thus - |/usr/bin/nail -s "Slony State Test Warning - Cluste=
+r licenseserver_cluster" tilman.baumann@collax.com
+Message:
+
+
+Node: 1 sl_seqlog tuples =3D 275820 > 200000
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D
+Number of tuples in Slony-I table sl_seqlog is 275820 which
+exceeds 200000.
+
+You may wish to investigate whether or not a node is down, or perhaps
+if sl_confirm entries have not been propagating properly.
+
+
+Node: 3 sl_seqlog tuples =3D 275820 > 200000
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D
+Number of tuples in Slony-I table sl_seqlog is 275820 which
+exceeds 200000.
+
+You may wish to investigate whether or not a node is down, or perhaps
+if sl_confirm entries have not been propagating properly.
+
+
+Node: 4 sl_seqlog tuples =3D 275820 > 200000
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D
+Number of tuples in Slony-I table sl_seqlog is 275820 which
+exceeds 200000.
+
+You may wish to investigate whether or not a node is down, or perhaps
+if sl_confirm entries have not been propagating properly.
+
+

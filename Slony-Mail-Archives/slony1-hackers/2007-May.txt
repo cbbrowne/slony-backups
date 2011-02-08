@@ -1,0 +1,696 @@
+From stark at enterprisedb.com  Wed May  9 08:13:29 2007
+From: stark at enterprisedb.com (Gregory Stark)
+Date: Wed May  9 09:39:27 2007
+Subject: [Slony1-hackers] Unsafe coding in recent commit
+Message-ID: <87k5vighd2.fsf@oxford.xeocode.com>
+
+
+The coding below from a recent commit to xxid.c is unfortunately unsafe.
+Packed varlenas are unaligned (even if the datum itself is aligned the data
+within will be unaligned since it follows a 1-byte header). That means
+snap->nxip which is an integer and should be 4-byte aligned on most
+architectures will land on random alignments.
+
+In fact since the struct itself will require 4-byte alignment the compiler may
+not be happy with accessing even single bytes from it if it's in a packed
+varlena and stored unaligned.
+
+In short, it's sad but you can't use PG_DETOAST_DATUM_PACKED unless you really
+don't care about the alignment of the data which means basically it's only
+useful for data like text and bytea which contain just unaligned bytes. Or
+perhaps for functions that are just going to memcpy or memcmp the data without
+accessing fields within it.
+
+The alternative is to mark the data type as typstorage 'p' which disables
+packed storage altogether. That might make sense if you store relatively few
+such data and process them frequently so the cpu costs of copying them is
+actually greater than the i/o costs of storing padding bytes. int2vector and
+oidvector are set like that in part for reasons like that (plus others).
+
+typedef struct
+{
+	TransactionId xmin;
+	TransactionId xmax;
+	int			nxip;
+	TransactionId xip[1];
+}	xxid_snapshot;
+
+...
+
+Datum
+_Slony_I_xxid_snapshot_out(PG_FUNCTION_ARGS)
+{
+	xxid_snapshot *snap = (xxid_snapshot *) VARDATA_ANY(PG_DETOAST_DATUM_PACKED((PG_GETARG_DATUM(0))));
+
+	char	   *str = palloc(28 + snap->nxip * 13);
+...
+
+
+-- 
+  Gregory Stark
+  EnterpriseDB          http://www.enterprisedb.com
+
+From JanWieck at Yahoo.com  Wed May  9 08:28:06 2007
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Wed May  9 09:39:28 2007
+Subject: [Slony1-hackers] Re: Unsafe coding in recent commit
+In-Reply-To: <87k5vighd2.fsf@oxford.xeocode.com>
+References: <87k5vighd2.fsf@oxford.xeocode.com>
+Message-ID: <4641E886.2070501@Yahoo.com>
+
+On 5/9/2007 11:13 AM, Gregory Stark wrote:
+> The coding below from a recent commit to xxid.c is unfortunately unsafe.
+> Packed varlenas are unaligned (even if the datum itself is aligned the data
+> within will be unaligned since it follows a 1-byte header). That means
+> snap->nxip which is an integer and should be 4-byte aligned on most
+> architectures will land on random alignments.
+
+I see. This data type currently is nowhere stored in the DB by Slony, it 
+is just handed around in memory, but it is probably a good idea to not 
+make any assumptions about alignment even then.
+
+I'll fix it. Thanks for pointing that out.
+
+
+Jan
+
+
+> 
+> In fact since the struct itself will require 4-byte alignment the compiler may
+> not be happy with accessing even single bytes from it if it's in a packed
+> varlena and stored unaligned.
+> 
+> In short, it's sad but you can't use PG_DETOAST_DATUM_PACKED unless you really
+> don't care about the alignment of the data which means basically it's only
+> useful for data like text and bytea which contain just unaligned bytes. Or
+> perhaps for functions that are just going to memcpy or memcmp the data without
+> accessing fields within it.
+> 
+> The alternative is to mark the data type as typstorage 'p' which disables
+> packed storage altogether. That might make sense if you store relatively few
+> such data and process them frequently so the cpu costs of copying them is
+> actually greater than the i/o costs of storing padding bytes. int2vector and
+> oidvector are set like that in part for reasons like that (plus others).
+> 
+> typedef struct
+> {
+> 	TransactionId xmin;
+> 	TransactionId xmax;
+> 	int			nxip;
+> 	TransactionId xip[1];
+> }	xxid_snapshot;
+> 
+> ...
+> 
+> Datum
+> _Slony_I_xxid_snapshot_out(PG_FUNCTION_ARGS)
+> {
+> 	xxid_snapshot *snap = (xxid_snapshot *) VARDATA_ANY(PG_DETOAST_DATUM_PACKED((PG_GETARG_DATUM(0))));
+> 
+> 	char	   *str = palloc(28 + snap->nxip * 13);
+> ...
+> 
+> 
+
+
+-- 
+#======================================================================#
+# It's easier to get forgiveness for being wrong than for being right. #
+# Let's break this rule - forgive me.                                  #
+#================================================== JanWieck@Yahoo.com #
+From cbbrowne at ca.afilias.info  Wed May  9 14:23:03 2007
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Wed May  9 14:23:26 2007
+Subject: [Slony1-hackers] CANCEL SUBSCRIPTION proposal for 2.0
+Message-ID: <60y7jx8zew.fsf@dba2.int.libertyrms.com>
+
+One of the "ToDo" items was to create a way of cancelling a
+subscription in progress, as people (somewhat) frequently fall into
+the "hole" of having some attempt at a subscription in progress for a
+while, which then keeps breaking, and which then blocks anything else
+from happening on that node.
+
+Here's an outline of an approach to the issue; if you see holes in
+this, feel free to comment...
+
+What we thus do is to create a new Slonik command, CANCEL
+SUBSCRIPTION.
+
+  cancel subscription (id=2, receiver=4, event node=3);
+
+This command will inject a CANCEL_SUBSCRIPTION event at event node #3
+which will cancel any SUBSCRIBE SET events for set #2 on node #4.
+
+1.  SUBSCRIBE SET event "hook"
+
+We would then add a "hook" at the beginning of the code that detects
+SUBSCRIBE SET events; this hook would search the provider node to see
+if it has any CANCEL_SUBSCRIPTION events for the set in question that
+are newer than the present SUBSCRIBE_SET event.  If that be the case,
+it would not bother performing anything further of the subscription.[1]
+
+There wind up being two possibilities:
+
+- Supposing the SUBSCRIBE SET wasn't yet in progress when the CANCEL
+  SUBSCRIPTION request came in, no (further) attempt would be made to
+  set up the subscription.  Perfect!  That's exactly what we asked for.
+
+- Alternatively, it is possible that the SUBSCRIBE SET request may
+  have already completed.  If the subscription was in progress at the
+  time that the CANCEL request came in, there isn't much of a way (short
+  of polling periodically inside the code that processes this) to force
+  cancellation.  One might force this by signalling the slon with
+  SIGTERM/SIGKILL; when it restarts, the re-attempt to process the event
+  would take us back to the first case...
+
+  ... But absent of that, the subscription may indeed complete.
+  We nonetheless need to eliminate the subscription as other nodes will
+  likely by this time have been informed of the elimination of this
+  subscription.  [2]
+
+  Thus, we need to perform the equivalent to "UNSUBSCRIBE SET" at that
+  point.
+
+2.  SYNC event "hook"
+
+We'll wind up needing a similar hook in SYNC to what's in SUBSCRIBE
+SET, I think, so that if there is an outstanding CANCEL_SUBSCRIPTION
+for the local node's subscription, we arrange to do the equivalent to
+"UNSUBSCRIBE SET".
+
+3.  CANCEL SUBSCRIPTION event
+
+On the node where the set is, this will either be a NO-OP, if the
+subscription is already cancelled, or this will do "UNSUBSCRIBE SET,"
+as with the earlier hooks on SUBSCRIBE SET and SYNC, if it is still
+active.
+
+On nodes other than the receiver node for the subscription, the CANCEL
+SUBSCRIPTION event would perform the equivalent to "UNSUBSCRIBE SET"
+to indicate the cancellation of the subscription.[3]
+
+Footnotes: 
+
+[1] Note that if someone accidentally submitted a whole series of
+SUBSCRIBE SET requests, it only takes ONE request to CANCEL
+SUBSCRIPTION to turn them all into NOOPs.
+
+[2] Note that we can't simply say "Oh, the subscription *DID* work,
+we'll keep that!" as the effect of CANCEL SUBSCRIPTION will have been
+to drop info about the subscription from other nodes.  We *must* kill
+off the subscription even though it might have worked.
+
+[3] Open question: Should the CANCEL SUBSCRIPTION event wait until its
+location in sequence to be processed on the other nodes (e.g.  - nodes
+other than the specified receiver), or should we have it invoked via
+the hook in SYNC?  I'm not certain...
+-- 
+output = reverse("ofni.secnanifxunil" "@" "enworbbc")
+http://cbbrowne.com/info/sap.html
+"...Yet terrible as Unix addiction  is, there are worse fates. If Unix
+is the heroin of operating systems, then VMS is barbiturate addiction,
+the Mac is MDMA, and MS-DOS is sniffing glue. (Windows is filling your
+sinuses  with  lucite and  letting  it set.)   You  owe  the Oracle  a
+twelve-step program."  --The Usenet Oracle
+From andrew.george.hammond at gmail.com  Tue May 15 10:46:35 2007
+From: andrew.george.hammond at gmail.com (Andrew Hammond)
+Date: Tue May 15 10:46:42 2007
+Subject: [Slony1-hackers] Re: [Slony1-commit] slony1-engine/src/slonik
+	slonik.c
+In-Reply-To: <20070515165639.9849B290BE0@main.slony.info>
+References: <20070515165639.9849B290BE0@main.slony.info>
+Message-ID: <5a0a9d6f0705151046y79e91666s8ab01af19b3b8d37@mail.gmail.com>
+
+Uh... in light of the below (and a bunch of other bug-fixes), is there any
+interest in cutting a 1.2.10 release?
+
+Andrew
+
+
+On 5/15/07, Jan Wieck <wieck@lists.slony.info> wrote:
+>
+> Update of /home/cvsd/slony1/slony1-engine/src/slonik
+> In directory main.slony.info:/tmp/cvs-serv11261
+>
+> Modified Files:
+>       Tag: REL_1_2_STABLE
+>         slonik.c
+> Log Message:
+> Holy sh*t ... Slonik's SYNC command never recorded the new
+> seqno in the admin conninfo. No wonder WAIT was behaving a
+> little whacky!
+>
+> Jan
+>
+>
+> Index: slonik.c
+> =3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D
+> RCS file: /home/cvsd/slony1/slony1-engine/src/slonik/slonik.c,v
+> retrieving revision 1.67.2.8
+> retrieving revision 1.67.2.9
+> diff -C2 -d -r1.67.2.8 -r1.67.2.9
+> *** slonik.c    18 Apr 2007 19:28:27 -0000      1.67.2.8
+> --- slonik.c    15 May 2007 16:56:37 -0000      1.67.2.9
+> ***************
+> *** 4235,4239 ****
+>                                  stmt->hdr.script->clustername,
+>                                  stmt->hdr.script->clustername);
+> !       if (db_exec_command((SlonikStmt *) stmt, adminfo1, &query) < 0)
+>         {
+>                 dstring_free(&query);
+> --- 4235,4239 ----
+>                                  stmt->hdr.script->clustername,
+>                                  stmt->hdr.script->clustername);
+> !       if (db_exec_evcommand((SlonikStmt *) stmt, adminfo1, &query) < 0)
+>         {
+>                 dstring_free(&query);
+>
+> _______________________________________________
+> Slony1-commit mailing list
+> Slony1-commit@lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-commit
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-hackers/attachments/20070515/=
+53571380/attachment.htm
+From JanWieck at Yahoo.com  Tue May 15 13:09:29 2007
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Tue May 15 13:09:49 2007
+Subject: [Slony1-hackers] Re: [Slony1-commit] slony1-engine/src/slonik
+	slonik.c
+In-Reply-To: <5a0a9d6f0705151046y79e91666s8ab01af19b3b8d37@mail.gmail.com>
+References: <20070515165639.9849B290BE0@main.slony.info>
+	<5a0a9d6f0705151046y79e91666s8ab01af19b3b8d37@mail.gmail.com>
+Message-ID: <464A1379.8060202@Yahoo.com>
+
+On 5/15/2007 1:46 PM, Andrew Hammond wrote:
+> Uh... in light of the below (and a bunch of other bug-fixes), is there 
+> any interest in cutting a 1.2.10 release?
+
+Not as of right now. I am still working on getting log shipping working 
+right in both, HEAD and REL_1_2_STABLE. But as soon as that is done I 
+think a 1.2.10 is due.
+
+
+Jan
+
+> 
+> Andrew
+> 
+> 
+> On 5/15/07, *Jan Wieck* <wieck@lists.slony.info 
+> <mailto:wieck@lists.slony.info>> wrote:
+> 
+>     Update of /home/cvsd/slony1/slony1-engine/src/slonik
+>     In directory main.slony.info:/tmp/cvs-serv11261
+> 
+>     Modified Files:
+>           Tag: REL_1_2_STABLE
+>             slonik.c
+>     Log Message:
+>     Holy sh*t ... Slonik's SYNC command never recorded the new
+>     seqno in the admin conninfo. No wonder WAIT was behaving a
+>     little whacky!
+> 
+>     Jan
+> 
+> 
+>     Index: slonik.c
+>     ===================================================================
+>     RCS file: /home/cvsd/slony1/slony1-engine/src/slonik/slonik.c,v
+>     retrieving revision 1.67.2.8 <http://1.67.2.8>
+>     retrieving revision 1.67.2.9 <http://1.67.2.9>
+>     diff -C2 -d -r1.67.2.8 -r1.67.2.9
+>     *** slonik.c    18 Apr 2007 19:28:27 -0000      1.67.2.8
+>     <http://1.67.2.8>
+>     --- slonik.c    15 May 2007 16:56:37 -0000       1.67.2.9
+>     <http://1.67.2.9>
+>     ***************
+>     *** 4235,4239 ****
+>                                      stmt->hdr.script->clustername,
+>                                      stmt->hdr.script->clustername);
+>     !       if (db_exec_command((SlonikStmt *) stmt, adminfo1, &query) < 0)
+>             {
+>                     dstring_free(&query);
+>     --- 4235,4239 ----
+>                                      stmt->hdr.script->clustername,
+>                                      stmt->hdr.script->clustername);
+>     !       if (db_exec_evcommand((SlonikStmt *) stmt, adminfo1, &query)
+>     < 0)
+>             {
+>                     dstring_free(&query);
+> 
+>     _______________________________________________
+>     Slony1-commit mailing list
+>     Slony1-commit@lists.slony.info <mailto:Slony1-commit@lists.slony.info>
+>     http://lists.slony.info/mailman/listinfo/slony1-commit
+> 
+> 
+> 
+> ------------------------------------------------------------------------
+> 
+> _______________________________________________
+> Slony1-hackers mailing list
+> Slony1-hackers@lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-hackers
+
+
+-- 
+#======================================================================#
+# It's easier to get forgiveness for being wrong than for being right. #
+# Let's break this rule - forgive me.                                  #
+#================================================== JanWieck@Yahoo.com #
+From devrim at CommandPrompt.com  Mon May 28 07:08:25 2007
+From: devrim at CommandPrompt.com (Devrim =?ISO-8859-1?Q?G=DCND=DCZ?=)
+Date: Mon May 28 07:08:47 2007
+Subject: [Slony1-hackers] Using only one file for release info
+Message-ID: <1180361305.3557.23.camel@localhost.localdomain>
+
+SGVsbG8sCgpJIHByb3Bvc2UgdG8gbWVyZ2UgYWxsIFJFTEVBU0UtMS4yLi4uIGZpbGVzIGluIENW
+UyBpbnRvIG9uZSBmaWxlIHRvIHRpZHkKdXAuCgpXZSB3aWxsIGhhdmUgb25lICJSRUxFQVNFIiBm
+aWxlIGFuZCBpdCB3aWxsIGluY2x1ZGUgYWxsIG9mIHRoZSByZWxlYXNlCmluZm8uCgpJZiBub29u
+ZSBvYmplY3QsIEknbGwgYXBwbHkgdGhpcyBvbiBib3RoIDEuMiBhbmQgLUhFQUQuCgpSZWdhcmRz
+LAotLSAKRGV2cmltIEfDnE5Ew5xaClBvc3RncmVTUUwgUmVwbGljYXRpb24sIENvbnN1bHRpbmcs
+IEN1c3RvbSBEZXZlbG9wbWVudCwgMjR4NyBzdXBwb3J0Ck1hbmFnZWQgU2VydmljZXMsIFNoYXJl
+ZCBhbmQgRGVkaWNhdGVkIEhvc3RpbmcKQ28tQXV0aG9yczogcGxQSFAsIE9EQkNuZyAtIGh0dHA6
+Ly93d3cuY29tbWFuZHByb21wdC5jb20vCgoKLS0tLS0tLS0tLS0tLS0gbmV4dCBwYXJ0IC0tLS0t
+LS0tLS0tLS0tCkEgbm9uLXRleHQgYXR0YWNobWVudCB3YXMgc2NydWJiZWQuLi4KTmFtZTogbm90
+IGF2YWlsYWJsZQpUeXBlOiBhcHBsaWNhdGlvbi9wZ3Atc2lnbmF0dXJlClNpemU6IDE4OSBieXRl
+cwpEZXNjOiBUaGlzIGlzIGEgZGlnaXRhbGx5IHNpZ25lZCBtZXNzYWdlIHBhcnQKVXJsIDogaHR0
+cDovL2xpc3RzLnNsb255LmluZm8vcGlwZXJtYWlsL3Nsb255MS1oYWNrZXJzL2F0dGFjaG1lbnRz
+LzIwMDcwNTI4L2I2N2YyMGZkL2F0dGFjaG1lbnQucGdwCg==
+From cbbrowne at ca.afilias.info  Mon May 28 12:40:04 2007
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Mon May 28 12:40:12 2007
+Subject: [Slony1-hackers] Using only one file for release info
+In-Reply-To: <1180361305.3557.23.camel@localhost.localdomain> (Devrim
+	=?iso-8859-1?Q?G=DCND=DCZ's?= message of "Mon,
+	28 May 2007 17:08:25 +0300")
+References: <1180361305.3557.23.camel@localhost.localdomain>
+Message-ID: <604plwn3e3.fsf@dba2.int.libertyrms.com>
+
+Devrim G?ND?Z <devrim@CommandPrompt.com> writes:
+> I propose to merge all RELEASE-1.2... files in CVS into one file to tidy
+> up.
+>
+> We will have one "RELEASE" file and it will include all of the release
+> info.
+>
+> If noone object, I'll apply this on both 1.2 and -HEAD.
+
+I'm the one who has been writing them up, and I have no particular
+objection to the merge.  So go ahead!
+-- 
+output = reverse("ofni.sailifa.ac" "@" "enworbbc")
+<http://dba2.int.libertyrms.com/>
+Christopher Browne
+(416) 673-4124 (land)
+From devrim at CommandPrompt.com  Mon May 28 13:13:02 2007
+From: devrim at CommandPrompt.com (Devrim =?ISO-8859-1?Q?G=DCND=DCZ?=)
+Date: Mon May 28 13:13:28 2007
+Subject: [Slony1-hackers] Using only one file for release info
+In-Reply-To: <604plwn3e3.fsf@dba2.int.libertyrms.com>
+References: <1180361305.3557.23.camel@localhost.localdomain>
+	<604plwn3e3.fsf@dba2.int.libertyrms.com>
+Message-ID: <1180383182.3447.9.camel@laptop.gunduz.org>
+
+SGVsbG8sCgpPbiBNb24sIDIwMDctMDUtMjggYXQgMTU6NDAgLTA0MDAsIENocmlzdG9waGVyIEJy
+b3duZSB3cm90ZToKPiA+IElmIG5vb25lIG9iamVjdCwgSSdsbCBhcHBseSB0aGlzIG9uIGJvdGgg
+MS4yIGFuZCAtSEVBRC4KPiAKPiBJJ20gdGhlIG9uZSB3aG8gaGFzIGJlZW4gd3JpdGluZyB0aGVt
+IHVwLCBhbmQgSSBoYXZlIG5vIHBhcnRpY3VsYXIKPiBvYmplY3Rpb24gdG8gdGhlIG1lcmdlLiAg
+U28gZ28gYWhlYWQhIAoKT2ssIGRvbmUuCgpSZWdhcmRzLAotLSAKRGV2cmltIEfDnE5Ew5xaClBv
+c3RncmVTUUwgUmVwbGljYXRpb24sIENvbnN1bHRpbmcsIEN1c3RvbSBEZXZlbG9wbWVudCwgMjR4
+NyBzdXBwb3J0Ck1hbmFnZWQgU2VydmljZXMsIFNoYXJlZCBhbmQgRGVkaWNhdGVkIEhvc3RpbmcK
+Q28tQXV0aG9yczogcGxQSFAsIE9EQkNuZyAtIGh0dHA6Ly93d3cuY29tbWFuZHByb21wdC5jb20v
+CgoKLS0tLS0tLS0tLS0tLS0gbmV4dCBwYXJ0IC0tLS0tLS0tLS0tLS0tCkEgbm9uLXRleHQgYXR0
+YWNobWVudCB3YXMgc2NydWJiZWQuLi4KTmFtZTogbm90IGF2YWlsYWJsZQpUeXBlOiBhcHBsaWNh
+dGlvbi9wZ3Atc2lnbmF0dXJlClNpemU6IDE4OSBieXRlcwpEZXNjOiBUaGlzIGlzIGEgZGlnaXRh
+bGx5IHNpZ25lZCBtZXNzYWdlIHBhcnQKVXJsIDogaHR0cDovL2xpc3RzLnNsb255LmluZm8vcGlw
+ZXJtYWlsL3Nsb255MS1oYWNrZXJzL2F0dGFjaG1lbnRzLzIwMDcwNTI4LzBkYThmMDdjL2F0dGFj
+aG1lbnQucGdwCg==
+From devrim at CommandPrompt.com  Tue May 29 00:15:08 2007
+From: devrim at CommandPrompt.com (Devrim =?ISO-8859-1?Q?G=DCND=DCZ?=)
+Date: Tue May 29 00:15:26 2007
+Subject: [Slony1-hackers] About SLONREL_VERSION
+Message-ID: <1180422908.3501.14.camel@localhost.localdomain>
+
+SGVsbG8sCgooSSB0aGluayBJIHJhaXNlZCB0aGlzIGJlZm9yZSwgYnV0IEknbSBub3Qgc3VyZSkK
+Ckkgc2VlIHRoaXMgbGluZSBpbiBjb25maWd1cmUuYWM6CgptNF9kZWZpbmUoW1NMT05SRUxfVkVS
+U0lPTl0sIGVzeXNjbWQoW2VjaG8gIiROYW1lOiBSRUxfMV8yX1NUQUJMRSAkIiB8IFwKClNob3Vs
+ZG4ndCBpdCBiZSBSRUxfMV8yXzkgKG9yIHNvKSBpbnN0ZWFkIG9mIHRoaXMgdmFsdWU/IFdoZW4g
+SSBidWlsZApwYWNrYWdlcywgdGhlcmUgaXMgbm8gbWlub3IgdmVyc2lvbiBudW1iZXIgaW4gdGhl
+IHNwZWMuLi4KClBvc3RncmVTUUwncyBjb25maWd1cmUuaW4gaGFzIHRoZSB2ZXJzaW9uIG51bWJl
+ciwgbGlrZSBJIHByb3Bvc2VkLgoKUmVnYXJkcywKLS0gCkRldnJpbSBHw5xORMOcWgpQb3N0Z3Jl
+U1FMIFJlcGxpY2F0aW9uLCBDb25zdWx0aW5nLCBDdXN0b20gRGV2ZWxvcG1lbnQsIDI0eDcgc3Vw
+cG9ydApNYW5hZ2VkIFNlcnZpY2VzLCBTaGFyZWQgYW5kIERlZGljYXRlZCBIb3N0aW5nCkNvLUF1
+dGhvcnM6IHBsUEhQLCBPREJDbmcgLSBodHRwOi8vd3d3LmNvbW1hbmRwcm9tcHQuY29tLwoKCi0t
+LS0tLS0tLS0tLS0tIG5leHQgcGFydCAtLS0tLS0tLS0tLS0tLQpBIG5vbi10ZXh0IGF0dGFjaG1l
+bnQgd2FzIHNjcnViYmVkLi4uCk5hbWU6IG5vdCBhdmFpbGFibGUKVHlwZTogYXBwbGljYXRpb24v
+cGdwLXNpZ25hdHVyZQpTaXplOiAxODkgYnl0ZXMKRGVzYzogVGhpcyBpcyBhIGRpZ2l0YWxseSBz
+aWduZWQgbWVzc2FnZSBwYXJ0ClVybCA6IGh0dHA6Ly9saXN0cy5zbG9ueS5pbmZvL3BpcGVybWFp
+bC9zbG9ueTEtaGFja2Vycy9hdHRhY2htZW50cy8yMDA3MDUyOS8wMTRmOGVkNC9hdHRhY2htZW50
+LnBncAo=
+From cbbrowne at ca.afilias.info  Tue May 29 05:01:23 2007
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Tue May 29 05:01:42 2007
+Subject: [Slony1-hackers] About SLONREL_VERSION
+In-Reply-To: <1180422908.3501.14.camel@localhost.localdomain> (Devrim
+	=?iso-8859-1?Q?G=DCND=DCZ's?= message of "Tue,
+	29 May 2007 10:15:08 +0300")
+References: <1180422908.3501.14.camel@localhost.localdomain>
+Message-ID: <60r6ozltyk.fsf@dba2.int.libertyrms.com>
+
+Devrim G?ND?Z <devrim@CommandPrompt.com> writes:
+> (I think I raised this before, but I'm not sure)
+>
+> I see this line in configure.ac:
+>
+> m4_define([SLONREL_VERSION], esyscmd([echo "$Name: REL_1_2_STABLE $" | \
+>
+> Shouldn't it be REL_1_2_9 (or so) instead of this value? When I build
+> packages, there is no minor version number in the spec...
+>
+> PostgreSQL's configure.in has the version number, like I proposed.
+
+Hmm.  It'll only become REL_1_2_9 if you check out that particular
+release.  And it becomes REL_1_2_10 when CVS gets tagged as such, and
+a copy is checked out at that particular release level.
+
+In the interim, I think it's probably right for the version to appear
+to be REL_1_2_STABLE...  That's not actually a release...
+
+Is there some other handling with PostgreSQL that simulates a release
+number when checking out a major branch?
+-- 
+"cbbrowne","@","ca.afilias.info"
+<http://dba2.int.libertyrms.com/>
+Christopher Browne
+(416) 673-4124 (land)
+From wmoran at collaborativefusion.com  Tue May 29 11:41:22 2007
+From: wmoran at collaborativefusion.com (Bill Moran)
+Date: Tue May 29 11:41:35 2007
+Subject: [Slony1-hackers] No make target to uninstall?
+Message-ID: <20070529144122.feaa8c32.wmoran@collaborativefusion.com>
+
+
+We were playing around with Slony 1.3.  Am I missing something or is there
+no target in the Makefile to uninstall?  I'm no gmake expert, but I couldn't
+find anything.
+
+-- 
+Bill Moran
+Collaborative Fusion Inc.
+http://people.collaborativefusion.com/~wmoran/
+
+wmoran@collaborativefusion.com
+Phone: 412-422-3463x4023
+
+****************************************************************
+IMPORTANT: This message contains confidential information and is
+intended only for the individual named. If the reader of this
+message is not an intended recipient (or the individual
+responsible for the delivery of this message to an intended
+recipient), please be advised that any re-use, dissemination,
+distribution or copying of this message is prohibited. Please
+notify the sender immediately by e-mail if you have received
+this e-mail by mistake and delete this e-mail from your system.
+E-mail transmission cannot be guaranteed to be secure or
+error-free as information could be intercepted, corrupted, lost,
+destroyed, arrive late or incomplete, or contain viruses. The
+sender therefore does not accept liability for any errors or
+omissions in the contents of this message, which arise as a
+result of e-mail transmission.
+****************************************************************
+From devrim at CommandPrompt.com  Tue May 29 12:57:43 2007
+From: devrim at CommandPrompt.com (Devrim =?ISO-8859-1?Q?G=DCND=DCZ?=)
+Date: Tue May 29 12:58:22 2007
+Subject: [Slony1-hackers] No make target to uninstall?
+In-Reply-To: <20070529144122.feaa8c32.wmoran@collaborativefusion.com>
+References: <20070529144122.feaa8c32.wmoran@collaborativefusion.com>
+Message-ID: <1180468663.3407.31.camel@laptop.gunduz.org>
+
+SGVsbG8sCgpPbiBUdWUsIDIwMDctMDUtMjkgYXQgMTQ6NDEgLTA0MDAsIEJpbGwgTW9yYW4gd3Jv
+dGU6Cj4gQW0gSSBtaXNzaW5nIHNvbWV0aGluZyBvciBpcyB0aGVyZSBubyB0YXJnZXQgaW4gdGhl
+IE1ha2VmaWxlIHRvCj4gdW5pbnN0YWxsPyAgCgpZZWFoLCB0aGVyZSBpcyBub3Qgc3VjaCBhIHRh
+cmdldCwgQUZBSUNTLgoKUmVnYXJkcywKLS0gCkRldnJpbSBHw5xORMOcWgpQb3N0Z3JlU1FMIFJl
+cGxpY2F0aW9uLCBDb25zdWx0aW5nLCBDdXN0b20gRGV2ZWxvcG1lbnQsIDI0eDcgc3VwcG9ydApN
+YW5hZ2VkIFNlcnZpY2VzLCBTaGFyZWQgYW5kIERlZGljYXRlZCBIb3N0aW5nCkNvLUF1dGhvcnM6
+IHBsUEhQLCBPREJDbmcgLSBodHRwOi8vd3d3LmNvbW1hbmRwcm9tcHQuY29tLwoKCi0tLS0tLS0t
+LS0tLS0tIG5leHQgcGFydCAtLS0tLS0tLS0tLS0tLQpBIG5vbi10ZXh0IGF0dGFjaG1lbnQgd2Fz
+IHNjcnViYmVkLi4uCk5hbWU6IG5vdCBhdmFpbGFibGUKVHlwZTogYXBwbGljYXRpb24vcGdwLXNp
+Z25hdHVyZQpTaXplOiAxODkgYnl0ZXMKRGVzYzogVGhpcyBpcyBhIGRpZ2l0YWxseSBzaWduZWQg
+bWVzc2FnZSBwYXJ0ClVybCA6IGh0dHA6Ly9saXN0cy5zbG9ueS5pbmZvL3BpcGVybWFpbC9zbG9u
+eTEtaGFja2Vycy9hdHRhY2htZW50cy8yMDA3MDUyOS8wZmRiM2U1NS9hdHRhY2htZW50LnBncAo=
+From devrim at CommandPrompt.com  Tue May 29 13:21:46 2007
+From: devrim at CommandPrompt.com (Devrim =?ISO-8859-1?Q?G=DCND=DCZ?=)
+Date: Tue May 29 13:21:55 2007
+Subject: [Slony1-hackers] No make target to uninstall?
+In-Reply-To: <1180468663.3407.31.camel@laptop.gunduz.org>
+References: <20070529144122.feaa8c32.wmoran@collaborativefusion.com>
+	<1180468663.3407.31.camel@laptop.gunduz.org>
+Message-ID: <1180470106.3407.35.camel@laptop.gunduz.org>
+
+SGVsbG8sCgpPbiBUdWUsIDIwMDctMDUtMjkgYXQgMjI6NTcgKzAzMDAsIERldnJpbSBHw5xORMOc
+WiB3cm90ZToKPiA+IEFtIEkgbWlzc2luZyBzb21ldGhpbmcgb3IgaXMgdGhlcmUgbm8gdGFyZ2V0
+IGluIHRoZSBNYWtlZmlsZSB0bwo+ID4gdW5pbnN0YWxsPyAgCj4gCj4gWWVhaCwgdGhlcmUgaXMg
+bm90IHN1Y2ggYSB0YXJnZXQsIEFGQUlDUy4gCgpJZiBub29uZSBiZWF0cyBtZSwgSSB3YW50IHRv
+IHdvcmsgb24gdGhpcyAtLSBJdCB3aWxsIGJlIGEgZ29vZCBwcmFjdGljZQpmb3IgbWUuIEkgaGF2
+ZW4ndCBwbGF5ZWQgd2l0aCBNYWtlZmlsZXMgZm9yIGEgbG9uZyB0aW1lLi4uCgpSZWdhcmRzLAot
+LSAKRGV2cmltIEfDnE5Ew5xaClBvc3RncmVTUUwgUmVwbGljYXRpb24sIENvbnN1bHRpbmcsIEN1
+c3RvbSBEZXZlbG9wbWVudCwgMjR4NyBzdXBwb3J0Ck1hbmFnZWQgU2VydmljZXMsIFNoYXJlZCBh
+bmQgRGVkaWNhdGVkIEhvc3RpbmcKQ28tQXV0aG9yczogcGxQSFAsIE9EQkNuZyAtIGh0dHA6Ly93
+d3cuY29tbWFuZHByb21wdC5jb20vCgoKLS0tLS0tLS0tLS0tLS0gbmV4dCBwYXJ0IC0tLS0tLS0t
+LS0tLS0tCkEgbm9uLXRleHQgYXR0YWNobWVudCB3YXMgc2NydWJiZWQuLi4KTmFtZTogbm90IGF2
+YWlsYWJsZQpUeXBlOiBhcHBsaWNhdGlvbi9wZ3Atc2lnbmF0dXJlClNpemU6IDE4OSBieXRlcwpE
+ZXNjOiBUaGlzIGlzIGEgZGlnaXRhbGx5IHNpZ25lZCBtZXNzYWdlIHBhcnQKVXJsIDogaHR0cDov
+L2xpc3RzLnNsb255LmluZm8vcGlwZXJtYWlsL3Nsb255MS1oYWNrZXJzL2F0dGFjaG1lbnRzLzIw
+MDcwNTI5LzlkNTE3MzZkL2F0dGFjaG1lbnQucGdwCg==
+From devrim at CommandPrompt.com  Tue May 29 13:28:05 2007
+From: devrim at CommandPrompt.com (Devrim =?ISO-8859-1?Q?G=DCND=DCZ?=)
+Date: Tue May 29 13:28:20 2007
+Subject: [Slony1-hackers] About SLONREL_VERSION
+In-Reply-To: <60r6ozltyk.fsf@dba2.int.libertyrms.com>
+References: <1180422908.3501.14.camel@localhost.localdomain>
+	<60r6ozltyk.fsf@dba2.int.libertyrms.com>
+Message-ID: <1180470485.3407.38.camel@laptop.gunduz.org>
+
+SGksCgpPbiBUdWUsIDIwMDctMDUtMjkgYXQgMDg6MDEgLTA0MDAsIENocmlzdG9waGVyIEJyb3du
+ZSB3cm90ZToKPiBIbW0uICBJdCdsbCBvbmx5IGJlY29tZSBSRUxfMV8yXzkgaWYgeW91IGNoZWNr
+IG91dCB0aGF0IHBhcnRpY3VsYXIKPiByZWxlYXNlLiAgQW5kIGl0IGJlY29tZXMgUkVMXzFfMl8x
+MCB3aGVuIENWUyBnZXRzIHRhZ2dlZCBhcyBzdWNoLCBhbmQKPiBhIGNvcHkgaXMgY2hlY2tlZCBv
+dXQgYXQgdGhhdCBwYXJ0aWN1bGFyIHJlbGVhc2UgbGV2ZWwuIAoKU29ycnkgZm9yIHRoZSBub2lz
+ZS4gSSBtdXN0IHN0b3AgYnVpbGRpbmcgUlBNcyBkaXJlY3RseSBmcm9tIENWUyA6KQoKUmVnYXJk
+cywKLS0gCkRldnJpbSBHw5xORMOcWgpQb3N0Z3JlU1FMIFJlcGxpY2F0aW9uLCBDb25zdWx0aW5n
+LCBDdXN0b20gRGV2ZWxvcG1lbnQsIDI0eDcgc3VwcG9ydApNYW5hZ2VkIFNlcnZpY2VzLCBTaGFy
+ZWQgYW5kIERlZGljYXRlZCBIb3N0aW5nCkNvLUF1dGhvcnM6IHBsUEhQLCBPREJDbmcgLSBodHRw
+Oi8vd3d3LmNvbW1hbmRwcm9tcHQuY29tLwoKCi0tLS0tLS0tLS0tLS0tIG5leHQgcGFydCAtLS0t
+LS0tLS0tLS0tLQpBIG5vbi10ZXh0IGF0dGFjaG1lbnQgd2FzIHNjcnViYmVkLi4uCk5hbWU6IG5v
+dCBhdmFpbGFibGUKVHlwZTogYXBwbGljYXRpb24vcGdwLXNpZ25hdHVyZQpTaXplOiAxODkgYnl0
+ZXMKRGVzYzogVGhpcyBpcyBhIGRpZ2l0YWxseSBzaWduZWQgbWVzc2FnZSBwYXJ0ClVybCA6IGh0
+dHA6Ly9saXN0cy5zbG9ueS5pbmZvL3BpcGVybWFpbC9zbG9ueTEtaGFja2Vycy9hdHRhY2htZW50
+cy8yMDA3MDUyOS9jNDk2YWIyOC9hdHRhY2htZW50LnBncAo=
+From darcyb at commandprompt.com  Tue May 29 16:28:14 2007
+From: darcyb at commandprompt.com (Darcy Buskermolen)
+Date: Tue May 29 16:28:33 2007
+Subject: [Slony1-hackers] About SLONREL_VERSION
+In-Reply-To: <1180470485.3407.38.camel@laptop.gunduz.org>
+References: <1180422908.3501.14.camel@localhost.localdomain>
+	<60r6ozltyk.fsf@dba2.int.libertyrms.com>
+	<1180470485.3407.38.camel@laptop.gunduz.org>
+Message-ID: <200705291628.14730.darcyb@commandprompt.com>
+
+On May 29, 2007 01:28 pm, Devrim G?ND?Z wrote:
+> Hi,
+>
+> On Tue, 2007-05-29 at 08:01 -0400, Christopher Browne wrote:
+> > Hmm.  It'll only become REL_1_2_9 if you check out that particular
+> > release.  And it becomes REL_1_2_10 when CVS gets tagged as such, and
+> > a copy is checked out at that particular release level.
+>
+> Sorry for the noise. I must stop building RPMs directly from CVS :)
+
+You can, but you just need to build them form the correct tag
+
+>
+> Regards,
+
+-- 
+Darcy Buskermolen
+Command Prompt, Inc.
++1.503.667.4564 X 102
+http://www.commandprompt.com/
+PostgreSQL solutions since 1997
+From andrew.george.hammond at gmail.com  Thu May 31 10:41:15 2007
+From: andrew.george.hammond at gmail.com (Andrew Hammond)
+Date: Thu May 31 10:41:32 2007
+Subject: [Slony1-hackers] Re: [Slony1-commit] slony1-engine/src/slonik
+	slonik.c
+In-Reply-To: <464A1379.8060202@Yahoo.com>
+References: <20070515165639.9849B290BE0@main.slony.info>
+	<5a0a9d6f0705151046y79e91666s8ab01af19b3b8d37@mail.gmail.com>
+	<464A1379.8060202@Yahoo.com>
+Message-ID: <5a0a9d6f0705311041l2cc9838ai475af2b931a5b7e6@mail.gmail.com>
+
+On 5/15/07, Jan Wieck <JanWieck@yahoo.com> wrote:
+>
+> On 5/15/2007 1:46 PM, Andrew Hammond wrote:
+> > Uh... in light of the below (and a bunch of other bug-fixes), is there
+> > any interest in cutting a 1.2.10 release?
+>
+> Not as of right now. I am still working on getting log shipping working
+> right in both, HEAD and REL_1_2_STABLE. But as soon as that is done I
+> think a 1.2.10 is due.
+>
+
+Is that the code that just got committed this morning? If so, is it time to
+start kicking .10 out the door?
+
+Andrew
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-hackers/attachments/20070531/=
+c90ab348/attachment.htm
+From JanWieck at Yahoo.com  Thu May 31 10:53:05 2007
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Thu May 31 11:20:25 2007
+Subject: [Slony1-hackers] Re: [Slony1-commit] slony1-engine/src/slonik
+	slonik.c
+In-Reply-To: <5a0a9d6f0705311041l2cc9838ai475af2b931a5b7e6@mail.gmail.com>
+References: <20070515165639.9849B290BE0@main.slony.info>	
+	<5a0a9d6f0705151046y79e91666s8ab01af19b3b8d37@mail.gmail.com>	
+	<464A1379.8060202@Yahoo.com>
+	<5a0a9d6f0705311041l2cc9838ai475af2b931a5b7e6@mail.gmail.com>
+Message-ID: <465F0B81.2050902@Yahoo.com>
+
+On 5/31/2007 1:41 PM, Andrew Hammond wrote:
+> On 5/15/07, *Jan Wieck* <JanWieck@yahoo.com <mailto:JanWieck@yahoo.com>> 
+> wrote:
+> 
+>     On 5/15/2007 1:46 PM, Andrew Hammond wrote:
+>      > Uh... in light of the below (and a bunch of other bug-fixes), is
+>     there
+>      > any interest in cutting a 1.2.10 release?
+> 
+>     Not as of right now. I am still working on getting log shipping working
+>     right in both, HEAD and REL_1_2_STABLE. But as soon as that is done I
+>     think a 1.2.10 is due.
+> 
+> 
+> Is that the code that just got committed this morning? If so, is it time 
+> to start kicking .10 out the door?
+
+That is that very code. I encourage everyone who is interested in file 
+based log shipping to start testing with REL_1_2_STABLE so that we know 
+ASAP if the branch is really ready for 1.2.10.
+
+
+Jan
+
+-- 
+#======================================================================#
+# It's easier to get forgiveness for being wrong than for being right. #
+# Let's break this rule - forgive me.                                  #
+#================================================== JanWieck@Yahoo.com #

@@ -1,0 +1,185 @@
+From pva at gentoo.org  Mon Aug 25 17:56:47 2008
+From: pva at gentoo.org (Peter Volkov)
+Date: Mon Aug 25 17:58:31 2008
+Subject: [Slony1-bugs] Too many log files after slon_start, solved.
+Message-ID: <1219712207.6817.134.camel@localhost>
+
+Hello. After installation and deployment slony1 on FreeBSD 6.2-RELEASE
+it started to create too many log files
+in /var/log/slony/slony1/node{1,2}/. Actually I've noticed that slony
+opens new file in every 10 seconds. It occurred that apache rotatelogs
+program on FreeBSD does not understand 10M syntax:
+
+$ /usr/local/apache/bin/rotatelogs
+Usage: /usr/local/apache/bin/rotatelogs <logfile> <rotation time in
+seconds> [offset minutes from UTC]
+
+So in the case /usr/local/apache/bin/rotatelogs was called with 10M as
+argument it thought that 10M == 10 seconds. The fix will be to use 600
+instead of 10M in /usr/local/lib/slon-tools.pm or even better make this
+configurable.
+
+Thank you for your time,
+-- 
+Peter.
+
+From craig.silveira at enterprisedb.com  Fri Aug  1 13:04:23 2008
+From: craig.silveira at enterprisedb.com (Craig Silveira)
+Date: Thu Sep 25 08:15:24 2008
+Subject: [Slony1-bugs] move set bug
+Message-ID: <48936CB9.9030109@enterprisedb.com>
+
+Hi,
+
+  I've found a bug in Slony when you have more than 2 nodes in the
+cluster.  When you do a move set, the slony catalog gets messed up since
+it does not update the origin node of all the subscribers of that
+set....the below should illustrate that:
+
+3 node cluster
+1 replication set
+node 1 is the master, nodes 2 and 3 are subscribers
+
+Contents of sl_subscribe table:
+
+ sub_set | sub_provider | sub_receiver | sub_forward | sub_active
+---------+--------------+--------------+-------------+------------
+       1 |            1 |            3 | t           | t
+       1 |            1 |            2 | t           | t
+(2 rows)
+
+As you can see everything is fine at this point.  Now, let's do a
+switchover using the following:
+
+lock set ( id = 1, origin = 1);
+sync (id = 1);
+wait for event (origin = 1, confirmed = 2);
+move set (id = 1, old origin = 1, new origin = 2);
+sync (id = 1);
+wait for event (origin = 1, confirmed =2);
+
+Now the sl_subscribe table looks like this:
+
+sub_set | sub_provider | sub_receiver | sub_forward | sub_active
+---------+--------------+--------------+-------------+------------
+       1 |            1 |            3 | t           | t
+       1 |            2 |            1 | t           | t
+(2 rows)
+
+As you can see, the record showing that node 1 is now a subscriber of
+repset 1 on node 2 is correct but node 3 is listed as a subscriber of
+the repset at node 1.
+
+Querying sl_set shows:
+
+ set_id | set_origin | set_locked |         set_comment
+--------+------------+------------+-----------------------------
+      1 |          2 |            | source tables for repset #1
+(1 row)
+
+Which is, of course, correct.  Interestingly enough, the triggers are
+correctly changed on each node to reflect the move set action I had
+intended on performing.  Thus, there is a problem in the process where
+the metadata is updated.
+
+I tracked it down the the pl/pgsql function moveSet_int.
+
+....the code in question is below:
+
+the values of the important variables coming into this section of code are:
+
+p_new_origin=2
+p_old_origin=1
+
+As you can see, v_sub_node will be set to 1 based on the query
+immediately below here.  But that means that the while loop condition
+will never be TRUE and thus the logic inside the loop will never get
+executed and thus the other subscribers will never be updated to reflect
+the change in the origin node.
+
+       -- ----
+        -- Next we have to reverse the subscription path
+        -- ----
+        v_sub_last = p_new_origin;
+        select sub_provider into v_sub_node
+                        from _testcluster.sl_subscribe
+                        where sub_set = p_set_id
+                        and sub_receiver = p_new_origin;
+        if not found then
+                raise exception ''Slony-I: subscription path broken in
+moveSet_int'';
+        end if;
+
+        while v_sub_node <> p_old_origin loop
+                -- ----
+                -- Tracing node by node, the old receiver is now in
+                -- v_sub_last and the old provider is in v_sub_node.
+                -- ----
+                -- ----
+                -- Get the current provider of this node as next
+                -- and change the provider to the previous one in
+                -- the reverse chain.
+                -- ----
+                select sub_provider into v_sub_next
+                                from _testcluster.sl_subscribe
+                                where sub_set = p_set_id
+                                        and sub_receiver = v_sub_node
+                                for update;
+
+                if not found then
+                        raise exception ''Slony-I: subscription path
+broken in moveSet_int'';
+                end if;
+
+                update _testcluster.sl_subscribe
+                                set sub_provider = v_sub_last
+                                where sub_set = p_set_id
+                                        and sub_receiver = v_sub_node;
+
+                v_sub_last = v_sub_node;
+               v_sub_node = v_sub_next;
+        end loop;
+
+----End section of code
+
+So, after trying to figure out what this code was doing, I came up with
+the following simple fix.
+
+I removed the above section of code and simply replaced it with the
+following update statement:
+
+update _testcluster.sl_subscribe
+set sub_provider = p_new_origin
+        where sub_set=p_set_id
+	AND sub_receiver !=p_new_origin
+	AND sub_receiver !=p_old_origin;
+
+This statement updates all of the other subscribers of the repset so
+that they reflect that the new provider/master is the new origin node(
+node 2 in the above example).
+
+I've test this and it works.
+
+Most of my testing with Slony up till now has been with 2 nodes and thus
+I have never seen this issue before.  But I would have expected others
+to encounter this before...
+
+I am using the 1.2.11 version of Slony but I checked the 2.0 source and
+the moveSet_int function has the same issue.
+
+thanks,
+Craig
+
+-- 
+Craig Silveira
+Sr. Sales Engineer
+
+EnterpriseDB Corporation
+499 Thornall Street
+Edison, NJ 08837
+o 732 331 1397
+f 732 331 1301
+c 516 456 7889
+
+craig.silveira@enterprisedb.com
+www.enterprisedb.com

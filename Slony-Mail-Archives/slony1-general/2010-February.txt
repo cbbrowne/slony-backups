@@ -1,0 +1,4276 @@
+From dba at richyen.com  Tue Feb  2 12:50:20 2010
+From: dba at richyen.com (Richard Yen)
+Date: Tue, 2 Feb 2010 12:50:20 -0800
+Subject: [Slony1-general] drop node not working correctly
+In-Reply-To: <35FC8159-12CE-4185-A21B-8C1CEE358506@richyen.com>
+References: <faa313131001130513l67e48ad1i16034cfde7cbffe8@mail.gmail.com>
+	<faa313131001140530u315ec3edie9082685ee835042@mail.gmail.com>
+	<4B4F4F17.1020406@ca.afilias.info>
+	<DD747252-9392-4571-A5ED-1511E4DDE7FC@richyen.com>
+	<35FC8159-12CE-4185-A21B-8C1CEE358506@richyen.com>
+Message-ID: <A813F0AF-7F28-4DC7-B07C-E5843A54984A@richyen.com>
+
+
+On Jan 29, 2010, at 4:30 PM, Richard Yen wrote:
+> The question I have is--shouldn't the ev_origin for FAILOVER_SET be
+> the nodeID of the backup node?  Seems like it wouldn't make sense that
+> a failed node would create an event; the system should state that the
+> backup node is the one creating the event, right?  I suppose this
+> would be the remedy for the problem.
+
+For the moment, I have decided to not try altering the Slony-I source  
+code to set ev_origin to the backup node when doing a FAILOVER SET,  
+especially since I haven't gotten confirmation that this would be the  
+correct change to get failover working with a drop node.
+
+Instead, I have opted to add a SYNC and WAIT FOR EVENT after the  
+FAILOVER command, and have made the following patch in slony_fail.sh  
+of the slony-ctl scripts:
+
+> Modified: slony-ctl/tools/slony_fail.sh
+> ===================================================================
+> --- slony-ctl/tools/slony_fail.sh	2010-02-02 01:44:56 UTC (rev 824)
+> +++ slony-ctl/tools/slony_fail.sh	2010-02-02 20:37:05 UTC (rev 825)
+>     #--
+>     INCLUDE <${SLON_ETC}/$INSTANCE.preamble>
+>
+> +    sync ( ID = $SLAVENODE );
+> +    wait for event ( ORIGIN = all, CONFIRMED = all, WAIT ON =  
+> $SLAVENODE );
+> +
+>     try{
+>         echo 'Drop node $MASTERNODE :';
+>         drop node ( ID = $MASTERNODE, EVENT NODE = $SLAVENODE );
+
+We need an extra sync event because by the time the FAIL OVER finishes  
+and generates a SYNC event, the WAIT FOR EVENT can't process it  
+because the SYNC has already been propagated.  This is to replace the  
+"sleep()" suggestion I had made in an earlier email.
+
+St?phane, can you also commit these changes to the slony1-ctl project?
+
+Thanks!
+--Richard
+
+From bpineau at elma.fr  Tue Feb  2 15:11:52 2010
+From: bpineau at elma.fr (Benjamin Pineau)
+Date: Wed, 3 Feb 2010 00:11:52 +0100
+Subject: [Slony1-general] lightweight DDLs changes method (would
+	this	break?)
+In-Reply-To: <20100125143951.GB85637@shinkuro.com>
+References: <20100123125818.GA4679@mailer.elma.fr>
+	<20100125143951.GB85637@shinkuro.com>
+Message-ID: <20100202231152.GA1844@mailer.elma.fr>
+
+On Mon, Jan 25, 2010 at 09:39:51AM -0500, Andrew Sullivan wrote:
+> > Would this work or did I overlooked something?
+> 
+> This is actually what Slony does.  So it will work.  But it still
+> locks everything, note.
+
+"Everything" as in "each object" or "the table in access exclusive" ?
+
+For what I understand (not so much actually), we have :
+"execute script"
+  -> begin;
+  -> ddlScript_prepare()
+     for each replicated table:
+       -> alterTableRestore(tab_id)
+          -> lock table foo in in access exclusive mode
+  -> ddls
+  -> ddlScript_complete()
+     for each replicated table:
+       -> alterTableForReplication(tab_id)
+          -> lock table foo in in access exclusive mode
+  -> commit;
+
+So if I get things well alterTable* functions only locks one table (plus
+a select for update on sl_table) while "execute script" locks them all
+successively in a large transaction. I tested this by manually locking 
+unrelated tables from the replication set on both master and subscribers,
+while running the previously mentioned scenario (with just a SHARE MODE
+lock for this transaction).
+
+The ugly, dangerous but selective manual alterTable* call seems a lesser
+"everything" than create script ;)
+
+> You need to do everything _last_ on the origin node because if it gets
+> the extra column at a logical point in transaction history time when
+> any of the replicas aren't ready for such a column, then that replica
+> will be broken.
+
+Ah, this makes sense.
+Thank you very much for this advice - I would have overlooked this !
+
+> I encourage you very strongly to test everything out in a lab first,
+> several times, before you do any of this.
+
+Yeah, my curse is I have no very realistic "lab" offhand, a large and busy
+dataset which I'm not allowed to block, a replication setup we can't afford
+to rebuild in case of problem, and no choice but altering every other day
+as developers changes their schemas :(
+
+
+From kevink at consistentstate.com  Tue Feb  2 21:23:34 2010
+From: kevink at consistentstate.com (Kevin Kempter)
+Date: Tue, 2 Feb 2010 22:23:34 -0700
+Subject: [Slony1-general] new replication set not syncing after 4 hrs
+Message-ID: <201002022223.35036.kevink@consistentstate.com>
+
+Hi All ;
+
+we created a new replication set 4 hrs ago and we continue to see messages 
+like this in the logs from the slave (the slon logs):
+
+2010-02-02 21:04:23 PST DEBUG1 remoteWorkerThread_1: connected to provider DB
+2010-02-02 21:04:23 PST WARN   remoteWorkerThread_1: transactions earlier than 
+XID 31685677 are still in progress
+2010-02-02 21:04:23 PST WARN   remoteWorkerThread_1: data copy for set 2 
+failed 178 times - sleep 60 seconds
+
+
+The master is busy but I see no processes in pg_stat_activity that are waiting 
+and no rows in pg_locks have granted = 'f' (all rows are granted = 't')
+
+also our st_lag_num_events in sl_status have climbed to 2729 since we ran the 
+create set command
+
+
+ any thoughts?
+
+From stephane.schildknecht at postgresql.fr  Tue Feb  2 23:38:44 2010
+From: stephane.schildknecht at postgresql.fr (=?ISO-8859-15?Q?=22St=E9phane_A=2E_Schildknecht=22?=)
+Date: Wed, 03 Feb 2010 08:38:44 +0100
+Subject: [Slony1-general] new replication set not syncing after 4 hrs
+In-Reply-To: <201002022223.35036.kevink@consistentstate.com>
+References: <201002022223.35036.kevink@consistentstate.com>
+Message-ID: <4B692804.4070201@postgresql.fr>
+
+-----BEGIN PGP SIGNED MESSAGE-----
+Hash: SHA1
+
+Kevin Kempter a ?crit :
+> Hi All ;
+> 
+> we created a new replication set 4 hrs ago and we continue to see messages 
+> like this in the logs from the slave (the slon logs):
+> 
+> 2010-02-02 21:04:23 PST DEBUG1 remoteWorkerThread_1: connected to provider DB
+> 2010-02-02 21:04:23 PST WARN   remoteWorkerThread_1: transactions earlier than 
+> XID 31685677 are still in progress
+> 2010-02-02 21:04:23 PST WARN   remoteWorkerThread_1: data copy for set 2 
+> failed 178 times - sleep 60 seconds
+> 
+> 
+> The master is busy but I see no processes in pg_stat_activity that are waiting 
+> and no rows in pg_locks have granted = 'f' (all rows are granted = 't')
+> 
+> also our st_lag_num_events in sl_status have climbed to 2729 since we ran the 
+> create set command
+> 
+> 
+>  any thoughts?
+
+Hi,
+
+Sometimes a simple restart of slon daemons help.
+
+Regards,
+- --
+St?phane Schildknecht
+Pr?sident de PostgreSQLFr
+http://www.postgresql.fr
+-----BEGIN PGP SIGNATURE-----
+Version: GnuPG v1.4.6 (GNU/Linux)
+Comment: Using GnuPG with Mozilla - http://enigmail.mozdev.org
+
+iD8DBQFLaSgDA+REPKWGI0ERAr56AJ9pFQfnu6DaqwsbsVukWRKSJXuPiwCfWu5R
+sQ+gqHKkNsQlfHDSb5gg+3M=
+=Gx1Z
+-----END PGP SIGNATURE-----
+
+From tmblue at gmail.com  Wed Feb  3 09:19:00 2010
+From: tmblue at gmail.com (Tory M Blue)
+Date: Wed, 3 Feb 2010 09:19:00 -0800
+Subject: [Slony1-general] new cluster issues.. banging head provider 2
+	is not an active forwarding node
+In-Reply-To: <1264798949.4270.31.camel@bnicholson-desktop>
+References: <8a547c841001281604s38ad6d5ch80b9684f418c91e7@mail.gmail.com>
+	<865735.69239.qm@web53008.mail.re2.yahoo.com>
+	<8a547c841001281650o7043a88pfd1e0a4d42f2259b@mail.gmail.com>
+	<1264798949.4270.31.camel@bnicholson-desktop>
+Message-ID: <8a547c841002030919y67bed6b2m364ec81a850c066d@mail.gmail.com>
+
+On Fri, Jan 29, 2010 at 1:02 PM, Brad Nicholson
+<bnichols at ca.afilias.info> wrote:
+> On Thu, 2010-01-28 at 16:50 -0800, Tory M Blue wrote:
+>> Understood, but this works in a similar configuration now. The script
+>> starts by dropping the slon schema, than sets paths, listeners, than
+>> sets some other information (priviledges etc). Then I start slon on
+>> all nodes and things start to replicate. I've never had slon running
+>> when I run this prepare script. Just wondering if it's something
+>> different now that I'm trying to use a slave as the provider for a
+>> query server, vs having all servers hit masternode (origin) directly.
+>> That could be the issue I guess.
+>
+>
+> Adding the cascaded replica is indeed the difference.
+>
+> In your first case, all the subscription are coming off node1. ?The
+> slonik command creates the events, but they are not processed until the
+> slons are started. ?When you start the slons up, the subscribe set
+> events get processed, and everything works.
+>
+> In the second case, when you start the slons and the events get
+> processed, you are processing the subscribe set event for the cascaded
+> subscriber before the provider is an active subscriber itself. ?This is
+> what breaks.
+>
+> There probably should be a check in the subscribe set slonik command to
+> ensure that the provider is subscribed and an active forwarder before
+> accepting the event.
+>
+>
+
+Thanks all, that was indeed the issue and although this is going to
+require a ton of changes, at least with your help I'm passed this
+hurdle.
+
+Thanks for taking the time!
+
+Tory
+
+From devrim at gunduz.org  Wed Feb  3 15:57:34 2010
+From: devrim at gunduz.org (Devrim =?ISO-8859-1?Q?G=DCND=DCZ?=)
+Date: Thu, 04 Feb 2010 01:57:34 +0200
+Subject: [Slony1-general] Outage Notification: Feb 03, 2010
+Message-ID: <1265241454.5156.30.camel@hp-laptop2.gunduz.org>
+
+
+There will be an outage starting at 2010-02-03 at9pm PST. which will
+last about 30 minutes.
+
+To convert PST to your local time, run
+
+date -d '2010-02-03 21:00 PST'
+
+Affected services:
+
+* Web
+* Bugzilla
+* Lists
+* CVS
+
+Unaffected services:
+
+* None
+
+Reason for Outage: 
+
+* Command Prompt staff will replace one of the disks, to prevent
+possible data loss.
+
+We will attempt to minimize any impact. Thanks for your patience.
+
+Contact Information:
+
+Please join #slony in irc.freenode.net or send us an e-mail.
+
+Regards,
+-- 
+Devrim G?ND?Z, RHCE
+Command Prompt - http://www.CommandPrompt.com 
+devrim~gunduz.org, devrim~PostgreSQL.org, devrim.gunduz~linux.org.tr
+http://www.gunduz.org  Twitter: http://twitter.com/devrimgunduz
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: not available
+Type: application/pgp-signature
+Size: 198 bytes
+Desc: This is a digitally signed message part
+Url : http://lists.slony.info/pipermail/slony1-general/attachments/20100204/3fb99ab7/attachment.pgp 
+
+From lacey.powers at commandprompt.com  Thu Feb  4 00:54:24 2010
+From: lacey.powers at commandprompt.com (Lacey Powers)
+Date: Thu, 04 Feb 2010 00:54:24 -0800
+Subject: [Slony1-general] Outage Notification: Feb 03, 2010
+In-Reply-To: <1265241454.5156.30.camel@hp-laptop2.gunduz.org>
+References: <1265241454.5156.30.camel@hp-laptop2.gunduz.org>
+Message-ID: <4B6A8B40.6030804@commandprompt.com>
+
+Devrim G?ND?Z wrote:
+> There will be an outage starting at 2010-02-03 at9pm PST. which will
+> last about 30 minutes.
+>
+> To convert PST to your local time, run
+>
+> date -d '2010-02-03 21:00 PST'
+>
+> Affected services:
+>
+> * Web
+> * Bugzilla
+> * Lists
+> * CVS
+>
+> Unaffected services:
+>
+> * None
+>
+> Reason for Outage: 
+>
+> * Command Prompt staff will replace one of the disks, to prevent
+> possible data loss.
+>
+> We will attempt to minimize any impact. Thanks for your patience.
+>
+> Contact Information:
+>
+> Please join #slony in irc.freenode.net or send us an e-mail.
+>
+> Regards,
+>   
+
+Hello Everyone,
+
+The disk in the slony server was replaced successfully, though the 
+rebuild took longer than expected.
+
+Again, thank you for your patience during this urgent maintenance.
+
+Lacey
+
+-- 
+Lacey Powers
+
+The PostgreSQL Company - Command Prompt, Inc. 1.503.667.4564 ext 104
+PostgreSQL Replication, Consulting, Custom Development, 24x7 support
+
+
+From vivek at khera.org  Thu Feb  4 07:26:46 2010
+From: vivek at khera.org (Vick Khera)
+Date: Thu, 4 Feb 2010 10:26:46 -0500
+Subject: [Slony1-general] Outage Notification: Feb 03, 2010
+In-Reply-To: <1265241454.5156.30.camel@hp-laptop2.gunduz.org>
+References: <1265241454.5156.30.camel@hp-laptop2.gunduz.org>
+Message-ID: <2968dfd61002040726k52802f4en410c77b89a4b9bd5@mail.gmail.com>
+
+2010/2/3 Devrim G?ND?Z <devrim at gunduz.org>:
+> To convert PST to your local time, run
+>
+> date -d '2010-02-03 21:00 PST'
+>
+
+All the world's not linux.  Your command works not on FreeBSD nor MacOS 10.6
+
+Please either post in UTC or link to a world time calculator like the
+apache folk tend to do.
+
+Thanks.
+
+From stephane.schildknecht at postgresql.fr  Thu Feb  4 07:51:33 2010
+From: stephane.schildknecht at postgresql.fr (=?ISO-8859-15?Q?=22St=E9phane_A=2E_Schildknecht=22?=)
+Date: Thu, 04 Feb 2010 16:51:33 +0100
+Subject: [Slony1-general] drop node not working correctly
+In-Reply-To: <A813F0AF-7F28-4DC7-B07C-E5843A54984A@richyen.com>
+References: <faa313131001130513l67e48ad1i16034cfde7cbffe8@mail.gmail.com>	<faa313131001140530u315ec3edie9082685ee835042@mail.gmail.com>	<4B4F4F17.1020406@ca.afilias.info>	<DD747252-9392-4571-A5ED-1511E4DDE7FC@richyen.com>	<35FC8159-12CE-4185-A21B-8C1CEE358506@richyen.com>
+	<A813F0AF-7F28-4DC7-B07C-E5843A54984A@richyen.com>
+Message-ID: <4B6AED05.7000405@postgresql.fr>
+
+-----BEGIN PGP SIGNED MESSAGE-----
+Hash: SHA1
+
+Richard Yen a ?crit :
+(...)
+
+> St?phane, can you also commit these changes to the slony1-ctl project?
+
+Yes, I will.
+
+Best regards,
+- --
+St?phane Schildknecht
+Pr?sident de PostgreSQLFr
+http://www.postgresql.fr
+-----BEGIN PGP SIGNATURE-----
+Version: GnuPG v1.4.6 (GNU/Linux)
+Comment: Using GnuPG with Mozilla - http://enigmail.mozdev.org
+
+iD8DBQFLau0FA+REPKWGI0ERArAUAKDH7loQf3rIgZvxtVW9FGatuu+vagCfV24C
+0hYdHsRcmpFDewWyf8v+2wc=
+=+MCa
+-----END PGP SIGNATURE-----
+
+From melvin6925 at yahoo.com  Thu Feb  4 08:32:41 2010
+From: melvin6925 at yahoo.com (Melvin Davidson)
+Date: Thu, 4 Feb 2010 08:32:41 -0800 (PST)
+Subject: [Slony1-general] Question about logging behavior
+Message-ID: <888786.18694.qm@web53002.mail.re2.yahoo.com>
+
+	  I have a question about logging behavior.
+
+Given that I have a master,? slave1 and a new slave2 to be subscribed.
+
+I will subscribe the new slave2 from slave1.
+
+If a lot of DML is occuring on the master, are the logs on the master (sl_log1 & sl_log2) retained until slave2 has completed subscription, or will the master purge/truncate it's logs as slave1 acknowledges/SYNCs the changes? 
+
+Thanks in advance
+
+Melvin Davidson 
+
+
+
+
+      
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20100204/e6c21ce2/attachment.html 
+
+From Shawn.Ayers at ansys.com  Thu Feb  4 08:42:57 2010
+From: Shawn.Ayers at ansys.com (Shawn K. Ayers)
+Date: Thu, 4 Feb 2010 11:42:57 -0500
+Subject: [Slony1-general] Problems configuring Slony-I Replication
+Message-ID: <3362150DED0B5749B84C6E1F19E8AEF2045907D1@PGHEXV1.win.ansys.com>
+
+I have been attempting to configure Slony-I replication and I keep
+running into some issues getting the slaves configured.
+
+ 
+
+I am running PostgreSQL 8.4 and have installed Slony-I on Windows XP 64
+bit.
+
+ 
+
+I am able to successfully create the master database and establish the
+master replication cluster.
+
+ 
+
+But each time I attempt to have the Slave database replication cluster
+join the master cluster (click ok) I receive the following error
+message:
+
+ 
+
+ERROR:
+
+************************************************************************
+***********
+
+An error has occurred:
+
+ 
+
+ERROR: function _public.storenode(integer, unknown, boolean) does not
+exist
+
+LINE 1: SELECT _public.storenode(10, 'Slave node 1', false);
+
+                ^
+
+HINT: No function matches the given name and argument types.  You might
+need to add explicit type casts
+
+************************************************************************
+***********
+
+ 
+
+I was wondering if anyone had encountered this error before and what the
+resolution is if they have.
+
+ 
+
+Thank you,
+
+ 
+
+Shawn K. Ayers
+
+Software Configuration Manager
+
+ANSYS, Inc.
+
+Shawn.Ayers at ansys.com
+
+Tel: 1.724.514.1773
+
+www.ansys.com
+
+------------------------------------------------------------------------
+-------------------------
+
+The information transmitted is intended only for the person or entity to
+which it is addressed and may contain confidential and/or privileged
+material. Any review, retransmission, dissemination or other use of, or
+taking of any action in reliance upon, this information by persons or
+entities other than the intended recipient is prohibited. If you
+received this in error, please contact the sender and delete the
+material from any computer. 
+
+ 
+
+ 
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20100204/ee751e2e/attachment.htm 
+
+From guillaume at lelarge.info  Thu Feb  4 10:11:37 2010
+From: guillaume at lelarge.info (Guillaume Lelarge)
+Date: Thu, 04 Feb 2010 19:11:37 +0100
+Subject: [Slony1-general] Problems configuring Slony-I Replication
+In-Reply-To: <3362150DED0B5749B84C6E1F19E8AEF2045907D1@PGHEXV1.win.ansys.com>
+References: <3362150DED0B5749B84C6E1F19E8AEF2045907D1@PGHEXV1.win.ansys.com>
+Message-ID: <4B6B0DD9.5010607@lelarge.info>
+
+Le 04/02/2010 17:42, Shawn K. Ayers a ?crit :
+> I have been attempting to configure Slony-I replication and I keep
+> running into some issues getting the slaves configured.
+> 
+> I am running PostgreSQL 8.4 and have installed Slony-I on Windows XP 64
+> bit.
+> 
+> I am able to successfully create the master database and establish the
+> master replication cluster.
+> 
+> But each time I attempt to have the Slave database replication cluster
+> join the master cluster (click ok) I receive the following error
+> message:
+> 
+> ERROR:
+> 
+> ************************************************************************
+> ***********
+> 
+> An error has occurred:
+> 
+> ERROR: function _public.storenode(integer, unknown, boolean) does not
+> exist
+> 
+> LINE 1: SELECT _public.storenode(10, 'Slave node 1', false);
+> 
+>                 ^
+> 
+> HINT: No function matches the given name and argument types.  You might
+> need to add explicit type casts
+> 
+> ************************************************************************
+> ***********
+> 
+> I was wondering if anyone had encountered this error before and what the
+> resolution is if they have.
+> 
+
+AFAICT, this is an error with pgAdmin. This is already fixed. You need
+release 1.10.2, which isn't released yet.
+
+
+-- 
+Guillaume.
+ http://www.postgresqlfr.org
+ http://dalibo.com
+
+From tmblue at gmail.com  Thu Feb  4 15:39:03 2010
+From: tmblue at gmail.com (Tory M Blue)
+Date: Thu, 4 Feb 2010 15:39:03 -0800
+Subject: [Slony1-general] Any reason not to have 2 replication slaves,
+	replicating to the same 	query slave
+Message-ID: <8a547c841002041539o3b63ed8dmd2c71adff2f31309@mail.gmail.com>
+
+Slon 1.2.20 (For now as I migrate to 8.4 )
+
+Just working out a new Slon setup, with a cascade configuration.
+
+! master talking to 2 Slaves (if not more), that talk to 2-3 Qslaves.
+
+Is it wrong to have both Slaves talking, replicating to both QSlaves?
+
+1 Master
+2 Pri Slave
+3 Sec Slave
+4 Pri QSlave
+5 Sec QSlave
+
+1-2
+2-1
+1-3
+3-1
+2-4
+4-2
+3-4
+4-3
+2-5
+5-2
+3-5
+5-3
+
+I don't see why this would be bad,. The biggest deal here is the
+redundancy this provides, however if I'm creating too much overhead
+than maybe need to create 2 paths for the data , vs having a fully
+meshed env.
+
+Thanks (hope that makes some sense)
+Tory
+
+From ajs at crankycanuck.ca  Thu Feb  4 18:02:08 2010
+From: ajs at crankycanuck.ca (Andrew Sullivan)
+Date: Thu, 4 Feb 2010 21:02:08 -0500
+Subject: [Slony1-general] Any reason not to have 2 replication slaves,
+	replicating to the same  query slave
+In-Reply-To: <8a547c841002041539o3b63ed8dmd2c71adff2f31309@mail.gmail.com>
+References: <8a547c841002041539o3b63ed8dmd2c71adff2f31309@mail.gmail.com>
+Message-ID: <20100205020207.GC30279@shinkuro.com>
+
+On Thu, Feb 04, 2010 at 03:39:03PM -0800, Tory M Blue wrote:
+> Slon 1.2.20 (For now as I migrate to 8.4 )
+> 
+> Just working out a new Slon setup, with a cascade configuration.
+> 
+> ! master talking to 2 Slaves (if not more), that talk to 2-3 Qslaves.
+> 
+> Is it wrong to have both Slaves talking, replicating to both QSlaves?
+
+When you say "replicating to", do you mean they're both actively
+sending data to the other replicas?  If so, then it won't work.  Only
+one can be the set origin for a given target at a time.  But they can
+both be forwarders, such that one could take over for the other.
+
+A
+
+
+-- 
+Andrew Sullivan
+ajs at crankycanuck.ca
+
+From tmblue at gmail.com  Thu Feb  4 22:39:04 2010
+From: tmblue at gmail.com (Tory M Blue)
+Date: Thu, 4 Feb 2010 22:39:04 -0800
+Subject: [Slony1-general] Any reason not to have 2 replication slaves,
+	replicating to the same query slave
+In-Reply-To: <20100205020207.GC30279@shinkuro.com>
+References: <8a547c841002041539o3b63ed8dmd2c71adff2f31309@mail.gmail.com>
+	<20100205020207.GC30279@shinkuro.com>
+Message-ID: <8a547c841002042239m406a85d8k630401128467ac1f@mail.gmail.com>
+
+On Thu, Feb 4, 2010 at 6:02 PM, Andrew Sullivan <ajs at crankycanuck.ca> wrote:
+> On Thu, Feb 04, 2010 at 03:39:03PM -0800, Tory M Blue wrote:
+>> Slon 1.2.20 (For now as I migrate to 8.4 )
+>>
+>> Just working out a new Slon setup, with a cascade configuration.
+>>
+>> ! master talking to 2 Slaves (if not more), that talk to 2-3 Qslaves.
+>>
+>> Is it wrong to have both Slaves talking, replicating to both QSlaves?
+>
+> When you say "replicating to", do you mean they're both actively
+> sending data to the other replicas? ?If so, then it won't work. ?Only
+> one can be the set origin for a given target at a time. ?But they can
+> both be forwarders, such that one could take over for the other.
+>
+> A
+>
+
+Thanks Andrew
+
+Ahh interesting, yes I have it setup so that 2 and 3 both send
+(forward) data to 4 and 5.. the paths take, listeners are created but
+I had a feeling this may not be wise. Are you sure it doesn't work? I
+think I have it working, but if it's frowned upon or otherwise
+questionable, I'll change my path.
+
+Also to include more info. I have 3 sets.
+
+sets 1,2,3 are on the master and the 2 slaves (master replicating
+(actively sending data to  both slaves).  I could fail-over between
+these 3 nodes.
+
+set 1 is only replicated between the slaves (2 and 3) and the Qslaves
+( 4 and 5).
+2-4
+3-4
+2-5
+3-5
+
+Master and Slaves are forwarders. Qslaves are non forwarders
+
+Still wrong, even if I "Think" I have it working?
+
+Tory
+
+From bnichols at ca.afilias.info  Fri Feb  5 05:37:44 2010
+From: bnichols at ca.afilias.info (Brad Nicholson)
+Date: Fri, 05 Feb 2010 08:37:44 -0500
+Subject: [Slony1-general] Any reason not to have 2 replication slaves,
+ replicating to the same query slave
+In-Reply-To: <8a547c841002042239m406a85d8k630401128467ac1f@mail.gmail.com>
+References: <8a547c841002041539o3b63ed8dmd2c71adff2f31309@mail.gmail.com>
+	<20100205020207.GC30279@shinkuro.com>
+	<8a547c841002042239m406a85d8k630401128467ac1f@mail.gmail.com>
+Message-ID: <1265377064.4270.86.camel@bnicholson-desktop>
+
+On Thu, 2010-02-04 at 22:39 -0800, Tory M Blue wrote:
+> On Thu, Feb 4, 2010 at 6:02 PM, Andrew Sullivan <ajs at crankycanuck.ca> wrote:
+> > On Thu, Feb 04, 2010 at 03:39:03PM -0800, Tory M Blue wrote:
+> >> Slon 1.2.20 (For now as I migrate to 8.4 )
+> >>
+> >> Just working out a new Slon setup, with a cascade configuration.
+> >>
+> >> ! master talking to 2 Slaves (if not more), that talk to 2-3 Qslaves.
+> >>
+> >> Is it wrong to have both Slaves talking, replicating to both QSlaves?
+> >
+> > When you say "replicating to", do you mean they're both actively
+> > sending data to the other replicas?  If so, then it won't work.  Only
+> > one can be the set origin for a given target at a time.  But they can
+> > both be forwarders, such that one could take over for the other.
+> >
+> > A
+> >
+> 
+> Thanks Andrew
+> 
+> Ahh interesting, yes I have it setup so that 2 and 3 both send
+> (forward) data to 4 and 5.. the paths take, listeners are created but
+> I had a feeling this may not be wise. Are you sure it doesn't work? I
+> think I have it working, but if it's frowned upon or otherwise
+> questionable, I'll change my path.
+
+Having the paths in place is fine. The extra paths will increase the
+communications cost, but can be safer and simply your DR.
+
+I think you have the concept wrong.  For a given set, data flows from a
+single provider to a single subscriber.  This is a unique one-to-one
+pairing.  You can have as many of these pairing as you can support, and
+they can be cascaded (a node is both a subscriber and a provider for the
+same set).  
+
+All the paths are are channels for communication (which will also move
+data if appropriate).
+
+> Also to include more info. I have 3 sets.
+> 
+> sets 1,2,3 are on the master and the 2 slaves (master replicating
+> (actively sending data to  both slaves).  I could fail-over between
+> these 3 nodes.
+> 
+> set 1 is only replicated between the slaves (2 and 3) and the Qslaves
+> ( 4 and 5).
+> 2-4
+> 3-4
+> 2-5
+> 3-5
+> 
+> Master and Slaves are forwarders. Qslaves are non forwarders
+> 
+> Still wrong, even if I "Think" I have it working?
+
+I don't see anything wrong with this config.
+
+-- 
+Brad Nicholson  416-673-4106
+Database Administrator, Afilias Canada Corp.
+
+
+
+From tmblue at gmail.com  Fri Feb  5 12:20:29 2010
+From: tmblue at gmail.com (Tory M Blue)
+Date: Fri, 5 Feb 2010 12:20:29 -0800
+Subject: [Slony1-general] Any reason not to have 2 replication slaves,
+	replicating to the same query slave
+In-Reply-To: <1265377064.4270.86.camel@bnicholson-desktop>
+References: <8a547c841002041539o3b63ed8dmd2c71adff2f31309@mail.gmail.com>
+	<20100205020207.GC30279@shinkuro.com>
+	<8a547c841002042239m406a85d8k630401128467ac1f@mail.gmail.com>
+	<1265377064.4270.86.camel@bnicholson-desktop>
+Message-ID: <8a547c841002051220g5435359bi5828506ca4837d78@mail.gmail.com>
+
+On Fri, Feb 5, 2010 at 5:37 AM, Brad Nicholson <bnichols at ca.afilias.info> wrote:
+> On Thu, 2010-02-04 at 22:39 -0800, Tory M Blue wrote:
+>> On Thu, Feb 4, 2010 at 6:02 PM, Andrew Sullivan <ajs at crankycanuck.ca> wrote:
+>> > On Thu, Feb 04, 2010 at 03:39:03PM -0800, Tory M Blue wrote:
+>> >> Slon 1.2.20 (For now as I migrate to 8.4 )
+>> >>
+>> >> Just working out a new Slon setup, with a cascade configuration.
+>> >>
+>> >> ! master talking to 2 Slaves (if not more), that talk to 2-3 Qslaves.
+>> >>
+>> >> Is it wrong to have both Slaves talking, replicating to both QSlaves?
+>> >
+>> > When you say "replicating to", do you mean they're both actively
+>> > sending data to the other replicas? ?If so, then it won't work. ?Only
+>> > one can be the set origin for a given target at a time. ?But they can
+>> > both be forwarders, such that one could take over for the other.
+>> >
+>> > A
+
+Not to beat a dead horse but i had to come back to this.
+
+Andrew you said this would not work, I said I had it working, however
+looking at my paths today, I believe you are right..
+
+Here is the current paths and subscribes on my Qslave (node 4)
+
+idb03 = 1 (Master Insert)
+idb04 = 2 (Pri Insert Slave)
+idb05 = 3 (Sec Insert Slave)
+qdb03 =4 (Pri Qslave)
+
+clsdb=# select * from _cls.sl_path;
+ pa_server | pa_client |
+pa_conninfo                                        | pa_connretry
+-----------+-----------+-------------------------------------------------------------------------------------------+--------------
+         2 |         1 | dbname=clsdb host=devidb04  user=postgres
+password=SECURED |           10
+         3 |         1 | dbname=clsdb host=devidb05  user=postgres
+password=SECURED |           10
+         1 |         3 | dbname=clsdb host=devidb03  user=postgres
+password=SECURED |           10
+         1 |         2 | dbname=clsdb host=devidb03  user=postgres
+password=SECURED |           10
+         2 |         4 | dbname=clsdb host=devidb04  user=postgres
+password=SECURED |           10
+         3 |         4 | dbname=clsdb host=devidb05  user=postgres
+password=SECURED |           10
+         4 |         2 | dbname=clsdb host=devqdb03  user=postgres
+password=SECURED |           10
+         4 |         3 | dbname=clsdb host=devqdb03  user=postgres
+password=SECURED |           10
+(8 rows)
+
+clsdb=# select * from _cls.sl_subscribe;
+ sub_set | sub_provider | sub_receiver | sub_forward | sub_active
+---------+--------------+--------------+-------------+------------
+       1 |            1 |            2 | t           | t
+       1 |            1 |            3 | t           | t
+       2 |            1 |            2 | t           | t
+       2 |            1 |            3 | t           | t
+       3 |            1 |            2 | t           | t
+       3 |            1 |            3 | t           | t
+       1 |            3 |            4 | f           | t
+(7 rows)
+
+Here are the subscribe set commands in my script when i'm adding  node
+4 (QSlave)
+
+        subscribe set ( id = 1, provider = $SLAVE1_NODE, receiver =
+$ADDNODE_ID, forward = no);
+        subscribe set ( id = 1, provider = $SLAVE2_NODE, receiver =
+$ADDNODE_ID, forward = no);
+
+Although interesting to me (prob not to you folks), while it didn't
+provide any errors or "don't do that arsehat" messages, it seemed to
+take my second subscribe set argument only (based on sl_subscribe)
+output (overwriting the initial subscribe set command)
+
+Also when I drop node 3, I am no longer syncing to Node 4.
+
+admissionclsdb=# select * from _admissioncls.sl_subscribe;
+ sub_set | sub_provider | sub_receiver | sub_forward | sub_active
+---------+--------------+--------------+-------------+------------
+       1 |            1 |            2 | t           | t
+       2 |            1 |            2 | t           | t
+       2 |            1 |            3 | t           | t
+       3 |            1 |            2 | t           | t
+       3 |            1 |            3 | t           | t
+(5 rows)
+
+Which tells me I need to, I think...
+
+Remove the second subscribe line from my addnode script when adding
+the QSLAVES (non forwarders, set 1 subscribers only). And add it to
+the dropnode section of node 3, so that when I drop node 3, I add a
+subscribe set 1 back to 4 via 2??
+
+This get's me to the 1 to 1 configuration that  Brad also mentioned.
+Although we know we can do 1 to many, it doesnt look like many to 1 is
+appropriate for subscribe sets.
+
+Hopefully I'm still talking in a dialect you understand as the guts of
+slony are still kind of new to me, although I've had to manage it for
+the last 3 years.
+
+Just trying to make this as fault tolerant but efficient as I can..
+Obviously being able to lose a provider without manual intervention
+would be ideal,but don't see that quite yet :)
+
+Thanks
+Tory
+
+From ajs at crankycanuck.ca  Fri Feb  5 16:19:44 2010
+From: ajs at crankycanuck.ca (Andrew Sullivan)
+Date: Fri, 5 Feb 2010 19:19:44 -0500
+Subject: [Slony1-general] Any reason not to have 2 replication slaves,
+	replicating to the same query slave
+In-Reply-To: <8a547c841002051220g5435359bi5828506ca4837d78@mail.gmail.com>
+References: <8a547c841002041539o3b63ed8dmd2c71adff2f31309@mail.gmail.com>
+	<20100205020207.GC30279@shinkuro.com>
+	<8a547c841002042239m406a85d8k630401128467ac1f@mail.gmail.com>
+	<1265377064.4270.86.camel@bnicholson-desktop>
+	<8a547c841002051220g5435359bi5828506ca4837d78@mail.gmail.com>
+Message-ID: <20100206001943.GA34556@shinkuro.com>
+
+On Fri, Feb 05, 2010 at 12:20:29PM -0800, Tory M Blue wrote:
+
+> This get's me to the 1 to 1 configuration that  Brad also mentioned.
+> Although we know we can do 1 to many, it doesnt look like many to 1 is
+> appropriate for subscribe sets.
+
+Right, what Brad said was right: you need to distinguish
+_communication_ path and _active data_ paths.  There's nothing wrong
+with the nodes communicating with one another, but there's something
+wrong with the idea that you can get the same data from two places at
+the same time.
+
+> Just trying to make this as fault tolerant but efficient as I can..
+> Obviously being able to lose a provider without manual intervention
+> would be ideal,but don't see that quite yet :)
+
+It's not possible.  If you lose a node, and want to switch away from
+it, you need to issue a FAILOVER command.
+
+A
+
+-- 
+Andrew Sullivan
+ajs at crankycanuck.ca
+
+From tmblue at gmail.com  Fri Feb  5 16:33:49 2010
+From: tmblue at gmail.com (Tory M Blue)
+Date: Fri, 5 Feb 2010 16:33:49 -0800
+Subject: [Slony1-general] Any reason not to have 2 replication slaves,
+	replicating to the same query slave
+In-Reply-To: <20100206001943.GA34556@shinkuro.com>
+References: <8a547c841002041539o3b63ed8dmd2c71adff2f31309@mail.gmail.com>
+	<20100205020207.GC30279@shinkuro.com>
+	<8a547c841002042239m406a85d8k630401128467ac1f@mail.gmail.com>
+	<1265377064.4270.86.camel@bnicholson-desktop>
+	<8a547c841002051220g5435359bi5828506ca4837d78@mail.gmail.com>
+	<20100206001943.GA34556@shinkuro.com>
+Message-ID: <8a547c841002051633v380b8e5veb05bd8315904f3@mail.gmail.com>
+
+On Fri, Feb 5, 2010 at 4:19 PM, Andrew Sullivan <ajs at crankycanuck.ca> wrote:
+> On Fri, Feb 05, 2010 at 12:20:29PM -0800, Tory M Blue wrote:
+>
+>> This get's me to the 1 to 1 configuration that ?Brad also mentioned.
+>> Although we know we can do 1 to many, it doesnt look like many to 1 is
+>> appropriate for subscribe sets.
+>
+> Right, what Brad said was right: you need to distinguish
+> _communication_ path and _active data_ paths. ?There's nothing wrong
+> with the nodes communicating with one another, but there's something
+> wrong with the idea that you can get the same data from two places at
+> the same time.
+>
+>> Just trying to make this as fault tolerant but efficient as I can..
+>> Obviously being able to lose a provider without manual intervention
+>> would be ideal,but don't see that quite yet :)
+>
+> It's not possible. ?If you lose a node, and want to switch away from
+> it, you need to issue a FAILOVER command.
+>
+
+However if I lose a Slave node which is a provider to a Query node, I
+don't only lose the Slave, but in all reality I lose the Slave and the
+Qslave (since it's getting it's data from the Slave node). Unless you
+are citing that I would actually do a switchover/failover against the
+Slave nodes which are talking to the Qnodes.. I may need to change the
+subject or create another thread. But I'm close, but I continue to
+have to rebuild my QSLAVE host after failing the SLAVE host (it's
+provider).
+
+the concept of using failover/switchover on subscriber nodes is new to
+me (okay, sorry since I'm cascading for the first time, it's all a new
+concept)., I normally reserved considered failover/switchover on the
+Master/Slaves, but not on the SLAVES/QSLAVES (oh crud, just got all
+twisted!).
+
+No response necessary unless you can see my confusion and want to
+help. Otherwise you guys have allowed me to make some headway and I'm
+close but that middle tier is causing some issues when I remove or
+otherwise disable a forwarder node that is not the master.
+
+Thanks
+Tory
+
+From ajs at crankycanuck.ca  Fri Feb  5 16:52:30 2010
+From: ajs at crankycanuck.ca (Andrew Sullivan)
+Date: Fri, 5 Feb 2010 19:52:30 -0500
+Subject: [Slony1-general] Any reason not to have 2 replication slaves,
+	replicating to the same query slave
+In-Reply-To: <8a547c841002051633v380b8e5veb05bd8315904f3@mail.gmail.com>
+References: <8a547c841002041539o3b63ed8dmd2c71adff2f31309@mail.gmail.com>
+	<20100205020207.GC30279@shinkuro.com>
+	<8a547c841002042239m406a85d8k630401128467ac1f@mail.gmail.com>
+	<1265377064.4270.86.camel@bnicholson-desktop>
+	<8a547c841002051220g5435359bi5828506ca4837d78@mail.gmail.com>
+	<20100206001943.GA34556@shinkuro.com>
+	<8a547c841002051633v380b8e5veb05bd8315904f3@mail.gmail.com>
+Message-ID: <20100206005228.GA34694@shinkuro.com>
+
+On Fri, Feb 05, 2010 at 04:33:49PM -0800, Tory M Blue wrote:
+
+> However if I lose a Slave node which is a provider to a Query node, I
+> don't only lose the Slave, but in all reality I lose the Slave and the
+> Qslave (since it's getting it's data from the Slave node). Unless you
+> are citing that I would actually do a switchover/failover against the
+> Slave nodes which are talking to the Qnodes.. I may need to change the
+> subject or create another thread. But I'm close, but I continue to
+> have to rebuild my QSLAVE host after failing the SLAVE host (it's
+> provider).
+
+In general, your life will be better if you stop thinking of nodes as
+having particular roles, and think of them as having one or more
+functions:
+
+ - replica
+ - forwarder
+ - origin
+
+A replica can receive data in a given set from some source, which can
+either be the data origin strictly conceived (i.e. where the data
+comes from, the active data-write source of that set), or it can be
+some forwarder of that set.
+
+In your graph, you have a single data origin for all sets (1), and you
+have two forwarders; those forwarders are also replicas (you're
+calling them "slaves": 2,3).  They become data providers for other
+replicas (which you're calling qslaves, 4,5).
+
+Every node in this graph _knows_ about the data flow.  So, if 4
+receives from 2 and 5 receives from 3 and 2 dies, 4 can be told, "Go
+get this from 3" and it will pick up where it left off last from 2.
+
+This is why Slony overhead is so great: you get the benefit of
+resilience, but it comes at the cost of nodes knowing about things
+they're not actively using.
+
+Does that help make sense of some of this?
+
+A
+
+-- 
+Andrew Sullivan
+ajs at crankycanuck.ca
+
+From tmblue at gmail.com  Fri Feb  5 17:07:48 2010
+From: tmblue at gmail.com (Tory M Blue)
+Date: Fri, 5 Feb 2010 17:07:48 -0800
+Subject: [Slony1-general] Any reason not to have 2 replication slaves,
+	replicating to the same query slave
+In-Reply-To: <20100206005228.GA34694@shinkuro.com>
+References: <8a547c841002041539o3b63ed8dmd2c71adff2f31309@mail.gmail.com>
+	<20100205020207.GC30279@shinkuro.com>
+	<8a547c841002042239m406a85d8k630401128467ac1f@mail.gmail.com>
+	<1265377064.4270.86.camel@bnicholson-desktop>
+	<8a547c841002051220g5435359bi5828506ca4837d78@mail.gmail.com>
+	<20100206001943.GA34556@shinkuro.com>
+	<8a547c841002051633v380b8e5veb05bd8315904f3@mail.gmail.com>
+	<20100206005228.GA34694@shinkuro.com>
+Message-ID: <8a547c841002051707l46b2e438k7a50506b206fcb37@mail.gmail.com>
+
+On Fri, Feb 5, 2010 at 4:52 PM, Andrew Sullivan <ajs at crankycanuck.ca> wrote:
+> On Fri, Feb 05, 2010 at 04:33:49PM -0800, Tory M Blue wrote:
+>
+>> However if I lose a Slave node which is a provider to a Query node, I
+>> don't only lose the Slave, but in all reality I lose the Slave and the
+>> Qslave (since it's getting it's data from the Slave node). Unless you
+>> are citing that I would actually do a switchover/failover against the
+>> Slave nodes which are talking to the Qnodes.. I may need to change the
+>> subject or create another thread. But I'm close, but I continue to
+>> have to rebuild my QSLAVE host after failing the SLAVE host (it's
+>> provider).
+>
+> In general, your life will be better if you stop thinking of nodes as
+> having particular roles, and think of them as having one or more
+> functions:
+>
+> ?- replica
+> ?- forwarder
+> ?- origin
+>
+> A replica can receive data in a given set from some source, which can
+> either be the data origin strictly conceived (i.e. where the data
+> comes from, the active data-write source of that set), or it can be
+> some forwarder of that set.
+>
+> In your graph, you have a single data origin for all sets (1), and you
+> have two forwarders; those forwarders are also replicas (you're
+> calling them "slaves": 2,3). ?They become data providers for other
+> replicas (which you're calling qslaves, 4,5).
+>
+> Every node in this graph _knows_ about the data flow. ?So, if 4
+> receives from 2 and 5 receives from 3 and 2 dies, 4 can be told, "Go
+> get this from 3" and it will pick up where it left off last from 2.
+>
+> This is why Slony overhead is so great: you get the benefit of
+> resilience, but it comes at the cost of nodes knowing about things
+> they're not actively using.
+>
+> Does that help make sense of some of this?
+>
+> A
+
+HAHA yes, thanks, every once in a while a slap is a good thing. Yes
+putting things into the correct terms does seem to make it easier for
+me to grasp.
+
+I'm still working on when a forwarder dies, how I get that information
+to the replica. Seems I just need to change paths and change the
+subscription, but I guess failover does some of that for you. However
+when I'm actually just dropping a node, that seems to be causing me
+some issues in terms of getting the replica to know that it now needs
+to talk to the forwarder that is available.
+
+Thanks Anthony, your patience is appreciated
+
+Tory
+
+From tmblue at gmail.com  Mon Feb  8 12:19:49 2010
+From: tmblue at gmail.com (Tory M Blue)
+Date: Mon, 8 Feb 2010 12:19:49 -0800
+Subject: [Slony1-general] dropping a forwarder
+Message-ID: <8a547c841002081219h7e1cb68v9a52eaa8963ab54e@mail.gmail.com>
+
+So after last weeks discussion I'm still running into issues trying to
+remove a forwarder  and replace it with another forwarder talking to
+the remaining replica.
+
+To keep things simple.
+
+1-2
+1-3
+2-4
+
+Set 1
+
+Want to remove  the forwarder (2), and since the origin is not moving,
+doesn't seem a fail-over or switchover fits the bill here.
+
+I've tried to simply drop the path of 2 and run a simple subscribe set
+ ( id=1,  provider=3, receiver=4); but the replica seems to get
+confused and without restarting slony on the replica  things don't
+seem to ever catch up.
+
+Since I'm not replacing the origin and just a forwarder, are there
+steps that I should be doing vs just issuing a subscribe to another
+forwarder?, I don't want to unsubscribe, I just want the replica to
+get it's updates from forwarder (3) now.
+
+When i drop node 2, here is what I've tried.
+
+SLONIK_COMMANDS="$SLONIK_COMMANDS
+        SUBSCRIBE SET ( ID = 1, PROVIDER = 3, RECEIVER = 4, forward = no);
+        WAIT FOR EVENT ( ORIGIN = 3, CONFIRMED = 4 ) ; <-- run with and without
+        UNSUBSCRIBE SET ( ID = 1, RECEIVER = 2);
+       DROP PATH ( SERVER = 2, CLIENT = 4 );
+       DROP PATH ( SERVER = 4, CLIENT = 2 );
+       DROP PATH ( SERVER = 1, CLIENT = 2 );
+       DROP PATH ( SERVER = 2, CLIENT = 1 );
+
+This sometimes works and other times does not, again it seems if I
+restart the replica (4) things are happy, but I feel that there is
+something I'm doing wrong, or out of order?
+
+Thanks again
+Tory
+
+From tmblue at gmail.com  Mon Feb  8 21:26:55 2010
+From: tmblue at gmail.com (Tory M Blue)
+Date: Mon, 8 Feb 2010 21:26:55 -0800
+Subject: [Slony1-general] dropping a forwarder
+In-Reply-To: <8a547c841002081219h7e1cb68v9a52eaa8963ab54e@mail.gmail.com>
+References: <8a547c841002081219h7e1cb68v9a52eaa8963ab54e@mail.gmail.com>
+Message-ID: <8a547c841002082126w41802ca8o27e64b81ea8599a2@mail.gmail.com>
+
+On Mon, Feb 8, 2010 at 12:19 PM, Tory M Blue <tmblue at gmail.com> wrote:
+> So after last weeks discussion I'm still running into issues trying to
+> remove a forwarder ?and replace it with another forwarder talking to
+> the remaining replica.
+>
+> To keep things simple.
+>
+> 1-2
+> 1-3
+> 2-4
+>
+> Set 1
+>
+> Want to remove ?the forwarder (2), and since the origin is not moving,
+> doesn't seem a fail-over or switchover fits the bill here.
+>
+> I've tried to simply drop the path of 2 and run a simple subscribe set
+> ?( id=1, ?provider=3, receiver=4); but the replica seems to get
+> confused and without restarting slony on the replica ?things don't
+> seem to ever catch up.
+>
+> Since I'm not replacing the origin and just a forwarder, are there
+> steps that I should be doing vs just issuing a subscribe to another
+> forwarder?, I don't want to unsubscribe, I just want the replica to
+> get it's updates from forwarder (3) now.
+>
+> When i drop node 2, here is what I've tried.
+>
+> SLONIK_COMMANDS="$SLONIK_COMMANDS
+> ? ? ? ?SUBSCRIBE SET ( ID = 1, PROVIDER = 3, RECEIVER = 4, forward = no);
+> ? ? ? ?WAIT FOR EVENT ( ORIGIN = 3, CONFIRMED = 4 ) ; <-- run with and without
+> ? ? ? ?UNSUBSCRIBE SET ( ID = 1, RECEIVER = 2);
+> ? ? ? DROP PATH ( SERVER = 2, CLIENT = 4 );
+> ? ? ? DROP PATH ( SERVER = 4, CLIENT = 2 );
+> ? ? ? DROP PATH ( SERVER = 1, CLIENT = 2 );
+> ? ? ? DROP PATH ( SERVER = 2, CLIENT = 1 );
+>
+> This sometimes works and other times does not, again it seems if I
+> restart the replica (4) things are happy, but I feel that there is
+> something I'm doing wrong, or out of order?
+
+So after much much more trial and error and finding "stuff" I had
+broke, I understand that my subscribe set is pretty much all I need to
+do to move a forwarder.
+
+However I don't know if it's me dropping paths soon after or what, but
+my replica after being told to listen/communicate with the new
+forwarder still doesn't.
+
+Forwarder 3 - replica 4
+-to-
+Forwarder 2 - replica 4
+
+2010-02-08 21:19:06 PST DEBUG2 remoteWorkerThread_1: SYNC 1605 processing
+2010-02-08 21:19:06 PST DEBUG2 remoteWorkerThread_1: data provider 3
+confirmed up to ev_seqno 1605 for ev_origin 1 - OK
+2010-02-08 21:19:06 PST DEBUG2 remoteWorkerThread_1: syncing set 1
+with 14 table(s) from provider 3
+2010-02-08 21:19:06 PST DEBUG4  ssy_action_list value:
+
+sl_path is correct on the replica:
+ sub_set | sub_provider | sub_receiver | sub_forward | sub_active
+---------+--------------+--------------+-------------+------------
+       1 |            1 |            3 | t           | t
+       2 |            1 |            2 | t           | t
+       3 |            1 |            2 | t           | t
+       1 |            1 |            2 | t           | t
+       1 |            2 |            4 | f           | t
+
+yet until I kill slon and restart it on the replica, it will never
+reflect the changes. This makes no sense to me and is what is causing
+me some issues. Heck most of you thought i was nuts when I didn't have
+slon started when I was setting things up and yes I've learned that
+most of slony tasks do not require any type of "service" modification,
+however in this scenario I seem to have to. And as noted in the docs
+the subscribe set returns immediate results so you can't utilize a
+wait for event (at least with 1.2).
+
+So what would cause me to have to restart slon for the changes to take
+affect, when as i've shown above the paths on this replica are
+correct, a restart of slon makes everything nice and dandy, just
+thinking that is not something I should be doing.
+
+On restart of slon on the replica
+
+2010-02-08 21:26:19 PST DEBUG2 calc sync size - last time: 1 last
+length: 1184 ideal: 50 proposed size: 3
+2010-02-08 21:26:19 PST DEBUG2 remoteWorkerThread_1: SYNC 1649 processing
+2010-02-08 21:26:19 PST DEBUG2 remoteWorkerThread_1: syncing set 1
+with 14 table(s) from provider 2
+2010-02-08 21:26:19 PST DEBUG4  ssy_action_list value:
+2010-02-08 21:26:19 PST DEBUG2  ssy_action_list length: 0
+
+Thanks again
+Tory
+
+From gmc at sonologic.nl  Tue Feb  9 05:14:19 2010
+From: gmc at sonologic.nl (Koen Martens)
+Date: Tue, 9 Feb 2010 14:14:19 +0100
+Subject: [Slony1-general] slony fails after upgrade from 8.2 to 8.4
+Message-ID: <20100209131419.GB17614@monk.dh.sono>
+
+Hi All,
+
+I'm having a strange problem. We have just upgraded a database from 8.2.x
+to 8.4.2 (both master and slave). We did a pg_dumpall from the 8.2 install,
+which was configured as a slony master, and imported that into the fresh
+8.4.2. 
+
+I then removed the slony schema from the database in question and started
+configuration of slony afresh. However, after initializing the slony replication
+(defining the sets, nodes and paths) but before starting the replication, we
+get errors:
+
+Feb  9 13:40:58 dbmain postgres[38232]: [404-1] ERROR:  cache lookup failed for type 30549603
+Feb  9 13:40:58 dbmain postgres[38232]: [404-2] CONTEXT:  SQL statement "INSERT INTO _live.sl_log_1 (log_origin, log_xid, log_tableid, log_actionseq, log_cmdtype, log_cmddata) VALUES (1, $1, $2, nextval('_live.sl_action_seq'), $3, $4);"
+Feb  9 13:40:58 dbmain postgres[38232]: [404-3] STATEMENT:  UPDATE passports
+Feb  9 13:40:58 dbmain postgres[38232]: [404-4]                                 SET ps_expires=TO_TIMESTAMP('20100210062058', 'YYYYMMDDHH24MISS')
+Feb  9 13:40:58 dbmain postgres[38232]: [404-5]                                 WHERE (ps_id=$1)
+
+This effectively blocks transactions (which is bad because this database is
+in production).
+
+I thus removed the slony schema again (drop schema _live cascade) and things
+are fine again. However, we're now running without replication, that's scary.
+
+Any hints would be much appreciated!
+
+Best,
+
+Koen
+
+
+From gmc at sonologic.nl  Tue Feb  9 05:21:19 2010
+From: gmc at sonologic.nl (Koen Martens)
+Date: Tue, 9 Feb 2010 14:21:19 +0100
+Subject: [Slony1-general] slony fails after upgrade from 8.2 to 8.4
+In-Reply-To: <20100209131419.GB17614@monk.dh.sono>
+References: <20100209131419.GB17614@monk.dh.sono>
+Message-ID: <20100209132119.GC17614@monk.dh.sono>
+
+On Tue, Feb 09, 2010 at 02:14:19PM +0100, Koen Martens wrote:
+> I'm having a strange problem. We have just upgraded a database from 8.2.x
+> to 8.4.2 (both master and slave). We did a pg_dumpall from the 8.2 install,
+> which was configured as a slony master, and imported that into the fresh
+> 8.4.2. 
+> 
+> I then removed the slony schema from the database in question and started
+> configuration of slony afresh. However, after initializing the slony replication
+> (defining the sets, nodes and paths) but before starting the replication, we
+> get errors:
+> 
+> Feb  9 13:40:58 dbmain postgres[38232]: [404-1] ERROR:  cache lookup failed for type 30549603
+> Feb  9 13:40:58 dbmain postgres[38232]: [404-2] CONTEXT:  SQL statement "INSERT INTO _live.sl_log_1 (log_origin, log_xid, log_tableid, log_actionseq, log_cmdtype, log_cmddata) VALUES (1, $1, $2, nextval('_live.sl_action_seq'), $3, $4);"
+> Feb  9 13:40:58 dbmain postgres[38232]: [404-3] STATEMENT:  UPDATE passports
+> Feb  9 13:40:58 dbmain postgres[38232]: [404-4]                                 SET ps_expires=TO_TIMESTAMP('20100210062058', 'YYYYMMDDHH24MISS')
+> Feb  9 13:40:58 dbmain postgres[38232]: [404-5]                                 WHERE (ps_id=$1)
+> 
+> This effectively blocks transactions (which is bad because this database is
+> in production).
+> 
+> I thus removed the slony schema again (drop schema _live cascade) and things
+> are fine again. However, we're now running without replication, that's scary.
+> 
+> Any hints would be much appreciated!
+
+One more thing, this is with slony 1.2.20.
+
+Gr,
+
+Koen
+
+From gmc at sonologic.nl  Wed Feb 10 01:47:26 2010
+From: gmc at sonologic.nl (Koen Martens)
+Date: Wed, 10 Feb 2010 10:47:26 +0100
+Subject: [Slony1-general] slony fails after upgrade from 8.2 to 8.4
+In-Reply-To: <20100209131419.GB17614@monk.dh.sono>
+References: <20100209131419.GB17614@monk.dh.sono>
+Message-ID: <20100210094725.GE26934@monk.dh.sono>
+
+Hi,
+
+On Tue, Feb 09, 2010 at 02:14:19PM +0100, Koen Martens wrote:
+> Feb  9 13:40:58 dbmain postgres[38232]: [404-1] ERROR:  cache lookup failed for type 30549603
+> Feb  9 13:40:58 dbmain postgres[38232]: [404-2] CONTEXT:  SQL statement "INSERT INTO _live.sl_log_1 (log_origin, log_xid, log_tableid, log_actionseq, log_cmdtype, log_cmddata) VALUES (1, $1, $2, nextval('_live.sl_action_seq'), $3, $4);"
+> Feb  9 13:40:58 dbmain postgres[38232]: [404-3] STATEMENT:  UPDATE passports
+> Feb  9 13:40:58 dbmain postgres[38232]: [404-4]                                 SET ps_expires=TO_TIMESTAMP('20100210062058', 'YYYYMMDDHH24MISS')
+> Feb  9 13:40:58 dbmain postgres[38232]: [404-5]                                 WHERE (ps_id=$1)
+
+To answer my own question: it seems there is some lingering cache somehwere,
+as a restart of PostgreSQL before re-installing slony did the trick.
+
+Gr,
+
+Koen
+
+
+From vivek at khera.org  Wed Feb 10 12:41:43 2010
+From: vivek at khera.org (Vick Khera)
+Date: Wed, 10 Feb 2010 15:41:43 -0500
+Subject: [Slony1-general] slony fails after upgrade from 8.2 to 8.4
+In-Reply-To: <20100210094725.GE26934@monk.dh.sono>
+References: <20100209131419.GB17614@monk.dh.sono>
+	<20100210094725.GE26934@monk.dh.sono>
+Message-ID: <2968dfd61002101241m2f025d2evd84048fbaa715d9@mail.gmail.com>
+
+On Wed, Feb 10, 2010 at 4:47 AM, Koen Martens <gmc at sonologic.nl> wrote:
+> To answer my own question: it seems there is some lingering cache somehwere,
+> as a restart of PostgreSQL before re-installing slony did the trick.
+>
+
+It would have been sufficient to kill all open connections to the
+server (ie, restart the apps) because they seem to have connected to
+your DB before you did the delete of slony from your DB.  They had
+cached plans with the slony triggers.
+
+From ample_apple119 at yahoo.co.jp  Thu Feb 11 04:05:20 2010
+From: ample_apple119 at yahoo.co.jp (=?iso-2022-jp?B?YW1wbGVfYXBwbGUxMTlAeWFob28uY28uanA=?=)
+Date: Thu, 11 Feb 2010 21:05:20 +0900
+Subject: [Slony1-general] =?iso-2022-jp?b?GyRCIVoiKEksJDokNDNORycyPCQ1GyhC?=
+	=?iso-2022-jp?b?GyRCJCQiKCFbGyhC?=
+Message-ID: <20100211153917.AF6802901C0@main.slony.info>
+
+
+$BEv%5%$%H$G$O!"B>%5%$%H$H$O0c$$5U1g=u8r:]$rA0Ds$H$7$F$*$j$^$9!#(B
+$B%7%9%F%`$O4JC1$G$9!#(B
+$B-!L5NAEPO?(B
+$B-"=w at -$+$i%a!<%k$,Mh$^$9(B
+$B-#%"%]%$%s%H!&6b3[$r7h$a$^$9(B
+$B-$6b3[$,7h$^$j<!Bh?6$j9~$^$l$^$9!#(B
+$B-%8=6b$r3NG'<!Bh!"B(2q$&;v$,=PMh$^$9!#(B
+
+$B2??M$N=w at -$H$*IU$-9g$$$9$k$+$O5.J}<!Bh!#(B
+$BCK at -$O0l at ZNA6b$,3]$+$i$:L5NA$G$4MxMQD:$1$^$9$N$G!"@'Hs$*;n$72<$5$$!#(B
+
+$B%Q%=%3%s$NJ}$O$3$A$i$3$i$I$&$>"-(B
+http://se-u.com/
+
+
+
+
+
+From cbbrowne at ca.afilias.info  Thu Feb 11 11:38:25 2010
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Thu, 11 Feb 2010 14:38:25 -0500
+Subject: [Slony1-general] "if" instead of "else if"?
+In-Reply-To: <52243D8E-FBC8-4713-BE55-0EF6A0EE9A06@richyen.com> (Richard Yen's
+	message of "Mon, 25 Jan 2010 15:29:57 -0800")
+References: <52243D8E-FBC8-4713-BE55-0EF6A0EE9A06@richyen.com>
+Message-ID: <878wazd0lq.fsf@ca.afilias.info>
+
+Richard Yen <dba at richyen.com> writes:
+> Could someone verify that the "else" actually belongs there?  If so,  
+> could you please apply the patch (I don't have commit access to the  
+> repository)?
+
+Yes, that belongs there, as you suggest.
+
+Done!
+-- 
+select 'cbbrowne' || '@' || 'ca.afilias.info';
+Christopher Browne
+"Bother,"  said Pooh,  "Eeyore, ready  two photon  torpedoes  and lock
+phasers on the Heffalump, Piglet, meet me in transporter room three"
+
+From cbbrowne at ca.afilias.info  Thu Feb 11 12:16:56 2010
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Thu, 11 Feb 2010 15:16:56 -0500
+Subject: [Slony1-general] drop node not working correctly
+In-Reply-To: <35FC8159-12CE-4185-A21B-8C1CEE358506@richyen.com> (Richard Yen's
+	message of "Fri, 29 Jan 2010 16:30:11 -0800")
+References: <faa313131001130513l67e48ad1i16034cfde7cbffe8@mail.gmail.com>
+	<faa313131001140530u315ec3edie9082685ee835042@mail.gmail.com>
+	<4B4F4F17.1020406@ca.afilias.info>
+	<DD747252-9392-4571-A5ED-1511E4DDE7FC@richyen.com>
+	<35FC8159-12CE-4185-A21B-8C1CEE358506@richyen.com>
+Message-ID: <873a17cytj.fsf@ca.afilias.info>
+
+Richard Yen <dba at richyen.com> writes:
+> The question I have is--shouldn't the ev_origin for FAILOVER_SET be
+> the nodeID of the backup node?  Seems like it wouldn't make sense that
+> a failed node would create an event; the system should state that the
+> backup node is the one creating the event, right?  I suppose this
+> would be the remedy for the problem.
+
+It makes a lot of sense for the origin of this event to be the backup
+node...
+
+- As you say, it's not terribly sensible for the origin to be a node
+  that we want to treat as being fatally flawed, namely the former
+  origin.
+
+- I don't see any *other* node being preferable for this.
+
+So I think you're right, that the function failedNode2() should indicate
+that the new event is coming from the backup node, not the failed node.
+
+I'll go bug Jan, and see if he concurs.
+-- 
+(reverse (concatenate 'string "ofni.sailifa.ac" "@" "enworbbc"))
+Christopher Browne
+"Bother,"  said Pooh,  "Eeyore, ready  two photon  torpedoes  and lock
+phasers on the Heffalump, Piglet, meet me in transporter room three"
+
+From cbbrowne at ca.afilias.info  Thu Feb 11 12:37:41 2010
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Thu, 11 Feb 2010 15:37:41 -0500
+Subject: [Slony1-general] sprintf bug in slon_log function
+In-Reply-To: <790aa72b1001150522na2b7a84m534d0767a897b413@mail.gmail.com>
+	(Gwyn Connor's message of "Fri, 15 Jan 2010 14:22:35 +0100")
+References: <790aa72b1001150522na2b7a84m534d0767a897b413@mail.gmail.com>
+Message-ID: <87vde3bjai.fsf@ca.afilias.info>
+
+Gwyn Connor <gwyn.connor at googlemail.com> writes:
+> the slon_log function in 2.0.3-rc3 contains a very bad sprintf bug,
+> where source and target buffer are the same. In such a case the
+> standard says that the result of sprintf is undefined (according to
+> the sprintf man page). And this causes slon to not log timestamps on
+> my Gentoo machine.
+>
+> I am not a C coder, so I don't know the proper way of fixing it.
+
+Here's what I suggest as a better way...
+
+The trouble:
+ - We keep "recursively" adding bits to outbuf
+
+What we should do instead:
+ - Generate "prefix chunks" individually
+ - Add them all to outbuf in one fell swoop
+
+Suggested patch, covering this all:
+
+Index: misc.c
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/src/slon/misc.c,v
+retrieving revision 1.26.2.3
+diff -c -r1.26.2.3 misc.c
+*** misc.c	9 Dec 2009 20:55:43 -0000	1.26.2.3
+--- misc.c	11 Feb 2010 20:35:02 -0000
+***************
+*** 80,85 ****
+--- 80,86 ----
+  	char	   *level_c = NULL;
+  
+  	char		time_buf[128];
++ 	char        ps_buf[128];
+  	time_t		stamp_time = time(NULL);
+  
+  	
+***************
+*** 173,185 ****
+  			perror("slon_log: problem with strftime()");
+  			slon_retry();
+  		}
+! 		sprintf(outbuf, "%s ", time_buf);
+  	}
+  	if (logpid == true)
+  	{
+! 		sprintf(outbuf, "%s[%d] ", outbuf, slon_pid);
+  	}
+! 	sprintf(outbuf, "%s%-6.6s ", outbuf, level_c);
+  
+  	off = (int) strlen(outbuf);
+  
+--- 174,191 ----
+  			perror("slon_log: problem with strftime()");
+  			slon_retry();
+  		}
+! 	} else {
+! 		time_buf[0] = (char) 0;
+  	}
++ 
+  	if (logpid == true)
+  	{
+! 		sprintf(ps_buf, "[%d] ", slon_pid);
+! 	} else {
+! 		ps_buf[0] = (char) 0;
+  	}
+! 
+! 	sprintf(outbuf, "%s%s%-6.6s ", time_buf, ps_buf, level_c);
+  
+  	off = (int) strlen(outbuf);
+  
+
+-- 
+(format nil "~S@~S" "cbbrowne" "ca.afilias.info")
+Christopher Browne
+"Bother,"  said Pooh,  "Eeyore, ready  two photon  torpedoes  and lock
+phasers on the Heffalump, Piglet, meet me in transporter room three"
+
+From cbbrowne at ca.afilias.info  Thu Feb 11 12:49:25 2010
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Thu, 11 Feb 2010 15:49:25 -0500
+Subject: [Slony1-general] sprintf bug in slon_log function
+In-Reply-To: <790aa72b1001150522na2b7a84m534d0767a897b413@mail.gmail.com>
+	(Gwyn Connor's message of "Fri, 15 Jan 2010 14:22:35 +0100")
+References: <790aa72b1001150522na2b7a84m534d0767a897b413@mail.gmail.com>
+Message-ID: <87r5orbiqy.fsf@ca.afilias.info>
+
+Gwyn Connor <gwyn.connor at googlemail.com> writes:
+> the slon_log function in 2.0.3-rc3 contains a very bad sprintf bug,
+> where source and target buffer are the same. In such a case the
+> standard says that the result of sprintf is undefined (according to
+> the sprintf man page). And this causes slon to not log timestamps on
+> my Gentoo machine.
+
+One bit of "language lawyering"...
+
+I'd like to validate the "undefinedness" a bit...
+
+ - I took a peek at Harbison & Steele, and it doesn't indicate that such
+   a result is expected to be undefined according to C standard
+
+ - I looked at my sprintf() man page, and the most nearly relevant bit
+   reads thus:
+
+      If copying takes place between objects that overlap as a result of
+      a call to sprintf() or snprintf(), the results are undefined.
+
+It's conceivable that there's a Gentoo problem here, too.  I don't mean
+to be disagreeable, but it's conceivable that Gentoo's claiming
+something about the standard that mightn't hold true.
+
+I'll note that the problem dates back to 2004, and it does look like a
+fine thing to change, so I'll be backpatching this everywhere.
+-- 
+select 'cbbrowne' || '@' || 'ca.afilias.info';
+Christopher Browne
+"Bother,"  said Pooh,  "Eeyore, ready  two photon  torpedoes  and lock
+phasers on the Heffalump, Piglet, meet me in transporter room three"
+
+From cbbrowne at ca.afilias.info  Thu Feb 11 14:40:29 2010
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Thu, 11 Feb 2010 17:40:29 -0500
+Subject: [Slony1-general] new cluster issues.. banging head provider 2
+	is not an active forwarding node
+In-Reply-To: <1264798949.4270.31.camel@bnicholson-desktop> (Brad Nicholson's
+	message of "Fri, 29 Jan 2010 16:02:29 -0500")
+References: <8a547c841001281604s38ad6d5ch80b9684f418c91e7@mail.gmail.com>
+	<865735.69239.qm@web53008.mail.re2.yahoo.com>
+	<8a547c841001281650o7043a88pfd1e0a4d42f2259b@mail.gmail.com>
+	<1264798949.4270.31.camel@bnicholson-desktop>
+Message-ID: <87fx57bdlu.fsf@ca.afilias.info>
+
+Brad Nicholson <bnichols at ca.afilias.info> writes:
+> On Thu, 2010-01-28 at 16:50 -0800, Tory M Blue wrote:
+>> Understood, but this works in a similar configuration now. The script
+>> starts by dropping the slon schema, than sets paths, listeners, than
+>> sets some other information (priviledges etc). Then I start slon on
+>> all nodes and things start to replicate. I've never had slon running
+>> when I run this prepare script. Just wondering if it's something
+>> different now that I'm trying to use a slave as the provider for a
+>> query server, vs having all servers hit masternode (origin) directly.
+>> That could be the issue I guess.
+>
+>
+> There probably should be a check in the subscribe set slonik command to
+> ensure that the provider is subscribed and an active forwarder before
+> accepting the event. 
+
+There is such a check (at least in 1.2 and 2.0).
+
+And that's what led to the error message
+
+   "ERROR: Slony-I: subscribeset(): provider 2 is not an active
+   forwarding node for replication set 1"
+
+The *other* trouble comes if the script that's controlling the slonik
+stuff doesn't react to this usefully :-(.
+-- 
+select 'cbbrowne' || '@' || 'ca.afilias.info';
+Christopher Browne
+"Bother,"  said Pooh,  "Eeyore, ready  two photon  torpedoes  and lock
+phasers on the Heffalump, Piglet, meet me in transporter room three"
+
+From cbbrowne at ca.afilias.info  Thu Feb 11 14:42:48 2010
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Thu, 11 Feb 2010 17:42:48 -0500
+Subject: [Slony1-general] Error while trying to set up cascaded Slony
+	slave
+In-Reply-To: <836038.58858.qm@web53003.mail.re2.yahoo.com> (Melvin Davidson's
+	message of "Fri, 29 Jan 2010 17:08:47 -0800 (PST)")
+References: <836038.58858.qm@web53003.mail.re2.yahoo.com>
+Message-ID: <87bpfvbdhz.fsf@ca.afilias.info>
+
+Melvin Davidson <melvin6925 at yahoo.com> writes:
+>>Thanks! That worked, but I had to start up the Slon process as the script was
+>>running. Previously when we did not have cascaded slaves, we ran the setup
+>>scripts and then started Slon on all the servers.
+>>Is there a right way to do it? Should you run the slon process on the
+>>servers first and then run the slon setup script on the Master.
+>
+> I don't believe there is an "official" right way to do it.
+> What always works for me though is two scripts.
+> I run one to do the initialize of slony (nodes, paths, tables & seq adds)
+> Then I start slon on ALL nodes.
+> Then I run the second set to do subscribes.
+
+Things are sufficiently asynchronous that yes, indeed, there's no
+"single right way" to do it.
+
+It is possible to get quite a bit of configuration work done, and
+indeed, subscription requests submitted, before you start any of the
+slon processes.
+
+But for sure, for cascaded subscribers, you can't start *those*
+subscriptions until the subscriptions that they depend on are active.
+-- 
+"cbbrowne","@","ca.afilias.info"
+Christopher Browne
+"Bother,"  said Pooh,  "Eeyore, ready  two photon  torpedoes  and lock
+phasers on the Heffalump, Piglet, meet me in transporter room three"
+
+From cbbrowne at ca.afilias.info  Thu Feb 11 14:45:22 2010
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Thu, 11 Feb 2010 17:45:22 -0500
+Subject: [Slony1-general] dropping a forwarder
+In-Reply-To: <8a547c841002081219h7e1cb68v9a52eaa8963ab54e@mail.gmail.com>
+	(Tory M. Blue's message of "Mon, 8 Feb 2010 12:19:49 -0800")
+References: <8a547c841002081219h7e1cb68v9a52eaa8963ab54e@mail.gmail.com>
+Message-ID: <874olnbddp.fsf@ca.afilias.info>
+
+Tory M Blue <tmblue at gmail.com> writes:
+> So after last weeks discussion I'm still running into issues trying to
+> remove a forwarder  and replace it with another forwarder talking to
+> the remaining replica.
+>
+> To keep things simple.
+>
+> 1-2
+> 1-3
+> 2-4
+>
+> Set 1
+>
+> Want to remove  the forwarder (2), and since the origin is not moving,
+> doesn't seem a fail-over or switchover fits the bill here.
+>
+> I've tried to simply drop the path of 2 and run a simple subscribe set
+>  ( id=1,  provider=3, receiver=4); but the replica seems to get
+> confused and without restarting slony on the replica  things don't
+> seem to ever catch up.
+>
+> Since I'm not replacing the origin and just a forwarder, are there
+> steps that I should be doing vs just issuing a subscribe to another
+> forwarder?, I don't want to unsubscribe, I just want the replica to
+> get it's updates from forwarder (3) now.
+
+That troubled me, when the issue first came up.  (Rather some time
+ago!!!)
+
+The answer is fairly simple:  In order to redirect to a different data
+provider, you submit SUBSCRIBE SET with the new configuration.
+
+This is in the documentation; see:
+  http://www.slony.info/documentation/reshape.html
+-- 
+output = ("cbbrowne" "@" "ca.afilias.info")
+Christopher Browne
+"Bother,"  said Pooh,  "Eeyore, ready  two photon  torpedoes  and lock
+phasers on the Heffalump, Piglet, meet me in transporter room three"
+
+From cbbrowne at ca.afilias.info  Thu Feb 11 14:47:22 2010
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Thu, 11 Feb 2010 17:47:22 -0500
+Subject: [Slony1-general] Question about logging behavior
+In-Reply-To: <888786.18694.qm@web53002.mail.re2.yahoo.com> (Melvin Davidson's
+	message of "Thu, 4 Feb 2010 08:32:41 -0800 (PST)")
+References: <888786.18694.qm@web53002.mail.re2.yahoo.com>
+Message-ID: <87wryj9ypx.fsf@ca.afilias.info>
+
+Melvin Davidson <melvin6925 at yahoo.com> writes:
+> I have a question about logging behavior.
+>
+> Given that I have a master,  slave1 and a new slave2 to be subscribed.
+>
+> I will subscribe the new slave2 from slave1.
+>
+> If a lot of DML is occuring on the master, are the logs on the master (sl_log1
+> & sl_log2) retained until slave2 has completed subscription, or will the master
+> purge/truncate it's logs as slave1 acknowledges/SYNCs the changes?
+
+The logs are held until receipt of the data has been confirmed (table
+sl_confirm) by *all* nodes in the cluster.
+
+So sl_log_1 and sl_log_2 data will hold up until the subscription has
+completed, and the new node has confirmed that it has received all that
+data.
+
+We were careful about that :-).
+-- 
+output = reverse("ofni.sailifa.ac" "@" "enworbbc")
+Christopher Browne
+"Bother,"  said Pooh,  "Eeyore, ready  two photon  torpedoes  and lock
+phasers on the Heffalump, Piglet, meet me in transporter room three"
+
+From cbbrowne at ca.afilias.info  Thu Feb 11 14:52:16 2010
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Thu, 11 Feb 2010 17:52:16 -0500
+Subject: [Slony1-general] new replication set not syncing after 4 hrs
+In-Reply-To: <201002022223.35036.kevink@consistentstate.com> (Kevin Kempter's
+	message of "Tue, 2 Feb 2010 22:23:34 -0700")
+References: <201002022223.35036.kevink@consistentstate.com>
+Message-ID: <87ocjv9yhr.fsf@ca.afilias.info>
+
+Kevin Kempter <kevink at consistentstate.com> writes:
+> we created a new replication set 4 hrs ago and we continue to see messages 
+> like this in the logs from the slave (the slon logs):
+>
+> 2010-02-02 21:04:23 PST DEBUG1 remoteWorkerThread_1: connected to provider DB
+> 2010-02-02 21:04:23 PST WARN   remoteWorkerThread_1: transactions earlier than 
+> XID 31685677 are still in progress
+> 2010-02-02 21:04:23 PST WARN   remoteWorkerThread_1: data copy for set 2 
+> failed 178 times - sleep 60 seconds
+>
+>
+> The master is busy but I see no processes in pg_stat_activity that are waiting 
+> and no rows in pg_locks have granted = 'f' (all rows are granted = 't')
+>
+> also our st_lag_num_events in sl_status have climbed to 2729 since we ran the 
+> create set command
+>
+>
+>  any thoughts?
+
+Well, you'll need to figure out what is the transaction that is holding
+onto that old XID, and see if you can terminate it.
+
+http://www.slony.info/documentation/faq.html#AEN7300
+
+You can look at pg_locks to see what's holding on to old transactions.
+
+There are numerous reasons why this might happen, not all of which
+permit the same solutions...
+
+ - If your accounting guys are running some important report, perhaps
+   you have to wait.
+
+ - If you have an application that uses a framework that leaves
+   idle-in-transaction connections lying around, then it may be
+   fair to kill off some transactions
+
+ - If a backup is under way, then killing that connection mightn't be
+   the best idea!
+-- 
+"cbbrowne","@","ca.afilias.info"
+Christopher Browne
+"Bother,"  said Pooh,  "Eeyore, ready  two photon  torpedoes  and lock
+phasers on the Heffalump, Piglet, meet me in transporter room three"
+
+From cbbrowne at ca.afilias.info  Thu Feb 11 14:56:35 2010
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Thu, 11 Feb 2010 17:56:35 -0500
+Subject: [Slony1-general] slony fails after upgrade from 8.2 to 8.4
+In-Reply-To: <20100209131419.GB17614@monk.dh.sono> (Koen Martens's message of
+	"Tue, 9 Feb 2010 14:14:19 +0100")
+References: <20100209131419.GB17614@monk.dh.sono>
+Message-ID: <87k4uj9yak.fsf@ca.afilias.info>
+
+Koen Martens <gmc at sonologic.nl> writes:
+> I'm having a strange problem. We have just upgraded a database from 8.2.x
+> to 8.4.2 (both master and slave). We did a pg_dumpall from the 8.2 install,
+> which was configured as a slony master, and imported that into the fresh
+> 8.4.2. 
+>
+> I then removed the slony schema from the database in question and started
+> configuration of slony afresh. However, after initializing the slony replication
+> (defining the sets, nodes and paths) but before starting the replication, we
+> get errors:
+>
+> Feb  9 13:40:58 dbmain postgres[38232]: [404-1] ERROR:  cache lookup failed for type 30549603
+> Feb  9 13:40:58 dbmain postgres[38232]: [404-2] CONTEXT:  SQL statement "INSERT INTO _live.sl_log_1 (log_origin, log_xid, log_tableid, log_actionseq, log_cmdtype, log_cmddata) VALUES (1, $1, $2, nextval('_live.sl_action_seq'), $3, $4);"
+> Feb  9 13:40:58 dbmain postgres[38232]: [404-3] STATEMENT:  UPDATE passports
+> Feb  9 13:40:58 dbmain postgres[38232]: [404-4]                                 SET ps_expires=TO_TIMESTAMP('20100210062058', 'YYYYMMDDHH24MISS')
+> Feb  9 13:40:58 dbmain postgres[38232]: [404-5]                                 WHERE (ps_id=$1)
+>
+> This effectively blocks transactions (which is bad because this database is
+> in production).
+>
+> I thus removed the slony schema again (drop schema _live cascade) and things
+> are fine again. However, we're now running without replication, that's scary.
+>
+> Any hints would be much appreciated!
+
+This is much like the issue described here...
+
+    http://www.slony.info/documentation/faq.html#AEN7331
+
+It's pretty likely that you have some elderly connections into the DB
+that have an old query plan pointing to an object that has been
+discarded and recreated.
+
+It is quite possible that it would "suffice" to kill all the DB
+connections and restart them.  That's not entirely nice to do, but it's
+a whole lot less invasive than dropping and recreating replication :-).
+-- 
+output = reverse("ofni.sailifa.ac" "@" "enworbbc")
+Christopher Browne
+"Bother,"  said Pooh,  "Eeyore, ready  two photon  torpedoes  and lock
+phasers on the Heffalump, Piglet, meet me in transporter room three"
+
+From sandy9940 at rediffmail.com  Fri Feb 12 04:19:20 2010
+From: sandy9940 at rediffmail.com (sandeep prakash dhumale)
+Date: 12 Feb 2010 12:19:20 -0000
+Subject: [Slony1-general] =?utf-8?q?Is_this_a_Bug=3F?=
+Message-ID: <20100212121920.21207.qmail@f4mail-235-134.rediffmail.com>
+
+Hello List Members,
+
+I am trying to setup slony replication on PostgreSQL-8.4.2 with slony 2.0.3 rc3 But it gives me following error:
+
+ERROR:&nbsp; unrecognized configuration parameter "session_replication_role" 
+
+This is a new parameter in 8.4 .2
+
+Is slony not aware of it?
+
+Or am I using a wrong version of slony for 8.4.2.
+
+With Regards
+Sandy
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20100212/ccbf9531/attachment.htm 
+
+From sandy9940 at rediffmail.com  Fri Feb 12 05:06:28 2010
+From: sandy9940 at rediffmail.com (sandeep prakash dhumale)
+Date: 12 Feb 2010 13:06:28 -0000
+Subject: [Slony1-general] =?utf-8?q?Is_this_a_Bug=3F?=
+Message-ID: <1265977181.S.4096.37021.f4mail-234-220.rediffmail.com.1265979987.50631@webmail.rediffmail.com>
+
+ 
+
+On Fri, 12 Feb 2010 17:49:41 +0530  wrote
+&gt;Hello List Members,
+&gt;
+&gt;I am trying to setup slony replication on PostgreSQL-8.4.2 with slony 2.0.3 rc3 But it gives me following error:
+&gt;
+&gt;ERROR: unrecognized configuration parameter "session_replication_role" 
+&gt;
+&gt;This is a new parameter in 8.4 .2
+&gt;
+&gt;Is slony not aware of it?
+&gt;
+&gt;Or am I using a wrong version of slony for 8.4.2.
+&gt;
+&gt;With Regards
+&gt;Sandy
+&gt;
+
+I guess this was false noise from me . I forgot that slony version needs to be same across all the postgres instances although postgres versions can be different. :-(
+
+sandy
+
+
+
+
+
+
+
+&gt;_______________________________________________
+&gt;Slony1-general mailing list
+&gt;Slony1-general at lists.slony.info
+&gt;http://lists.slony.info/mailman/listinfo/slony1-general
+&gt;
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20100212/f1714c13/attachment.htm 
+
+From cbbrowne at acm.org  Fri Feb 12 09:54:29 2010
+From: cbbrowne at acm.org (Christopher Browne)
+Date: Fri, 12 Feb 2010 12:54:29 -0500
+Subject: [Slony1-general] logtrigger issue in PostgreSQL HEAD
+Message-ID: <878way9w6i.fsf@ca.afilias.info>
+
+Something has evidently changed of late (not quite sure when) which
+causes the Slony-I log triggers to break when working against PostreSQL
+HEAD.
+
+A more-or-less simplest case is demonstrated thus:
+
+chris at dba2:/mnt/PostgreSQL/dbs> psql slonyregress1
+Line style is ascii.
+psql (8.5devel)
+Type "help" for help.
+
+slonyregress1=# \d table1
+                         Table "public.table1"
+ Column |  Type   |                      Modifiers                      
+--------+---------+-----------------------------------------------------
+ id     | integer | not null default nextval('table1_id_seq'::regclass)
+ data   | text    | 
+Indexes:
+    "table1_pkey" PRIMARY KEY, btree (id)
+Referenced by:
+    TABLE "table2" CONSTRAINT "table2_table1_id_fkey" FOREIGN KEY (table1_id) REFERENCES table1(id) ON UPDATE CASCADE ON DELETE CASCADE
+Triggers:
+    _slony_regress1_logtrigger_1 AFTER INSERT OR DELETE OR UPDATE ON table1 FOR EACH ROW EXECUTE PROCEDURE _slony_regress1.logtrigger('_slony_regress1', '1', 'kv')
+
+slonyregress1=# delete from table1 where id = 1;
+server closed the connection unexpectedly
+	This probably means the server terminated abnormally
+	before or while processing the request.
+The connection to the server was lost. Attempting reset: Failed.
+!> \q
+
+There are no notable compiler complaints about
+src/backend/slony_funcs.c, so the mismatch must be at a subtler level
+than that of an up-front API change for something.
+
+I suppose a next step might be to kick off gdb against the backend when
+processing this.
+-- 
+output = ("cbbrowne" "@" "ca.afilias.info")
+Christopher Browne
+"Bother,"  said Pooh,  "Eeyore, ready  two photon  torpedoes  and lock
+phasers on the Heffalump, Piglet, meet me in transporter room three"
+
+From alvherre at commandprompt.com  Fri Feb 12 11:31:48 2010
+From: alvherre at commandprompt.com (Alvaro Herrera)
+Date: Fri, 12 Feb 2010 16:31:48 -0300
+Subject: [Slony1-general] [HACKERS] logtrigger issue in PostgreSQL HEAD
+In-Reply-To: <878way9w6i.fsf@ca.afilias.info>
+References: <878way9w6i.fsf@ca.afilias.info>
+Message-ID: <20100212193147.GG3737@alvh.no-ip.org>
+
+Christopher Browne wrote:
+
+> There are no notable compiler complaints about
+> src/backend/slony_funcs.c, so the mismatch must be at a subtler level
+> than that of an up-front API change for something.
+> 
+> I suppose a next step might be to kick off gdb against the backend when
+> processing this.
+
+Yeah, let's see a backtrace.  Maybe we need to break an API somewhere so
+that this becomes more obvious at compile time.
+
+-- 
+Alvaro Herrera                                http://www.CommandPrompt.com/
+PostgreSQL Replication, Consulting, Custom Development, 24x7 support
+
+From cbbrowne at acm.org  Fri Feb 12 14:41:12 2010
+From: cbbrowne at acm.org (Christopher Browne)
+Date: Fri, 12 Feb 2010 17:41:12 -0500
+Subject: [Slony1-general] [HACKERS] logtrigger issue in PostgreSQL HEAD
+In-Reply-To: <20100212193147.GG3737@alvh.no-ip.org> (Alvaro Herrera's message
+	of "Fri, 12 Feb 2010 16:31:48 -0300")
+References: <878way9w6i.fsf@ca.afilias.info>
+	<20100212193147.GG3737@alvh.no-ip.org>
+Message-ID: <87k4ui84c7.fsf@ca.afilias.info>
+
+Alvaro Herrera <alvherre at commandprompt.com> writes:
+
+> Christopher Browne wrote:
+>
+>> There are no notable compiler complaints about
+>> src/backend/slony_funcs.c, so the mismatch must be at a subtler level
+>> than that of an up-front API change for something.
+>> 
+>> I suppose a next step might be to kick off gdb against the backend when
+>> processing this.
+>
+> Yeah, let's see a backtrace.  Maybe we need to break an API somewhere so
+> that this becomes more obvious at compile time.
+
+Cool.
+
+Hooked up gdb to an appropriate backend process...
+
+- psql session:
+slonyregress1=# delete from table1;
+
+(which will fire the log trigger twice)
+
+... and gdb tells me...
+
+(gdb) continue
+Continuing.
+
+Program received signal SIGSEGV, Segmentation fault.
+0x081b8d6e in SPI_getbinval ()
+(gdb) where
+#0  0x081b8d6e in SPI_getbinval ()
+#1  0xb5c7c7bd in _Slony_I_logTrigger (fcinfo=0xbfdfbbd0) at slony1_funcs.c:487
+#2  0x083101ac in fmgr_security_definer ()
+#3  0x0817efec in ExecCallTriggerFunc ()
+#4  0x0817f43f in afterTriggerInvokeEvents ()
+#5  0x08180461 in AfterTriggerEndQuery ()
+#6  0x08252de3 in ProcessQuery ()
+#7  0x08252f7b in PortalRunMulti ()
+#8  0x082536bc in PortalRun ()
+#9  0x0824fba0 in exec_simple_query ()
+#10 0x08250d3e in PostgresMain ()
+#11 0x0821d598 in ServerLoop ()
+#12 0x0821fe87 in PostmasterMain ()
+#13 0x081c6887 in main ()
+(gdb) 
+
+I set a breakpoint at _Slony_I_logTrigger, and stepped thru, with the
+following output:
+
+(gdb) break _Slony_I_logTrigger
+Function "_Slony_I_logTrigger" not defined.
+Make breakpoint pending on future shared library load? (y or [n]) y
+Breakpoint 1 (_Slony_I_logTrigger) pending.
+(gdb) continue
+Continuing.
+
+Breakpoint 1, _Slony_I_logTrigger (fcinfo=0xbfdfbbd0) at slony1_funcs.c:402
+402	{
+(gdb) step
+403		TransactionId newXid = GetTopTransactionId();
+(gdb) step
+418		if (!CALLED_AS_TRIGGER(fcinfo))
+(gdb) step
+425		if (!TRIGGER_FIRED_AFTER(tg->tg_event))
+(gdb) step
+427		if (!TRIGGER_FIRED_FOR_ROW(tg->tg_event))
+(gdb) step
+429		if (tg->tg_trigger->tgnargs != 3)
+(gdb) step
+435		if ((rc = SPI_connect()) < 0)
+(gdb) step
+441		cluster_name = DatumGetName(DirectFunctionCall1(namein,
+(gdb) step
+443		tab_id = strtol(tg->tg_trigger->tgargs[1], NULL, 10);
+(gdb) step
+441		cluster_name = DatumGetName(DirectFunctionCall1(namein,
+(gdb) step
+443		tab_id = strtol(tg->tg_trigger->tgargs[1], NULL, 10);
+(gdb) step
+444		attkind = tg->tg_trigger->tgargs[2];
+(gdb) step
+450		cs = getClusterStatus(cluster_name, PLAN_INSERT_LOG);
+(gdb) step
+443		tab_id = strtol(tg->tg_trigger->tgargs[1], NULL, 10);
+(gdb) step
+444		attkind = tg->tg_trigger->tgargs[2];
+(gdb) step
+450		cs = getClusterStatus(cluster_name, PLAN_INSERT_LOG);
+(gdb) step
+getClusterStatus (cluster_name=0xa1e59a0, need_plan_mask=4) at slony1_funcs.c:1262
+1262	{
+(gdb) step
+1274		for (cs = clusterStatusList; cs; cs = cs->next)
+(gdb) step
+1298			cs = (Slony_I_ClusterStatus *) malloc(sizeof(Slony_I_ClusterStatus));
+(gdb) step
+1299			memset(cs, 0, sizeof(Slony_I_ClusterStatus));
+(gdb) step
+1298			cs = (Slony_I_ClusterStatus *) malloc(sizeof(Slony_I_ClusterStatus));
+(gdb) step
+1299			memset(cs, 0, sizeof(Slony_I_ClusterStatus));
+(gdb) step
+1316			snprintf(query, 1024, "select last_value::int4 from %s.sl_local_node_id",
+(gdb) step
+1304			strncpy(NameStr(cs->clustername), NameStr(*cluster_name), NAMEDATALEN);
+(gdb) step
+1309			cs->clusterident = strdup(DatumGetCString(DirectFunctionCall1(textout,
+(gdb) step
+1316			snprintf(query, 1024, "select last_value::int4 from %s.sl_local_node_id",
+(gdb) step
+1318			rc = SPI_exec(query, 0);
+(gdb) step
+1319			if (rc < 0 || SPI_processed != 1)
+(gdb) step
+1321			cs->localNodeId = DatumGetInt32(
+(gdb) step
+1323			SPI_freetuptable(SPI_tuptable);
+(gdb) step
+1324			if (cs->localNodeId < 0)
+(gdb) step
+1330			cs->currentXid = InvalidTransactionId;
+(gdb) step
+1335			cs->next = clusterStatusList;
+(gdb) step
+1330			cs->currentXid = InvalidTransactionId;
+(gdb) step
+1335			cs->next = clusterStatusList;
+(gdb) step
+1336			clusterStatusList = cs;
+(gdb) step
+1342		if ((need_plan_mask & PLAN_NOTIFY_EVENT) != 0 &&
+(gdb) step
+1356		if ((need_plan_mask & PLAN_INSERT_EVENT) != 0 &&
+(gdb) step
+1444		if ((need_plan_mask & PLAN_INSERT_LOG) != 0 &&
+(gdb) step
+1445			(cs->have_plan & PLAN_INSERT_LOG) == 0)
+(gdb) step
+1450			xxid_typename = makeNode(TypeName);
+(gdb) step
+1453						makeString("xxid"));
+(gdb) step
+1452				lappend(lappend(NIL, makeString(NameStr(cs->clustername))),
+(gdb) step
+1451			xxid_typename->names =
+(gdb) step
+1455	                xxid_typid = typenameTypeId(NULL, xxid_typename,NULL);
+(gdb) step
+1467			sprintf(query, "INSERT INTO %s.sl_log_1 "
+(gdb) step
+1455	                xxid_typid = typenameTypeId(NULL, xxid_typename,NULL);
+(gdb) step
+1467			sprintf(query, "INSERT INTO %s.sl_log_1 "
+(gdb) step
+1473			plan_types[0] = xxid_typid;
+(gdb) step
+1478			cs->plan_insert_log_1 = SPI_saveplan(SPI_prepare(query, 4, plan_types));
+(gdb) step
+1474			plan_types[1] = INT4OID;
+(gdb) step
+1475			plan_types[2] = TEXTOID;
+(gdb) step
+1473			plan_types[0] = xxid_typid;
+(gdb) step
+1476			plan_types[3] = TEXTOID;
+(gdb) step
+1478			cs->plan_insert_log_1 = SPI_saveplan(SPI_prepare(query, 4, plan_types));
+(gdb) step
+1479			if (cs->plan_insert_log_1 == NULL)
+(gdb) step
+1478			cs->plan_insert_log_1 = SPI_saveplan(SPI_prepare(query, 4, plan_types));
+(gdb) step
+1479			if (cs->plan_insert_log_1 == NULL)
+(gdb) step
+1482			sprintf(query, "INSERT INTO %s.sl_log_2 "
+(gdb) step
+1488			plan_types[0] = xxid_typid;
+(gdb) step
+1493			cs->plan_insert_log_2 = SPI_saveplan(SPI_prepare(query, 4, plan_types));
+(gdb) step
+1489			plan_types[1] = INT4OID;
+(gdb) step
+1490			plan_types[2] = TEXTOID;
+(gdb) step
+1488			plan_types[0] = xxid_typid;
+(gdb) step
+1491			plan_types[3] = TEXTOID;
+(gdb) step
+1493			cs->plan_insert_log_2 = SPI_saveplan(SPI_prepare(query, 4, plan_types));
+(gdb) step
+1494			if (cs->plan_insert_log_2 == NULL)
+(gdb) step
+1493			cs->plan_insert_log_2 = SPI_saveplan(SPI_prepare(query, 4, plan_types));
+(gdb) step
+1494			if (cs->plan_insert_log_2 == NULL)
+(gdb) step
+1501			cs->cmdtype_I = malloc(VARHDRSZ + 1);
+(gdb) step
+1502			SET_VARSIZE(cs->cmdtype_I, VARHDRSZ + 1);
+(gdb) step
+1503			*VARDATA(cs->cmdtype_I) = 'I';
+(gdb) step
+1504			cs->cmdtype_U = malloc(VARHDRSZ + 1);
+(gdb) step
+1505			SET_VARSIZE(cs->cmdtype_U, VARHDRSZ + 1);
+(gdb) step
+1506			*VARDATA(cs->cmdtype_U) = 'U';
+(gdb) step
+1507			cs->cmdtype_D = malloc(VARHDRSZ + 1);
+(gdb) step
+1508			SET_VARSIZE(cs->cmdtype_D, VARHDRSZ + 1);
+(gdb) step
+1509			*VARDATA(cs->cmdtype_D) = 'D';
+(gdb) step
+1514			sprintf(query, "SELECT last_value::int4 FROM %s.sl_log_status",
+(gdb) step
+1516			cs->plan_get_logstatus = SPI_saveplan(SPI_prepare(query, 0, NULL));
+(gdb) step
+1518			cs->cmddata_size = 8192;
+(gdb) step
+1516			cs->plan_get_logstatus = SPI_saveplan(SPI_prepare(query, 0, NULL));
+(gdb) step
+1519			cs->cmddata_buf = (text *) malloc(8192);
+(gdb) step
+1521			cs->have_plan |= PLAN_INSERT_LOG;
+(gdb) step
+1519			cs->cmddata_buf = (text *) malloc(8192);
+(gdb) step
+1525	}
+(gdb) step
+_Slony_I_logTrigger (fcinfo=0xbfdfbbd0) at slony1_funcs.c:455
+455		switch (cs->session_role)
+(gdb) step
+458				cs->session_role = SLON_ROLE_NORMAL;
+(gdb) step
+475		if (!TransactionIdEquals(cs->currentXid, newXid))
+(gdb) step
+482			if(SPI_execp(cs->plan_get_logstatus, NULL, NULL, 0) < 0)
+(gdb) step
+484			if (SPI_processed != 1)
+(gdb) step
+487			log_status = DatumGetInt32(SPI_getbinval(SPI_tuptable->vals[0],
+(gdb) step
+
+
+That's not "line 487" as I see it...  The full function call was...
+
+log_status = DatumGetInt32(SPI_getbinval(SPI_tuptable->vals[0],
+SPI_tuptable->tupdesc, 1, NULL));
+
+Some possibly useful data:
+
+(gdb) print SPI_tuptable
+$1 = (SPITupleTable *) 0xa202a68
+(gdb) print SPI_tuptable->tupdesc
+$2 = (struct tupleDesc *) 0xa202c98
+(gdb) print SPI_tuptable->vals[0]
+$3 = (HeapTuple) 0xa202da0
+
+Nothing's leaping out at me, but that's certainly more information than
+I had before.
+-- 
+(reverse (concatenate 'string "ofni.sailifa.ac" "@" "enworbbc"))
+Christopher Browne
+"Bother,"  said Pooh,  "Eeyore, ready  two photon  torpedoes  and lock
+phasers on the Heffalump, Piglet, meet me in transporter room three"
+
+From alvherre at alvh.no-ip.org  Fri Feb 12 16:37:58 2010
+From: alvherre at alvh.no-ip.org (Alvaro Herrera)
+Date: Fri, 12 Feb 2010 21:37:58 -0300
+Subject: [Slony1-general] [HACKERS] logtrigger issue in PostgreSQL HEAD
+In-Reply-To: <87k4ui84c7.fsf@ca.afilias.info>
+References: <878way9w6i.fsf@ca.afilias.info>
+	<20100212193147.GG3737@alvh.no-ip.org>
+	<87k4ui84c7.fsf@ca.afilias.info>
+Message-ID: <20100213003758.GA3738@alvh.no-ip.org>
+
+Christopher Browne wrote:
+
+> That's not "line 487" as I see it...  The full function call was...
+> 
+> log_status = DatumGetInt32(SPI_getbinval(SPI_tuptable->vals[0],
+> SPI_tuptable->tupdesc, 1, NULL));
+
+I think the problem may be that you're no longer able to pass a NULL as
+fourth argument here.
+
+-- 
+Alvaro Herrera       Vendo parcela en Valdivia:  http://alvherre.cl/caboblanco
+"The Gord often wonders why people threaten never to come back after they've
+been told never to return" (www.actsofgord.com)
+
+From andy.dale at gmail.com  Sun Feb 14 12:09:56 2010
+From: andy.dale at gmail.com (Andy Dale)
+Date: Sun, 14 Feb 2010 21:09:56 +0100
+Subject: [Slony1-general] drop node not working correctly
+In-Reply-To: <DD747252-9392-4571-A5ED-1511E4DDE7FC@richyen.com>
+References: <faa313131001130513l67e48ad1i16034cfde7cbffe8@mail.gmail.com>
+	<faa313131001140530u315ec3edie9082685ee835042@mail.gmail.com>
+	<4B4F4F17.1020406@ca.afilias.info>
+	<DD747252-9392-4571-A5ED-1511E4DDE7FC@richyen.com>
+Message-ID: <faa313131002141209j107765cq98699075e5a7bff2@mail.gmail.com>
+
+Hi,
+
+However, I have found that if I put a sleep (even 1 second works in my
+> environment), the DROP_NODE command succeeds, and everything proceeds
+> happily.
+>
+
+
+I can also confirm that adding a sleep period between the FAILOVER and DROP
+NODE commands seems to work (for 10 seconds in my case)
+
+Cheers,
+
+Andy
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20100214/67500295/attachment.htm 
+
+From ssinger_pg at sympatico.ca  Sun Feb 14 16:49:26 2010
+From: ssinger_pg at sympatico.ca (Steven Singer)
+Date: Sun, 14 Feb 2010 19:49:26 -0500 (EST)
+Subject: [Slony1-general] double quotes getting removed in 2.0.3 rc3?
+In-Reply-To: <9092FED5-4E7F-4DF7-AAA5-98E1C7E27FD6@richyen.com>
+References: <9092FED5-4E7F-4DF7-AAA5-98E1C7E27FD6@richyen.com>
+Message-ID: <BLU0-SMTP364A68A84E0734296172E3AC4A0@phx.gbl>
+
+On Fri, 8 Jan 2010, Richard Yen wrote:
+
+> Hello,
+>
+> Just wanted to see if anyone else has experienced this with postgres
+> 8.4 and slony 2.0.3 rc3...seems like double quotes are being removed
+> from queries.  In my syslog output below, you will see double quotes
+> around "window" because in postgres 8.4, it seems that "window" is a
+> reserved word.
+
+Yes I am seeing this as well.
+
+If I am replicating from a 8.3 master to a 9.0 (I'd expect the same with 
+8.4) slave and I've compiled slony to use the ScanKeywordLookup function.
+
+"window" wouldn't be a keyword in the 8.3 environment but it is when 
+replicating to 8.4+.  We are invoking ScanKeywordLookup on the master.
+
+I've also noticed that the autoconf stuff for ScanKeywordLookup seems to be 
+a bit broken.
+
+1) I don't see the SCANKEYWORDLOOKUP_x being defined in config.h.in
+2) I don't think config/acx_libpq.m4 is actually checking for the 1 argument 
+version of the function.
+
+The attached patch should address 1 and 2, but leaves open the question of 
+how to quote keywords that are added to in versions beyond the master. 
+Disable ScanKeywordLookup (and always quote) or maintain our own list of 
+'new' keywords are the two options that immediately come to mind.
+
+
+Steve
+
+
+
+
+>
+>> Jan  8 14:09:39 global-db1 postgres[30423]: [19-1] 2010-01-08
+>> 14:09:39.612 PST [user=USER,db=DB IPADDR PID:30423 XID:0]LOG:
+>> execute dbdpg_p4760_2: INSERT
+>> Jan  8 14:09:39 global-db1 postgres[30423]: [19-2]  INTO node (id,
+>> description, pid_host, pid_host_secondary, pid_port, "window",
+>> disk_host, disk_host_secondary, disk_port,
+>> Jan  8 14:09:39 global-db1 postgres[30423]: [19-3]  rep_disk_dir,
+>> rep_disk_host, rep_disk_host_secondary, rep_disk_port, is_opt_out,
+>> collection_name)
+>> Jan  8 14:09:39 global-db1 postgres[30423]: [19-4]      SELECT $1,
+>> $2, pid_host, pid_host_secondary, pid_port, "window", disk_host,
+>> disk_host_secondary, disk_port, rep_disk_dir,
+>> Jan  8 14:09:39 global-db1 postgres[30423]: [19-5]  rep_disk_host,
+>> rep_disk_host_secondary, rep_disk_port, true, 'submitted_work'
+>> Jan  8 14:09:39 global-db1 postgres[30423]: [19-6]      FROM   node
+>> WHERE id = $3
+>> Jan  8 14:09:39 global-db1 postgres[30423]: [19-7]
+>> Jan  8 14:09:39 global-db1 postgres[30423]: [19-8] 2010-01-08
+>> 14:09:39.612 PST [user=USER,db=DB IPADDR PID:30423 XID:0]DETAIL:
+>> parameters: $1 = '545', $2
+>> Jan  8 14:09:39 global-db1 postgres[30423]: [19-9]  = 'Institution
+>> Name', $3 = '1'
+>
+> Apparently, the insertion works, but when it is to be replicated to
+> the subscribers, it fails because the double quotes around "window"
+> are removed:
+>
+>> Jan  8 14:19:00 global-db3 slon[24792]: [5000640-1] 2010-01-08
+>> 14:19:00 PST ERROR  remoteWorkerThread_1: "insert into
+>> "ip_global"."node"
+>> Jan  8 14:19:00 global-db3 slon[24792]: [5000640-2]
+>> (id
+>> ,description
+>> ,created_time
+>> ,is_private
+>> ,is_opt_out
+>> ,pid_host
+>> ,pid_host_secondary,pid_port,window,disk_host,disk_host_secondary,di
+>> Jan  8 14:19:00 global-db3 slon[24792]: [5000640-3]
+>> sk_port
+>> ,crawl_rep_host
+>> ,crawl_rep_port
+>> ,is_active
+>> ,rep_disk_dir
+>> ,rep_disk_host,rep_disk_host_secondary,rep_disk_port,crawl_rep_disk_
+>> Jan  8 14:19:00 global-db3 slon[24792]: [5000640-4]
+>> host
+>> ,crawl_rep_disk_dir
+>> ,crawl_rep_disk_port
+>> ,crawl_pid_host
+>> ,crawl_pid_port,crawl_pid_host_secondary,collection,collection_name)
+>> Jan  8 14:19:00 global-db3 slon[24792]: [5000640-5]  values
+>> ('545','Institution Name','2010-01-08
+>> Jan  8 14:19:00 global-db3 slon[24792]: [5000640-6]
+>> 14:09:39.60761-08','f','t','xxx','xxx','3100','4','xxx
+>> Jan  8 14:19:00 global-db3 slon[24792]: [5000640-7]
+>> ','xxx,'4010',NULL,NULL,'t','papers/regular/','xxx','xxx
+>> Jan  8 14:19:00 global-db3 slon[24792]:
+>> [5000640
+>> -8],'4010',NULL,NULL,NULL,'xxx','4101','xxx',NULL,'submitted_work');
+>> Jan  8 14:19:00 global-db3 slon[24792]: [5000640-9] " ERROR:  syntax
+>> error at or near "window"
+>> Jan  8 14:19:00 global-db3 slon[24792]: [5000640-10] LINE
+>> 1: ...e,is_opt_out,pid_host,pid_host_secondary,pid_port,window,dis...
+>> Jan  8 14:19:00 global-db3 slon[24792]:
+>> [5000640
+>> -11]                                                              ^
+>> Jan  8 14:19:00 global-db3 slon[24792]: [5000640-12]  -
+>> qualification was: where log_origin = 1 and (  (
+>> Jan  8 14:19:00 global-db3 slon[24792]: [5000640-13]  log_tableid in
+>> (1,2,3,4,5,6,7)
+>> Jan  8 14:19:00 global-db3 slon[24792]: [5000640-14]     and
+>> (log_txid < '143242577' and
+>> "pg_catalog".txid_visible_in_snapshot(log_txid,
+>> '143242577:143242577:'))
+>> Jan  8 14:19:00 global-db3 slon[24792]: [5000640-15]     and
+>> (log_txid >= '143242563' or log_txid IN (select * from
+>> "pg_catalog".txid_snapshot_xip('143242563:143242563:')))
+>> Jan  8 14:19:00 global-db3 slon[24792]: [5000640-16] ) )
+>
+> Can someone confirm that this is indeed a bug?
+> --Richard Yen
+>
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: scankeywords.diff
+Type: text/x-diff
+Size: 1311 bytes
+Desc: 
+Url : http://lists.slony.info/pipermail/slony1-general/attachments/20100214/d23bd147/attachment.diff 
+
+From cbbrowne at ca.afilias.info  Tue Feb 16 08:37:47 2010
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Tue, 16 Feb 2010 11:37:47 -0500
+Subject: [Slony1-general] [HACKERS] logtrigger issue in PostgreSQL HEAD
+In-Reply-To: <20100213003758.GA3738@alvh.no-ip.org> (Alvaro Herrera's message
+	of "Fri, 12 Feb 2010 21:37:58 -0300")
+References: <878way9w6i.fsf@ca.afilias.info>
+	<20100212193147.GG3737@alvh.no-ip.org>
+	<87k4ui84c7.fsf@ca.afilias.info>
+	<20100213003758.GA3738@alvh.no-ip.org>
+Message-ID: <87d40587c4.fsf@ca.afilias.info>
+
+Alvaro Herrera <alvherre at alvh.no-ip.org> writes:
+> Christopher Browne wrote:
+>
+>> That's not "line 487" as I see it...  The full function call was...
+>> 
+>> log_status = DatumGetInt32(SPI_getbinval(SPI_tuptable->vals[0],
+>> SPI_tuptable->tupdesc, 1, NULL));
+>
+> I think the problem may be that you're no longer able to pass a NULL
+> as fourth argument here.
+
+There are several calls to SPI_getbinval(), just one of which fails in
+this manner.
+
+Changing that one instance allows my regression test to succeed, so I
+reckon you have identified the problem correctly.  I'll do a bit more
+testing before committing, but that looks mighty promising.
+-- 
+let name="cbbrowne" and tld="ca.afilias.info" in name ^ "@" ^ tld;;
+Christopher Browne
+"Bother,"  said Pooh,  "Eeyore, ready  two photon  torpedoes  and lock
+phasers on the Heffalump, Piglet, meet me in transporter room three"
+
+From cbbrowne at ca.afilias.info  Tue Feb 16 09:02:39 2010
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Tue, 16 Feb 2010 12:02:39 -0500
+Subject: [Slony1-general] [HACKERS] logtrigger issue in PostgreSQL HEAD
+In-Reply-To: <20100216164251.GE5331@alvh.no-ip.org> (Alvaro Herrera's message
+	of "Tue, 16 Feb 2010 13:42:51 -0300")
+References: <878way9w6i.fsf@ca.afilias.info>
+	<20100212193147.GG3737@alvh.no-ip.org>
+	<87k4ui84c7.fsf@ca.afilias.info>
+	<20100213003758.GA3738@alvh.no-ip.org>
+	<87d40587c4.fsf@ca.afilias.info>
+	<20100216164251.GE5331@alvh.no-ip.org>
+Message-ID: <87635x866o.fsf@ca.afilias.info>
+
+Alvaro Herrera <alvherre at alvh.no-ip.org> writes:
+> Christopher Browne wrote:
+>> Alvaro Herrera <alvherre at alvh.no-ip.org> writes:
+>> > Christopher Browne wrote:
+>> >
+>> >> That's not "line 487" as I see it...  The full function call was...
+>> >> 
+>> >> log_status = DatumGetInt32(SPI_getbinval(SPI_tuptable->vals[0],
+>> >> SPI_tuptable->tupdesc, 1, NULL));
+>> >
+>> > I think the problem may be that you're no longer able to pass a NULL
+>> > as fourth argument here.
+>> 
+>> There are several calls to SPI_getbinval(), just one of which fails in
+>> this manner.
+>
+> Maybe that's the only one getting called?  Maybe the others do not
+> resolve into exactly the same underlying crashing macro?
+
+Perhaps I missaid that...
+
+There are several calls to SPI_getbinval() - only one of them is passing
+in NULL, and that's the one that was failing.
+
+A set of tests against Slony-I 1.2 and 2.0 against PostgreSQL HEAD + 8.4
++ 8.3 all passed, so it's pretty clear that this characterizes the
+problem & solution.  I committed this against 1.2, 2.0, and HEAD.
+
+Thanks for your help!
+-- 
+let name="cbbrowne" and tld="ca.afilias.info" in name ^ "@" ^ tld;;
+Christopher Browne
+"Bother,"  said Pooh,  "Eeyore, ready  two photon  torpedoes  and lock
+phasers on the Heffalump, Piglet, meet me in transporter room three"
+
+From alvherre at alvh.no-ip.org  Tue Feb 16 08:42:51 2010
+From: alvherre at alvh.no-ip.org (Alvaro Herrera)
+Date: Tue, 16 Feb 2010 13:42:51 -0300
+Subject: [Slony1-general] [HACKERS] logtrigger issue in PostgreSQL HEAD
+In-Reply-To: <87d40587c4.fsf@ca.afilias.info>
+References: <878way9w6i.fsf@ca.afilias.info>
+	<20100212193147.GG3737@alvh.no-ip.org>
+	<87k4ui84c7.fsf@ca.afilias.info>
+	<20100213003758.GA3738@alvh.no-ip.org>
+	<87d40587c4.fsf@ca.afilias.info>
+Message-ID: <20100216164251.GE5331@alvh.no-ip.org>
+
+Christopher Browne wrote:
+> Alvaro Herrera <alvherre at alvh.no-ip.org> writes:
+> > Christopher Browne wrote:
+> >
+> >> That's not "line 487" as I see it...  The full function call was...
+> >> 
+> >> log_status = DatumGetInt32(SPI_getbinval(SPI_tuptable->vals[0],
+> >> SPI_tuptable->tupdesc, 1, NULL));
+> >
+> > I think the problem may be that you're no longer able to pass a NULL
+> > as fourth argument here.
+> 
+> There are several calls to SPI_getbinval(), just one of which fails in
+> this manner.
+
+Maybe that's the only one getting called?  Maybe the others do not
+resolve into exactly the same underlying crashing macro?
+
+-- 
+Alvaro Herrera       Vendo parcela en Valdivia:
+http://www.portalinmobiliario.com/propiedades/fichas.asp?PropID=749682
+"No hay cielo posible sin hundir nuestras ra?ces
+ en la profundidad de la tierra"                        (Malucha Pinto)
+
+From cbbrowne at ca.afilias.info  Tue Feb 16 13:30:58 2010
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Tue, 16 Feb 2010 16:30:58 -0500
+Subject: [Slony1-general] drop node not working correctly
+In-Reply-To: <faa313131002141209j107765cq98699075e5a7bff2@mail.gmail.com>
+	(Andy Dale's message of "Sun, 14 Feb 2010 21:09:56 +0100")
+References: <faa313131001130513l67e48ad1i16034cfde7cbffe8@mail.gmail.com>
+	<faa313131001140530u315ec3edie9082685ee835042@mail.gmail.com>
+	<4B4F4F17.1020406@ca.afilias.info>
+	<DD747252-9392-4571-A5ED-1511E4DDE7FC@richyen.com>
+	<faa313131002141209j107765cq98699075e5a7bff2@mail.gmail.com>
+Message-ID: <87pr447trh.fsf@ca.afilias.info>
+
+Andy Dale <andy.dale at gmail.com> writes:
+>     However, I have found that if I put a sleep (even 1 second works in my
+>     environment), the DROP_NODE command succeeds, and everything proceeds
+>     happily.
+>
+>
+>
+> I can also confirm that adding a sleep period between the FAILOVER and DROP
+> NODE commands seems to work (for 10 seconds in my case)
+
+I had a chat with Jan about this on Friday; we both agreed that there
+seemed to be something wrong with the idea of having the failover being
+treated as issued by the failed node.
+
+After all, if that node is to, momentarily, be treated as "shunned," it
+doesn't make much sense to have *any* events coming out of it.  I'd tend
+to think that the *new* origin ought to be a good source for that event.
+
+Jan thought there might have been some reason why the event *was*
+submitted on behalf of the failed node.  The reason may no longer hold;
+it'll take a bit of research to determine that.
+
+I suppose that a thing to think about is what could break if the event
+was submitted as being from the new origin.
+
+A road to think down...
+
+ - Suppose the event is treated as coming from new origin
+
+ - Suppose there is a subscriber that is somewhat behind
+
+ - Can that subscriber:
+    a) get confused
+    b) outright lose data (say, because sl_log_* gets trimmed too early)
+   as a result of a FAILOVER that takes place under these circumstances?
+
+No-development-required answer: Don't drop the failed node until all the
+other nodes are aware that they shouldn't be using it anymore.
+
+Possible change to DROP NODE command: 
+
+  Perhaps DROP NODE should check against *all nodes* that this node
+  isn't considered a provider, and fail if it is.
+
+One of the problems with Slony-I, in retrospect, is that it tries a bit
+too hard to be asynchronous, and that makes it rather hard to debug
+issues surrounding configuration changes to the cluster.  Perhaps
+configuration should be pretty much synchronous, checking state against
+all the nodes, and griping if *any* of them disagree.
+
+For instance, in this case, if DROP NODE were changed to verify on *all*
+nodes that the node is no longer in use, that would protect from the
+problem observed in this discussion thread.
+-- 
+let name="cbbrowne" and tld="ca.afilias.info" in name ^ "@" ^ tld;;
+Christopher Browne
+"Bother,"  said Pooh,  "Eeyore, ready  two photon  torpedoes  and lock
+phasers on the Heffalump, Piglet, meet me in transporter room three"
+
+From vivek at khera.org  Tue Feb 16 14:55:28 2010
+From: vivek at khera.org (Vick Khera)
+Date: Tue, 16 Feb 2010 17:55:28 -0500
+Subject: [Slony1-general] drop node not working correctly
+In-Reply-To: <87pr447trh.fsf@ca.afilias.info>
+References: <faa313131001130513l67e48ad1i16034cfde7cbffe8@mail.gmail.com>
+	<faa313131001140530u315ec3edie9082685ee835042@mail.gmail.com>
+	<4B4F4F17.1020406@ca.afilias.info>
+	<DD747252-9392-4571-A5ED-1511E4DDE7FC@richyen.com>
+	<faa313131002141209j107765cq98699075e5a7bff2@mail.gmail.com>
+	<87pr447trh.fsf@ca.afilias.info>
+Message-ID: <2968dfd61002161455r28ad58fdj62f4cb16fb219501@mail.gmail.com>
+
+On Tue, Feb 16, 2010 at 4:30 PM, Christopher Browne
+<cbbrowne at ca.afilias.info> wrote:
+> Perhaps
+> configuration should be pretty much synchronous, checking state against
+> all the nodes, and griping if *any* of them disagree.
+
+If this were the case, you could only ever run configuration changes
+when replication had essentially zero lag.  Ie, all nodes are up to
+date.  If you did, you'd end up waiting until all the events were
+propagated, possibly with locks being held.
+
+From cbbrowne at ca.afilias.info  Tue Feb 16 15:05:51 2010
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Tue, 16 Feb 2010 18:05:51 -0500
+Subject: [Slony1-general] drop node not working correctly
+In-Reply-To: <2968dfd61002161455r28ad58fdj62f4cb16fb219501@mail.gmail.com>
+	(Vick Khera's message of "Tue, 16 Feb 2010 17:55:28 -0500")
+References: <faa313131001130513l67e48ad1i16034cfde7cbffe8@mail.gmail.com>
+	<faa313131001140530u315ec3edie9082685ee835042@mail.gmail.com>
+	<4B4F4F17.1020406@ca.afilias.info>
+	<DD747252-9392-4571-A5ED-1511E4DDE7FC@richyen.com>
+	<faa313131002141209j107765cq98699075e5a7bff2@mail.gmail.com>
+	<87pr447trh.fsf@ca.afilias.info>
+	<2968dfd61002161455r28ad58fdj62f4cb16fb219501@mail.gmail.com>
+Message-ID: <87fx507pdc.fsf@ca.afilias.info>
+
+Vick Khera <vivek at khera.org> writes:
+> On Tue, Feb 16, 2010 at 4:30 PM, Christopher Browne
+> <cbbrowne at ca.afilias.info> wrote:
+>> Perhaps
+>> configuration should be pretty much synchronous, checking state against
+>> all the nodes, and griping if *any* of them disagree.
+>
+> If this were the case, you could only ever run configuration changes
+> when replication had essentially zero lag.  Ie, all nodes are up to
+> date.  If you did, you'd end up waiting until all the events were
+> propagated, possibly with locks being held.
+
+Fair enough, that's why I'm not patching anything just yet :-).
+
+There are kinds of changes where I'd expect it to be fine to NOT wait at
+all, notably:
+ - STORE PATH
+ - STORE LISTEN (which isn't used much anymore, of course)
+
+We probably have a bit too much right now that's asynchronous, which
+certainly isn't to say that *everything* ought to be made synchronous.
+-- 
+output = ("cbbrowne" "@" "ca.afilias.info")
+Christopher Browne
+"Bother,"  said Pooh,  "Eeyore, ready  two photon  torpedoes  and lock
+phasers on the Heffalump, Piglet, meet me in transporter room three"
+
+From analogue at glop.org  Wed Feb 17 10:22:09 2010
+From: analogue at glop.org (Laurent Raufaste)
+Date: Wed, 17 Feb 2010 19:22:09 +0100
+Subject: [Slony1-general] Unclean Slony tables
+Message-ID: <669dc9711002171022x45e7b95ap389741bb3663a5f3@mail.gmail.com>
+
+Hi,
+
+I have a cool Slony cluster with 12 PGs running for years.
+But I noticed some strange data in the origin's sl_confirm table:
+
+SELECT *
+FROM _ob2replication.sl_confirm
+WHERE con_seqno NOT IN (SELECT ev_seqno FROM _ob2replication.sl_event);
+          con_origin | con_received | con_seqno |       con_timestamp
+------------+--------------+-----------+----------------------------
+         21 |           26 |   3277845 | 2009-09-26 15:01:12.61598
+         21 |           27 |   3277845 | 2009-10-22 15:13:26.370957
+         21 |           25 |   3277845 | 2009-09-26 14:54:16.162632
+         21 |            5 |   3277845 | 2009-10-22 15:13:26.669225
+
+Or from another server:
+
+ con_origin | con_received | con_seqno |       con_timestamp
+------------+--------------+-----------+----------------------------
+         21 |           26 |   3277845 | 2009-09-26 15:01:12.61598
+         21 |           27 |   3277845 | 2009-09-26 15:01:12.549303
+         21 |           22 |   3277845 | 2009-09-26 15:01:12.627592
+         21 |            5 |   3277845 | 2009-09-26 15:01:12.831765
+         21 |           25 |   3277845 | 2009-09-26 14:54:16.162632
+
+And from another:
+
+ con_origin | con_received | con_seqno |       con_timestamp
+------------+--------------+-----------+----------------------------
+         21 |           26 |   3277845 | 2009-09-26 15:01:12.61598
+         21 |            5 |   3277845 | 2009-09-26 15:01:12.831765
+         21 |           27 |   3277845 | 2009-09-26 15:01:12.549303
+         21 |           25 |   3277845 | 2009-09-26 14:54:16.162632
+         21 |           22 |   3277845 | 2009-09-26 15:01:12.627592
+         17 |           25 |         0 | 2010-01-26 11:18:22.45564
+         17 |           26 |         0 | 2010-01-26 11:18:22.455672
+         17 |           27 |         0 | 2010-01-26 11:18:22.455704
+         17 |           22 |         0 | 2010-01-26 11:18:22.455729
+         17 |            5 |         0 | 2010-01-26 11:18:22.455753
+         17 |           21 |         0 | 2010-01-26 11:18:22.455794
+         17 |           12 |         0 | 2010-01-26 11:18:22.455835
+         17 |           16 |         0 | 2010-01-26 11:18:22.455861
+         17 |            2 |         0 | 2010-01-26 11:18:22.455898
+         17 |           24 |         0 | 2010-01-26 11:18:22.455926
+
+On every server I have entries in the sl_confirm tables with events
+references which do not exist anymore.
+
+The cluster works, but I don't like thoses entries staying there. What
+can I do ? Delete them ?
+
+Thanks for your help =)
+
+-- 
+Laurent Raufaste
+<http://www.glop.org/>
+
+From stuart at stuartbishop.net  Fri Feb 19 19:54:38 2010
+From: stuart at stuartbishop.net (stuart at stuartbishop.net)
+Date: Sat, 20 Feb 2010 10:54:38 +0700 (ICT)
+Subject: [Slony1-general] Using Slony tables to monitor database write
+	activity
+Message-ID: <g5vvlw3ox9qzadm1omUYAxe124vaj_firegpg@mail.gmail.com>
+
+Hi.
+
+I'm trying to get what information I can from Slony about current database write activity, in particular frequency of updates per table to help track down which parts of this chaotic collection of components I help run are chewing up the most resources.
+
+Best I've got so far is the following:
+
+SELECT
+    tab_relname,
+    count(*) AS total,
+    count(log_cmdtype = 'I' OR NULL) AS inserts,
+    count(log_cmdtype = 'U' OR NULL) AS updates,
+    count(log_cmdtype = 'D' OR NULL) AS deletes
+FROM (
+    SELECT tab_relname, log_cmdtype
+    FROM
+        _sl.sl_table,
+        _sl.sl_log_1,
+        (SELECT DISTINCT ON (ev_origin) ev_origin, ev_maxxid
+        FROM _sl.sl_event
+        WHERE ev_timestamp > CURRENT_TIMESTAMP - interval '1 minute'
+        ORDER BY ev_origin, ev_timestamp) AS event
+    WHERE
+        log_tableid = tab_id
+        AND log_origin = ev_origin
+        AND log_xid > ev_maxxid
+    UNION ALL
+    SELECT tab_relname, log_cmdtype
+    FROM
+        _sl.sl_table,
+        _sl.sl_log_2,
+        (SELECT DISTINCT ON (ev_origin) ev_origin, ev_maxxid
+        FROM _sl.sl_event
+        WHERE ev_timestamp > CURRENT_TIMESTAMP - interval '1 minute'
+        ORDER BY ev_origin, ev_timestamp) AS event
+    WHERE
+        log_tableid = tab_id
+        AND log_origin = ev_origin
+        AND log_xid > ev_maxxid) AS whatever
+GROUP BY tab_relname;
+
+
+I think this is giving me roughly the right answers over the last 60 seconds. Have I missed some data lurking in the internals that may be able to improve the accuracy? I'm running Slony-I 1.2 (.15 soon to move to .20).
+
+
+-- 
+Stuart Bishop <stuart at stuartbishop.net>
+http://www.stuartbishop.net/
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: signature.asc
+Type: application/pgp-signature
+Size: 263 bytes
+Desc: OpenPGP digital signature
+Url : http://lists.slony.info/pipermail/slony1-general/attachments/20100220/a24d97c9/attachment.pgp 
+
+From analogue at glop.org  Mon Feb 22 07:12:05 2010
+From: analogue at glop.org (Laurent Raufaste)
+Date: Mon, 22 Feb 2010 16:12:05 +0100
+Subject: [Slony1-general] Unclean Slony tables
+In-Reply-To: <669dc9711002171022x45e7b95ap389741bb3663a5f3@mail.gmail.com>
+References: <669dc9711002171022x45e7b95ap389741bb3663a5f3@mail.gmail.com>
+Message-ID: <669dc9711002220712t79c8881bhc0ad93b65d315fdc@mail.gmail.com>
+
+I'm replying to myself to give more information about my problem
+
+2010/2/17 Laurent Raufaste <analogue at glop.org>:
+> Hi,
+>
+> I have a cool Slony cluster with 12 PGs running for years.
+> But I noticed some strange data in the origin's sl_confirm table:
+>
+> SELECT *
+> FROM _ob2replication.sl_confirm
+> WHERE con_seqno NOT IN (SELECT ev_seqno FROM _ob2replication.sl_event);
+> ? ? ? ? ?con_origin | con_received | con_seqno | ? ? ? con_timestamp
+> ------------+--------------+-----------+----------------------------
+> ? ? ? ? 21 | ? ? ? ? ? 26 | ? 3277845 | 2009-09-26 15:01:12.61598
+> ? ? ? ? 21 | ? ? ? ? ? 27 | ? 3277845 | 2009-10-22 15:13:26.370957
+> ? ? ? ? 21 | ? ? ? ? ? 25 | ? 3277845 | 2009-09-26 14:54:16.162632
+> ? ? ? ? 21 | ? ? ? ? ? ?5 | ? 3277845 | 2009-10-22 15:13:26.669225
+>
+> On every server I have entries in the sl_confirm tables with events
+> references which do not exist anymore.
+
+Those entries should be cleaned up but the cleanupEvent() plpgsql
+function, but they are not.
+
+I launched a debugged version of the cleanupEvent() function and here
+what I got:
+ob2=# SELECT _ob2replication.mycleanup();
+NOTICE:  DELETE FROM sl_confirm WHERE con_origin=21 AND con_received=2
+AND con_seqno < 1060869
+NOTICE:  DELETE FROM sl_confirm WHERE con_origin=21 AND con_received=5
+AND con_seqno < 1060869
+NOTICE:  DELETE FROM sl_confirm WHERE con_origin=21 AND
+con_received=12 AND con_seqno < 1060869
+NOTICE:  DELETE FROM sl_confirm WHERE con_origin=21 AND
+con_received=16 AND con_seqno < 1060869
+NOTICE:  DELETE FROM sl_confirm WHERE con_origin=21 AND
+con_received=17 AND con_seqno < 1060869
+NOTICE:  DELETE FROM sl_confirm WHERE con_origin=21 AND
+con_received=22 AND con_seqno < 3277845
+NOTICE:  DELETE FROM sl_confirm WHERE con_origin=21 AND
+con_received=23 AND con_seqno < 1060928
+NOTICE:  DELETE FROM sl_confirm WHERE con_origin=21 AND
+con_received=24 AND con_seqno < 1060869
+NOTICE:  DELETE FROM sl_confirm WHERE con_origin=21 AND
+con_received=25 AND con_seqno < 3277845
+NOTICE:  DELETE FROM sl_confirm WHERE con_origin=21 AND
+con_received=26 AND con_seqno < 3277845
+NOTICE:  DELETE FROM sl_confirm WHERE con_origin=21 AND
+con_received=27 AND con_seqno < 3277845
+
+
+From bogus@does.not.exist.com  Thu Feb  4 01:26:20 2010
+From: bogus@does.not.exist.com ()
+Date: Thu, 04 Feb 2010 09:26:20 -0000
+Subject: No subject
+Message-ID: <mailman.0.1266851532.4644.slony1-general@lists.slony.info>
+
+in sl_confirm with a seqno ~3277845 are preventing cleanupEvent() to
+clean those.
+
+And if I take a look at the seqno range on the master I get:
+SELECT con_origin,
+ MIN(con_seqno) AS first_con_seqno,
+ MAX(con_seqno) AS last_con_seqno,
+ MAX(con_seqno) - MIN(con_seqno) AS delta
+FROM _ob2replication.sl_confirm
+GROUP BY con_origin
+ORDER BY con_origin ASC;
+ con_origin | first_con_seqno | last_con_seqno |  delta
+------------+-----------------+----------------+---------
+          2 |         1850804 |        1850903 |      99
+          5 |         1437305 |        1437403 |      98
+         12 |          992789 |         992888 |      99
+         16 |          957046 |         957145 |      99
+         17 |          230040 |         230139 |      99
+         21 |         1060965 |        3277845 | 2216880
+         22 |         4790482 |        4790906 |     424
+         23 |         1050820 |        1050919 |      99
+         24 |           99661 |          99694 |      33
+         25 |         1858636 |        1858734 |      98
+         26 |         2629674 |        2629773 |      99
+         27 |         1788901 |        1789000 |      99
+(12 rows)
+
+As you can see, the node 21 is keeping a huge range of confirmations
+while the usual is to keep less than a thousand.
+
+My supposition: Last year in september, there was a replication
+maintenance, it is possible we might have reinstalled slony on the
+node 21. If this was the case, the seqno was reset. But not every
+event on the cluster was cleaned, and some confirm lines in sl_confirm
+stayed there.
+
+As every one of those confirm lines in sl_confirm in the cluster refer
+to unexistent sl_event, can I delete thos sl_confirm without fearing
+any replication problem ?
+Should I post my problem elsewhere ? (Bug tracking, Hackers list)
+
+Thanks again for the help =3D)
+
+--=20
+Laurent Raufaste
+<http://www.glop.org/>
+
+From bnichols at ca.afilias.info  Mon Feb 22 12:57:30 2010
+From: bnichols at ca.afilias.info (Brad Nicholson)
+Date: Mon, 22 Feb 2010 15:57:30 -0500
+Subject: [Slony1-general] Using Slony tables to monitor database write
+ activity
+In-Reply-To: <g5vvlw3ox9qzadm1omUYAxe124vaj_firegpg@mail.gmail.com>
+References: <g5vvlw3ox9qzadm1omUYAxe124vaj_firegpg@mail.gmail.com>
+Message-ID: <1266872250.4412.105.camel@bnicholson-desktop>
+
+On Sat, 2010-02-20 at 10:54 +0700, stuart at stuartbishop.net wrote:
+> Hi.
+> 
+> I'm trying to get what information I can from Slony about current database write activity, in particular frequency of updates per table to help track down which parts of this chaotic collection of components I help run are chewing up the most resources.
+
+
+Why don't you use the pg_stat_* and pg_statio_* tables in Postgres?
+
+> Best I've got so far is the following:
+> 
+> SELECT
+>     tab_relname,
+>     count(*) AS total,
+>     count(log_cmdtype = 'I' OR NULL) AS inserts,
+>     count(log_cmdtype = 'U' OR NULL) AS updates,
+>     count(log_cmdtype = 'D' OR NULL) AS deletes
+> FROM (
+>     SELECT tab_relname, log_cmdtype
+>     FROM
+>         _sl.sl_table,
+>         _sl.sl_log_1,
+>         (SELECT DISTINCT ON (ev_origin) ev_origin, ev_maxxid
+>         FROM _sl.sl_event
+>         WHERE ev_timestamp > CURRENT_TIMESTAMP - interval '1 minute'
+>         ORDER BY ev_origin, ev_timestamp) AS event
+>     WHERE
+>         log_tableid = tab_id
+>         AND log_origin = ev_origin
+>         AND log_xid > ev_maxxid
+>     UNION ALL
+>     SELECT tab_relname, log_cmdtype
+>     FROM
+>         _sl.sl_table,
+>         _sl.sl_log_2,
+>         (SELECT DISTINCT ON (ev_origin) ev_origin, ev_maxxid
+>         FROM _sl.sl_event
+>         WHERE ev_timestamp > CURRENT_TIMESTAMP - interval '1 minute'
+>         ORDER BY ev_origin, ev_timestamp) AS event
+>     WHERE
+>         log_tableid = tab_id
+>         AND log_origin = ev_origin
+>         AND log_xid > ev_maxxid) AS whatever
+> GROUP BY tab_relname;
+> 
+> 
+> I think this is giving me roughly the right answers over the last 60 seconds. Have I missed some data lurking in the internals that may be able to improve the accuracy? I'm running Slony-I 1.2 (.15 soon to move to .20).
+> 
+> 
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+-- 
+Brad Nicholson  416-673-4106
+Database Administrator, Afilias Canada Corp.
+
+
+
+From stuart at stuartbishop.net  Tue Feb 23 00:09:49 2010
+From: stuart at stuartbishop.net (Stuart Bishop)
+Date: Tue, 23 Feb 2010 15:09:49 +0700 (ICT)
+Subject: [Slony1-general] Using Slony tables to monitor database write
+	activity
+In-Reply-To: <1266872250.4412.105.camel@bnicholson-desktop>
+Message-ID: <g60f1mc4l4om4aoekqUYAxe124vaj_firegpg@mail.gmail.com>
+
+
+
+On Tue, Feb 23, 2010 at 3:57 AM, Brad Nicholson <bnichols at ca.afilias.info> wrote:
+> On Sat, 2010-02-20 at 10:54 +0700, stuart at stuartbishop.net wrote:
+>> Hi.
+>>
+>> I'm trying to get what information I can from Slony about current database write activity, in particular frequency of updates per table to help track down which parts of this chaotic collection of components I help run are chewing up the most resources.
+>
+>
+> Why don't you use the pg_stat_* and pg_statio_* tables in Postgres?
+
+The slony information is interesting as I don't need to take 60 seconds to get a 60 second delta, which would let me serve these stats from a web application without some daemon in the background constantly refreshing a cache. I'm just exploring at this stage anyway.
+
+
+-- 
+Stuart Bishop <stuart at stuartbishop.net>
+http://www.stuartbishop.net/
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: signature.asc
+Type: application/pgp-signature
+Size: 263 bytes
+Desc: OpenPGP digital signature
+Url : http://lists.slony.info/pipermail/slony1-general/attachments/20100223/874df7f4/attachment.pgp 
+
+From analogue at glop.org  Tue Feb 23 00:57:46 2010
+From: analogue at glop.org (Laurent Raufaste)
+Date: Tue, 23 Feb 2010 09:57:46 +0100
+Subject: [Slony1-general] Unclean Slony tables
+In-Reply-To: <669dc9711002220712t79c8881bhc0ad93b65d315fdc@mail.gmail.com>
+References: <669dc9711002171022x45e7b95ap389741bb3663a5f3@mail.gmail.com>
+	<669dc9711002220712t79c8881bhc0ad93b65d315fdc@mail.gmail.com>
+Message-ID: <669dc9711002230057u27672d42ta9b7ae0519f6b1a0@mail.gmail.com>
+
+I sent my question to slony-hackers. I hope I'll have more chance there.
+http://lists.slony.info/pipermail/slony1-hackers/2010-February/000303.html
+
+-- 
+Laurent Raufaste
+<http://www.glop.org/>
+
+From ajs at crankycanuck.ca  Tue Feb 23 08:40:23 2010
+From: ajs at crankycanuck.ca (Andrew Sullivan)
+Date: Tue, 23 Feb 2010 11:40:23 -0500
+Subject: [Slony1-general] Using Slony tables to monitor database
+	write	activity
+In-Reply-To: <g60f1mc4l4om4aoekqUYAxe124vaj_firegpg@mail.gmail.com>
+References: <1266872250.4412.105.camel@bnicholson-desktop>
+	<g60f1mc4l4om4aoekqUYAxe124vaj_firegpg@mail.gmail.com>
+Message-ID: <20100223164023.GL55606@shinkuro.com>
+
+On Tue, Feb 23, 2010 at 03:09:49PM +0700, Stuart Bishop wrote:
+> The slony information is interesting as I don't need to take 60 seconds to get a 60 second delta, which would let me serve these stats from a web application without some daemon in the background constantly refreshing a cache. I'm just exploring at this stage anyway.
+>
+
+But the statio information is way cheaper and faster to get.  Doing
+the queries you're thinking of will cause you disk use you maybe don't
+want to pay.
+
+A
+
+
+-- 
+Andrew Sullivan
+ajs at crankycanuck.ca
+
+From bnichols at ca.afilias.info  Tue Feb 23 10:21:44 2010
+From: bnichols at ca.afilias.info (Brad Nicholson)
+Date: Tue, 23 Feb 2010 13:21:44 -0500
+Subject: [Slony1-general] Using Slony tables to monitor database write
+ activity
+In-Reply-To: <20100223164023.GL55606@shinkuro.com>
+References: <1266872250.4412.105.camel@bnicholson-desktop>
+	<g60f1mc4l4om4aoekqUYAxe124vaj_firegpg@mail.gmail.com>
+	<20100223164023.GL55606@shinkuro.com>
+Message-ID: <1266949304.4412.129.camel@bnicholson-desktop>
+
+On Tue, 2010-02-23 at 11:40 -0500, Andrew Sullivan wrote:
+> On Tue, Feb 23, 2010 at 03:09:49PM +0700, Stuart Bishop wrote:
+> > The slony information is interesting as I don't need to take 60 seconds to get a 60 second delta, which would let me serve these stats from a web application without some daemon in the background constantly refreshing a cache. I'm just exploring at this stage anyway.
+> >
+> 
+> But the statio information is way cheaper and faster to get.  Doing
+> the queries you're thinking of will cause you disk use you maybe don't
+> want to pay.
+
+And infinitely more useful.
+
+Grovelling through Slony will tell you that you are doing X number of
+updates.  Then what?
+
+Are they HOT updates or live updates?  Are they writing a handful of
+blocks or lots and lots of blocks?  Are those blocks getting written
+once at checkpoint time or repeatedly by the bgwriter?  This is the sort
+of information you can get from the Postgres views that you won't get
+from Slony.  It's the sort of data you'll need to really pinpoint what
+is going on and how to fix it.
+
+-- 
+Brad Nicholson  416-673-4106
+Database Administrator, Afilias Canada Corp.
+
+
+
+From ajs at crankycanuck.ca  Tue Feb 23 10:58:18 2010
+From: ajs at crankycanuck.ca (Andrew Sullivan)
+Date: Tue, 23 Feb 2010 13:58:18 -0500
+Subject: [Slony1-general] Using Slony tables to monitor database
+	write	activity
+In-Reply-To: <1266949304.4412.129.camel@bnicholson-desktop>
+References: <1266872250.4412.105.camel@bnicholson-desktop>
+	<g60f1mc4l4om4aoekqUYAxe124vaj_firegpg@mail.gmail.com>
+	<20100223164023.GL55606@shinkuro.com>
+	<1266949304.4412.129.camel@bnicholson-desktop>
+Message-ID: <20100223185818.GS55606@shinkuro.com>
+
+On Tue, Feb 23, 2010 at 01:21:44PM -0500, Brad Nicholson wrote:
+> from Slony.  It's the sort of data you'll need to really pinpoint what
+> is going on and how to fix it.
+
+Excellent point.  Brad's point in particular about how all this
+interacts with other transactions is super-important.  It took several
+major releases of Postgres for all those refinements to make it into
+the system views, as people learned more of what they needed to do.
+Trying to re-build that information out of the Slony tables is
+hobbling yourself.
+
+Moreover, accessing the system views doesn't affect those statistics
+the way looking at the Slony tables will.  If you start grovelling
+through the Slony tables all the time to find out how many updates you
+have, you're going to have all kinds of cache hits and misses (and
+index hits and so on) that will affect the system views, which don't
+have any clue why you're doing these queries.  So you'll actually
+cause countable activity when you're doing your counting.  The first
+rule of a measuring stick is that it shouldn't actually modify the
+thing measured.
+
+Best,
+
+Andrew "Schr?dinger's database" Sullivan
+
+-- 
+Andrew Sullivan
+ajs at crankycanuck.ca
+
+From dave.stevenson at pacbell.net  Wed Feb 24 09:28:47 2010
+From: dave.stevenson at pacbell.net (Dave Stevenson)
+Date: Wed, 24 Feb 2010 09:28:47 -0800 (PST)
+Subject: [Slony1-general]  Is Slony for me?
+Message-ID: <317260.68530.qm@web82405.mail.mud.yahoo.com>
+
+I'm looking for a replication solution, but I'm no DBA. My use case is probably similar to the following, listed in Slony's online doc as a poor match for Slony:
+??? Replicating a pricing database from a central server to sales staff who connect periodically to grab updates. 
+
+I'm wondering what is it about Slony that makes that scenario a bad match, or what alternative might work better for me.
+
+I use Postgresql as a source code repository. However, the?server is remote, and?access is typically very slow. I'd like to have a read-only local copy for comparing, reconciling, loading, etc., and access the remote server only for writes (publish). Typical usage is lots of reads, few writes,?very rare and limited updates, even more rare and limited deletes (few times per year?), and maybe once every 2-4 years a schema change. 
+
+If I have a local?clone on my?laptop,?it will often be offline (at night). Is Slony a bad match because the slave would miss updates while offline?
+
+Anyone know of a better fit for my?use case?
+
+Thanks,
+?Dave Stevenson
+dave.stevenson at pacbell.net 
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20100224/2254f85e/attachment.htm 
+
+From melvin6925 at yahoo.com  Wed Feb 24 09:44:21 2010
+From: melvin6925 at yahoo.com (Melvin Davidson)
+Date: Wed, 24 Feb 2010 09:44:21 -0800 (PST)
+Subject: [Slony1-general] Is Slony for me?
+In-Reply-To: <317260.68530.qm@web82405.mail.mud.yahoo.com>
+Message-ID: <118510.56381.qm@web53005.mail.re2.yahoo.com>
+
+--- On Wed, 2/24/10, Dave Stevenson <dave.stevenson at pacbell.net> wrote:
+
+From: Dave Stevenson <dave.stevenson at pacbell.net>
+Subject: [Slony1-general]  Is Slony for me?
+To: Slony1-general at lists.slony.info
+Date: Wednesday, February 24, 2010, 11:28 AM
+
+
+I'm looking for a replication solution, but I'm no DBA. My use
+case is probably similar to the following, listed in Slony's online doc
+as a poor match for Slony:
+??? Replicating a pricing database from a central server to sales staff who connect periodically to grab updates. 
+?
+I'm wondering what is it about Slony that makes that scenario a bad match, or what alternative might work better for me.
+?
+I use Postgresql as a source code repository. However, the?server
+is remote, and?access is typically very slow. I'd like to have a
+read-only local copy for comparing, reconciling, loading, etc., and
+access the remote server only for writes (publish). Typical usage is
+lots of reads, few writes,?very rare and limited updates, even more
+rare and limited deletes (few times per year?), and maybe once every
+2-4 years a schema change. 
+?
+If I have a local?clone on my?laptop,?it will often be offline (at
+night). Is Slony a bad match because the slave would miss updates while
+offline?
+?
+Anyone know of a better fit for my?use case?
+?
+Thanks,
+?Dave Stevenson
+dave.stevenson at pacbell.net 
+
+-----Inline Attachment Follows-----
+
+_______________________________________________
+Slony1-general mailing list
+Slony1-general at lists.slony.info
+http://lists.slony.info/mailman/listinfo/slony1-general
+
+>I'd like to have a read-only local copy for comparing, reconciling, loading, 
+>etc.
+
+Good news. Slony is excellent for that situation.
+
+>If I have a local?clone on my?laptop,?it will often be offline (at
+night). Is Slony a 
+>bad match because the slave would miss updates while
+offline?
+
+
+Bad news.? Unless there is only a small amount of updates (DML) that will be occurring while your laptop is offline, it will take a long time for slony to synchronize and catch up with transactions that occurred. If your database is small enough, you might be better off just doing a pg_dump of the master, and then copy it to the laptop, drop the old database, make a new db? and then pg_restore the new copy.
+
+Melvin Davidson 
+  
+
+
+
+
+
+
+      
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20100224/ca5d0fed/attachment.htm 
+
+From WCoole at aperiogroup.com  Wed Feb 24 10:13:19 2010
+From: WCoole at aperiogroup.com (Walter Coole)
+Date: Wed, 24 Feb 2010 10:13:19 -0800
+Subject: [Slony1-general] Is Slony for me?
+In-Reply-To: <118510.56381.qm@web53005.mail.re2.yahoo.com>
+References: <317260.68530.qm@web82405.mail.mud.yahoo.com>
+	<118510.56381.qm@web53005.mail.re2.yahoo.com>
+Message-ID: <55AD1EEF173837488F4B56BEFC99B71C41CD91@server.aperiogroup.local>
+
+Dave's points are valid, but I'd suggest a tweak that I've found useful:
+use one of pg_dump's ascii modes, keep the pg_dump output and use rsync
+to do the copy to the laptop.  If the updates are rare and small, rsync
+(or a similar tool) will be much more efficient at doing the copy, at
+the cost of keeping an extra copy of the database on the laptop.
+
+ 
+
+I found that, for my installation, this arrangement was easier to set up
+and maintain than Slony or any of the other replication schemes for
+Postgres.
+
+Walter
+
+ 
+
+From: slony1-general-bounces at lists.slony.info
+[mailto:slony1-general-bounces at lists.slony.info] On Behalf Of Melvin
+Davidson
+Sent: Wednesday, February 24, 2010 9:44 AM
+To: Slony1-general at lists.slony.info; Dave Stevenson
+Subject: Re: [Slony1-general] Is Slony for me?
+
+ 
+
+--- On Wed, 2/24/10, Dave Stevenson <dave.stevenson at pacbell.net> wrote:
+
+From: Dave Stevenson <dave.stevenson at pacbell.net>
+Subject: [Slony1-general] Is Slony for me?
+To: Slony1-general at lists.slony.info
+Date: Wednesday, February 24, 2010, 11:28 AM
+
+I'm looking for a replication solution, but I'm no DBA. My use case is
+probably similar to the following, listed in Slony's online doc as a
+poor match for Slony:
+
+    Replicating a pricing database from a central server to sales staff
+who connect periodically to grab updates. 
+
+ 
+
+I'm wondering what is it about Slony that makes that scenario a bad
+match, or what alternative might work better for me.
+
+ 
+
+I use Postgresql as a source code repository. However, the server is
+remote, and access is typically very slow. I'd like to have a read-only
+local copy for comparing, reconciling, loading, etc., and access the
+remote server only for writes (publish). Typical usage is lots of reads,
+few writes, very rare and limited updates, even more rare and limited
+deletes (few times per year?), and maybe once every 2-4 years a schema
+change. 
+
+ 
+
+If I have a local clone on my laptop, it will often be offline (at
+night). Is Slony a bad match because the slave would miss updates while
+offline?
+
+ 
+
+Anyone know of a better fit for my use case?
+
+ 
+
+Thanks,
+ 
+
+Dave Stevenson
+dave.stevenson at pacbell.net 
+
+
+-----Inline Attachment Follows-----
+
+_______________________________________________
+Slony1-general mailing list
+Slony1-general at lists.slony.info
+<http://us.mc530.mail.yahoo.com/mc/compose?to=Slony1-general at lists.slony
+.info> 
+http://lists.slony.info/mailman/listinfo/slony1-general
+
+>I'd like to have a read-only local copy for comparing, reconciling,
+loading, 
+>etc.
+
+Good news. Slony is excellent for that situation.
+
+>If I have a local clone on my laptop, it will often be offline (at
+night). Is Slony a 
+>bad match because the slave would miss updates while offline?
+
+Bad news.  Unless there is only a small amount of updates (DML) that
+will be occurring while your laptop is offline, it will take a long time
+for slony to synchronize and catch up with transactions that occurred.
+If your database is small enough, you might be better off just doing a
+pg_dump of the master, and then copy it to the laptop, drop the old
+database, make a new db  and then pg_restore the new copy.
+
+Melvin Davidson 
+
+
+
+
+
+ 
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20100224/3b9a0638/attachment.htm 
+
+From kevink at consistentstate.com  Wed Feb 24 10:19:58 2010
+From: kevink at consistentstate.com (Kevin Kempter)
+Date: Wed, 24 Feb 2010 11:19:58 -0700
+Subject: [Slony1-general] Is Slony for me?
+In-Reply-To: <55AD1EEF173837488F4B56BEFC99B71C41CD91@server.aperiogroup.local>
+References: <317260.68530.qm@web82405.mail.mud.yahoo.com>
+	<118510.56381.qm@web53005.mail.re2.yahoo.com>
+	<55AD1EEF173837488F4B56BEFC99B71C41CD91@server.aperiogroup.local>
+Message-ID: <201002241119.58067.kevink@consistentstate.com>
+
+On Wednesday 24 February 2010 11:13:19 Walter Coole wrote:
+> Dave's points are valid, but I'd suggest a tweak that I've found useful:
+> use one of pg_dump's ascii modes, keep the pg_dump output and use rsync
+> to do the copy to the laptop.  If the updates are rare and small, rsync
+> (or a similar tool) will be much more efficient at doing the copy, at
+> the cost of keeping an extra copy of the database on the laptop.
+> 
+> 
+> 
+> I found that, for my installation, this arrangement was easier to set up
+> and maintain than Slony or any of the other replication schemes for
+> Postgres.
+> 
+> Walter
+> 
+> 
+> 
+> From: slony1-general-bounces at lists.slony.info
+> [mailto:slony1-general-bounces at lists.slony.info] On Behalf Of Melvin
+> Davidson
+> Sent: Wednesday, February 24, 2010 9:44 AM
+> To: Slony1-general at lists.slony.info; Dave Stevenson
+> Subject: Re: [Slony1-general] Is Slony for me?
+> 
+> 
+> 
+> --- On Wed, 2/24/10, Dave Stevenson <dave.stevenson at pacbell.net> wrote:
+> 
+> From: Dave Stevenson <dave.stevenson at pacbell.net>
+> Subject: [Slony1-general] Is Slony for me?
+> To: Slony1-general at lists.slony.info
+> Date: Wednesday, February 24, 2010, 11:28 AM
+> 
+> I'm looking for a replication solution, but I'm no DBA. My use case is
+> probably similar to the following, listed in Slony's online doc as a
+> poor match for Slony:
+> 
+>     Replicating a pricing database from a central server to sales staff
+> who connect periodically to grab updates.
+> 
+> 
+> 
+> I'm wondering what is it about Slony that makes that scenario a bad
+> match, or what alternative might work better for me.
+> 
+> 
+> 
+> I use Postgresql as a source code repository. However, the server is
+> remote, and access is typically very slow. I'd like to have a read-only
+> local copy for comparing, reconciling, loading, etc., and access the
+> remote server only for writes (publish). Typical usage is lots of reads,
+> few writes, very rare and limited updates, even more rare and limited
+> deletes (few times per year?), and maybe once every 2-4 years a schema
+> change.
+> 
+> 
+> 
+> If I have a local clone on my laptop, it will often be offline (at
+> night). Is Slony a bad match because the slave would miss updates while
+> offline?
+> 
+> 
+> 
+> Anyone know of a better fit for my use case?
+> 
+> 
+> 
+> Thanks,
+> 
+> 
+> Dave Stevenson
+> dave.stevenson at pacbell.net
+> 
+> 
+> -----Inline Attachment Follows-----
+> 
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> <http://us.mc530.mail.yahoo.com/mc/compose?to=Slony1-general at lists.slony
+> .info>
+> http://lists.slony.info/mailman/listinfo/slony1-general
+> 
+> >I'd like to have a read-only local copy for comparing, reconciling,
+> 
+> loading,
+> 
+> >etc.
+> 
+> Good news. Slony is excellent for that situation.
+> 
+> >If I have a local clone on my laptop, it will often be offline (at
+> 
+> night). Is Slony a
+> 
+> >bad match because the slave would miss updates while offline?
+> 
+> Bad news.  Unless there is only a small amount of updates (DML) that
+> will be occurring while your laptop is offline, it will take a long time
+> for slony to synchronize and catch up with transactions that occurred.
+> If your database is small enough, you might be better off just doing a
+> pg_dump of the master, and then copy it to the laptop, drop the old
+> database, make a new db  and then pg_restore the new copy.
+> 
+> Melvin Davidson
+> 
+
+
+This scenario is actually a perfect fit for SLONY log shipping which would 
+allow your laptop to act as a 'remote' or 'disconnected' subscriber thus 
+you'll be able to have your laptop apply the slon logs on any schedule you 
+decide.
+
+
+
+From msquires at whitepages.com  Wed Feb 24 10:26:50 2010
+From: msquires at whitepages.com (Michael Squires)
+Date: Wed, 24 Feb 2010 10:26:50 -0800
+Subject: [Slony1-general] Is Slony for me?
+In-Reply-To: <201002241119.58067.kevink@consistentstate.com>
+References: <317260.68530.qm@web82405.mail.mud.yahoo.com>	<118510.56381.qm@web53005.mail.re2.yahoo.com>	<55AD1EEF173837488F4B56BEFC99B71C41CD91@server.aperiogroup.local>
+	<201002241119.58067.kevink@consistentstate.com>
+Message-ID: <4B856F6A.1000305@whitepages.com>
+
+Rather than nibbling around the edges on this ("slony would be good if 
+your situation is X"), why don't you give us some sense of the scale you 
+are talking about.
+
+How many tables in the database?
+How big (in terms of rows) are the tables?
+How big (size in Mbytes) is the whole database?
+What is the update rate (5 new records a second - or 5 new records a month)?
+How many "sites" need to get the updates? Is it only 1 laptop or 1,000 
+of them?
+
+The "best" potential solution for you might range from a single-file 
+sqlite database that you just copy to your laptop whenever you want to 
+to a full slony with log-shipping to ....
+
+Michael
+
+On 2/24/10 10:19 AM, Kevin Kempter wrote:
+> On Wednesday 24 February 2010 11:13:19 Walter Coole wrote:
+>> Dave's points are valid, but I'd suggest a tweak that I've found useful:
+>> use one of pg_dump's ascii modes, keep the pg_dump output and use rsync
+>> to do the copy to the laptop.  If the updates are rare and small, rsync
+>> (or a similar tool) will be much more efficient at doing the copy, at
+>> the cost of keeping an extra copy of the database on the laptop.
+>>
+>>
+>>
+>> I found that, for my installation, this arrangement was easier to set up
+>> and maintain than Slony or any of the other replication schemes for
+>> Postgres.
+>>
+>> Walter
+>>
+>>
+>>
+>> From: slony1-general-bounces at lists.slony.info
+>> [mailto:slony1-general-bounces at lists.slony.info] On Behalf Of Melvin
+>> Davidson
+>> Sent: Wednesday, February 24, 2010 9:44 AM
+>> To: Slony1-general at lists.slony.info; Dave Stevenson
+>> Subject: Re: [Slony1-general] Is Slony for me?
+>>
+>>
+>>
+>> --- On Wed, 2/24/10, Dave Stevenson<dave.stevenson at pacbell.net>  wrote:
+>>
+>> From: Dave Stevenson<dave.stevenson at pacbell.net>
+>> Subject: [Slony1-general] Is Slony for me?
+>> To: Slony1-general at lists.slony.info
+>> Date: Wednesday, February 24, 2010, 11:28 AM
+>>
+>> I'm looking for a replication solution, but I'm no DBA. My use case is
+>> probably similar to the following, listed in Slony's online doc as a
+>> poor match for Slony:
+>>
+>>      Replicating a pricing database from a central server to sales staff
+>> who connect periodically to grab updates.
+>>
+>>
+>>
+>> I'm wondering what is it about Slony that makes that scenario a bad
+>> match, or what alternative might work better for me.
+>>
+>>
+>>
+>> I use Postgresql as a source code repository. However, the server is
+>> remote, and access is typically very slow. I'd like to have a read-only
+>> local copy for comparing, reconciling, loading, etc., and access the
+>> remote server only for writes (publish). Typical usage is lots of reads,
+>> few writes, very rare and limited updates, even more rare and limited
+>> deletes (few times per year?), and maybe once every 2-4 years a schema
+>> change.
+>>
+>>
+>>
+>> If I have a local clone on my laptop, it will often be offline (at
+>> night). Is Slony a bad match because the slave would miss updates while
+>> offline?
+>>
+>>
+>>
+>> Anyone know of a better fit for my use case?
+>>
+>>
+>>
+>> Thanks,
+>>
+>>
+>> Dave Stevenson
+>> dave.stevenson at pacbell.net
+>>
+>>
+>> -----Inline Attachment Follows-----
+>>
+>> _______________________________________________
+>> Slony1-general mailing list
+>> Slony1-general at lists.slony.info
+>> <http://us.mc530.mail.yahoo.com/mc/compose?to=Slony1-general at lists.slony
+>> .info>
+>> http://lists.slony.info/mailman/listinfo/slony1-general
+>>
+>>> I'd like to have a read-only local copy for comparing, reconciling,
+>>
+>> loading,
+>>
+>>> etc.
+>>
+>> Good news. Slony is excellent for that situation.
+>>
+>>> If I have a local clone on my laptop, it will often be offline (at
+>>
+>> night). Is Slony a
+>>
+>>> bad match because the slave would miss updates while offline?
+>>
+>> Bad news.  Unless there is only a small amount of updates (DML) that
+>> will be occurring while your laptop is offline, it will take a long time
+>> for slony to synchronize and catch up with transactions that occurred.
+>> If your database is small enough, you might be better off just doing a
+>> pg_dump of the master, and then copy it to the laptop, drop the old
+>> database, make a new db  and then pg_restore the new copy.
+>>
+>> Melvin Davidson
+>>
+>
+>
+> This scenario is actually a perfect fit for SLONY log shipping which would
+> allow your laptop to act as a 'remote' or 'disconnected' subscriber thus
+> you'll be able to have your laptop apply the slon logs on any schedule you
+> decide.
+>
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+
+From jks at selectacast.net  Wed Feb 24 11:00:45 2010
+From: jks at selectacast.net (Joseph S)
+Date: Wed, 24 Feb 2010 14:00:45 -0500
+Subject: [Slony1-general] How do I add triggers to my tables?
+Message-ID: <4B85775D.2050701@selectacast.net>
+
+If a trigger exists on a table, when slony is installed on a slave it 
+removes the original triggers.  However if I want to add a trigger to 
+the table (to make sure my master & slave always have the same schema) 
+how do I get slony to move it to where it hid the original triggers?  
+This trigger firing on INSERT on the slave can actually cause data 
+corruption.
+
+From vivek at khera.org  Wed Feb 24 11:32:31 2010
+From: vivek at khera.org (Vick Khera)
+Date: Wed, 24 Feb 2010 14:32:31 -0500
+Subject: [Slony1-general] How do I add triggers to my tables?
+In-Reply-To: <4B85775D.2050701@selectacast.net>
+References: <4B85775D.2050701@selectacast.net>
+Message-ID: <2968dfd61002241132x3f97d728wcab20be8f04983a8@mail.gmail.com>
+
+On Wed, Feb 24, 2010 at 2:00 PM, Joseph S <jks at selectacast.net> wrote:
+> If a trigger exists on a table, when slony is installed on a slave it
+> removes the original triggers. ?However if I want to add a trigger to
+> the table (to make sure my master & slave always have the same schema)
+> how do I get slony to move it to where it hid the original triggers?
+> This trigger firing on INSERT on the slave can actually cause data
+> corruption.
+
+ALL change to the db schema are to be run thru slony's EXECUTE SCRIPT
+function, which will take care of ensuring that the schema change is
+applied properly to all copies, and that slony knows about those
+changes so it can properly replicate your data (especially important
+when adding/removing columns, adding/removing foreign keys, etc.)
+
+From dave.stevenson at pacbell.net  Wed Feb 24 13:07:48 2010
+From: dave.stevenson at pacbell.net (Dave Stevenson)
+Date: Wed, 24 Feb 2010 13:07:48 -0800 (PST)
+Subject: [Slony1-general] Is Slony for me?
+In-Reply-To: <4B856F6A.1000305@whitepages.com>
+References: <317260.68530.qm@web82405.mail.mud.yahoo.com>
+	<118510.56381.qm@web53005.mail.re2.yahoo.com>
+	<55AD1EEF173837488F4B56BEFC99B71C41CD91@server.aperiogroup.local>
+	<201002241119.58067.kevink@consistentstate.com>
+	<4B856F6A.1000305@whitepages.com>
+Message-ID: <601787.71356.qm@web82403.mail.mud.yahoo.com>
+
+> How many tables in the database?
+??? 24
+
+> How big (in terms of rows) are the tables?
+????8 tables have less than 10 rows
+??? 2 tables have less than 1,000 rows
+??? 5 tables have less than 10,000 rows
+??? 4 tables have less than 50,000 rows
+??? 4 tables have less than 1,000,000 rows
+??? 1 table has?just under?15,000,000 rows
+
+> How big (size in Mbytes) is the whole database?
+??? Not sure exactly how to measure this. After installing PostgreSQL to a new machine, the 'data' directory is 32MB. I then restore my db from backup, the data directory is 1.31GB. However, the .backup file from which the db was restored is only 91MB.
+
+> What is the update rate (5 new records a second - or 5 new records a month)?
+??? The table with the most rows (association table consisting of two?integer fields?per row) grows by up to 100K rows per day, but we publish?up to 350 rows containing actual source code per day, sometimes up to a few KB each. These are?added in spurts of publishing lasting up to a couple of minutes each, maybe 50 or so publishes per day. 
+
+> How many "sites" need to get the updates? Is it only 1 laptop or 1,000 of them?
+??? Maybe up to a few dozen or so eventually.
+
+?Dave Stevenson
+dave.stevenson at pacbell.net 
+
+
+
+
+________________________________
+From: Michael Squires <msquires at whitepages.com>
+To: slony1-general at lists.slony.info
+Sent: Wed, February 24, 2010 10:26:50 AM
+Subject: Re: [Slony1-general] Is Slony for me?
+
+Rather than nibbling around the edges on this ("slony would be good if 
+your situation is X"), why don't you give us some sense of the scale you 
+are talking about.
+
+How many tables in the database?
+How big (in terms of rows) are the tables?
+How big (size in Mbytes) is the whole database?
+What is the update rate (5 new records a second - or 5 new records a month)?
+How many "sites" need to get the updates? Is it only 1 laptop or 1,000 
+of them?
+
+The "best" potential solution for you might range from a single-file 
+sqlite database that you just copy to your laptop whenever you want to 
+to a full slony with log-shipping to ....
+
+Michael
+
+On 2/24/10 10:19 AM, Kevin Kempter wrote:
+> On Wednesday 24 February 2010 11:13:19 Walter Coole wrote:
+>> Dave's points are valid, but I'd suggest a tweak that I've found useful:
+>> use one of pg_dump's ascii modes, keep the pg_dump output and use rsync
+>> to do the copy to the laptop.? If the updates are rare and small, rsync
+>> (or a similar tool) will be much more efficient at doing the copy, at
+>> the cost of keeping an extra copy of the database on the laptop.
+>>
+>>
+>>
+>> I found that, for my installation, this arrangement was easier to set up
+>> and maintain than Slony or any of the other replication schemes for
+>> Postgres.
+>>
+>> Walter
+>>
+>>
+>>
+>> From: slony1-general-bounces at lists.slony.info
+>> [mailto:slony1-general-bounces at lists.slony.info] On Behalf Of Melvin
+>> Davidson
+>> Sent: Wednesday, February 24, 2010 9:44 AM
+>> To: Slony1-general at lists.slony.info; Dave Stevenson
+>> Subject: Re: [Slony1-general] Is Slony for me?
+>>
+>>
+>>
+>> --- On Wed, 2/24/10, Dave Stevenson<dave.stevenson at pacbell.net>? wrote:
+>>
+>> From: Dave Stevenson<dave.stevenson at pacbell.net>
+>> Subject: [Slony1-general] Is Slony for me?
+>> To: Slony1-general at lists.slony.info
+>> Date: Wednesday, February 24, 2010, 11:28 AM
+>>
+>> I'm looking for a replication solution, but I'm no DBA. My use case is
+>> probably similar to the following, listed in Slony's online doc as a
+>> poor match for Slony:
+>>
+>>? ? ? Replicating a pricing database from a central server to sales staff
+>> who connect periodically to grab updates.
+>>
+>>
+>>
+>> I'm wondering what is it about Slony that makes that scenario a bad
+>> match, or what alternative might work better for me.
+>>
+>>
+>>
+>> I use Postgresql as a source code repository. However, the server is
+>> remote, and access is typically very slow. I'd like to have a read-only
+>> local copy for comparing, reconciling, loading, etc., and access the
+>> remote server only for writes (publish). Typical usage is lots of reads,
+>> few writes, very rare and limited updates, even more rare and limited
+>> deletes (few times per year?), and maybe once every 2-4 years a schema
+>> change.
+>>
+>>
+>>
+>> If I have a local clone on my laptop, it will often be offline (at
+>> night). Is Slony a bad match because the slave would miss updates while
+>> offline?
+>>
+>>
+>>
+>> Anyone know of a better fit for my use case?
+>>
+>>
+>>
+>> Thanks,
+>>
+>>
+>> Dave Stevenson
+>> dave.stevenson at pacbell.net
+>>
+>>
+>> -----Inline Attachment Follows-----
+>>
+>> _______________________________________________
+>> Slony1-general mailing list
+>> Slony1-general at lists.slony.info
+>> <http://us.mc530.mail.yahoo.com/mc/compose?to=Slony1-general at lists.slony
+>> .info>
+>> http://lists.slony.info/mailman/listinfo/slony1-general
+>>
+>>> I'd like to have a read-only local copy for comparing, reconciling,
+>>
+>> loading,
+>>
+>>> etc.
+>>
+>> Good news. Slony is excellent for that situation.
+>>
+>>> If I have a local clone on my laptop, it will often be offline (at
+>>
+>> night). Is Slony a
+>>
+>>> bad match because the slave would miss updates while offline?
+>>
+>> Bad news.? Unless there is only a small amount of updates (DML) that
+>> will be occurring while your laptop is offline, it will take a long time
+>> for slony to synchronize and catch up with transactions that occurred.
+>> If your database is small enough, you might be better off just doing a
+>> pg_dump of the master, and then copy it to the laptop, drop the old
+>> database, make a new db? and then pg_restore the new copy.
+>>
+>> Melvin Davidson
+>>
+>
+>
+> This scenario is actually a perfect fit for SLONY log shipping which would
+> allow your laptop to act as a 'remote' or 'disconnected' subscriber thus
+> you'll be able to have your laptop apply the slon logs on any schedule you
+> decide.
+>
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+_______________________________________________
+Slony1-general mailing list
+Slony1-general at lists.slony.info
+http://lists.slony.info/mailman/listinfo/slony1-general
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20100224/f0e582a5/attachment.htm 
+
+From peter.geoghegan86 at gmail.com  Thu Feb 25 08:44:29 2010
+From: peter.geoghegan86 at gmail.com (Peter Geoghegan)
+Date: Thu, 25 Feb 2010 16:44:29 +0000
+Subject: [Slony1-general] Is Slony for me?
+In-Reply-To: <601787.71356.qm@web82403.mail.mud.yahoo.com>
+References: <317260.68530.qm@web82405.mail.mud.yahoo.com>
+	<118510.56381.qm@web53005.mail.re2.yahoo.com>
+	<55AD1EEF173837488F4B56BEFC99B71C41CD91@server.aperiogroup.local>
+	<201002241119.58067.kevink@consistentstate.com>
+	<4B856F6A.1000305@whitepages.com>
+	<601787.71356.qm@web82403.mail.mud.yahoo.com>
+Message-ID: <db471ace1002250844m6d037030j95392f9ca6809bf1@mail.gmail.com>
+
+> ??? Not sure exactly how to measure this. After installing PostgreSQL to a
+> new machine, the 'data' directory is 32MB. I then restore my db from backup,
+> the data directory is 1.31GB. However, the .backup file from which the db
+> was restored is only 91MB.
+
+To determine the size of your database, do this while connected to it:
+SELECT pg_size_pretty(pg_database_size(current_database()))
+
+> ??? Maybe up to a few dozen or so eventually.
+
+What you must understand is that slony's communication overhead with
+respect to the number of nodes increases quadratically; Every time you
+double the number of nodes, you quadruple the communication overhead.
+According to the docs, "Up to a half dozen nodes seems pretty
+reasonable". I'm not sure what the record is for number of slony nodes
+in a single cluster, but I suspect it is more than 6 but quite a bit
+less than several dozen. Making Slony scale like this is a
+non-starter, I would think.
+
+Regards,
+Peter Geoghegan
+
+From dave.stevenson at pacbell.net  Thu Feb 25 09:03:31 2010
+From: dave.stevenson at pacbell.net (Dave Stevenson)
+Date: Thu, 25 Feb 2010 09:03:31 -0800 (PST)
+Subject: [Slony1-general] Is Slony for me?
+In-Reply-To: <db471ace1002250844m6d037030j95392f9ca6809bf1@mail.gmail.com>
+References: <317260.68530.qm@web82405.mail.mud.yahoo.com>
+	<118510.56381.qm@web53005.mail.re2.yahoo.com>
+	<55AD1EEF173837488F4B56BEFC99B71C41CD91@server.aperiogroup.local>
+	<201002241119.58067.kevink@consistentstate.com>
+	<4B856F6A.1000305@whitepages.com>
+	<601787.71356.qm@web82403.mail.mud.yahoo.com>
+	<db471ace1002250844m6d037030j95392f9ca6809bf1@mail.gmail.com>
+Message-ID: <461146.35774.qm@web82408.mail.mud.yahoo.com>
+
+SELECT pg_size_pretty(pg_database_size(current_database()))
+-> 1198MB
+
+> Making Slony scale like this is a non-starter, I would think.
+
+Can it cascade?:
+
+Master
+??? |-Regional Master 1
+??? |??? |-Slave1.1
+??? |??? |-Slave1.2
+??? |????-Slave 1.3
+??? |-Regional Master 2
+??? |??? |-Slave 2.1
+??? |??? |-Slave 2.2
+...
+
+?Dave Stevenson
+dave.stevenson at pacbell.net 
+
+
+
+
+________________________________
+From: Peter Geoghegan <peter.geoghegan86 at gmail.com>
+To: Dave Stevenson <dave.stevenson at pacbell.net>
+Cc: Michael Squires <msquires at whitepages.com>; slony1-general at lists.slony.info
+Sent: Thu, February 25, 2010 8:44:29 AM
+Subject: Re: [Slony1-general] Is Slony for me?
+
+> ??? Not sure exactly how to measure this. After installing PostgreSQL to a
+> new machine, the 'data' directory is 32MB. I then restore my db from backup,
+> the data directory is 1.31GB. However, the .backup file from which the db
+> was restored is only 91MB.
+
+To determine the size of your database, do this while connected to it:
+SELECT pg_size_pretty(pg_database_size(current_database()))
+
+> ??? Maybe up to a few dozen or so eventually.
+
+What you must understand is that slony's communication overhead with
+respect to the number of nodes increases quadratically; Every time you
+double the number of nodes, you quadruple the communication overhead.
+According to the docs, "Up to a half dozen nodes seems pretty
+reasonable". I'm not sure what the record is for number of slony nodes
+in a single cluster, but I suspect it is more than 6 but quite a bit
+less than several dozen. Making Slony scale like this is a
+non-starter, I would think.
+
+Regards,
+Peter Geoghegan
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20100225/08d5a1f5/attachment.htm 
+
+From stephane.schildknecht at postgresql.fr  Thu Feb 25 09:16:18 2010
+From: stephane.schildknecht at postgresql.fr (=?ISO-8859-15?Q?=22St=E9phane_A=2E_Schildknecht=22?=)
+Date: Thu, 25 Feb 2010 18:16:18 +0100
+Subject: [Slony1-general] Is Slony for me?
+In-Reply-To: <461146.35774.qm@web82408.mail.mud.yahoo.com>
+References: <317260.68530.qm@web82405.mail.mud.yahoo.com>	<118510.56381.qm@web53005.mail.re2.yahoo.com>	<55AD1EEF173837488F4B56BEFC99B71C41CD91@server.aperiogroup.local>	<201002241119.58067.kevink@consistentstate.com>	<4B856F6A.1000305@whitepages.com>	<601787.71356.qm@web82403.mail.mud.yahoo.com>	<db471ace1002250844m6d037030j95392f9ca6809bf1@mail.gmail.com>
+	<461146.35774.qm@web82408.mail.mud.yahoo.com>
+Message-ID: <4B86B062.4030707@postgresql.fr>
+
+-----BEGIN PGP SIGNED MESSAGE-----
+Hash: SHA1
+
+Dave Stevenson a ?crit :
+> SELECT pg_size_pretty(pg_database_size(current_database()))
+> -> 1198MB
+>  
+>> Making Slony scale like this is a non-starter, I would think.
+>  
+> Can it cascade?:
+>  
+> Master
+>     |-Regional Master 1
+>     |    |-Slave1.1
+>     |    |-Slave1.2
+>     |    -Slave 1.3
+>     |-Regional Master 2
+>     |    |-Slave 2.1
+>     |    |-Slave 2.2
+> ...
+
+Sure. But, Regional Masters will be read-only nodes.
+
+Regards,
+St?phane
+-----BEGIN PGP SIGNATURE-----
+Version: GnuPG v1.4.9 (GNU/Linux)
+Comment: Using GnuPG with Mozilla - http://enigmail.mozdev.org
+
+iEYEARECAAYFAkuGsGIACgkQA+REPKWGI0Hy0gCfXi/K2LeEaYGsnkR/0470Jte2
+ESkAnibkaYmfudB91z2QwrD2Rv1RyXCj
+=A4Bq
+-----END PGP SIGNATURE-----
+
+From dba at richyen.com  Fri Feb 26 12:19:44 2010
+From: dba at richyen.com (Richard Yen)
+Date: Fri, 26 Feb 2010 12:19:44 -0800
+Subject: [Slony1-general] is it necessary to set session_replication_role in
+	logshipper files?
+Message-ID: <0EA060A8-8816-42A8-9457-5EB20FC27FE4@richyen.com>
+
+Hello,
+
+I'm currently trying to set up the following architecture:
+
+-- B subscribes to A
+-- B creates slony logshipper files
+-- Separate rsync process ships files from B to C
+-- C replays logshipper files
+-- D subscribes to C
+
+Problem is, even though D is subscribed to C, no data changes are made on D.  I've discovered the cause to be from the logshipper files--at the top of each file is the command "set session_replication_role to replica," which effectively turns off the triggers, thereby preventing events from being propagated from C to D.
+
+My question is, how dangerous is it to remove the command "set session_replication_role to replica" from each logfile?  Is this required?
+
+Right now, I'm removing them by doing cat $logfile | grep -v "set session_replication_role to replica" | psql <dbname...etc>.  Works for my purposes, but I was curious to know if there are some really bad implications to this...there must be a reason why the command shows up at the top of each file.
+
+Any thoughts?
+--Richard
+
+From cbbrowne at ca.afilias.info  Fri Feb 26 14:12:13 2010
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Fri, 26 Feb 2010 17:12:13 -0500
+Subject: [Slony1-general] How do I add triggers to my tables?
+In-Reply-To: <2968dfd61002241132x3f97d728wcab20be8f04983a8@mail.gmail.com>
+	(Vick Khera's message of "Wed, 24 Feb 2010 14:32:31 -0500")
+References: <4B85775D.2050701@selectacast.net>
+	<2968dfd61002241132x3f97d728wcab20be8f04983a8@mail.gmail.com>
+Message-ID: <87mxyv4pfm.fsf@ca.afilias.info>
+
+Vick Khera <vivek at khera.org> writes:
+> On Wed, Feb 24, 2010 at 2:00 PM, Joseph S <jks at selectacast.net> wrote:
+>> If a trigger exists on a table, when slony is installed on a slave it
+>> removes the original triggers. ?However if I want to add a trigger to
+>> the table (to make sure my master & slave always have the same schema)
+>> how do I get slony to move it to where it hid the original triggers?
+>> This trigger firing on INSERT on the slave can actually cause data
+>> corruption.
+>
+> ALL change to the db schema are to be run thru slony's EXECUTE SCRIPT
+> function, which will take care of ensuring that the schema change is
+> applied properly to all copies, and that slony knows about those
+> changes so it can properly replicate your data (especially important
+> when adding/removing columns, adding/removing foreign keys, etc.)
+
+Yup, what you said :-).
+
+Note that if you install a trigger via EXECUTE SCRIPT, it will...
+
+ - Get installed on *all* nodes
+ - Get hidden on all nodes other than the origin
+
+[I'm assuming we're talking about 1.2; on 2.0, the trigger will be
+visible everywhere, but just not run everywhere.]
+
+It's worth reading the following which gives more details about the
+differences between 1.2 and 2.0:
+  <http://www.slony.info/documentation/triggers.html>
+-- 
+(format nil "~S@~S" "cbbrowne" "ca.afilias.info")
+Christopher Browne
+"Bother,"  said Pooh,  "Eeyore, ready  two photon  torpedoes  and lock
+phasers on the Heffalump, Piglet, meet me in transporter room three"
+
+From cbbrowne at ca.afilias.info  Fri Feb 26 14:54:41 2010
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Fri, 26 Feb 2010 17:54:41 -0500
+Subject: [Slony1-general] Is Slony for me?
+In-Reply-To: <461146.35774.qm@web82408.mail.mud.yahoo.com>
+References: <317260.68530.qm@web82405.mail.mud.yahoo.com>	<118510.56381.qm@web53005.mail.re2.yahoo.com>	<55AD1EEF173837488F4B56BEFC99B71C41CD91@server.aperiogroup.local>	<201002241119.58067.kevink@consistentstate.com>	<4B856F6A.1000305@whitepages.com>	<601787.71356.qm@web82403.mail.mud.yahoo.com>	<db471ace1002250844m6d037030j95392f9ca6809bf1@mail.gmail.com>
+	<461146.35774.qm@web82408.mail.mud.yahoo.com>
+Message-ID: <4B885131.1000900@ca.afilias.info>
+
+Dave Stevenson wrote:
+> SELECT pg_size_pretty(pg_database_size(current_database()))
+> -> 1198MB
+>  
+> > Making Slony scale like this is a non-starter, I would think.
+>  
+> Can it cascade?:
+>  
+> Master
+>     |-Regional Master 1
+>     |    |-Slave1.1
+>     |    |-Slave1.2
+>     |    -Slave 1.3
+>     |-Regional Master 2
+>     |    |-Slave 2.1
+>     |    |-Slave 2.2
+> ...
+It'll cascade, but the word "master" can only fit in one place.
+
+For any given table, there's Only One Origin.  Updates must always go to 
+the One True Master node.
+
+You could build into your application some sort of queueing mechanism to 
+queue updates and push them to the master, but that's definitely extra 
+infrastructure, and some application redesign.  And if you think you're 
+going in that direction, my suspicion is that you'll find that Slony-I 
+looks mighty fragile in view of the fragility of the connections between 
+the pieces of that infrastructure.
+
+Look at the front page: <http://www.slony.info/>
+
+"The /big picture/ for the development of Slony-I is that it is a 
+master-slave replication system that includes all features and 
+capabilities needed to replicate large databases to a reasonably limited 
+number of slave systems.
+
+Slony-I is a system designed for use at data centers and backup sites, 
+where the normal mode of operation is that all nodes are available."
+
+It won't *completely* fail to function instantly if:
+a) There are a few more slave systems, or
+b) There are moments when some nodes aren't available,
+
+but once those become part of your operating assumptions, you're 
+diverging from what Slony-I was intended to do, and you'll have to 
+temper your expectations, probably ultimately to the point of saying 
+"that's not a particularly excellent fit."
+
+
+From hsaltiel at gmail.com  Fri Feb 26 18:00:48 2010
+From: hsaltiel at gmail.com (Hernan Saltiel)
+Date: Fri, 26 Feb 2010 23:00:48 -0300
+Subject: [Slony1-general] Doubts about sync status
+Message-ID: <376dd8c31002261800o571fc433jf94215c478f224e0@mail.gmail.com>
+
+Hi!
+I configured a Slony-I cluster with two CentOS 5.4 nodes, using
+yum.pgsqlrpms.org. I installed Postgres 8.4.2 in both nodes.
+In the first node (nodeA) I have a 3 GB database (baseA). I created the
+database baseA in the second node (nodeB) to be the destination of a
+replication process.
+I configured some scripts to configure the replication sets, and started the
+slon program manually.
+It is still running, but I noticed that a big table (which has more than
+20.000.000 records) stopped replicating in the second node.
+I don't know how to monitor what is happening with the slon process, anybody
+has any clue where to start from?
+Thanks a lot in advance, and best regards,
+
+-- 
+HeCSa
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20100226/05224227/attachment.htm 
+
+From stephane.schildknecht at postgresql.fr  Sun Feb 28 05:13:51 2010
+From: stephane.schildknecht at postgresql.fr (=?ISO-8859-15?Q?=22St=E9phane_A=2E_Schildknecht=22?=)
+Date: Sun, 28 Feb 2010 14:13:51 +0100
+Subject: [Slony1-general] Doubts about sync status
+In-Reply-To: <376dd8c31002261800o571fc433jf94215c478f224e0@mail.gmail.com>
+References: <376dd8c31002261800o571fc433jf94215c478f224e0@mail.gmail.com>
+Message-ID: <4B8A6C0F.3080609@postgresql.fr>
+
+-----BEGIN PGP SIGNED MESSAGE-----
+Hash: SHA1
+
+Hernan Saltiel a ?crit :
+> Hi!
+> I configured a Slony-I cluster with two CentOS 5.4 nodes, using
+> yum.pgsqlrpms.org <http://yum.pgsqlrpms.org>. I installed Postgres 8.4.2
+> in both nodes.
+> In the first node (nodeA) I have a 3 GB database (baseA). I created the
+> database baseA in the second node (nodeB) to be the destination of a
+> replication process.
+> I configured some scripts to configure the replication sets, and started
+> the slon program manually.
+> It is still running, but I noticed that a big table (which has more than
+> 20.000.000 records) stopped replicating in the second node.
+> I don't know how to monitor what is happening with the slon process,
+> anybody has any clue where to start from?
+> Thanks a lot in advance, and best regards,
+> 
+> -- 
+> HeCSa
+
+Hi,
+
+You could have a look at slon logfiles. How do you start slon daemons? Do you
+use any particular slon configuration option?
+
+Which version of slon are you running?
+
+Regards,
+- --
+St?phane Schildknecht
+-----BEGIN PGP SIGNATURE-----
+Version: GnuPG v1.4.9 (GNU/Linux)
+Comment: Using GnuPG with Mozilla - http://enigmail.mozdev.org
+
+iEYEARECAAYFAkuKbA8ACgkQA+REPKWGI0GVdQCfcoDTWQX2PXmKO9eBttlRK/bk
+d4sAnRf3GFBUI/+TD3YDpCXnjhElS0eA
+=nPHV
+-----END PGP SIGNATURE-----
+

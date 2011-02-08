@@ -1,0 +1,401 @@
+From tgl at sss.pgh.pa.us  Mon Oct  1 00:07:40 2007
+From: tgl at sss.pgh.pa.us (Tom Lane)
+Date: Mon Oct  1 00:07:59 2007
+Subject: [Slony1-hackers] Re: XID in PG core/contrib 
+In-Reply-To: <e51f66da0709302356scc36062o19178c01a8e81b27@mail.gmail.com> 
+References: <F0296FDB-72BA-46FD-B921-EA622DF1C89C@decibel.org>
+	<e51f66da0709260329h2ec0db63jaf3a3329512551f9@mail.gmail.com>
+	<46FBEA5A.2060001@Yahoo.com>
+	<e51f66da0709280445xb738b98k47eb8013416ce72a@mail.gmail.com>
+	<604.1190988448@sss.pgh.pa.us>
+	<e51f66da0709280733v512773ddwd7ae4d88ad3da9cc@mail.gmail.com>
+	<46FD1F7A.5000405@Yahoo.com> <46FFCD59.70203@Yahoo.com>
+	<e51f66da0709301345jbc3cd4fv5b72e64f251c5d01@mail.gmail.com>
+	<14629.1191220778@sss.pgh.pa.us>
+	<e51f66da0709302356scc36062o19178c01a8e81b27@mail.gmail.com>
+Message-ID: <15014.1191222460@sss.pgh.pa.us>
+
+"Marko Kreen" <markokr@gmail.com> writes:
+> On 10/1/07, Tom Lane <tgl@sss.pgh.pa.us> wrote:
+>> I'm having quite a bit of a problem with the above.  Why is
+>> InvalidTransactionId mapped to MAX_TXID, which presumably is part of the
+>> normal XID rotation and hence only larger than half of the universe,
+>> when the other special XIDs map as themselves?
+
+> Because InvalidTransactionId is supposed to be always invisible,
+> but others always visible?  And we don't want to add epoch to
+> any of them.
+
+Well, all three of the "special" xids need to be epoch-independent.
+I still think this is either bad design or an outright bug.
+
+> I used StringInfo as it was only buffer tool available from backend...
+
+Maybe, but don't be too surprised if it breaks under you ...
+
+			regards, tom lane
+From markokr at gmail.com  Mon Oct  1 00:13:32 2007
+From: markokr at gmail.com (Marko Kreen)
+Date: Mon Oct  1 00:13:49 2007
+Subject: [Slony1-hackers] Re: XID in PG core/contrib
+In-Reply-To: <15014.1191222460@sss.pgh.pa.us>
+References: <F0296FDB-72BA-46FD-B921-EA622DF1C89C@decibel.org>
+	<e51f66da0709280445xb738b98k47eb8013416ce72a@mail.gmail.com>
+	<604.1190988448@sss.pgh.pa.us>
+	<e51f66da0709280733v512773ddwd7ae4d88ad3da9cc@mail.gmail.com>
+	<46FD1F7A.5000405@Yahoo.com> <46FFCD59.70203@Yahoo.com>
+	<e51f66da0709301345jbc3cd4fv5b72e64f251c5d01@mail.gmail.com>
+	<14629.1191220778@sss.pgh.pa.us>
+	<e51f66da0709302356scc36062o19178c01a8e81b27@mail.gmail.com>
+	<15014.1191222460@sss.pgh.pa.us>
+Message-ID: <e51f66da0710010013k1885e760y1f547ebefbfdd607@mail.gmail.com>
+
+On 10/1/07, Tom Lane <tgl@sss.pgh.pa.us> wrote:
+> "Marko Kreen" <markokr@gmail.com> writes:
+> > On 10/1/07, Tom Lane <tgl@sss.pgh.pa.us> wrote:
+> >> I'm having quite a bit of a problem with the above.  Why is
+> >> InvalidTransactionId mapped to MAX_TXID, which presumably is part of the
+> >> normal XID rotation and hence only larger than half of the universe,
+> >> when the other special XIDs map as themselves?
+>
+> > Because InvalidTransactionId is supposed to be always invisible,
+> > but others always visible?  And we don't want to add epoch to
+> > any of them.
+>
+> Well, all three of the "special" xids need to be epoch-independent.
+> I still think this is either bad design or an outright bug.
+
+I don't understand you.  Current code _is_ making them
+epoch-independent?  What aspect of it do you dislike?
+
+> > I used StringInfo as it was only buffer tool available from backend...
+>
+> Maybe, but don't be too surprised if it breaks under you ...
+
+What problems do you see?  I can do explicit buffer management
+if it's unreliable for binary data handling.
+
+-- 
+marko
+From JanWieck at Yahoo.com  Mon Oct  1 04:17:33 2007
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Mon Oct  1 04:18:04 2007
+Subject: [Slony1-hackers] Re: XID in PG core/contrib
+In-Reply-To: <15014.1191222460@sss.pgh.pa.us>
+References: <F0296FDB-72BA-46FD-B921-EA622DF1C89C@decibel.org>
+	<e51f66da0709260329h2ec0db63jaf3a3329512551f9@mail.gmail.com>
+	<46FBEA5A.2060001@Yahoo.com>
+	<e51f66da0709280445xb738b98k47eb8013416ce72a@mail.gmail.com>
+	<604.1190988448@sss.pgh.pa.us>
+	<e51f66da0709280733v512773ddwd7ae4d88ad3da9cc@mail.gmail.com>
+	<46FD1F7A.5000405@Yahoo.com> <46FFCD59.70203@Yahoo.com>
+	<e51f66da0709301345jbc3cd4fv5b72e64f251c5d01@mail.gmail.com>
+	<14629.1191220778@sss.pgh.pa.us>
+	<e51f66da0709302356scc36062o19178c01a8e81b27@mail.gmail.com>
+	<15014.1191222460@sss.pgh.pa.us>
+Message-ID: <4700D74D.6040407@Yahoo.com>
+
+On 10/1/2007 3:07 AM, Tom Lane wrote:
+> "Marko Kreen" <markokr@gmail.com> writes:
+>> On 10/1/07, Tom Lane <tgl@sss.pgh.pa.us> wrote:
+>>> I'm having quite a bit of a problem with the above.  Why is
+>>> InvalidTransactionId mapped to MAX_TXID, which presumably is part of the
+>>> normal XID rotation and hence only larger than half of the universe,
+>>> when the other special XIDs map as themselves?
+> 
+>> Because InvalidTransactionId is supposed to be always invisible,
+>> but others always visible?  And we don't want to add epoch to
+>> any of them.
+> 
+> Well, all three of the "special" xids need to be epoch-independent.
+> I still think this is either bad design or an outright bug.
+
+The txid code should never see any invalid XID. All the current paths in 
+it take xid's from sources where they are not invalid. So it would be 
+safe to not map it at all, but rather bail out with an error should 
+someone ever add that.
+
+> 
+>> I used StringInfo as it was only buffer tool available from backend...
+> 
+> Maybe, but don't be too surprised if it breaks under you ...
+
+The xxid code this all was coming from had its own buffer management. It 
+may be safer to keep using that.
+
+
+Jan
+
+-- 
+#======================================================================#
+# It's easier to get forgiveness for being wrong than for being right. #
+# Let's break this rule - forgive me.                                  #
+#================================================== JanWieck@Yahoo.com #
+From cbbrowne at ca.afilias.info  Mon Oct  1 05:36:43 2007
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Mon Oct  1 05:36:47 2007
+Subject: [Slony1-hackers] Re: XID in PG core/contrib
+In-Reply-To: <e51f66da0709302356scc36062o19178c01a8e81b27@mail.gmail.com>
+	(Marko Kreen's message of "Mon, 1 Oct 2007 09:56:12 +0300")
+References: <F0296FDB-72BA-46FD-B921-EA622DF1C89C@decibel.org>
+	<e51f66da0709260329h2ec0db63jaf3a3329512551f9@mail.gmail.com>
+	<46FBEA5A.2060001@Yahoo.com>
+	<e51f66da0709280445xb738b98k47eb8013416ce72a@mail.gmail.com>
+	<604.1190988448@sss.pgh.pa.us>
+	<e51f66da0709280733v512773ddwd7ae4d88ad3da9cc@mail.gmail.com>
+	<46FD1F7A.5000405@Yahoo.com> <46FFCD59.70203@Yahoo.com>
+	<e51f66da0709301345jbc3cd4fv5b72e64f251c5d01@mail.gmail.com>
+	<14629.1191220778@sss.pgh.pa.us>
+	<e51f66da0709302356scc36062o19178c01a8e81b27@mail.gmail.com>
+Message-ID: <60ejgfnh9g.fsf@dba2.int.libertyrms.com>
+
+"Marko Kreen" <markokr@gmail.com> writes:
+>> +++ b/contrib/txid/README.txid
+>>
+>> Needs some spellchecking...
+>
+> Some more explanations too.  But I hope we can work on README
+> after merge?
+
+I promise to do a "language run" against this README to clean up the
+English...
+-- 
+select 'cbbrowne' || '@' || 'cbbrowne.com';
+http://cbbrowne.com/info/sgml.html
+"He who  writes the code gets  to choose his license,  and nobody else
+gets to complain." -- Linus Torvalds
+From tgl at sss.pgh.pa.us  Mon Oct  1 07:45:29 2007
+From: tgl at sss.pgh.pa.us (Tom Lane)
+Date: Mon Oct  1 07:45:45 2007
+Subject: [Slony1-hackers] Re: XID in PG core/contrib 
+In-Reply-To: <e51f66da0710010013k1885e760y1f547ebefbfdd607@mail.gmail.com> 
+References: <F0296FDB-72BA-46FD-B921-EA622DF1C89C@decibel.org>
+	<e51f66da0709280445xb738b98k47eb8013416ce72a@mail.gmail.com>
+	<604.1190988448@sss.pgh.pa.us>
+	<e51f66da0709280733v512773ddwd7ae4d88ad3da9cc@mail.gmail.com>
+	<46FD1F7A.5000405@Yahoo.com> <46FFCD59.70203@Yahoo.com>
+	<e51f66da0709301345jbc3cd4fv5b72e64f251c5d01@mail.gmail.com>
+	<14629.1191220778@sss.pgh.pa.us>
+	<e51f66da0709302356scc36062o19178c01a8e81b27@mail.gmail.com>
+	<15014.1191222460@sss.pgh.pa.us>
+	<e51f66da0710010013k1885e760y1f547ebefbfdd607@mail.gmail.com>
+Message-ID: <29601.1191249929@sss.pgh.pa.us>
+
+"Marko Kreen" <markokr@gmail.com> writes:
+> I don't understand you.  Current code _is_ making them
+> epoch-independent?  What aspect of it do you dislike?
+
+InvalidTransactionId should compare as less than any other XID;
+unless you are doing something very strange, that won't happen
+with this coding.
+
+			regards, tom lane
+From markokr at gmail.com  Mon Oct  1 08:11:46 2007
+From: markokr at gmail.com (Marko Kreen)
+Date: Mon Oct  1 08:11:53 2007
+Subject: [Slony1-hackers] Re: XID in PG core/contrib
+In-Reply-To: <29601.1191249929@sss.pgh.pa.us>
+References: <F0296FDB-72BA-46FD-B921-EA622DF1C89C@decibel.org>
+	<e51f66da0709280733v512773ddwd7ae4d88ad3da9cc@mail.gmail.com>
+	<46FD1F7A.5000405@Yahoo.com> <46FFCD59.70203@Yahoo.com>
+	<e51f66da0709301345jbc3cd4fv5b72e64f251c5d01@mail.gmail.com>
+	<14629.1191220778@sss.pgh.pa.us>
+	<e51f66da0709302356scc36062o19178c01a8e81b27@mail.gmail.com>
+	<15014.1191222460@sss.pgh.pa.us>
+	<e51f66da0710010013k1885e760y1f547ebefbfdd607@mail.gmail.com>
+	<29601.1191249929@sss.pgh.pa.us>
+Message-ID: <e51f66da0710010811y77fd677er54fc8e7403987d22@mail.gmail.com>
+
+On 10/1/07, Tom Lane <tgl@sss.pgh.pa.us> wrote:
+> "Marko Kreen" <markokr@gmail.com> writes:
+> > I don't understand you.  Current code _is_ making them
+> > epoch-independent?  What aspect of it do you dislike?
+>
+> InvalidTransactionId should compare as less than any other XID;
+> unless you are doing something very strange, that won't happen
+> with this coding.
+
+Ah, then it's indeed my mistake.  I think I saw some code doing
+if (!TransactionIdIsValid()) and assuming invisiblility, but
+now I look the comparision functions (TransactionIdPrecedes, etc)
+they indeed operate as you say.
+
+Attaches is v5, with following patch compared to v4:
+
+@@ -96,10 +96,6 @@ convert_xid(TransactionId xid, const TxidEpoch *state)
+ {
+        uint64 epoch;
+
+-       /* avoid issues with the the special meaning of 0 */
+-       if (xid =3D=3D InvalidTransactionId)
+-               return MAX_TXID;
+-
+        /* return special xid's as-is */
+        if (xid < FirstNormalTransactionId)
+                return xid;
+
+-- =
+
+marko
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: txid-v5.diff.gz
+Type: application/x-gzip
+Size: 6617 bytes
+Desc: not available
+Url : http://lists.slony.info/pipermail/slony1-hackers/attachments/20071001=
+/9154ca52/txid-v5.diff.bin
+From cbbrowne at ca.afilias.info  Thu Oct 25 11:51:04 2007
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Thu Oct 25 11:50:59 2007
+Subject: [Slony1-hackers] Re: [Slony1-commit] slony1-engine/src/slon
+	cleanup_thread.c local_listen.c remote_listen.c
+	remote_worker.c slon.h
+In-Reply-To: <20071019183837.F1397290D93@main.slony.info> (Jan Wieck's message
+	of "Fri, 19 Oct 2007 18:38:37 +0000")
+References: <20071019183837.F1397290D93@main.slony.info>
+Message-ID: <60abq7c9k7.fsf@dba2.int.libertyrms.com>
+
+Jan Wieck <wieck@lists.slony.info> writes:
+> Update of /home/cvsd/slony1/slony1-engine/src/slon
+> In directory main.slony.info:/tmp/cvs-serv9076
+>
+> Modified Files:
+> 	cleanup_thread.c local_listen.c remote_listen.c 
+> 	remote_worker.c slon.h 
+> Log Message:
+> Move slony to use the new txid contrib module instead of xxid.
+
+It looks to me as though you still need to commit a change to
+src/backend/slony1_base.sql (and possibly src/backend/slony1_func.sql)
+in order to have table sl_event contain the new "ev_snapshot" column
+in lieu of the old ones.
+
+I was just trying to do a build of HEAD, and while I did get it to
+compile, it failed to run.
+
+slon reported:
+
+CONFIG version for "dbname=slonyregress1 host=localhost user=cbbrowne port=5834" is 80300
+DEBUG1 remoteListenThread_1: connected to 'dbname=slonyregress1 host=localhost user=cbbrowne port=5834'
+ERROR  remoteListenThread_1: "select ev_origin, ev_seqno, ev_timestamp,        ev_snapshot,        "public".txid_snapshot_xmin(ev_snapshot),        "public".txid_snapshot_xmax(ev_snapshot),        ev_type,        ev_data1, ev_data2,        ev_data3, ev_data4,        ev_data5, ev_data6,        ev_data7, ev_data8 from "_slony_regress1".sl_event e where ev_timestamp < now() - '0 minutes'::interval and ( (e.ev_origin = '1' and e.ev_seqno > '5')) order by e.ev_origin, e.ev_seqno" - ERROR:  column "ev_snapshot" does not exist
+LINE 1: select ev_origin, ev_seqno, ev_timestamp,        ev_snapshot...
+                                                         ^
+
+And the table does indeed lack the column:
+
+slonyregress1@localhost:5834=# \d _slony_regress1.sl_event
+            Table "_slony_regress1.sl_event"
+    Column    |            Type             | Modifiers 
+--------------+-----------------------------+-----------
+ ev_origin    | integer                     | not null
+ ev_seqno     | bigint                      | not null
+ ev_timestamp | timestamp without time zone | 
+ ev_minxid    | _slony_regress1.xxid        | 
+ ev_maxxid    | _slony_regress1.xxid        | 
+ ev_xip       | text                        | 
+ ev_type      | text                        | 
+ ev_data1     | text                        | 
+ ev_data2     | text                        | 
+ ev_data3     | text                        | 
+ ev_data4     | text                        | 
+ ev_data5     | text                        | 
+ ev_data6     | text                        | 
+ ev_data7     | text                        | 
+ ev_data8     | text                        | 
+Indexes:
+    "sl_event-pkey" PRIMARY KEY, btree (ev_origin, ev_seqno)
+-- 
+let name="cbbrowne" and tld="linuxdatabases.info" in String.concat "@" [name;tld];;
+http://cbbrowne.com/info/internet.html
+"The American Republic will endure until the day Congress discovers
+that it can bribe the public with the public's money" 
+-- Alexis de Toucqueville
+From devrim at CommandPrompt.com  Tue Oct 30 12:34:29 2007
+From: devrim at CommandPrompt.com (Devrim =?ISO-8859-1?Q?G=DCND=DCZ?=)
+Date: Tue Oct 30 12:36:27 2007
+Subject: [Slony1-hackers] Bugzilla for Slony-I is ready
+Message-ID: <1193772869.3977.15.camel@laptop.gunduz.org>
+
+SGksCgpJIGp1c3QgZmluaXNoZWQgaW5zdGFsbGluZyBCdWd6aWxsYSBmb3IgU2xvbnktSToKCmh0
+dHA6Ly93d3cuc2xvbnkuaW5mby9idWd6aWxsYS8KClBsZWFzZSB0ZXN0IGFuZCBsZXQgbWUga25v
+dyBpZiB5b3UgZmluZCBhbnkgcHJvYmxlbXMgYmVmb3JlIGl0IGdvZXMKbGl2ZS4gSSBhbHNvIGFz
+a2VkIEphbiBmb3IgYnVnemlsbGEuc2xvbnkuaW5mbyBzdWJkb21haW4uCgpSZWdhcmRzLAotLSAK
+RGV2cmltIEfDnE5Ew5xaClBvc3RncmVTUUwgUmVwbGljYXRpb24sIENvbnN1bHRpbmcsIEN1c3Rv
+bSBEZXZlbG9wbWVudCwgMjR4NyBzdXBwb3J0Ck1hbmFnZWQgU2VydmljZXMsIFNoYXJlZCBhbmQg
+RGVkaWNhdGVkIEhvc3RpbmcKQ28tQXV0aG9yczogcGxQSFAsIE9EQkNuZyAtIGh0dHA6Ly93d3cu
+Y29tbWFuZHByb21wdC5jb20vCgoKLS0tLS0tLS0tLS0tLS0gbmV4dCBwYXJ0IC0tLS0tLS0tLS0t
+LS0tCkEgbm9uLXRleHQgYXR0YWNobWVudCB3YXMgc2NydWJiZWQuLi4KTmFtZTogbm90IGF2YWls
+YWJsZQpUeXBlOiBhcHBsaWNhdGlvbi9wZ3Atc2lnbmF0dXJlClNpemU6IDE4OSBieXRlcwpEZXNj
+OiBUaGlzIGlzIGEgZGlnaXRhbGx5IHNpZ25lZCBtZXNzYWdlIHBhcnQKVXJsIDogaHR0cDovL2xp
+c3RzLnNsb255LmluZm8vcGlwZXJtYWlsL3Nsb255MS1oYWNrZXJzL2F0dGFjaG1lbnRzLzIwMDcx
+MDMwL2U0MDU0YTI4L2F0dGFjaG1lbnQucGdwCg==
+From cbbrowne at ca.afilias.info  Tue Oct 30 13:34:57 2007
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Tue Oct 30 13:35:09 2007
+Subject: [Slony1-hackers] Bugzilla for Slony-I is ready
+In-Reply-To: <1193772869.3977.15.camel@laptop.gunduz.org> (Devrim
+	=?iso-8859-1?Q?G=DCND=DCZ's?= message of "Tue,
+	30 Oct 2007 12:34:29 -0700")
+References: <1193772869.3977.15.camel@laptop.gunduz.org>
+Message-ID: <60prywz6ha.fsf@dba2.int.libertyrms.com>
+
+Devrim G?ND?Z <devrim@CommandPrompt.com> writes:
+> Hi,
+>
+> I just finished installing Bugzilla for Slony-I:
+>
+> http://www.slony.info/bugzilla/
+>
+> Please test and let me know if you find any problems before it goes
+> live. I also asked Jan for bugzilla.slony.info subdomain.
+
+I have logged on, and set up a sample bug.
+
+One thing that I notice...  The component list is a bit too limited,
+with just "altperl" and "docs."
+
+We at least need "engine" and "scripts", in addition.
+
+Better still would be for the list of components to be something like:
+- slon
+- slonik
+- stored procedures
+- trigger SPI
+- slony_logshipper
+- core scripts
+- altperl
+- other scripts
+- docs
+
+That's 'first thoughts;' I'd suggest that someone else come up with a
+list and see how well (or badly) it overlaps with mine before we'd
+finalize it...
+-- 
+let name="cbbrowne" and tld="ca.afilias.info" in name ^ "@" ^ tld;;
+<http://dba2.int.libertyrms.com/>
+Christopher Browne
+(416) 673-4124 (land)
+From devrim at CommandPrompt.com  Tue Oct 30 14:13:35 2007
+From: devrim at CommandPrompt.com (Devrim =?ISO-8859-1?Q?G=DCND=DCZ?=)
+Date: Tue Oct 30 14:15:39 2007
+Subject: [Slony1-hackers] Bugzilla for Slony-I is ready
+In-Reply-To: <60prywz6ha.fsf@dba2.int.libertyrms.com>
+References: <1193772869.3977.15.camel@laptop.gunduz.org>
+	<60prywz6ha.fsf@dba2.int.libertyrms.com>
+Message-ID: <1193778815.3977.18.camel@laptop.gunduz.org>
+
+SGksCgpPbiBUdWUsIDIwMDctMTAtMzAgYXQgMTY6MzQgLTA0MDAsIENocmlzdG9waGVyIEJyb3du
+ZSB3cm90ZToKPiBCZXR0ZXIgc3RpbGwgd291bGQgYmUgZm9yIHRoZSBsaXN0IG9mIGNvbXBvbmVu
+dHMgdG8gYmUgc29tZXRoaW5nIGxpa2U6CgpUaGFua3MsIGFkZGVkLgoKQlRXLCB0aGlzIGlzIG5v
+dCBmb3IgcHJvZHVjdGlvbiB1c2UuIFBsZWFzZSByZXBvcnQgdGhlIGlzc3VlcyB5b3UgZmluZCwK
+c28gdGhhdCBJIGNhbiBtb3ZlIGl0IGludG8gcHJvZHVjdGlvbiB1c2FnZS4KClJlZ2FyZHMsCi0t
+IApEZXZyaW0gR8OcTkTDnFoKUG9zdGdyZVNRTCBSZXBsaWNhdGlvbiwgQ29uc3VsdGluZywgQ3Vz
+dG9tIERldmVsb3BtZW50LCAyNHg3IHN1cHBvcnQKTWFuYWdlZCBTZXJ2aWNlcywgU2hhcmVkIGFu
+ZCBEZWRpY2F0ZWQgSG9zdGluZwpDby1BdXRob3JzOiBwbFBIUCwgT0RCQ25nIC0gaHR0cDovL3d3
+dy5jb21tYW5kcHJvbXB0LmNvbS8KCgotLS0tLS0tLS0tLS0tLSBuZXh0IHBhcnQgLS0tLS0tLS0t
+LS0tLS0KQSBub24tdGV4dCBhdHRhY2htZW50IHdhcyBzY3J1YmJlZC4uLgpOYW1lOiBub3QgYXZh
+aWxhYmxlClR5cGU6IGFwcGxpY2F0aW9uL3BncC1zaWduYXR1cmUKU2l6ZTogMTg5IGJ5dGVzCkRl
+c2M6IFRoaXMgaXMgYSBkaWdpdGFsbHkgc2lnbmVkIG1lc3NhZ2UgcGFydApVcmwgOiBodHRwOi8v
+bGlzdHMuc2xvbnkuaW5mby9waXBlcm1haWwvc2xvbnkxLWhhY2tlcnMvYXR0YWNobWVudHMvMjAw
+NzEwMzAvYWVkMGMyYjMvYXR0YWNobWVudC5wZ3AK

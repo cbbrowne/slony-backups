@@ -1,0 +1,2356 @@
+From cbbrowne at lists.slony.info  Mon Dec  3 08:26:11 2007
+From: cbbrowne at lists.slony.info (Chris Browne)
+Date: Mon Dec  3 08:26:13 2007
+Subject: [Slony1-commit] slony1-engine/doc/adminguide logshipping.sgml
+Message-ID: <20071203162611.6F37029026C@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/doc/adminguide
+In directory main.slony.info:/tmp/cvs-serv5127/doc/adminguide
+
+Modified Files:
+	logshipping.sgml 
+Log Message:
+Add in script to support usage described in bug #19
+<http://www.slony.info/bugzilla/show_bug.cgi?id=19>, including
+documentation in admin guide.
+
+
+Index: logshipping.sgml
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/doc/adminguide/logshipping.sgml,v
+retrieving revision 1.17
+retrieving revision 1.18
+diff -C2 -d -r1.17 -r1.18
+*** logshipping.sgml	10 Sep 2007 22:23:57 -0000	1.17
+--- logshipping.sgml	3 Dec 2007 16:26:09 -0000	1.18
+***************
+*** 344,347 ****
+--- 344,369 ----
+  
+  </sect2>
++ 
++ <sect2><title> <application> find-triggers-to-deactivate.sh
++ </application> </title>
++ 
++ <indexterm><primary> trigger deactivation </primary> </indexterm>
++ 
++ <para> It was once pointed out (<ulink> Bugzilla bug
++ #19</ulink>) that the dump of a schema may include triggers and rules
++ that you may not wish to have running on the log shipped node.
++ 
++ <para> The tool <filename> tools/find-triggers-to-deactivate.sh
++ </filename> was created to assist with this task.  It may be run
++ against the node that is to be used as a schema source, and it will
++ list the rules and triggers present on that node that may, in turn
++ need to be deactivated.
++ 
++ <para> It includes <function>logtrigger</function> and <function>denyaccess</function>
++ triggers which will may be left out of the extracted schema, but it is
++ still worth the Gentle Administrator verifying that such triggers are
++ kept out of the log shipped replica.</para></para></para>
++ 
++ </sect2>
+  <sect2> <title> <application>slony_logshipper </application> Tool </title>
+  
+
+From cbbrowne at lists.slony.info  Mon Dec  3 08:26:11 2007
+From: cbbrowne at lists.slony.info (Chris Browne)
+Date: Mon Dec  3 08:26:13 2007
+Subject: [Slony1-commit] slony1-engine/tools find-triggers-to-deactivate.sh
+Message-ID: <20071203162611.688222900A6@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/tools
+In directory main.slony.info:/tmp/cvs-serv5127/tools
+
+Added Files:
+	find-triggers-to-deactivate.sh 
+Log Message:
+Add in script to support usage described in bug #19
+<http://www.slony.info/bugzilla/show_bug.cgi?id=19>, including
+documentation in admin guide.
+
+
+--- NEW FILE: find-triggers-to-deactivate.sh ---
+#!/bin/sh
+# $Id: find-triggers-to-deactivate.sh,v 1.1 2007-12-03 16:26:09 cbbrowne Exp $
+
+# This script may be used to ask which triggers exist on a cluster
+# that likely need to get deactivated on a log shipping node.  Run
+# this against a node from which you intend to acquire the DBMS schema
+# for the log shipping node.
+
+# ----
+# Check for correct usage
+# ----
+if test $# -ne 2 ; then
+	echo "usage: $0 dbname clustername" >&2
+	exit 1
+fi
+
+# What Do I Do???
+echo "## This script lists triggers and rules on tables that may need to be removed."
+echo ""
+
+# ----
+# Remember call arguments and get the nodeId of the DB specified
+# ----
+dbname=$1
+cluster=$2
+
+FINDTRIGGERS="select st.tab_set, n.nspname, c.relname, t.tgname from _${cluster}.sl_table st, pg_catalog.pg_namespace n, pg_catalog.pg_class c, pg_catalog.pg_trigger t where st.tab_reloid = c.oid and t.tgrelid = c.oid and n.oid = c.relnamespace order by tab_set,  nspname, relname, tgname;"
+
+printf "## %32s %32s %32s %32s\n" "Set" "Schema" "Table" "Trigger"
+TRIGGERS=`psql -Atq -d ${dbname} -c "${FINDTRIGGERS}"`
+for line in `echo ${TRIGGERS}`; do
+  IFS="|"
+  set x $line; shift
+  set=$1
+  nsp=$2
+  tbl=$3
+  trg=$4
+  printf "## %32s %32s %32s %32s\n" $set $nsp $tbl $trg
+done
+
+echo ""
+FINDRULES="select st.tab_set, n.nspname, c.relname, r.rulename from _${cluster}.sl_table st, pg_catalog.pg_namespace n, pg_catalog.pg_class c, pg_catalog.pg_rules r where st.tab_reloid = c.oid and r.schemaname = c.relname and r.tablename = c.relname and n.oid = c.relnamespace order by tab_set,  nspname, relname, rulename;"
+
+printf "## %32s %32s %32s %32s\n" "Set" "Schema" "Table" "Rule"
+RULES=`psql -Atq -d ${dbname} -c "${FINDRULES}"`
+for line in `echo ${RULES}`; do
+  IFS="|"
+  set x $line; shift
+  set=$1
+  nsp=$2
+  tbl=$3
+  trg=$4
+  printf "## %32s %32s %32s %32s\n" $set $nsp $tbl $trg
+done
+
+From cbbrowne at lists.slony.info  Mon Dec  3 08:29:13 2007
+From: cbbrowne at lists.slony.info (Chris Browne)
+Date: Mon Dec  3 08:29:14 2007
+Subject: [Slony1-commit] slony1-engine RELEASE-2.0
+Message-ID: <20071203162913.0EB1529026C@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine
+In directory main.slony.info:/tmp/cvs-serv5269
+
+Modified Files:
+	RELEASE-2.0 
+Log Message:
+Add "rule/trigger search tool" to release notes
+
+
+Index: RELEASE-2.0
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/RELEASE-2.0,v
+retrieving revision 1.8
+retrieving revision 1.9
+diff -C2 -d -r1.8 -r1.9
+*** RELEASE-2.0	29 Nov 2007 21:29:03 -0000	1.8
+--- RELEASE-2.0	3 Dec 2007 16:29:10 -0000	1.9
+***************
+*** 96,97 ****
+--- 96,104 ----
+     http://www.slony.info/bugzilla/show_bug.cgi?id=15
+  
++ - Fix for bug #19 - added a script to help the administrator
++   search for any triggers on the database that is the source for
++   a schema that is to be used to initialize a log shipping node.
++ 
++   The problem is that some/most/sometimes all triggers and rules
++   are likely to need to be dropped from the log shipping node lest
++   they interfere with replication.
+
+From cbbrowne at lists.slony.info  Mon Dec  3 15:53:44 2007
+From: cbbrowne at lists.slony.info (Chris Browne)
+Date: Mon Dec  3 15:53:46 2007
+Subject: [Slony1-commit] slony1-engine/src/slon remote_listen.c
+	remote_worker.c
+Message-ID: <20071203235344.ACD8029026C@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/src/slon
+In directory main.slony.info:/tmp/cvs-serv9220
+
+Modified Files:
+	remote_listen.c remote_worker.c 
+Log Message:
+Update txid functions to indicate that they live in pg_catalog, not the
+public schema.
+
+
+Index: remote_worker.c
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/src/slon/remote_worker.c,v
+retrieving revision 1.159
+retrieving revision 1.160
+diff -C2 -d -r1.159 -r1.160
+*** remote_worker.c	25 Oct 2007 18:32:00 -0000	1.159
+--- remote_worker.c	3 Dec 2007 23:53:42 -0000	1.160
+***************
+*** 2440,2444 ****
+  					 "start transaction; "
+  					 "set transaction isolation level serializable; "
+! 					 "select \"public\".txid_snapshot_xmin(\"public\".txid_current_snapshot()) <= '%s'; ",
+  					 event->ev_maxtxid_c);
+  		res1 = PQexec(pro_dbconn, dstring_data(&query1));
+--- 2440,2444 ----
+  					 "start transaction; "
+  					 "set transaction isolation level serializable; "
+! 					 "select \"pg_catalog\".txid_snapshot_xmin(\"pg_catalog\".txid_current_snapshot()) <= '%s'; ",
+  					 event->ev_maxtxid_c);
+  		res1 = PQexec(pro_dbconn, dstring_data(&query1));
+***************
+*** 3258,3265 ****
+  
+  			(void) slon_mkquery(&query2,
+! 						 "log_txid >= \"public\".txid_snapshot_xmax('%s') "
+! 						 "or (log_txid >= \"public\".txid_snapshot_xmin('%s')",
+  						 ssy_snapshot, ssy_snapshot);
+! 			slon_appendquery(&query2, " and log_txid in (select * from \"public\".txid_snapshot_xip('%s')))", ssy_snapshot);
+  
+  			slon_log(SLON_INFO, "remoteWorkerThread_%d: "
+--- 3258,3265 ----
+  
+  			(void) slon_mkquery(&query2,
+! 						 "log_txid >= \"pg_catalog\".txid_snapshot_xmax('%s') "
+! 						 "or (log_txid >= \"pg_catalog\".txid_snapshot_xmin('%s')",
+  						 ssy_snapshot, ssy_snapshot);
+! 			slon_appendquery(&query2, " and log_txid in (select * from \"pg_catalog\".txid_snapshot_xip('%s')))", ssy_snapshot);
+  
+  			slon_log(SLON_INFO, "remoteWorkerThread_%d: "
+***************
+*** 3607,3611 ****
+  	(void) slon_mkquery(&new_qual,
+  				 "(log_txid < '%s' and "
+! 				 "\"public\".txid_visible_in_snapshot(log_txid, '%s'))",
+  				 event->ev_maxtxid_c, event->ev_snapshot_c);
+  
+--- 3607,3611 ----
+  	(void) slon_mkquery(&new_qual,
+  				 "(log_txid < '%s' and "
+! 				 "\"pg_catalog\".txid_visible_in_snapshot(log_txid, '%s'))",
+  				 event->ev_maxtxid_c, event->ev_snapshot_c);
+  
+***************
+*** 3633,3637 ****
+  		(void) slon_mkquery(&query,
+  					 "select SSY.ssy_setid, SSY.ssy_seqno, "
+! 					 "    \"public\".txid_snapshot_xmax(SSY.ssy_snapshot), "
+  					 "    SSY.ssy_snapshot, "
+  					 "    SSY.ssy_action_list "
+--- 3633,3637 ----
+  		(void) slon_mkquery(&query,
+  					 "select SSY.ssy_setid, SSY.ssy_seqno, "
+! 					 "    \"pg_catalog\".txid_snapshot_xmax(SSY.ssy_snapshot), "
+  					 "    SSY.ssy_snapshot, "
+  					 "    SSY.ssy_action_list "
+***************
+*** 3807,3811 ****
+  			slon_appendquery(provider_qual,
+  							 "(log_txid >= '%s' or "
+! 							 "log_txid IN (select * from \"public\".txid_snapshot_xip('%s')))",
+  							 ssy_maxxid, ssy_snapshot);
+  			actionlist_len = strlen(ssy_action_list);
+--- 3807,3811 ----
+  			slon_appendquery(provider_qual,
+  							 "(log_txid >= '%s' or "
+! 							 "log_txid IN (select * from \"pg_catalog\".txid_snapshot_xip('%s')))",
+  							 ssy_maxxid, ssy_snapshot);
+  			actionlist_len = strlen(ssy_action_list);
+
+Index: remote_listen.c
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/src/slon/remote_listen.c,v
+retrieving revision 1.37
+retrieving revision 1.38
+diff -C2 -d -r1.37 -r1.38
+*** remote_listen.c	19 Oct 2007 18:38:35 -0000	1.37
+--- remote_listen.c	3 Dec 2007 23:53:42 -0000	1.38
+***************
+*** 678,683 ****
+  				 "select ev_origin, ev_seqno, ev_timestamp, "
+  				 "       ev_snapshot, "
+! 				 "       \"public\".txid_snapshot_xmin(ev_snapshot), "
+! 				 "       \"public\".txid_snapshot_xmax(ev_snapshot), "
+  				 "       ev_type, "
+  				 "       ev_data1, ev_data2, "
+--- 678,683 ----
+  				 "select ev_origin, ev_seqno, ev_timestamp, "
+  				 "       ev_snapshot, "
+! 				 "       \"pg_catalog\".txid_snapshot_xmin(ev_snapshot), "
+! 				 "       \"pg_catalog\".txid_snapshot_xmax(ev_snapshot), "
+  				 "       ev_type, "
+  				 "       ev_data1, ev_data2, "
+
+From wieck at lists.slony.info  Tue Dec 11 11:30:32 2007
+From: wieck at lists.slony.info (Jan Wieck)
+Date: Tue Dec 11 11:30:33 2007
+Subject: [Slony1-commit] slony1-engine/src/slonik slonik.c
+Message-ID: <20071211193032.30B1B2901D1@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/src/slonik
+In directory main.slony.info:/tmp/cvs-serv26467/src/slonik
+
+Modified Files:
+	slonik.c 
+Log Message:
+Adjustments for PostgreSQL 8.3 and moving to the now builtin
+txid data type.
+
+Jan
+
+
+Index: slonik.c
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/src/slonik/slonik.c,v
+retrieving revision 1.82
+retrieving revision 1.83
+diff -C2 -d -r1.82 -r1.83
+*** slonik.c	20 Jul 2007 20:20:13 -0000	1.82
+--- slonik.c	11 Dec 2007 19:30:30 -0000	1.83
+***************
+*** 1163,1176 ****
+  
+  					if (slonik_init_cluster(stmt) < 0)
+  			case STMT_REPAIR_CONFIG:
+! 					{
+! 						SlonikStmt_repair_config *stmt =
+! 						(SlonikStmt_repair_config *) hdr;
+  
+! 						if (slonik_repair_config(stmt) < 0)
+! 							errors++;
+! 					}
+! 					break;
+! 					errors++;
+  				}
+  				break;
+--- 1163,1177 ----
+  
+  					if (slonik_init_cluster(stmt) < 0)
++ 					errors++;
++ 				}
++ 				break;
++ 
+  			case STMT_REPAIR_CONFIG:
+! 				{
+! 					SlonikStmt_repair_config *stmt =
+! 					(SlonikStmt_repair_config *) hdr;
+  
+! 					if (slonik_repair_config(stmt) < 0)
+! 						errors++;
+  				}
+  				break;
+***************
+*** 1769,1774 ****
+  	db_notice_silent = true;
+  	if (load_sql_script(stmt, adminfo,
+- 					"%s/xxid.v%d%d.sql", share_path, use_major, use_minor) < 0
+- 		|| load_sql_script(stmt, adminfo,
+  						   "%s/slony1_base.sql", share_path) < 0
+  		|| load_sql_script(stmt, adminfo,
+--- 1770,1773 ----
+
+From wieck at lists.slony.info  Tue Dec 11 11:30:32 2007
+From: wieck at lists.slony.info (Jan Wieck)
+Date: Tue Dec 11 11:30:34 2007
+Subject: [Slony1-commit] slony1-engine/src/backend slony1_base.sql
+	slony1_funcs.c slony1_funcs.sql
+Message-ID: <20071211193032.29D3C290031@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/src/backend
+In directory main.slony.info:/tmp/cvs-serv26467/src/backend
+
+Modified Files:
+	slony1_base.sql slony1_funcs.c slony1_funcs.sql 
+Log Message:
+Adjustments for PostgreSQL 8.3 and moving to the now builtin
+txid data type.
+
+Jan
+
+
+Index: slony1_funcs.c
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/src/backend/slony1_funcs.c,v
+retrieving revision 1.62
+retrieving revision 1.63
+diff -C2 -d -r1.62 -r1.63
+*** slony1_funcs.c	7 Jun 2007 13:01:10 -0000	1.62
+--- slony1_funcs.c	11 Dec 2007 19:30:29 -0000	1.63
+***************
+*** 127,139 ****
+  	TransactionId newXid = GetTopTransactionId();
+  	Slony_I_ClusterStatus *cs;
+- 	text	   *ev_xip;
+  	char	   *ev_type_c;
+! 	Datum		argv[12];
+! 	char		nulls[13];
+  	char	   *buf;
+  	size_t		buf_size;
+  	int			rc;
+- 	uint32			xcnt;
+- 	char	   *cp;
+  	int			i;
+  	int64		retval;
+--- 127,136 ----
+  	TransactionId newXid = GetTopTransactionId();
+  	Slony_I_ClusterStatus *cs;
+  	char	   *ev_type_c;
+! 	Datum		argv[9];
+! 	char		nulls[10];
+  	char	   *buf;
+  	size_t		buf_size;
+  	int			rc;
+  	int			i;
+  	int64		retval;
+***************
+*** 173,225 ****
+  
+  	/*
+- 	 * Build the comma separated list of transactions in progress as Text
+- 	 * datum.
+- 	 */
+- 	*(cp = buf) = '\0';
+- 	/*@-nullderef@*/
+- 	/*@-mustfreeonly@*/
+- 	for (xcnt = 0; xcnt < SerializableSnapshot->xcnt; xcnt++)
+- 	{
+- 		if ((cp + 30) >= (buf + buf_size))
+- 		{
+- 			buf_size *= 2;
+- 			buf = repalloc(buf, buf_size);
+- 			cp = buf + strlen(buf);
+- 		}
+- /*@-bufferoverflowhigh@*/
+- 		sprintf(cp, "%s'%u'", (xcnt > 0) ? "," : "",
+- 				SerializableSnapshot->xip[xcnt]);
+- /*@+bufferoverflowhigh@*/
+- 		cp += strlen(cp);
+- 	}
+- 	/*@+nullderef@*/
+-         /*@+mustfreeonly@*/
+- 	ev_xip = DatumGetTextP(DirectFunctionCall1(textin, PointerGetDatum(buf)));
+- 
+- 	/*
+  	 * Call the saved INSERT plan
+  	 */
+- 	/*@-nullderef@*/
+- 	argv[0] = TransactionIdGetDatum(SerializableSnapshot->xmin);
+- 	argv[1] = TransactionIdGetDatum(SerializableSnapshot->xmax);
+- 	/*@+nullderef@*/
+- 	argv[2] = PointerGetDatum(ev_xip);
+- 	nulls[0] = ' ';
+- 	nulls[1] = ' ';
+- 	nulls[2] = ' ';
+  	for (i = 1; i < 10; i++)
+  	{
+  		if (i >= PG_NARGS() || PG_ARGISNULL(i))
+  		{
+! 			argv[i + 2] = (Datum)0;
+! 			nulls[i + 2] = 'n';
+  		}
+  		else
+  		{
+! 			argv[i + 2] = PG_GETARG_DATUM(i);
+! 			nulls[i + 2] = ' ';
+  		}
+  	}
+! 	nulls[12] = '\0';
+  
+  	if ((rc = SPI_execp(cs->plan_insert_event, argv, nulls, 0)) < 0)
+--- 170,189 ----
+  
+  	/*
+  	 * Call the saved INSERT plan
+  	 */
+  	for (i = 1; i < 10; i++)
+  	{
+  		if (i >= PG_NARGS() || PG_ARGISNULL(i))
+  		{
+! 			argv[i - 1] = (Datum)0;
+! 			nulls[i - 1] = 'n';
+  		}
+  		else
+  		{
+! 			argv[i - 1] = PG_GETARG_DATUM(i);
+! 			nulls[i - 1] = ' ';
+  		}
+  	}
+! 	nulls[9] = '\0';
+  
+  	if ((rc = SPI_execp(cs->plan_insert_event, argv, nulls, 0)) < 0)
+***************
+*** 840,847 ****
+  	 * Construct the parameter array and insert the log row.
+  	 */
+! 	argv[0] = TransactionIdGetDatum(cs->currentXid);
+! 	argv[1] = Int32GetDatum(tab_id);
+! 	argv[2] = PointerGetDatum(cmdtype);
+! 	argv[3] = PointerGetDatum(cs->cmddata_buf);
+  	SPI_execp(cs->plan_active_log, argv, NULL, 0);
+  
+--- 804,810 ----
+  	 * Construct the parameter array and insert the log row.
+  	 */
+! 	argv[0] = Int32GetDatum(tab_id);
+! 	argv[1] = PointerGetDatum(cmdtype);
+! 	argv[2] = PointerGetDatum(cs->cmddata_buf);
+  	SPI_execp(cs->plan_active_log, argv, NULL, 0);
+  
+***************
+*** 1191,1197 ****
+  	char		query[1024];
+  	bool		isnull;
+! 	Oid			plan_types[12];
+! 	Oid			xxid_typid;
+! 	TypeName   *xxid_typename;
+  
+  	/*
+--- 1154,1160 ----
+  	char		query[1024];
+  	bool		isnull;
+! 	Oid			plan_types[9];
+! 	Oid			txid_snapshot_typid;
+! 	TypeName   *txid_snapshot_typname;
+  
+  	/*
+***************
+*** 1284,1300 ****
+  	{
+  		/*
+! 		 * Lookup the oid of our special xxid type
+  		 */
+! 		xxid_typename = makeNode(TypeName);
+! 		xxid_typename->names =
+! 			lappend(lappend(NIL, makeString(NameStr(cs->clustername))),
+! 					makeString("xxid"));
+  
+! #ifdef HAVE_TYPENAMETYPEID_2
+! 		xxid_typid = typenameTypeId(NULL,xxid_typename);
+! #else
+! 		xxid_typid = typenameTypeId(xxid_typename);
+! #endif
+! 		plan_types[0] = INT4OID;
+  
+  		/*
+--- 1247,1258 ----
+  	{
+  		/*
+! 		 * Lookup the oid of the txid_snapshot type
+  		 */
+! 		txid_snapshot_typname = makeNode(TypeName);
+! 		txid_snapshot_typname->names =
+! 			lappend(lappend(NIL, makeString("pg_catalog")),
+! 					makeString("txid_snapshot"));
+  
+! 		txid_snapshot_typid = typenameTypeId(NULL,txid_snapshot_typname, NULL);
+  
+  		/*
+***************
+*** 1307,1322 ****
+  				"INSERT INTO %s.sl_event "
+  				"(ev_origin, ev_seqno, "
+! 				"ev_timestamp, ev_minxid, ev_maxxid, ev_xip, "
+  				"ev_type, ev_data1, ev_data2, ev_data3, ev_data4, "
+  				"ev_data5, ev_data6, ev_data7, ev_data8) "
+  				"VALUES ('%d', nextval('%s.sl_event_seq'), "
+! 				"now(), $1, $2, $3, "
+! 				"$4, $5, $6, $7, $8, $9, $10, $11, $12); "
+  				"SELECT currval('%s.sl_event_seq');",
+  				cs->clusterident,
+  				cs->clusterident, cs->localNodeId, cs->clusterident,
+  				cs->clusterident);
+! 		plan_types[0] = xxid_typid;
+! 		plan_types[1] = xxid_typid;
+  		plan_types[2] = TEXTOID;
+  		plan_types[3] = TEXTOID;
+--- 1265,1280 ----
+  				"INSERT INTO %s.sl_event "
+  				"(ev_origin, ev_seqno, "
+! 				"ev_timestamp, ev_snapshot, "
+  				"ev_type, ev_data1, ev_data2, ev_data3, ev_data4, "
+  				"ev_data5, ev_data6, ev_data7, ev_data8) "
+  				"VALUES ('%d', nextval('%s.sl_event_seq'), "
+! 				"now(), \"pg_catalog\".txid_current_snapshot(), $1, $2, "
+! 				"$3, $4, $5, $6, $7, $8, $9); "
+  				"SELECT currval('%s.sl_event_seq');",
+  				cs->clusterident,
+  				cs->clusterident, cs->localNodeId, cs->clusterident,
+  				cs->clusterident);
+! 		plan_types[0] = TEXTOID;
+! 		plan_types[1] = TEXTOID;
+  		plan_types[2] = TEXTOID;
+  		plan_types[3] = TEXTOID;
+***************
+*** 1326,1334 ****
+  		plan_types[7] = TEXTOID;
+  		plan_types[8] = TEXTOID;
+- 		plan_types[9] = TEXTOID;
+- 		plan_types[10] = TEXTOID;
+- 		plan_types[11] = TEXTOID;
+  
+! 		cs->plan_insert_event = SPI_saveplan(SPI_prepare(query, 12, plan_types));
+  		if (cs->plan_insert_event == NULL)
+  			elog(ERROR, "Slony-I: SPI_prepare() failed");
+--- 1284,1289 ----
+  		plan_types[7] = TEXTOID;
+  		plan_types[8] = TEXTOID;
+  
+! 		cs->plan_insert_event = SPI_saveplan(SPI_prepare(query, 9, plan_types));
+  		if (cs->plan_insert_event == NULL)
+  			elog(ERROR, "Slony-I: SPI_prepare() failed");
+***************
+*** 1365,1410 ****
+  	{
+  		/*
+- 		 * Lookup the oid of our special xxid type
+- 		 */
+- 		xxid_typename = makeNode(TypeName);
+- 		xxid_typename->names =
+- 			lappend(lappend(NIL, makeString(NameStr(cs->clustername))),
+- 					makeString("xxid"));
+- #ifdef HAVE_TYPENAMETYPEID_2
+- 		xxid_typid = typenameTypeId(NULL, xxid_typename);
+- #else
+- 		xxid_typid = typenameTypeId(xxid_typename);
+- #endif
+- 
+- 		/*
+  		 * Create the saved plan's
+  		 */
+  		sprintf(query, "INSERT INTO %s.sl_log_1 "
+! 				"(log_origin, log_xid, log_tableid, log_actionseq,"
+  				" log_cmdtype, log_cmddata) "
+! 				"VALUES (%d, $1, $2, nextval('%s.sl_action_seq'),"
+! 				" $3, $4);",
+  				cs->clusterident, cs->localNodeId, cs->clusterident);
+! 		plan_types[0] = xxid_typid;
+! 		plan_types[1] = INT4OID;
+  		plan_types[2] = TEXTOID;
+- 		plan_types[3] = TEXTOID;
+  
+! 		cs->plan_insert_log_1 = SPI_saveplan(SPI_prepare(query, 4, plan_types));
+  		if (cs->plan_insert_log_1 == NULL)
+  			elog(ERROR, "Slony-I: SPI_prepare() failed");
+  
+  		sprintf(query, "INSERT INTO %s.sl_log_2 "
+! 				"(log_origin, log_xid, log_tableid, log_actionseq,"
+  				" log_cmdtype, log_cmddata) "
+! 				"VALUES (%d, $1, $2, nextval('%s.sl_action_seq'),"
+! 				" $3, $4);",
+  				cs->clusterident, cs->localNodeId, cs->clusterident);
+! 		plan_types[0] = xxid_typid;
+! 		plan_types[1] = INT4OID;
+  		plan_types[2] = TEXTOID;
+- 		plan_types[3] = TEXTOID;
+  
+! 		cs->plan_insert_log_2 = SPI_saveplan(SPI_prepare(query, 4, plan_types));
+  		if (cs->plan_insert_log_2 == NULL)
+  			elog(ERROR, "Slony-I: SPI_prepare() failed");
+--- 1320,1350 ----
+  	{
+  		/*
+  		 * Create the saved plan's
+  		 */
+  		sprintf(query, "INSERT INTO %s.sl_log_1 "
+! 				"(log_origin, log_txid, log_tableid, log_actionseq,"
+  				" log_cmdtype, log_cmddata) "
+! 				"VALUES (%d, \"pg_catalog\".txid_current(), $1, "
+! 				"nextval('%s.sl_action_seq'), $2, $3); ",
+  				cs->clusterident, cs->localNodeId, cs->clusterident);
+! 		plan_types[0] = INT4OID;
+! 		plan_types[1] = TEXTOID;
+  		plan_types[2] = TEXTOID;
+  
+! 		cs->plan_insert_log_1 = SPI_saveplan(SPI_prepare(query, 3, plan_types));
+  		if (cs->plan_insert_log_1 == NULL)
+  			elog(ERROR, "Slony-I: SPI_prepare() failed");
+  
+  		sprintf(query, "INSERT INTO %s.sl_log_2 "
+! 				"(log_origin, log_txid, log_tableid, log_actionseq,"
+  				" log_cmdtype, log_cmddata) "
+! 				"VALUES (%d, \"pg_catalog\".txid_current(), $1, "
+! 				"nextval('%s.sl_action_seq'), $2, $3); ",
+  				cs->clusterident, cs->localNodeId, cs->clusterident);
+! 		plan_types[0] = INT4OID;
+! 		plan_types[1] = TEXTOID;
+  		plan_types[2] = TEXTOID;
+  
+! 		cs->plan_insert_log_2 = SPI_saveplan(SPI_prepare(query, 3, plan_types));
+  		if (cs->plan_insert_log_2 == NULL)
+  			elog(ERROR, "Slony-I: SPI_prepare() failed");
+
+Index: slony1_base.sql
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/src/backend/slony1_base.sql,v
+retrieving revision 1.37
+retrieving revision 1.38
+diff -C2 -d -r1.37 -r1.38
+*** slony1_base.sql	21 Aug 2007 22:15:44 -0000	1.37
+--- slony1_base.sql	11 Dec 2007 19:30:29 -0000	1.38
+***************
+*** 58,62 ****
+  	set_id				int4,
+  	set_origin			int4,
+! 	set_locked			@NAMESPACE@.xxid,
+  	set_comment			text,
+  
+--- 58,62 ----
+  	set_id				int4,
+  	set_origin			int4,
+! 	set_locked			bigint,
+  	set_comment			text,
+  
+***************
+*** 82,88 ****
+  	ssy_origin			int4,
+  	ssy_seqno			int8,
+! 	ssy_minxid			@NAMESPACE@.xxid,
+! 	ssy_maxxid			@NAMESPACE@.xxid,
+! 	ssy_xip				text,
+  	ssy_action_list		text,
+  
+--- 82,86 ----
+  	ssy_origin			int4,
+  	ssy_seqno			int8,
+! 	ssy_snapshot		"pg_catalog".txid_snapshot,
+  	ssy_action_list		text,
+  
+***************
+*** 100,107 ****
+  comment on column @NAMESPACE@.sl_setsync.ssy_origin is 'ID number of the node';
+  comment on column @NAMESPACE@.sl_setsync.ssy_seqno is 'Slony-I sequence number';
+! comment on column @NAMESPACE@.sl_setsync.ssy_minxid is 'Earliest XID in provider system affected by SYNC';
+! comment on column @NAMESPACE@.sl_setsync.ssy_maxxid is 'Latest XID in provider system affected by SYNC';
+! comment on column @NAMESPACE@.sl_setsync.ssy_xip is 'Contains the list of XIDs in progress at SYNC time';
+! comment on column @NAMESPACE@.sl_setsync.ssy_action_list is 'action list used during the subscription process. At the time a subscriber copies over data from the origin, it sees all tables in a state somewhere between two SYNC events. Therefore this list must contains all XIDs that are visible at that time, whose operations have therefore already been included in the data copied at the time the initial data copy is done.  Those actions may therefore be filtered out of the first SYNC done after subscribing.';
+  
+  
+--- 98,103 ----
+  comment on column @NAMESPACE@.sl_setsync.ssy_origin is 'ID number of the node';
+  comment on column @NAMESPACE@.sl_setsync.ssy_seqno is 'Slony-I sequence number';
+! comment on column @NAMESPACE@.sl_setsync.ssy_snapshot is 'TXID in provider system seen by the event';
+! comment on column @NAMESPACE@.sl_setsync.ssy_action_list is 'action list used during the subscription process. At the time a subscriber copies over data from the origin, it sees all tables in a state somewhere between two SYNC events. Therefore this list must contains all log_actionseqs that are visible at that time, whose operations have therefore already been included in the data copied at the time the initial data copy is done.  Those actions may therefore be filtered out of the first SYNC done after subscribing.';
+  
+  
+***************
+*** 244,250 ****
+  	ev_seqno			int8,
+  	ev_timestamp		timestamp,
+! 	ev_minxid			@NAMESPACE@.xxid,
+! 	ev_maxxid			@NAMESPACE@.xxid,
+! 	ev_xip				text,
+  	ev_type				text,
+  	ev_data1			text,
+--- 240,244 ----
+  	ev_seqno			int8,
+  	ev_timestamp		timestamp,
+! 	ev_snapshot			"pg_catalog".txid_snapshot,
+  	ev_type				text,
+  	ev_data1			text,
+***************
+*** 264,271 ****
+  comment on column @NAMESPACE@.sl_event.ev_seqno is 'The ID # for the event';
+  comment on column @NAMESPACE@.sl_event.ev_timestamp is 'When this event record was created';
+! comment on column @NAMESPACE@.sl_event.ev_minxid is 'Earliest XID on provider node for this event';
+! comment on column @NAMESPACE@.sl_event.ev_maxxid is 'Latest XID on provider node for this event';
+  comment on column @NAMESPACE@.sl_event.ev_seqno is 'The ID # for the event';
+- comment on column @NAMESPACE@.sl_event.ev_xip is 'List of XIDs, in order, that are part of this event';
+  comment on column @NAMESPACE@.sl_event.ev_type is 'The type of event this record is for.  
+  				SYNC				= Synchronise
+--- 258,263 ----
+  comment on column @NAMESPACE@.sl_event.ev_seqno is 'The ID # for the event';
+  comment on column @NAMESPACE@.sl_event.ev_timestamp is 'When this event record was created';
+! comment on column @NAMESPACE@.sl_event.ev_snapshot is 'TXID snapshot on provider node for this event';
+  comment on column @NAMESPACE@.sl_event.ev_seqno is 'The ID # for the event';
+  comment on column @NAMESPACE@.sl_event.ev_type is 'The type of event this record is for.  
+  				SYNC				= Synchronise
+***************
+*** 379,383 ****
+  create table @NAMESPACE@.sl_log_1 (
+  	log_origin			int4,
+! 	log_xid				@NAMESPACE@.xxid,
+  	log_tableid			int4,
+  	log_actionseq		int8,
+--- 371,375 ----
+  create table @NAMESPACE@.sl_log_1 (
+  	log_origin			int4,
+! 	log_txid			bigint,
+  	log_tableid			int4,
+  	log_actionseq		int8,
+***************
+*** 386,398 ****
+  ) WITHOUT OIDS;
+  create index sl_log_1_idx1 on @NAMESPACE@.sl_log_1
+! 	(log_origin, log_xid @NAMESPACE@.xxid_ops, log_actionseq);
+  
+  -- Add in an additional index as sometimes log_origin isn't a useful discriminant
+  -- create index sl_log_1_idx2 on @NAMESPACE@.sl_log_1
+! --	(log_xid @NAMESPACE@.xxid_ops);
+  
+  comment on table @NAMESPACE@.sl_log_1 is 'Stores each change to be propagated to subscriber nodes';
+  comment on column @NAMESPACE@.sl_log_1.log_origin is 'Origin node from which the change came';
+! comment on column @NAMESPACE@.sl_log_1.log_xid is 'Transaction ID on the origin node';
+  comment on column @NAMESPACE@.sl_log_1.log_tableid is 'The table ID (from sl_table.tab_id) that this log entry is to affect';
+  comment on column @NAMESPACE@.sl_log_1.log_cmdtype is 'Replication action to take. U = Update, I = Insert, D = DELETE';
+--- 378,390 ----
+  ) WITHOUT OIDS;
+  create index sl_log_1_idx1 on @NAMESPACE@.sl_log_1
+! 	(log_origin, log_txid, log_actionseq);
+  
+  -- Add in an additional index as sometimes log_origin isn't a useful discriminant
+  -- create index sl_log_1_idx2 on @NAMESPACE@.sl_log_1
+! --	(log_txid);
+  
+  comment on table @NAMESPACE@.sl_log_1 is 'Stores each change to be propagated to subscriber nodes';
+  comment on column @NAMESPACE@.sl_log_1.log_origin is 'Origin node from which the change came';
+! comment on column @NAMESPACE@.sl_log_1.log_txid is 'Transaction ID on the origin node';
+  comment on column @NAMESPACE@.sl_log_1.log_tableid is 'The table ID (from sl_table.tab_id) that this log entry is to affect';
+  comment on column @NAMESPACE@.sl_log_1.log_cmdtype is 'Replication action to take. U = Update, I = Insert, D = DELETE';
+***************
+*** 404,408 ****
+  create table @NAMESPACE@.sl_log_2 (
+  	log_origin			int4,
+! 	log_xid				@NAMESPACE@.xxid,
+  	log_tableid			int4,
+  	log_actionseq		int8,
+--- 396,400 ----
+  create table @NAMESPACE@.sl_log_2 (
+  	log_origin			int4,
+! 	log_txid			bigint,
+  	log_tableid			int4,
+  	log_actionseq		int8,
+***************
+*** 412,425 ****
+  comment on table @NAMESPACE@.sl_log_2 is 'Stores each change to be propagated to subscriber nodes';
+  comment on column @NAMESPACE@.sl_log_2.log_origin is 'Origin node from which the change came';
+! comment on column @NAMESPACE@.sl_log_2.log_xid is 'Transaction ID on the origin node';
+  comment on column @NAMESPACE@.sl_log_2.log_tableid is 'The table ID (from sl_table.tab_id) that this log entry is to affect';
+  comment on column @NAMESPACE@.sl_log_2.log_cmdtype is 'Replication action to take. U = Update, I = Insert, D = DELETE';
+  comment on column @NAMESPACE@.sl_log_2.log_cmddata is 'The data needed to perform the log action';
+  create index sl_log_2_idx1 on @NAMESPACE@.sl_log_2
+! 	(log_origin, log_xid @NAMESPACE@.xxid_ops, log_actionseq);
+  
+  -- Add in an additional index as sometimes log_origin isn't a useful discriminant
+  -- create index sl_log_2_idx2 on @NAMESPACE@.sl_log_2
+! -- 	(log_xid @NAMESPACE@.xxid_ops);
+  
+  
+--- 404,417 ----
+  comment on table @NAMESPACE@.sl_log_2 is 'Stores each change to be propagated to subscriber nodes';
+  comment on column @NAMESPACE@.sl_log_2.log_origin is 'Origin node from which the change came';
+! comment on column @NAMESPACE@.sl_log_2.log_txid is 'Transaction ID on the origin node';
+  comment on column @NAMESPACE@.sl_log_2.log_tableid is 'The table ID (from sl_table.tab_id) that this log entry is to affect';
+  comment on column @NAMESPACE@.sl_log_2.log_cmdtype is 'Replication action to take. U = Update, I = Insert, D = DELETE';
+  comment on column @NAMESPACE@.sl_log_2.log_cmddata is 'The data needed to perform the log action';
+  create index sl_log_2_idx1 on @NAMESPACE@.sl_log_2
+! 	(log_origin, log_txid, log_actionseq);
+  
+  -- Add in an additional index as sometimes log_origin isn't a useful discriminant
+  -- create index sl_log_2_idx2 on @NAMESPACE@.sl_log_2
+! -- 	(log_txid);
+  
+  
+
+Index: slony1_funcs.sql
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/src/backend/slony1_funcs.sql,v
+retrieving revision 1.124
+retrieving revision 1.125
+diff -C2 -d -r1.124 -r1.125
+*** slony1_funcs.sql	29 Nov 2007 21:29:03 -0000	1.124
+--- slony1_funcs.sql	11 Dec 2007 19:30:29 -0000	1.125
+***************
+*** 1299,1307 ****
+  	insert into @NAMESPACE@.sl_event
+  			(ev_origin, ev_seqno, ev_timestamp,
+! 			ev_minxid, ev_maxxid, ev_xip,
+  			ev_type, ev_data1, ev_data2, ev_data3)
+  			values 
+  			(p_failed_node, p_ev_seqfake, CURRENT_TIMESTAMP,
+! 			v_row.ev_minxid, v_row.ev_maxxid, v_row.ev_xip,
+  			''FAILOVER_SET'', p_failed_node::text, p_backup_node::text,
+  			p_set_id::text);
+--- 1299,1307 ----
+  	insert into @NAMESPACE@.sl_event
+  			(ev_origin, ev_seqno, ev_timestamp,
+! 			ev_snapshot, 
+  			ev_type, ev_data1, ev_data2, ev_data3)
+  			values 
+  			(p_failed_node, p_ev_seqfake, CURRENT_TIMESTAMP,
+! 			v_row.ev_snapshot, 
+  			''FAILOVER_SET'', p_failed_node::text, p_backup_node::text,
+  			p_set_id::text);
+***************
+*** 1372,1380 ****
+  		insert into @NAMESPACE@.sl_event
+  				(ev_origin, ev_seqno, ev_timestamp,
+! 				ev_minxid, ev_maxxid, ev_xip,
+  				ev_type, ev_data1, ev_data2, ev_data3, ev_data4)
+  				values
+  				(p_backup_node, "pg_catalog".nextval(''@NAMESPACE@.sl_event_seq''), CURRENT_TIMESTAMP,
+! 				''0'', ''0'', '''',
+  				''ACCEPT_SET'', p_set_id::text,
+  				p_failed_node::text, p_backup_node::text,
+--- 1372,1380 ----
+  		insert into @NAMESPACE@.sl_event
+  				(ev_origin, ev_seqno, ev_timestamp,
+! 				ev_snapshot, 
+  				ev_type, ev_data1, ev_data2, ev_data3, ev_data4)
+  				values
+  				(p_backup_node, "pg_catalog".nextval(''@NAMESPACE@.sl_event_seq''), CURRENT_TIMESTAMP,
+! 				''0'', ''0'', ''0:0:'',
+  				''ACCEPT_SET'', p_set_id::text,
+  				p_failed_node::text, p_backup_node::text,
+***************
+*** 1411,1417 ****
+  			insert into @NAMESPACE@.sl_setsync
+  					(ssy_setid, ssy_origin, ssy_seqno,
+! 					ssy_minxid, ssy_maxxid, ssy_xip, ssy_action_list)
+  					select p_set_id, p_backup_node, v_last_sync,
+! 					ev_minxid, ev_maxxid, ev_xip, NULL
+  					from @NAMESPACE@.sl_event
+  					where ev_origin = p_backup_node
+--- 1411,1417 ----
+  			insert into @NAMESPACE@.sl_setsync
+  					(ssy_setid, ssy_origin, ssy_seqno,
+! 					ssy_snapshot, ssy_action_list)
+  					select p_set_id, p_backup_node, v_last_sync,
+! 					ev_snapshot, NULL
+  					from @NAMESPACE@.sl_event
+  					where ev_origin = p_backup_node
+***************
+*** 1420,1426 ****
+  			insert into @NAMESPACE@.sl_setsync
+  					(ssy_setid, ssy_origin, ssy_seqno,
+! 					ssy_minxid, ssy_maxxid, ssy_xip, ssy_action_list)
+  					values (p_set_id, p_backup_node, ''0'',
+! 					''0'', ''0'', '''', NULL);
+  		end if;
+  				
+--- 1420,1426 ----
+  			insert into @NAMESPACE@.sl_setsync
+  					(ssy_setid, ssy_origin, ssy_seqno,
+! 					ssy_snapshot, ssy_action_list)
+  					values (p_set_id, p_backup_node, ''0'',
+! 					''0'', ''0'', ''0:0:'', NULL);
+  		end if;
+  				
+***************
+*** 1959,1963 ****
+  	-- ----
+  	update @NAMESPACE@.sl_set
+! 			set set_locked = @NAMESPACE@.getMaxXid()
+  			where set_id = p_set_id;
+  
+--- 1959,1963 ----
+  	-- ----
+  	update @NAMESPACE@.sl_set
+! 			set set_locked = "pg_catalog".txid_snapshot_xmax("public".txid_current_snapshot())
+  			where set_id = p_set_id;
+  
+***************
+*** 2081,2085 ****
+  		raise exception ''Slony-I: set % is not locked'', p_set_id;
+  	end if;
+! 	if v_set_row.set_locked > @NAMESPACE@.getMinXid() then
+  		raise exception ''Slony-I: cannot move set % yet, transactions < % are still in progress'',
+  				p_set_id, v_set_row.set_locked;
+--- 2081,2085 ----
+  		raise exception ''Slony-I: set % is not locked'', p_set_id;
+  	end if;
+! 	if v_set_row.set_locked > "pg_catalog".txid_snapshot_xmin("public".txid_current_snapshot()) then
+  		raise exception ''Slony-I: cannot move set % yet, transactions < % are still in progress'',
+  				p_set_id, v_set_row.set_locked;
+***************
+*** 2235,2241 ****
+  			insert into @NAMESPACE@.sl_setsync
+  					(ssy_setid, ssy_origin, ssy_seqno,
+! 					ssy_minxid, ssy_maxxid, ssy_xip, ssy_action_list)
+  					select p_set_id, p_new_origin, v_last_sync,
+! 					ev_minxid, ev_maxxid, ev_xip, NULL
+  					from @NAMESPACE@.sl_event
+  					where ev_origin = p_new_origin
+--- 2235,2241 ----
+  			insert into @NAMESPACE@.sl_setsync
+  					(ssy_setid, ssy_origin, ssy_seqno,
+! 					ssy_snapshot, ssy_action_list)
+  					select p_set_id, p_new_origin, v_last_sync,
+! 					ev_snapshot, NULL
+  					from @NAMESPACE@.sl_event
+  					where ev_origin = p_new_origin
+***************
+*** 2244,2250 ****
+  			insert into @NAMESPACE@.sl_setsync
+  					(ssy_setid, ssy_origin, ssy_seqno,
+! 					ssy_minxid, ssy_maxxid, ssy_xip, ssy_action_list)
+  					values (p_set_id, p_new_origin, ''0'',
+! 					''0'', ''0'', '''', NULL);
+  		end if;
+  	end if;
+--- 2244,2250 ----
+  			insert into @NAMESPACE@.sl_setsync
+  					(ssy_setid, ssy_origin, ssy_seqno,
+! 					ssy_snapshot, ssy_action_list)
+  					values (p_set_id, p_new_origin, ''0'',
+! 					''0'', ''0'', ''0:0:'', NULL);
+  		end if;
+  	end if;
+***************
+*** 2279,2285 ****
+  				insert into @NAMESPACE@.sl_setsync
+  						(ssy_setid, ssy_origin, ssy_seqno,
+! 						ssy_minxid, ssy_maxxid, ssy_xip, ssy_action_list)
+  						select p_set_id, p_new_origin, v_last_sync,
+! 						ev_minxid, ev_maxxid, ev_xip, NULL
+  						from @NAMESPACE@.sl_event
+  						where ev_origin = p_new_origin
+--- 2279,2285 ----
+  				insert into @NAMESPACE@.sl_setsync
+  						(ssy_setid, ssy_origin, ssy_seqno,
+! 						ssy_snapshot, ssy_action_list)
+  						select p_set_id, p_new_origin, v_last_sync,
+! 						ev_snapshot, NULL
+  						from @NAMESPACE@.sl_event
+  						where ev_origin = p_new_origin
+***************
+*** 2288,2294 ****
+  				insert into @NAMESPACE@.sl_setsync
+  						(ssy_setid, ssy_origin, ssy_seqno,
+! 						ssy_minxid, ssy_maxxid, ssy_xip, ssy_action_list)
+  						values (p_set_id, p_new_origin, ''0'',
+! 						''0'', ''0'', '''', NULL);
+  			end if;
+  		end if;
+--- 2288,2294 ----
+  				insert into @NAMESPACE@.sl_setsync
+  						(ssy_setid, ssy_origin, ssy_seqno,
+! 						ssy_snapshot, ssy_action_list)
+  						values (p_set_id, p_new_origin, ''0'',
+! 						''0'', ''0'', ''0:0:'', NULL);
+  			end if;
+  		end if;
+***************
+*** 5203,5207 ****
+              if not found then
+  		-- raise notice ''index was not found - add it!'';
+!                 v_iname := ''PartInd_@CLUSTERNAME@_sl_log_'' || v_log || ''-node-'' || v_dummy.set_origin;
+  		v_ilen := pg_catalog.length(v_iname);
+  		v_maxlen := pg_catalog.current_setting(''max_identifier_length''::text)::int4;
+--- 5203,5207 ----
+              if not found then
+  		-- raise notice ''index was not found - add it!'';
+!         v_iname := ''PartInd_@CLUSTERNAME@_sl_log_'' || v_log || ''-node-'' || v_dummy.set_origin;
+  		v_ilen := pg_catalog.length(v_iname);
+  		v_maxlen := pg_catalog.current_setting(''max_identifier_length''::text)::int4;
+***************
+*** 5211,5215 ****
+  
+  		idef := ''create index "'' || v_iname || 
+!                         ''" on @NAMESPACE@.sl_log_'' || v_log || '' USING btree(log_xid @NAMESPACE@.xxid_ops) where (log_origin = '' || v_dummy.set_origin || '');'';
+  		execute idef;
+  		v_count := v_count + 1;
+--- 5211,5215 ----
+  
+  		idef := ''create index "'' || v_iname || 
+!                         ''" on @NAMESPACE@.sl_log_'' || v_log || '' USING btree(log_txid) where (log_origin = '' || v_dummy.set_origin || '');'';
+  		execute idef;
+  		v_count := v_count + 1;
+***************
+*** 5340,5345 ****
+  	end if;
+  
+- 	-- In any version, make sure that the xxidin() functions are defined as STRICT
+- 	perform @NAMESPACE@.make_function_strict (''xxidin'', ''(cstring)'');
+  	return p_old;
+  end;
+--- 5340,5343 ----
+
+From cbbrowne at lists.slony.info  Tue Dec 11 12:27:13 2007
+From: cbbrowne at lists.slony.info (Chris Browne)
+Date: Tue Dec 11 12:27:15 2007
+Subject: [Slony1-commit] slony1-engine RELEASE-2.0
+Message-ID: <20071211202713.94C3D290CD1@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine
+In directory main.slony.info:/tmp/cvs-serv27336
+
+Modified Files:
+	RELEASE-2.0 
+Log Message:
+Note changes resulting from new txid functions in PG 8.3
+
+
+Index: RELEASE-2.0
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/RELEASE-2.0,v
+retrieving revision 1.9
+retrieving revision 1.10
+diff -C2 -d -r1.9 -r1.10
+*** RELEASE-2.0	3 Dec 2007 16:29:10 -0000	1.9
+--- RELEASE-2.0	11 Dec 2007 20:27:11 -0000	1.10
+***************
+*** 103,104 ****
+--- 103,113 ----
+    are likely to need to be dropped from the log shipping node lest
+    they interfere with replication.
++ 
++ - Elimination of custom "xxid" functions
++ 
++   PostgreSQL 8.3 introduces a set of "txid" functions and a
++   "txid_snapshot" type, which eliminates the need for Slony-I to have
++   its own C functions for doing XID comparisons.
++ 
++   Note that this affects the structure of sl_event, and leads to some
++   changes in the coding of the regression tests.
+
+From cbbrowne at lists.slony.info  Tue Dec 11 12:31:00 2007
+From: cbbrowne at lists.slony.info (Chris Browne)
+Date: Tue Dec 11 12:31:01 2007
+Subject: [Slony1-commit] slony1-engine/src/slon remote_worker.c
+Message-ID: <20071211203100.3A5AE290CC8@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/src/slon
+In directory main.slony.info:/tmp/cvs-serv27413/slon
+
+Modified Files:
+	remote_worker.c 
+Log Message:
+Change comment about ev_minxxid, which has been eliminated from sl_event
+
+
+Index: remote_worker.c
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/src/slon/remote_worker.c,v
+retrieving revision 1.160
+retrieving revision 1.161
+diff -C2 -d -r1.160 -r1.161
+*** remote_worker.c	3 Dec 2007 23:53:42 -0000	1.160
+--- remote_worker.c	11 Dec 2007 20:30:58 -0000	1.161
+***************
+*** 2426,2431 ****
+  
+  	/*
+! 	 * Begin a serialized transaction and check if our xmin in the snapshot is
+! 	 * > than ev_maxxid. This ensures that all transactions that have been in
+  	 * progress when the subscription got enabled (which is after the triggers
+  	 * on the tables have been defined), have finished. Otherwise a long
+--- 2426,2431 ----
+  
+  	/*
+! 	 * Begin a serialized transaction and verify that the event's snapshot xxid
+! 	 * is less than the present snapshot. This ensures that all transactions that have been in
+  	 * progress when the subscription got enabled (which is after the triggers
+  	 * on the tables have been defined), have finished. Otherwise a long
+
+From cbbrowne at lists.slony.info  Tue Dec 11 12:32:52 2007
+From: cbbrowne at lists.slony.info (Chris Browne)
+Date: Tue Dec 11 12:32:52 2007
+Subject: [Slony1-commit] slony1-engine/tests poll_cluster.sh
+Message-ID: <20071211203252.1A98A290CD9@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/tests
+In directory main.slony.info:/tmp/cvs-serv27456
+
+Modified Files:
+	poll_cluster.sh 
+Log Message:
+Change query looking for O/S sl_log_1 data to accomodate the change from
+using "xxid" functions/types to the new snapshot function in PG 8.3.
+
+
+Index: poll_cluster.sh
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/tests/poll_cluster.sh,v
+retrieving revision 1.3
+retrieving revision 1.4
+diff -C2 -d -r1.3 -r1.4
+*** poll_cluster.sh	31 May 2006 20:09:54 -0000	1.3
+--- poll_cluster.sh	11 Dec 2007 20:32:50 -0000	1.4
+***************
+*** 34,38 ****
+  if [ -n "${cluster}" ]; then
+    sleep 15
+!   SQL="SELECT count(l.*) FROM \"_${cluster}\".sl_log_1 l WHERE l.log_xid > (SELECT ev_maxxid FROM \"_${cluster}\".sl_event WHERE ev_timestamp = (SELECT max(ev_timestamp) FROM \"_${cluster}\".sl_event) limit 1)"
+    SQL2="SELECT max(st_lag_num_events) FROM \"_${cluster}\".sl_status"
+    while : ; do
+--- 34,39 ----
+  if [ -n "${cluster}" ]; then
+    sleep 15
+!   SQL="select count(*) from \"_${cluster}\".sl_log_1 l 
+! where not(txid_visible_in_snapshot(l.log_txid, (select ev_snapshot from \"_${cluster}\".sl_event where ev_timestamp = (select max(ev_timestamp) from \"_${cluster}\".sl_event))));"
+    SQL2="SELECT max(st_lag_num_events) FROM \"_${cluster}\".sl_status"
+    while : ; do
+***************
+*** 51,55 ****
+              exit
+            else
+!             echo "$lag3 rows behind" > $tty
+  	        sleep 1
+            fi
+--- 52,56 ----
+              exit
+            else
+!             echo "$lag3 rows+events behind" > $tty
+  	        sleep 1
+            fi
+
+From cbbrowne at lists.slony.info  Tue Dec 11 12:37:41 2007
+From: cbbrowne at lists.slony.info (Chris Browne)
+Date: Tue Dec 11 12:37:42 2007
+Subject: [Slony1-commit] slony1-engine/tests/test1 README generate_dml.sh
+Message-ID: <20071211203741.58D9F290031@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/tests/test1
+In directory main.slony.info:/tmp/cvs-serv27572
+
+Modified Files:
+	README generate_dml.sh 
+Log Message:
+Remove code that fiddles xxidin() function that is no longer needed as of
+PG 8.3
+
+
+Index: README
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/tests/test1/README,v
+retrieving revision 1.10
+retrieving revision 1.11
+diff -C2 -d -r1.10 -r1.11
+*** README	7 Sep 2007 19:50:10 -0000	1.10
+--- README	11 Dec 2007 20:37:39 -0000	1.11
+***************
+*** 25,34 ****
+  that it works as expected
+  
+! 7.  It does a test of make_function_strict(), a function used in
+! 'UPDATE FUNCTIONS' to change the xxidin() function to be STRICT.
+! 
+! 8.  It does a run of UPDATE FUNCTIONS against node 1.  This verifies
+  that there are at least no syntax errors in the stored function.
+  
+! 9.  It uses a slon.conf file for node #2 to make sure that the logic
+  of the config file parser gets exercised.
+--- 25,31 ----
+  that it works as expected
+  
+! 7.  It does a run of UPDATE FUNCTIONS against node 1.  This verifies
+  that there are at least no syntax errors in the stored function.
+  
+! 8.  It uses a slon.conf file for node #2 to make sure that the logic
+  of the config file parser gets exercised.
+
+Index: generate_dml.sh
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/tests/test1/generate_dml.sh,v
+retrieving revision 1.14
+retrieving revision 1.15
+diff -C2 -d -r1.14 -r1.15
+*** generate_dml.sh	2 Apr 2007 18:52:18 -0000	1.14
+--- generate_dml.sh	11 Dec 2007 20:37:39 -0000	1.15
+***************
+*** 84,93 ****
+    fi
+    status "completed generate_sync_event() test"
+-   $pgbindir/psql -h $host -p $port -d $db -U $user -c "select \"_${CLUSTER1}\".make_function_strict('xxidin', '(cstring)');" 1> $mktmp/mkfunstrict.log.1 2> $mktmp/mkfunstrict.log
+-   rc=$?
+-   if [ $rc -ne 0 ]; then
+-       warn 3 "make_function_strict('xxidin', '(cstring)') failed - rc=${rc} see $mktmp/mkfunstrict.log for details"
+-   fi
+-   status "completed make_function_strict() test"
+    status "done"
+  }
+--- 84,87 ----
+
+From cbbrowne at lists.slony.info  Tue Dec 11 12:39:44 2007
+From: cbbrowne at lists.slony.info (Chris Browne)
+Date: Tue Dec 11 12:39:45 2007
+Subject: [Slony1-commit] slony1-engine/src/backend slony1_funcs.sql
+Message-ID: <20071211203944.192A4290CD9@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/src/backend
+In directory main.slony.info:/tmp/cvs-serv27627/src/backend
+
+Modified Files:
+	slony1_funcs.sql 
+Log Message:
+No longer need make_function_strict() stored procedure as of 8.3
+
+
+Index: slony1_funcs.sql
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/src/backend/slony1_funcs.sql,v
+retrieving revision 1.125
+retrieving revision 1.126
+diff -C2 -d -r1.125 -r1.126
+*** slony1_funcs.sql	11 Dec 2007 19:30:29 -0000	1.125
+--- slony1_funcs.sql	11 Dec 2007 20:39:41 -0000	1.126
+***************
+*** 5512,5537 ****
+  'Reenable index maintenance and reindex the table';
+  
+- -- ----------------------------------------------------------------------
+- -- FUNCTION make_function_strict(function, parms)
+- --
+- --	Make function be STRICT
+- -- ----------------------------------------------------------------------
+- create or replace function @NAMESPACE@.make_function_strict (text, text) returns void as
+- '
+- declare
+-    fun alias for $1;
+-    parms alias for $2;
+-    stmt text;
+- begin
+-    stmt := ''ALTER FUNCTION "_@CLUSTERNAME@".'' || fun || '' '' || parms || '' STRICT;'';
+-    execute stmt;
+-    return;
+- end
+- ' language plpgsql;
+- 
+- comment on function @NAMESPACE@.make_function_strict (text, text) is
+- 'Equivalent to 8.1+ ALTER FUNCTION ... STRICT';
+- 
+- 
+  
+  -- ----------------------------------------------------------------------
+--- 5512,5515 ----
+
+From cbbrowne at lists.slony.info  Tue Dec 11 13:27:07 2007
+From: cbbrowne at lists.slony.info (Chris Browne)
+Date: Tue Dec 11 13:27:07 2007
+Subject: [Slony1-commit] slony1-engine/doc/adminguide logshipping.sgml
+Message-ID: <20071211212707.387C6290CCD@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/doc/adminguide
+In directory main.slony.info:/tmp/cvs-serv28367
+
+Modified Files:
+	logshipping.sgml 
+Log Message:
+Fix tagging errors
+
+
+Index: logshipping.sgml
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/doc/adminguide/logshipping.sgml,v
+retrieving revision 1.18
+retrieving revision 1.19
+diff -C2 -d -r1.18 -r1.19
+*** logshipping.sgml	3 Dec 2007 16:26:09 -0000	1.18
+--- logshipping.sgml	11 Dec 2007 21:27:05 -0000	1.19
+***************
+*** 350,356 ****
+  <indexterm><primary> trigger deactivation </primary> </indexterm>
+  
+! <para> It was once pointed out (<ulink> Bugzilla bug
+  #19</ulink>) that the dump of a schema may include triggers and rules
+! that you may not wish to have running on the log shipped node.
+  
+  <para> The tool <filename> tools/find-triggers-to-deactivate.sh
+--- 350,357 ----
+  <indexterm><primary> trigger deactivation </primary> </indexterm>
+  
+! <para> It was once pointed out (<ulink
+! url="http://www.slony.info/bugzilla/show_bug.cgi?id=19"> Bugzilla bug
+  #19</ulink>) that the dump of a schema may include triggers and rules
+! that you may not wish to have running on the log shipped node.</para>
+  
+  <para> The tool <filename> tools/find-triggers-to-deactivate.sh
+***************
+*** 358,367 ****
+  against the node that is to be used as a schema source, and it will
+  list the rules and triggers present on that node that may, in turn
+! need to be deactivated.
+  
+  <para> It includes <function>logtrigger</function> and <function>denyaccess</function>
+  triggers which will may be left out of the extracted schema, but it is
+  still worth the Gentle Administrator verifying that such triggers are
+! kept out of the log shipped replica.</para></para></para>
+  
+  </sect2>
+--- 359,368 ----
+  against the node that is to be used as a schema source, and it will
+  list the rules and triggers present on that node that may, in turn
+! need to be deactivated.</para>
+  
+  <para> It includes <function>logtrigger</function> and <function>denyaccess</function>
+  triggers which will may be left out of the extracted schema, but it is
+  still worth the Gentle Administrator verifying that such triggers are
+! kept out of the log shipped replica.</para>
+  
+  </sect2>
+
+From cbbrowne at lists.slony.info  Tue Dec 11 13:27:34 2007
+From: cbbrowne at lists.slony.info (Chris Browne)
+Date: Tue Dec 11 13:27:34 2007
+Subject: [Slony1-commit] slony1-engine/doc/adminguide faq.sgml
+Message-ID: <20071211212734.275E5290CD9@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/doc/adminguide
+In directory main.slony.info:/tmp/cvs-serv28403
+
+Modified Files:
+	faq.sgml 
+Log Message:
+Document the problem observed in Bug #25
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=25
+
+
+Index: faq.sgml
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/doc/adminguide/faq.sgml,v
+retrieving revision 1.71
+retrieving revision 1.72
+diff -C2 -d -r1.71 -r1.72
+*** faq.sgml	11 Jun 2007 16:02:50 -0000	1.71
+--- faq.sgml	11 Dec 2007 21:27:31 -0000	1.72
+***************
+*** 232,235 ****
+--- 232,283 ----
+  </qandaentry>
+  
++ <qandaentry>
++ <question> <para> Problem building on Fedora/x86-64 </para>
++ 
++ <para> When trying to configure &slony1; on a Fedora x86-64 system,
++ where <application>yum</application> was used to install the package
++ <filename>postgresql-libs.x86_64</filename>, the following complaint
++ comes up:
++ 
++ <screen>
++ configure: error: Your version of libpq doesn't have PQunescapeBytea
++  this means that your version of PostgreSQL is lower than 7.3
++  and thus not supported by Slony-I.
++ </screen></para>
++ 
++ <para> This happened with &postgres; 8.2.5, which is certainly rather
++ newer than 7.3. </para>
++ </question>
++ 
++ <answer> <para> <application>configure</application> is looking for
++ that symbol by compiling a little program that calls for it, and
++ checking if the compile succeeds.  On the <command>gcc</command>
++ command line it uses <command>-lpq</command> to search for the
++ library. </para>
++ 
++ <para> Unfortunately, that package is missing a symlink, from
++ <filename>/usr/lib64/libpq.so</filename> to
++ <filename>libpq.so.5.0</filename>; that is why it fails to link to
++ libpq.  The <emphasis>true</emphasis> problem is that the compiler failed to
++ find a library to link to, not that libpq lacked the function call.
++ </para>
++ 
++ <para> Eventually, this should be addressed by those that manage the
++ <filename>postgresql-libs.x86_64</filename> package. </para>
++ </answer>
++ 
++ <answer> <para> Note that this same symptom can be the indication of
++ similar classes of system configuration problems.  Bad symlinks, bad
++ permissions, bad behaviour on the part of your C compiler, all may
++ potentially lead to this same error message. </para> 
++ 
++ <para> Thus, if you see this error, you need to look in the log file
++ that is generated, <filename>config.log</filename>.  Search down to
++ near the end, and see what the <emphasis>actual</emphasis> complaint
++ was.  That will be helpful in tracking down the true root cause of the
++ problem.</para>
++ </answer>
++ 
++ </qandaentry>
+  </qandadiv>
+  
+
+From cbbrowne at lists.slony.info  Thu Dec 13 09:19:20 2007
+From: cbbrowne at lists.slony.info (Chris Browne)
+Date: Thu Dec 13 09:19:21 2007
+Subject: [Slony1-commit] slony1-engine/src/slon remote_worker.c
+Message-ID: <20071213171920.27042148C10@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/src/slon
+In directory main.slony.info:/tmp/cvs-serv6881
+
+Modified Files:
+      Tag: REL_1_2_STABLE
+	remote_worker.c 
+Log Message:
+Per bug #23
+http://www.slony.info/bugzilla/show_bug.cgi?id=23
+
+Need to ensure that the config parameter, sync_group_maxsize, is actually
+used to constrain the maximum number of SYNCs grouped together.
+
+Also changed debugging level from SLON_DEBUG3 to SLON_DEBUG2, for the
+nearby log statement.  (for 1.2 branch; SLON_DEBUG1, for HEAD)
+
+
+Index: remote_worker.c
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/src/slon/remote_worker.c,v
+retrieving revision 1.124.2.29
+retrieving revision 1.124.2.30
+diff -C2 -d -r1.124.2.29 -r1.124.2.30
+*** remote_worker.c	22 Oct 2007 20:44:24 -0000	1.124.2.29
+--- remote_worker.c	13 Dec 2007 17:19:17 -0000	1.124.2.30
+***************
+*** 564,568 ****
+  					if (next_sync_group_size < 1)
+  						next_sync_group_size = 1;
+! 					slon_log(SLON_DEBUG3, "calc sync size - last time: %d last length: %d ideal: %d proposed size: %d\n",
+  							 last_sync_group_size, last_sync_length, ideal_sync, next_sync_group_size);
+  				}
+--- 564,571 ----
+  					if (next_sync_group_size < 1)
+  						next_sync_group_size = 1;
+! 					/* Limit group size to the value from the slon parameter, sync_group_maxsize */
+! 					if (next_sync_group_size > sync_group_maxsize)
+! 						next_sync_group_size = sync_group_maxsize;
+! 					slon_log(SLON_DEBUG2, "calc sync size - last time: %d last length: %d ideal: %d proposed size: %d\n",
+  							 last_sync_group_size, last_sync_length, ideal_sync, next_sync_group_size);
+  				}
+
+From cbbrowne at lists.slony.info  Thu Dec 13 09:19:30 2007
+From: cbbrowne at lists.slony.info (Chris Browne)
+Date: Thu Dec 13 09:19:31 2007
+Subject: [Slony1-commit] slony1-engine/src/slon remote_worker.c
+Message-ID: <20071213171930.62C71148C2F@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/src/slon
+In directory main.slony.info:/tmp/cvs-serv6947
+
+Modified Files:
+	remote_worker.c 
+Log Message:
+Per bug #23
+http://www.slony.info/bugzilla/show_bug.cgi?id=23
+
+Need to ensure that the config parameter, sync_group_maxsize, is actually
+used to constrain the maximum number of SYNCs grouped together.
+
+Also changed debugging level from SLON_DEBUG3 to SLON_DEBUG2, for the
+nearby log statement.  (for 1.2 branch; SLON_DEBUG1, for HEAD)
+
+
+
+Index: remote_worker.c
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/src/slon/remote_worker.c,v
+retrieving revision 1.161
+retrieving revision 1.162
+diff -C2 -d -r1.161 -r1.162
+*** remote_worker.c	11 Dec 2007 20:30:58 -0000	1.161
+--- remote_worker.c	13 Dec 2007 17:19:28 -0000	1.162
+***************
+*** 566,570 ****
+  					if (next_sync_group_size < 1)
+  						next_sync_group_size = 1;
+! 					slon_log(SLON_DEBUG3, "calc sync size - last time: %d last length: %d ideal: %d proposed size: %d\n",
+  							 last_sync_group_size, last_sync_length, ideal_sync, next_sync_group_size);
+  				}
+--- 566,572 ----
+  					if (next_sync_group_size < 1)
+  						next_sync_group_size = 1;
+! 					if (next_sync_group_size > sync_group_maxsize)
+! 						next_sync_group_size = sync_group_maxsize;
+! 					slon_log(SLON_DEBUG1, "calc sync size - last time: %d last length: %d ideal: %d proposed size: %d\n",
+  							 last_sync_group_size, last_sync_length, ideal_sync, next_sync_group_size);
+  				}
+
+From cbbrowne at lists.slony.info  Thu Dec 13 09:22:50 2007
+From: cbbrowne at lists.slony.info (Chris Browne)
+Date: Thu Dec 13 09:22:52 2007
+Subject: [Slony1-commit] slony1-engine RELEASE
+Message-ID: <20071213172250.5BD59148C10@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine
+In directory main.slony.info:/tmp/cvs-serv7039
+
+Modified Files:
+      Tag: REL_1_2_STABLE
+	RELEASE 
+Log Message:
+Release notes indicate application of sync_group_maxsize constraint
+
+
+Index: RELEASE
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/RELEASE,v
+retrieving revision 1.1.2.22
+retrieving revision 1.1.2.23
+diff -C2 -d -r1.1.2.22 -r1.1.2.23
+*** RELEASE	22 Nov 2007 22:51:04 -0000	1.1.2.22
+--- RELEASE	13 Dec 2007 17:22:48 -0000	1.1.2.23
+***************
+*** 5,8 ****
+--- 5,10 ----
+    typenameTypeId() has 3 arguments as of 8.3.
+  
++ - Added in logic to ensure that max # of SYNCs grouped together is
++   actually constrained by config parameter sync_group_maxsize.
+  
+  RELEASE 1.2.12
+
+From devrim at lists.slony.info  Mon Dec 17 11:42:25 2007
+From: devrim at lists.slony.info (Devrim GUNDUZ)
+Date: Mon Dec 17 11:42:28 2007
+Subject: [Slony1-commit] slony1-engine postgresql-slony1.spec.in
+Message-ID: <20071217194225.E8AC5290031@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine
+In directory main.slony.info:/tmp/cvs-serv32277
+
+Modified Files:
+      Tag: REL_1_2_STABLE
+	postgresql-slony1.spec.in 
+Log Message:
+- Add flex and byacc to buildrequires, per Michael Best
+- Update to 1.2.12
+
+
+
+Index: postgresql-slony1.spec.in
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/Attic/postgresql-slony1.spec.in,v
+retrieving revision 1.1.2.1
+retrieving revision 1.1.2.2
+diff -C2 -d -r1.1.2.1 -r1.1.2.2
+*** postgresql-slony1.spec.in	29 Aug 2007 05:44:58 -0000	1.1.2.1
+--- postgresql-slony1.spec.in	17 Dec 2007 19:42:23 -0000	1.1.2.2
+***************
+*** 6,10 ****
+  Name:		@PACKAGE_NAME@
+  Version:	@PACKAGE_VERSION@
+! Release:	1%{?dist}
+  License:	BSD
+  Group:		Applications/Databases
+--- 6,10 ----
+  Name:		@PACKAGE_NAME@
+  Version:	@PACKAGE_VERSION@
+! Release:	2%{?dist}
+  License:	BSD
+  Group:		Applications/Databases
+***************
+*** 12,16 ****
+  Source0:	http://main.slony.info/downloads/1.2/source/@PACKAGE_NAME@-%{version}.tar.bz2
+  BuildRoot:	%{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
+! BuildRequires:	postgresql-devel, postgresql-server, initscripts
+  Requires:	postgresql-server 
+  
+--- 12,16 ----
+  Source0:	http://main.slony.info/downloads/1.2/source/@PACKAGE_NAME@-%{version}.tar.bz2
+  BuildRoot:	%{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
+! BuildRequires:	postgresql-devel, postgresql-server, initscripts, byacc, flex
+  Requires:	postgresql-server 
+  
+***************
+*** 141,144 ****
+--- 141,150 ----
+  
+  %changelog
++ * Mon Dec 17 2007 Devrim Gunduz <devrim@CommandPrompt.com> 1.2.12-2
++ - Add flex and byacc to buildrequires, per Michael Best
++ 
++ * Tue Nov 13 2007 Devrim Gunduz <devrim@CommandPrompt.com> 1.2.12-1
++ - Update to 1.2.12
++ 
+  * Wed Aug 29 2007 Devrim Gunduz <devrim@CommandPrompt.com> 1.2.11-1
+  - Update to 1.2.11
+
+From cbbrowne at lists.slony.info  Mon Dec 17 12:18:33 2007
+From: cbbrowne at lists.slony.info (Chris Browne)
+Date: Mon Dec 17 12:18:34 2007
+Subject: [Slony1-commit] slony1-engine/doc/adminguide failover.sgml
+Message-ID: <20071217201833.53EFC290261@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/doc/adminguide
+In directory main.slony.info:/tmp/cvs-serv653
+
+Modified Files:
+	failover.sgml 
+Log Message:
+Augment failover docs to make it clearer what is involved in refreshing
+DB connections after failover/MOVE SET.
+
+
+
+Index: failover.sgml
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/doc/adminguide/failover.sgml,v
+retrieving revision 1.23
+retrieving revision 1.24
+diff -C2 -d -r1.23 -r1.24
+*** failover.sgml	4 Oct 2006 16:09:30 -0000	1.23
+--- failover.sgml	17 Dec 2007 20:18:31 -0000	1.24
+***************
+*** 46,53 ****
+  
+  <listitem><para> At the time of this writing switchover to another
+! server requires the application to reconnect to the database.  So in
+! order to avoid any complications, we simply shut down the web server.
+! Users who use <application>pg_pool</application> for the applications database
+! connections merely have to shut down the pool.</para></listitem>
+  
+  <listitem><para> A small <xref linkend="slonik"> script executes the
+--- 46,96 ----
+  
+  <listitem><para> At the time of this writing switchover to another
+! server requires the application to reconnect to the new database.  So
+! in order to avoid any complications, we simply shut down the web
+! server.  Users who use <application>pg_pool</application> for the
+! applications database connections merely have to shut down the
+! pool.</para>
+! 
+! <para> What needs to be done, here, is highly dependent on the way
+! that the application(s) that use the database are configured.  The
+! general point is thus: Applications that were connected to the old
+! database must drop those connections and establish new connections to
+! the database that has been promoted to the <quote/master/ role.  There
+! are a number of ways that this may be configured, and therefore, a
+! number of possible methods for accomplishing the change:
+! 
+! <itemizedlist>
+! 
+! <listitem><para> The application may store the name of the database in
+! a file.</para>
+! 
+! <para> In that case, the reconfiguration may require changing the
+! value in the file, and stopping and restarting the application to get
+! it to point to the new location.
+! </para> </listitem>
+! 
+! <listitem><para> A clever usage of DNS might involve creating a CNAME
+! <ulink url="http://www.iana.org/assignments/dns-parameters"> DNS
+! record </ulink> that establishes a name for the application to use to
+! reference the node that is in the <quote>master</quote> role.</para>
+! 
+! <para> In that case, reconfiguration would require changing the CNAME
+! to point to the new server, and possibly restarting the application to
+! refresh database connections.
+! </para> </listitem>
+! 
+! <listitem><para> If you are using <application>pg_pool</application> or some
+! similar <quote>connection pool manager,</quote> then the reconfiguration
+! involves reconfiguring this management tool, but is otherwise similar
+! to the DNS/CNAME example above.  </para> </listitem>
+! 
+! </itemizedlist>
+! 
+! <para> Whether or not the application that accesses the database needs
+! to be restarted depends on how it is coded to cope with failed
+! database connections; if, after encountering an error it tries
+! re-opening them, then there may be no need to restart it. </para>
+! 
+! </listitem>
+  
+  <listitem><para> A small <xref linkend="slonik"> script executes the
+***************
+*** 143,151 ****
+  </listitem>
+  
+! <listitem>
+! <para> Reconfigure and restart the application (or
+  <application>pgpool</application>) to cause it to reconnect to
+! node2.</para>
+! </listitem>
+  
+  <listitem> <para> Purge out the abandoned node </para>
+--- 186,192 ----
+  </listitem>
+  
+! <listitem> <para> Reconfigure and restart the application (or
+  <application>pgpool</application>) to cause it to reconnect to
+! node2.</para> </listitem>
+  
+  <listitem> <para> Purge out the abandoned node </para>
+
+From devrim at lists.slony.info  Tue Dec 18 12:54:13 2007
+From: devrim at lists.slony.info (Devrim GUNDUZ)
+Date: Tue Dec 18 12:54:15 2007
+Subject: [Slony1-commit] slony1-engine GNUmakefile.in
+Message-ID: <20071218205413.DAB142903DC@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine
+In directory main.slony.info:/tmp/cvs-serv5605
+
+Modified Files:
+	GNUmakefile.in 
+Log Message:
+Use bzip2 for building tarballs for rpms builds
+
+
+Index: GNUmakefile.in
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/GNUmakefile.in,v
+retrieving revision 1.29
+retrieving revision 1.30
+diff -C2 -d -r1.29 -r1.30
+*** GNUmakefile.in	2 Aug 2006 15:32:01 -0000	1.29
+--- GNUmakefile.in	18 Dec 2007 20:54:11 -0000	1.30
+***************
+*** 10,14 ****
+  top_builddir = .
+  include $(top_builddir)/Makefile.global
+! GZIP = gzip --best
+  
+  DEFAULTBUILDS=src tools
+--- 10,14 ----
+  top_builddir = .
+  include $(top_builddir)/Makefile.global
+! BZIP = bzip2 --best
+  
+  DEFAULTBUILDS=src tools
+***************
+*** 62,66 ****
+  	rm -f config.log config.status config.h
+  	rm -f @PACKAGE_NAME@.spec
+! 	rm -f @PACKAGE_NAME@-@PACKAGE_VERSION@.tar.gz
+  	rm -f postgres.imp
+  	rm -rf autom4te.cache
+--- 62,66 ----
+  	rm -f config.log config.status config.h
+  	rm -f @PACKAGE_NAME@.spec
+! 	rm -f @PACKAGE_NAME@-@PACKAGE_VERSION@.tar.bz2
+  	rm -f postgres.imp
+  	rm -rf autom4te.cache
+***************
+*** 75,79 ****
+  garbage := =*  "#"*  ."#"*  *~*  *.orig  *.rej  core  @PACKAGE_NAME@-*
+  
+! dist 	:= $(distdir).tar.gz
+  
+  distdir:
+--- 75,79 ----
+  garbage := =*  "#"*  ."#"*  *~*  *.orig  *.rej  core  @PACKAGE_NAME@-*
+  
+! dist 	:= $(distdir).tar.bz2
+  
+  distdir:
+***************
+*** 91,100 ****
+  dist:	distdir
+  	$(TAR) cf @PACKAGE_NAME@-@PACKAGE_VERSION@.tar $(distdir)
+! 	$(GZIP) @PACKAGE_NAME@-@PACKAGE_VERSION@.tar
+  	-rm -rf $(distdir)
+  
+  rpm: dist
+  
+! 	rpmbuild -ta @PACKAGE_NAME@-@PACKAGE_VERSION@.tar.gz
+  
+  .PHONY: install
+--- 91,100 ----
+  dist:	distdir
+  	$(TAR) cf @PACKAGE_NAME@-@PACKAGE_VERSION@.tar $(distdir)
+! 	$(BZIP) @PACKAGE_NAME@-@PACKAGE_VERSION@.tar
+  	-rm -rf $(distdir)
+  
+  rpm: dist
+  
+! 	rpmbuild -ta @PACKAGE_NAME@-@PACKAGE_VERSION@.tar.bz2
+  
+  .PHONY: install
+
+From dfetter at lists.slony.info  Wed Dec 19 16:56:48 2007
+From: dfetter at lists.slony.info (David Fetter)
+Date: Wed Dec 19 16:56:50 2007
+Subject: [Slony1-commit] slony1-engine/doc/howto Makefile
+Message-ID: <20071220005648.90812290C2E@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/doc/howto
+In directory main.slony.info:/tmp/cvs-serv15293/howto
+
+Modified Files:
+	Makefile 
+Log Message:
+Updated copyright notices to 2007.
+
+
+Index: Makefile
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/doc/howto/Makefile,v
+retrieving revision 1.11
+retrieving revision 1.12
+diff -C2 -d -r1.11 -r1.12
+*** Makefile	4 Aug 2006 07:53:31 -0000	1.11
+--- Makefile	20 Dec 2007 00:56:46 -0000	1.12
+***************
+*** 2,6 ****
+  # Makefile for the HOWTOs
+  #
+! #	Copyright (c) 2003-2004, PostgreSQL Global Development Group
+  #
+  # ----------
+--- 2,6 ----
+  # Makefile for the HOWTOs
+  #
+! #	Copyright (c) 2003-2007, PostgreSQL Global Development Group
+  #
+  # ----------
+
+From dfetter at lists.slony.info  Wed Dec 19 16:56:48 2007
+From: dfetter at lists.slony.info (David Fetter)
+Date: Wed Dec 19 16:56:50 2007
+Subject: [Slony1-commit] slony1-engine/doc Makefile
+Message-ID: <20071220005648.583D7290C01@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/doc
+In directory main.slony.info:/tmp/cvs-serv15293
+
+Modified Files:
+	Makefile 
+Log Message:
+Updated copyright notices to 2007.
+
+
+Index: Makefile
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/doc/Makefile,v
+retrieving revision 1.12
+retrieving revision 1.13
+diff -C2 -d -r1.12 -r1.13
+*** Makefile	2 Aug 2006 15:32:01 -0000	1.12
+--- Makefile	20 Dec 2007 00:56:46 -0000	1.13
+***************
+*** 2,6 ****
+  # Makefile for doc
+  #
+! #	Copyright (c) 2003-2004, PostgreSQL Global Development Group
+  #	Author: Jan Wieck, Afilias USA INC.
+  #
+--- 2,6 ----
+  # Makefile for doc
+  #
+! #	Copyright (c) 2003-2007, PostgreSQL Global Development Group
+  #	Author: Jan Wieck, Afilias USA INC.
+  #
+
+From dfetter at lists.slony.info  Wed Dec 19 16:56:48 2007
+From: dfetter at lists.slony.info (David Fetter)
+Date: Wed Dec 19 16:56:50 2007
+Subject: [Slony1-commit] slony1-engine/doc/concept Makefile
+	Slony-I-concept.nr figure-1.pic figure-2.pic figure-3.pic
+	figure-4.pic
+Message-ID: <20071220005648.B3C71290CA2@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/doc/concept
+In directory main.slony.info:/tmp/cvs-serv15293/concept
+
+Modified Files:
+	Makefile Slony-I-concept.nr figure-1.pic figure-2.pic 
+	figure-3.pic figure-4.pic 
+Log Message:
+Updated copyright notices to 2007.
+
+
+Index: Makefile
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/doc/concept/Makefile,v
+retrieving revision 1.13
+retrieving revision 1.14
+diff -C2 -d -r1.13 -r1.14
+*** Makefile	2 Aug 2006 15:32:01 -0000	1.13
+--- Makefile	20 Dec 2007 00:56:46 -0000	1.14
+***************
+*** 2,6 ****
+  # Makefile for the Slony-I concept paper
+  #
+! #	Copyright (c) 2003-2004, PostgreSQL Global Development Group
+  #	Author: Jan Wieck, Afilias USA INC.
+  #
+--- 2,6 ----
+  # Makefile for the Slony-I concept paper
+  #
+! #	Copyright (c) 2003-2007, PostgreSQL Global Development Group
+  #	Author: Jan Wieck, Afilias USA INC.
+  #
+
+Index: figure-4.pic
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/doc/concept/figure-4.pic,v
+retrieving revision 1.2
+retrieving revision 1.3
+diff -C2 -d -r1.2 -r1.3
+*** figure-4.pic	20 Feb 2004 15:13:27 -0000	1.2
+--- figure-4.pic	20 Dec 2007 00:56:46 -0000	1.3
+***************
+*** 2,6 ****
+  .\" figure-4
+  .\"
+! .\"	Copyright (c) 2003-2004, PostgreSQL Global Development Group
+  .\"	Author: Jan Wieck, Afilias USA INC.
+  .\"
+--- 2,6 ----
+  .\" figure-4
+  .\"
+! .\"	Copyright (c) 2003-2007, PostgreSQL Global Development Group
+  .\"	Author: Jan Wieck, Afilias USA INC.
+  .\"
+
+Index: figure-2.pic
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/doc/concept/figure-2.pic,v
+retrieving revision 1.2
+retrieving revision 1.3
+diff -C2 -d -r1.2 -r1.3
+*** figure-2.pic	20 Feb 2004 15:13:27 -0000	1.2
+--- figure-2.pic	20 Dec 2007 00:56:46 -0000	1.3
+***************
+*** 2,6 ****
+  .\" figure-2
+  .\"
+! .\"	Copyright (c) 2003-2004, PostgreSQL Global Development Group
+  .\"	Author: Jan Wieck, Afilias USA INC.
+  .\"
+--- 2,6 ----
+  .\" figure-2
+  .\"
+! .\"	Copyright (c) 2003-2007, PostgreSQL Global Development Group
+  .\"	Author: Jan Wieck, Afilias USA INC.
+  .\"
+
+Index: figure-1.pic
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/doc/concept/figure-1.pic,v
+retrieving revision 1.2
+retrieving revision 1.3
+diff -C2 -d -r1.2 -r1.3
+*** figure-1.pic	20 Feb 2004 15:13:27 -0000	1.2
+--- figure-1.pic	20 Dec 2007 00:56:46 -0000	1.3
+***************
+*** 2,6 ****
+  .\" figure-1
+  .\"
+! .\"	Copyright (c) 2003-2004, PostgreSQL Global Development Group
+  .\"	Author: Jan Wieck, Afilias USA INC.
+  .\"
+--- 2,6 ----
+  .\" figure-1
+  .\"
+! .\"	Copyright (c) 2003-2007, PostgreSQL Global Development Group
+  .\"	Author: Jan Wieck, Afilias USA INC.
+  .\"
+
+Index: Slony-I-concept.nr
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/doc/concept/Slony-I-concept.nr,v
+retrieving revision 1.4
+retrieving revision 1.5
+diff -C2 -d -r1.4 -r1.5
+*** Slony-I-concept.nr	11 Apr 2006 14:42:23 -0000	1.4
+--- Slony-I-concept.nr	20 Dec 2007 00:56:46 -0000	1.5
+***************
+*** 4,8 ****
+  .\"		Original design goals and technical overview
+  .\"
+! .\"	Copyright (c) 2003-2004, PostgreSQL Global Development Group
+  .\"	Author: Jan Wieck, Afilias USA INC.
+  .\"
+--- 4,8 ----
+  .\"		Original design goals and technical overview
+  .\"
+! .\"	Copyright (c) 2003-2007, PostgreSQL Global Development Group
+  .\"	Author: Jan Wieck, Afilias USA INC.
+  .\"
+
+Index: figure-3.pic
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/doc/concept/figure-3.pic,v
+retrieving revision 1.2
+retrieving revision 1.3
+diff -C2 -d -r1.2 -r1.3
+*** figure-3.pic	20 Feb 2004 15:13:27 -0000	1.2
+--- figure-3.pic	20 Dec 2007 00:56:46 -0000	1.3
+***************
+*** 2,6 ****
+  .\" figure-3
+  .\"
+! .\"	Copyright (c) 2003-2004, PostgreSQL Global Development Group
+  .\"	Author: Jan Wieck, Afilias USA INC.
+  .\"
+--- 2,6 ----
+  .\" figure-3
+  .\"
+! .\"	Copyright (c) 2003-2007, PostgreSQL Global Development Group
+  .\"	Author: Jan Wieck, Afilias USA INC.
+  .\"
+
+From dfetter at lists.slony.info  Wed Dec 19 16:56:48 2007
+From: dfetter at lists.slony.info (David Fetter)
+Date: Wed Dec 19 16:56:51 2007
+Subject: [Slony1-commit] slony1-engine/doc/implementation Makefile
+	Slony-I-implementation.nr figure-1.pic figure-2.pic
+Message-ID: <20071220005648.A2ED3290C78@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/doc/implementation
+In directory main.slony.info:/tmp/cvs-serv15293/implementation
+
+Modified Files:
+	Makefile Slony-I-implementation.nr figure-1.pic figure-2.pic 
+Log Message:
+Updated copyright notices to 2007.
+
+
+Index: figure-1.pic
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/doc/implementation/figure-1.pic,v
+retrieving revision 1.3
+retrieving revision 1.4
+diff -C2 -d -r1.3 -r1.4
+*** figure-1.pic	20 Feb 2004 15:13:28 -0000	1.3
+--- figure-1.pic	20 Dec 2007 00:56:46 -0000	1.4
+***************
+*** 2,6 ****
+  .\" figure-1
+  .\"
+! .\"	Copyright (c) 2003-2004, PostgreSQL Global Development Group
+  .\"	Author: Jan Wieck, Afilias USA INC.
+  .\"
+--- 2,6 ----
+  .\" figure-1
+  .\"
+! .\"	Copyright (c) 2003-2007, PostgreSQL Global Development Group
+  .\"	Author: Jan Wieck, Afilias USA INC.
+  .\"
+
+Index: Slony-I-implementation.nr
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/doc/implementation/Slony-I-implementation.nr,v
+retrieving revision 1.6
+retrieving revision 1.7
+diff -C2 -d -r1.6 -r1.7
+*** Slony-I-implementation.nr	11 Apr 2006 14:42:23 -0000	1.6
+--- Slony-I-implementation.nr	20 Dec 2007 00:56:46 -0000	1.7
+***************
+*** 4,8 ****
+  .\"		Technical details of the actual Slony-I implementation.
+  .\"
+! .\"	Copyright (c) 2003-2004, PostgreSQL Global Development Group
+  .\"	Author: Jan Wieck, Afilias USA INC.
+  .\"
+--- 4,8 ----
+  .\"		Technical details of the actual Slony-I implementation.
+  .\"
+! .\"	Copyright (c) 2003-2007, PostgreSQL Global Development Group
+  .\"	Author: Jan Wieck, Afilias USA INC.
+  .\"
+
+Index: Makefile
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/doc/implementation/Makefile,v
+retrieving revision 1.12
+retrieving revision 1.13
+diff -C2 -d -r1.12 -r1.13
+*** Makefile	2 Aug 2006 15:32:01 -0000	1.12
+--- Makefile	20 Dec 2007 00:56:46 -0000	1.13
+***************
+*** 2,6 ****
+  # Makefile for the Slony-I implementation paper
+  #
+! #	Copyright (c) 2003-2004, PostgreSQL Global Development Group
+  #	Author: Jan Wieck, Afilias USA INC.
+  #
+--- 2,6 ----
+  # Makefile for the Slony-I implementation paper
+  #
+! #	Copyright (c) 2003-2007, PostgreSQL Global Development Group
+  #	Author: Jan Wieck, Afilias USA INC.
+  #
+
+Index: figure-2.pic
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/doc/implementation/figure-2.pic,v
+retrieving revision 1.3
+retrieving revision 1.4
+diff -C2 -d -r1.3 -r1.4
+*** figure-2.pic	22 Feb 2004 15:42:53 -0000	1.3
+--- figure-2.pic	20 Dec 2007 00:56:46 -0000	1.4
+***************
+*** 2,6 ****
+  .\" figure-2
+  .\"
+! .\"	Copyright (c) 2003-2004, PostgreSQL Global Development Group
+  .\"	Author: Jan Wieck, Afilias USA INC.
+  .\"
+--- 2,6 ----
+  .\" figure-2
+  .\"
+! .\"	Copyright (c) 2003-2007, PostgreSQL Global Development Group
+  .\"	Author: Jan Wieck, Afilias USA INC.
+  .\"
+
+From dfetter at lists.slony.info  Wed Dec 19 16:56:48 2007
+From: dfetter at lists.slony.info (David Fetter)
+Date: Wed Dec 19 16:56:52 2007
+Subject: [Slony1-commit] slony1-engine/doc/adminguide installation.sgml
+	legal.sgml loganalysis.sgml logshipping.sgml slonik_ref.sgml
+	subscribenodes.sgml
+Message-ID: <20071220005649.88F03290CCD@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/doc/adminguide
+In directory main.slony.info:/tmp/cvs-serv15293/adminguide
+
+Modified Files:
+	installation.sgml legal.sgml loganalysis.sgml logshipping.sgml 
+	slonik_ref.sgml subscribenodes.sgml 
+Log Message:
+Updated copyright notices to 2007.
+
+
+Index: legal.sgml
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/doc/adminguide/legal.sgml,v
+retrieving revision 1.11
+retrieving revision 1.12
+diff -C2 -d -r1.11 -r1.12
+*** legal.sgml	2 Aug 2006 18:34:58 -0000	1.11
+--- legal.sgml	20 Dec 2007 00:56:46 -0000	1.12
+***************
+*** 2,6 ****
+  
+  <copyright>
+!  <year>2004-2006</year>
+   <holder>The PostgreSQL Global Development Group</holder>
+  </copyright>
+--- 2,6 ----
+  
+  <copyright>
+!  <year>2004-2007</year>
+   <holder>The PostgreSQL Global Development Group</holder>
+  </copyright>
+***************
+*** 10,14 ****
+  
+   <para>
+!   <productname>PostgreSQL</productname> is Copyright &copy; 2004-2006
+    by the PostgreSQL Global Development Group and is distributed under
+    the terms of the license of the University of California below.
+--- 10,14 ----
+  
+   <para>
+!   <productname>PostgreSQL</productname> is Copyright &copy; 2004-2007
+    by the PostgreSQL Global Development Group and is distributed under
+    the terms of the license of the University of California below.
+
+Index: logshipping.sgml
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/doc/adminguide/logshipping.sgml,v
+retrieving revision 1.19
+retrieving revision 1.20
+diff -C2 -d -r1.19 -r1.20
+*** logshipping.sgml	11 Dec 2007 21:27:05 -0000	1.19
+--- logshipping.sgml	20 Dec 2007 00:56:46 -0000	1.20
+***************
+*** 270,274 ****
+  start transaction;
+  
+! select "_T1".setsyncTracking_offline(1, '655', '656', '2005-09-23 18:37:40.206342');
+  -- end of log archiving header
+  </programlisting></para></listitem>
+--- 270,274 ----
+  start transaction;
+  
+! select "_T1".setsyncTracking_offline(1, '655', '656', '2007-09-23 18:37:40.206342');
+  -- end of log archiving header
+  </programlisting></para></listitem>
+***************
+*** 282,286 ****
+  start transaction;
+  
+! select "_T1".setsyncTracking_offline(1, '96', '109', '2005-09-23 19:01:31.267403');
+  -- end of log archiving header
+  </programlisting></para>
+--- 282,286 ----
+  start transaction;
+  
+! select "_T1".setsyncTracking_offline(1, '96', '109', '2007-09-23 19:01:31.267403');
+  -- end of log archiving header
+  </programlisting></para>
+
+Index: installation.sgml
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/doc/adminguide/installation.sgml,v
+retrieving revision 1.32
+retrieving revision 1.33
+diff -C2 -d -r1.32 -r1.33
+*** installation.sgml	11 Jun 2007 16:02:50 -0000	1.32
+--- installation.sgml	20 Dec 2007 00:56:46 -0000	1.33
+***************
+*** 226,230 ****
+  indicates that there is intent to address the issue by bumping up the
+  value of NAMELEN in some future release of Red Hat Enterprise Linux,
+! but that won't likely help you in 2005.  Fedora Core 4 should have the
+  issue addressed somewhat sooner. </para>
+  
+--- 226,230 ----
+  indicates that there is intent to address the issue by bumping up the
+  value of NAMELEN in some future release of Red Hat Enterprise Linux,
+! but that won't likely help you in 2008.  Fedora Core 4 should have the
+  issue addressed somewhat sooner. </para>
+  
+
+Index: slonik_ref.sgml
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/doc/adminguide/slonik_ref.sgml,v
+retrieving revision 1.75
+retrieving revision 1.76
+diff -C2 -d -r1.75 -r1.76
+*** slonik_ref.sgml	29 Nov 2007 21:37:46 -0000	1.75
+--- slonik_ref.sgml	20 Dec 2007 00:56:46 -0000	1.76
+***************
+*** 2642,2646 ****
+  EXECUTE SCRIPT (
+     SET ID = 1,
+!    FILENAME = '/tmp/changes_2004-05-01.sql',
+     EVENT NODE = 1
+  );
+--- 2642,2646 ----
+  EXECUTE SCRIPT (
+     SET ID = 1,
+!    FILENAME = '/tmp/changes_2008-04-01.sql',
+     EVENT NODE = 1
+  );
+
+Index: subscribenodes.sgml
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/doc/adminguide/subscribenodes.sgml,v
+retrieving revision 1.16
+retrieving revision 1.17
+diff -C2 -d -r1.16 -r1.17
+*** subscribenodes.sgml	2 Aug 2006 18:34:59 -0000	1.16
+--- subscribenodes.sgml	20 Dec 2007 00:56:46 -0000	1.17
+***************
+*** 94,98 ****
+  
+  <screen>
+! 2005-04-13 07:11:28 PDT ERROR remoteWorkerThread_11: "declare LOG
+  cursor for select log_origin, log_xid, log_tableid, log_actionseq,
+  log_cmdtype, log_cmddata from "_T1".sl_log_1 where log_origin = 11 and
+--- 94,98 ----
+  
+  <screen>
+! 2007-04-13 07:11:28 PDT ERROR remoteWorkerThread_11: "declare LOG
+  cursor for select log_origin, log_xid, log_tableid, log_actionseq,
+  log_cmdtype, log_cmddata from "_T1".sl_log_1 where log_origin = 11 and
+
+Index: loganalysis.sgml
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/doc/adminguide/loganalysis.sgml,v
+retrieving revision 1.11
+retrieving revision 1.12
+diff -C2 -d -r1.11 -r1.12
+*** loganalysis.sgml	22 Oct 2007 20:49:26 -0000	1.11
+--- loganalysis.sgml	20 Dec 2007 00:56:46 -0000	1.12
+***************
+*** 1046,1050 ****
+  <listitem><para><command>WARN: remoteWorkerThread_%d: event %d ignored - origin inactive</command></para> 
+  
+! <para> This shouldn't occur now (2006) as we don't support the notion
+  of deactivating a node... </para>
+  </listitem>
+--- 1046,1050 ----
+  <listitem><para><command>WARN: remoteWorkerThread_%d: event %d ignored - origin inactive</command></para> 
+  
+! <para> This shouldn't occur now (2007) as we don't support the notion
+  of deactivating a node... </para>
+  </listitem>
+

@@ -1,0 +1,1179 @@
+From cbbrowne at lists.slony.info  Thu Nov  6 13:40:44 2008
+From: cbbrowne at lists.slony.info (Chris Browne)
+Date: Thu Nov  6 13:40:45 2008
+Subject: [Slony1-commit] slony1-engine/doc/adminguide slonik_ref.sgml
+Message-ID: <20081106214044.3EEE4290054@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/doc/adminguide
+In directory main.slony.info:/tmp/cvs-serv2858
+
+Modified Files:
+	slonik_ref.sgml 
+Log Message:
+Fix typo reported by Jaime Casanova
+
+
+Index: slonik_ref.sgml
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/doc/adminguide/slonik_ref.sgml,v
+retrieving revision 1.90
+retrieving revision 1.91
+diff -C2 -d -r1.90 -r1.91
+*** slonik_ref.sgml	18 Sep 2008 21:28:18 -0000	1.90
+--- slonik_ref.sgml	6 Nov 2008 21:40:42 -0000	1.91
+***************
+*** 1351,1355 ****
+      <title>Description</title>
+      
+!     <para> Add an existing usep table to a replication set. The set
+      cannot currently be subscribed by any other node - that
+      functionality is supported by the <xref linkend="stmtmergeset">
+--- 1351,1355 ----
+      <title>Description</title>
+      
+!     <para> Add an existing user table to a replication set. The set
+      cannot currently be subscribed by any other node - that
+      functionality is supported by the <xref linkend="stmtmergeset">
+
+From cbbrowne at lists.slony.info  Mon Nov 17 14:35:18 2008
+From: cbbrowne at lists.slony.info (Chris Browne)
+Date: Mon Nov 17 14:35:20 2008
+Subject: [Slony1-commit] slony1-engine/src/slony_logshipper ipcutil.c
+	slony_logshipper.c
+Message-ID: <20081117223518.6B105290029@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/src/slony_logshipper
+In directory main.slony.info:/tmp/cvs-serv24981
+
+Modified Files:
+	ipcutil.c slony_logshipper.c 
+Log Message:
+Added patch per Richard Yen to allow log shipper to rescan automatically
+
+
+Index: slony_logshipper.c
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/src/slony_logshipper/slony_logshipper.c,v
+retrieving revision 1.2
+retrieving revision 1.3
+diff -C2 -d -r1.2 -r1.3
+*** slony_logshipper.c	9 Sep 2007 02:37:05 -0000	1.2
+--- slony_logshipper.c	17 Nov 2008 22:35:16 -0000	1.3
+***************
+*** 48,51 ****
+--- 48,52 ----
+   * Global data
+   */
++ int         rescan_interval = 0;
+  int			parse_errors = 0;
+  int			opt_quiet = 0;
+***************
+*** 135,139 ****
+  	 *
+  	 */
+! 	while ((opt = getopt(argc, (char **)argv, "hvqcflrtTw")) != EOF)
+  	{
+  		switch (opt)
+--- 136,140 ----
+  	 *
+  	 */
+! 	while ((opt = getopt(argc, (char **)argv, "hvqcflrtTws:")) != EOF)
+  	{
+  		switch (opt)
+***************
+*** 179,182 ****
+--- 180,187 ----
+  				opt_nowait = 1;
+  				break;
++             
++             case 's':
++                 rescan_interval = atoi(optarg);
++                 break;
+  
+  			default:
+***************
+*** 312,316 ****
+  
+  			default:	if (!opt_quiet)
+! 							printf("logshipper deamon created - pid = %d\n",
+  									pid);
+  						return 0;
+--- 317,321 ----
+  
+  			default:	if (!opt_quiet)
+! 							printf("logshipper daemon created - pid = %d\n",
+  									pid);
+  						return 0;
+***************
+*** 366,369 ****
+--- 371,387 ----
+  			break;
+  
++ 		if (rc == -2)
++ 		{
++ 			archscan_sort = NULL;
++             errlog(LOG_INFO, "Queue is empty.  Going to rescan in %d seconds\n", rescan_interval);
++             sleep(rescan_interval);
++ 			if (archscan(optind, argc, (char **)argv) < 0)
++ 			{
++ 				return -1;
++ 			}
++             errlog(LOG_INFO, "Archive dir scanned\n");
++ 			continue;
++                }
++ 		
+  		if (rc < 0)
+  		{
+***************
+*** 1173,1176 ****
+--- 1191,1195 ----
+  		"      -f    stay in foreground (don't daemonize)\n"
+  		"      -w    enter smart shutdown mode immediately\n"
++ 		"      -s    indicate (integer value) rescan interval\n"
+  		"\n");
+  	exit(1);
+
+Index: ipcutil.c
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/src/slony_logshipper/ipcutil.c,v
+retrieving revision 1.3
+retrieving revision 1.4
+diff -C2 -d -r1.3 -r1.4
+*** ipcutil.c	27 Sep 2007 18:02:52 -0000	1.3
+--- ipcutil.c	17 Nov 2008 22:35:16 -0000	1.4
+***************
+*** 449,455 ****
+  		 * Receive one single message blocking for it.
+  		 */
+! 		rc = msgrcv(msgid, &msg, sizeof(msg), 0, 0);
+  		if (rc < 0)
+  		{
+  			if (errno == EINTR)
+  				continue;
+--- 449,457 ----
+  		 * Receive one single message blocking for it.
+  		 */
+! 		rc = msgrcv(msgid, &msg, sizeof(msg), 0, IPC_NOWAIT);
+  		if (rc < 0)
+  		{
++ 			if (errno == ENOMSG)
++ 				return -1;
+  			if (errno == EINTR)
+  				continue;
+
+From cbbrowne at lists.slony.info  Mon Nov 17 14:38:52 2008
+From: cbbrowne at lists.slony.info (Chris Browne)
+Date: Mon Nov 17 14:38:54 2008
+Subject: [Slony1-commit] slony1-engine/tests/test1 generate_dml.sh
+Message-ID: <20081117223852.ECE142900A8@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/tests/test1
+In directory main.slony.info:/tmp/cvs-serv25417/tests/test1
+
+Modified Files:
+	generate_dml.sh 
+Log Message:
+Fix typo
+
+
+Index: generate_dml.sh
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/tests/test1/generate_dml.sh,v
+retrieving revision 1.17
+retrieving revision 1.18
+diff -C2 -d -r1.17 -r1.18
+*** generate_dml.sh	15 Jul 2008 22:25:44 -0000	1.17
+--- generate_dml.sh	17 Nov 2008 22:38:50 -0000	1.18
+***************
+*** 93,97 ****
+        warn 3 "cleanupEvent() failed - rc=${rc} see $mktmp/cleanupevent.log* for details"
+    fi
+!   status "completed cleanupEevent(${pint},${dellogs}) test"
+    status "done"
+  }
+--- 93,97 ----
+        warn 3 "cleanupEvent() failed - rc=${rc} see $mktmp/cleanupevent.log* for details"
+    fi
+!   status "completed cleanupEvent(${pint},${dellogs}) test"
+    status "done"
+  }
+
+From cbbrowne at lists.slony.info  Mon Nov 17 14:39:49 2008
+From: cbbrowne at lists.slony.info (Chris Browne)
+Date: Mon Nov 17 14:39:51 2008
+Subject: [Slony1-commit] slony1-engine/src/backend slony1_funcs.sql
+Message-ID: <20081117223949.508A02900A8@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/src/backend
+In directory main.slony.info:/tmp/cvs-serv25473/src/backend
+
+Modified Files:
+	slony1_funcs.sql 
+Log Message:
+Fix problem with cleanup function - it was performing an "imperative 
+select" which isn't permissible
+
+
+Index: slony1_funcs.sql
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/src/backend/slony1_funcs.sql,v
+retrieving revision 1.144
+retrieving revision 1.145
+diff -C2 -d -r1.144 -r1.145
+*** slony1_funcs.sql	18 Sep 2008 21:26:29 -0000	1.144
+--- slony1_funcs.sql	17 Nov 2008 22:39:47 -0000	1.145
+***************
+*** 5193,5198 ****
+  	          where (ev_origin, ev_seqno) in (select ev_origin, min(ev_seqno) from @NAMESPACE@.sl_event where ev_type = 'SYNC' group by ev_origin)
+  		loop
+! 			select 1 from @NAMESPACE@.sl_log_2 where log_origin = v_origin and log_txid < v_xmin limit 1;		
+! 			if exists then
+  				v_purgeable := 'false';
+  			end if;
+--- 5193,5197 ----
+  	          where (ev_origin, ev_seqno) in (select ev_origin, min(ev_seqno) from @NAMESPACE@.sl_event where ev_type = 'SYNC' group by ev_origin)
+  		loop
+! 			if exists (select 1 from @NAMESPACE@.sl_log_2 where log_origin = v_origin and log_txid < v_xmin limit 1) then
+  				v_purgeable := 'false';
+  			end if;
+
+From cbbrowne at lists.slony.info  Mon Nov 17 14:40:29 2008
+From: cbbrowne at lists.slony.info (Chris Browne)
+Date: Mon Nov 17 14:40:30 2008
+Subject: [Slony1-commit] slony1-engine/src/backend slony1_base.sql
+Message-ID: <20081117224029.590E229007F@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/src/backend
+In directory main.slony.info:/tmp/cvs-serv25798/src/backend
+
+Modified Files:
+	slony1_base.sql 
+Log Message:
+Fix typo in documentation
+
+
+Index: slony1_base.sql
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/src/backend/slony1_base.sql,v
+retrieving revision 1.39
+retrieving revision 1.40
+diff -C2 -d -r1.39 -r1.40
+*** slony1_base.sql	14 Feb 2008 22:21:42 -0000	1.39
+--- slony1_base.sql	17 Nov 2008 22:40:27 -0000	1.40
+***************
+*** 149,153 ****
+  comment on column @NAMESPACE@.sl_sequence.seq_id is 'An internally-used ID for Slony-I to use in its sequencing of updates';
+  comment on column @NAMESPACE@.sl_sequence.seq_reloid is 'The OID of the sequence object';
+! comment on column @NAMESPACE@.sl_sequence.seq_relname is 'The name of the sdequence in pg_catalog.pg_class.relname used to recover from a dump/restore cycle'; 
+  comment on column @NAMESPACE@.sl_sequence.seq_nspname is 'The name of the schema in pg_catalog.pg_namespace.nspname used to recover from a dump/restore cycle'; 
+  comment on column @NAMESPACE@.sl_sequence.seq_set is 'Indicates which replication set the object is in';
+--- 149,153 ----
+  comment on column @NAMESPACE@.sl_sequence.seq_id is 'An internally-used ID for Slony-I to use in its sequencing of updates';
+  comment on column @NAMESPACE@.sl_sequence.seq_reloid is 'The OID of the sequence object';
+! comment on column @NAMESPACE@.sl_sequence.seq_relname is 'The name of the sequence in pg_catalog.pg_class.relname used to recover from a dump/restore cycle'; 
+  comment on column @NAMESPACE@.sl_sequence.seq_nspname is 'The name of the schema in pg_catalog.pg_namespace.nspname used to recover from a dump/restore cycle'; 
+  comment on column @NAMESPACE@.sl_sequence.seq_set is 'Indicates which replication set the object is in';
+
+From cbbrowne at lists.slony.info  Mon Nov 17 14:41:23 2008
+From: cbbrowne at lists.slony.info (Chris Browne)
+Date: Mon Nov 17 14:41:26 2008
+Subject: [Slony1-commit] slony1-engine/doc/adminguide slonik_ref.sgml
+Message-ID: <20081117224123.D9FA02900A8@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/doc/adminguide
+In directory main.slony.info:/tmp/cvs-serv25852/doc/adminguide
+
+Modified Files:
+	slonik_ref.sgml 
+Log Message:
+Clean up WAIT FOR EVENT example
+
+
+Index: slonik_ref.sgml
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/doc/adminguide/slonik_ref.sgml,v
+retrieving revision 1.91
+retrieving revision 1.92
+diff -C2 -d -r1.91 -r1.92
+*** slonik_ref.sgml	6 Nov 2008 21:40:42 -0000	1.91
+--- slonik_ref.sgml	17 Nov 2008 22:41:21 -0000	1.92
+***************
+*** 1361,1366 ****
+        </varlistentry>
+        <varlistentry><term><literal> ORIGIN = ival </literal></term>
+!        <listitem><para> Origin node for the set.  A future version of <application>slonik</application>
+! 	 might figure out this information by itself.</para></listitem>
+        </varlistentry>
+        <varlistentry><term><literal> ID = ival </literal></term>
+--- 1361,1366 ----
+        </varlistentry>
+        <varlistentry><term><literal> ORIGIN = ival </literal></term>
+!        <listitem><para> Origin node for the set.  We might imagine a future version of <application>slonik</application>
+! 	 figuring out this information by itself, but there do lie race conditions, there.</para></listitem>
+        </varlistentry>
+        <varlistentry><term><literal> ID = ival </literal></term>
+***************
+*** 2909,2917 ****
+       # Assuming that set 1 has direct subscribers 2 and 3
+       SUBSCRIBE SET (ID = 999, PROVIDER = 1, RECEIVER = 2);
+!      SYNC (ID=1);
+!      WAIT FOR EVENT (ORIGIN = 1, CONFIRMED = 2, WAIT ON=1);
+       SUBSCRIBE SET (ID = 999, PROVIDER = 1, RECEIVER = 3);
+       SYNC (ID=1);
+!      WAIT FOR EVENT (ORIGIN = 1, CONFIRMED = 3, WAIT ON=1);
+       MERGE SET ( ID = 1, ADD ID = 999, ORIGIN = 1 );
+      </programlisting>
+--- 2909,2917 ----
+       # Assuming that set 1 has direct subscribers 2 and 3
+       SUBSCRIBE SET (ID = 999, PROVIDER = 1, RECEIVER = 2);
+!      WAIT FOR EVENT (ORIGIN = 1, CONFIRMED = ALL, WAIT ON=1);
+       SUBSCRIBE SET (ID = 999, PROVIDER = 1, RECEIVER = 3);
++      WAIT FOR EVENT (ORIGIN = 1, CONFIRMED = ALL, WAIT ON=1);
+       SYNC (ID=1);
+!      WAIT FOR EVENT (ORIGIN = 1, CONFIRMED = ALL, WAIT ON=1);
+       MERGE SET ( ID = 1, ADD ID = 999, ORIGIN = 1 );
+      </programlisting>
+
+From cbbrowne at lists.slony.info  Mon Nov 17 14:47:47 2008
+From: cbbrowne at lists.slony.info (Chris Browne)
+Date: Mon Nov 17 14:47:48 2008
+Subject: [Slony1-commit] slony1-engine RELEASE-2.0
+Message-ID: <20081117224747.8D54E2901BF@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine
+In directory main.slony.info:/tmp/cvs-serv26340
+
+Modified Files:
+	RELEASE-2.0 
+Log Message:
+Update release notes
+
+
+Index: RELEASE-2.0
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/RELEASE-2.0,v
+retrieving revision 1.23
+retrieving revision 1.24
+diff -C2 -d -r1.23 -r1.24
+*** RELEASE-2.0	25 Sep 2008 14:45:40 -0000	1.23
+--- RELEASE-2.0	17 Nov 2008 22:47:45 -0000	1.24
+***************
+*** 214,215 ****
+--- 214,223 ----
+  - Additional logging of the time spent running queries, broken out on
+    a by-database basis
++ 
++ - Fixes to documentation of WAIT FOR EVENT
++ 
++ - Fix to bug #63 - cleanup thread had an imperative SELECT that needed
++   to become part of an IF statement
++ 
++ - Enhancement - bug #61 - logshipper process should rescan the queue
++   when it empties
+
+From cbbrowne at lists.slony.info  Mon Nov 24 06:50:24 2008
+From: cbbrowne at lists.slony.info (Chris Browne)
+Date: Mon Nov 24 06:50:26 2008
+Subject: [Slony1-commit] slony1-engine RELEASE
+Message-ID: <20081124145024.DFDD029007F@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine
+In directory main.slony.info:/tmp/cvs-serv18035
+
+Modified Files:
+	RELEASE 
+Log Message:
+Change over to v2.0.  Essentially, that blanks this file.
+The changes between 1.2 and 2.0 are in the RELEASE-2.0 file
+
+
+Index: RELEASE
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/RELEASE,v
+retrieving revision 1.2
+retrieving revision 1.3
+diff -C2 -d -r1.2 -r1.3
+*** RELEASE	28 May 2007 20:20:57 -0000	1.2
+--- RELEASE	24 Nov 2008 14:50:22 -0000	1.3
+***************
+*** 1,398 ****
+  $Id$
+  
+! RELEASE 1.2.10
+! 
+! - Fixed problem with EXECUTE SCRIPT (EXECUTE ONLY ON = <node>)
+! 
+!   - The script was being executed on too many nodes...
+! 
+! - Added a test script for log shipping
+! 
+!   ... And alter it to add invocation of a DDL script.  This
+!   allows testing for an event-counting problem in log shipping.
+! 
+! - Changes to support PostgreSQL 8.3 as VARATT_SIZEP has been deprecated
+! 
+! - in xxid.c, changes to support PostgreSQL 8.3 as tuple compression has
+!   more extensive support
+! 
+!   VARDATA_ANY(PG_DETOAST_DATUM_PACKED((PG_GETARG_DATUM(0))))
+!   tends to replace
+!   PG_GETARG_VARLENA(0)
+! 
+! 
+! - Slonik's SYNC command never recorded the new seqno in the admin
+!   conninfo, with potential wacky results for WAIT FOR EVENT
+! 
+! 
+! - Fix rpm build problem when the system has pg_config in both under
+!   /usr/local/pgsql/bin and /usr/bin
+! 
+! - Add init script for Red Hat / Fedora
+! 
+! RELEASE 1.2.9
+! 
+! - Reverted change that tried to support elderly apache rotatelogs
+! 
+! - Added a patch file to apply if you need to support elderly apache rotatelogs (tools/altperl/old-apache-rotatelogs.patch)
+! 
+! - Bug in UPDATE FUNCTIONS - wrong quoting in plpgsql function
+! 
+! - Add a regression test that runs UPDATE FUNCTIONS to ensure that it at least has no syntax errors
+! 
+! RELEASE 1.2.8
+! 
+! - Change to rotatelogs configuration to support older versions of Apache
+! log rotator
+! 
+! - Fix to altperl "execute script" script to pass the filename properly
+! 
+! - Fix to src/backend/slony1_funcs.v80.sql - comment on the right function in v8.0
+! 
+! - Fix to src/slonik/slonik.c - it wasn't pulling in the right version of slony1_funcs.?.sql in some cases
+! 
+! - Updated docs on creating releases to describe the version mismatch problem found above in slonik.c
+! 
+! RELEASE 1.2.7
+! 
+! - Add remote_listen_timeout parameter to slon.conf
+! 
+! This addresses the problem where a slon times out when accessing
+! sl_event if a node has been out of commission for a long time (several
+! days)
+! 
+! - Resolve bug #1623
+! 
+! In this bug, big "action lists" that need to get compressed could cause
+! a logging printf to blow up.  Changed the logging level so that detail
+! is only shown at level 4, which won't bite people by default.
+! 
+! - UNINSTALL NODE failures now show node # in slonik error messages
+! 
+! If a user ran several UNINSTALL NODE requests in a single slonik
+! script, and one of them broke, you'd have no ready way to tell which
+! node this failed on.  Added code to report the node # where it failed.
+! 
+! - Added test to test1 for function generate_sync_event() and make_function_strict
+! 
+! - Added "v81" files (for slony1_base.v81.sql, slony1_funcs.v81.sql,
+! xxid.v81.sql), necessary to support 8.1 "ALTER FUNCTION ... STRICT";
+! 
+! - Fixed quoting problem in generate_sync_event()
+! 
+! - Added functionality to UPDATE FUNCTIONS to make xxidin() function
+! STRICT; the absence of this caused postmaster to fall over when
+! processing MOVE SET event in PG v8.2
+! 
+! - Added documentation of an issue surrounding NULLABLE columns to the
+! log analysis chapter of the admin guide and to the UPGRADING docs.
+! 
+! - When you run MOVE SET, this populates sl_setsync for the moved set
+!   even on nodes that are not subscribed.  If, subsequent to doing this, 
+!   you attempt a SUBSCRIBE SET for a formerly-unsubscribed node, the
+!   subscription will fail right at the end when the slon tries to insert a
+!   new value to sl_setsync.
+! 
+!   The fix: DELETE from sl_setsync immediately before the INSERT.  This
+!   will silently blow away any 'offending' sl_setsync row.
+! 
+!   (As observed by Afilias staff...)
+! 
+! - Log shipping fix - storage of sl_setsync_offline call had a wrong
+!   printf type; change from %d to %s
+! 
+! RELEASE 1.2.6
+! 
+! Release 1.2.6 fixes version numbers.
+! 
+! RELEASE 1.2.5 
+! 
+! Release 1.2.5 of Slony-I has the following bug fixes over 1.2.2:
+! 
+! - Fixed issue with xxid C functions - these functions need to be
+!   defined STRICT so that NULL values don't cause the functions to
+!   barf.  This has been causing users of PostgreSQL 8.2 to see
+!   postmasters falling over.
+! 
+! - Several improvements to internal documentation of altperl scripts
+! 
+! RELEASE 1.2.2
+! 
+! Release 1.2.2 of Slony-I has the following bug fixes over 1.2.1:
+! 
+! - SGML tagging fixes to allow docs to be generated on Fedora
+! 
+! - Fixes to altperl scripts (init cluster, store node) so they would
+!   properly generate STORE PATH requests (which had broken when STORE
+!   LISTEN code was removed)
+! 
+! - If PostgreSQL version is 8.1 or greater, we can use pg_config
+!   sharedir. Otherwise we will resort to the default guessing mode.
+! 
+! - Some makefile hygenic fixes
+! 
+! - Added \n to a number of log requests
+! 
+! - Fix to UPDATE FUNCTIONS which did not consider versions 1.1.5/1.1.6
+!   to be members of the 1.1 stream.  The minor problem with this was
+!   that Slony-I tables wouldn't get altered to drop out OIDs.  The
+!   major problem was that the new table sl_registry wouldn't get
+!   created
+! 
+! - Removed some confusing NOTICEs concerning management of partial
+!   indexes on sl_log_1 and sl_log_2.
+! 
+! - Close file descriptors upon running slon_terminate_worker() so that
+!   we don't run out of file descriptors
+! 
+! - Added in sleep(10) requests in several places where attempts to
+!   access the database in the main thread fails; this means that, for
+!   instance, the main DB is down, the slon doesn't simply sit there
+!   continually attempting to reconnect, as many times per second as it
+!   can.
+! 
+! - Several fixes to RPM .spec files
+! 
+! - Environment fix to Win32 service
+! 
+! - Set escape_string_warning to off, to prevent pgsql log noise when
+!   replicating cross versions
+! 
+! - Fix memory leak: free logshipping query 
+! 
+! - Bug #1585 - on 8.0+, if TRUNCATE failed, indices were not being
+!   deactivated during SUBSCRIBE SET COPY request, greatly slowing loading
+!   of data.  Added a deactivation inside the exception block, so that
+!   indices are deactivated during the COPY no matter what.
+! 
+! - X-Fade noticed that UPGRADE FUNCTIONS was taking out exclusive locks
+!   on sl_log_1, sl_log_2, sl_seqlog, which means that doing a Slony-I
+!   upgrade involved imposing an application outage.
+! 
+!   Moved the ALTER TABLE ... WITHOUT OIDS requests for these tables to
+!   cleanup loops, elsewhere, so that these tables no longer need to be 
+!   locked as part of the upgrade process.
+! 
+! - Documentation changes: Need for client/server encodings to match
+! 
+! - Fixes to parameter handling and interpreter name for
+!   test_slony_state*.pl scripts
+! 
+! - There was an error condition where if the final line of a slon.conf
+!   file did not end with a \n, then:
+!    a) A comment on that line would be treated as a syntax error
+!    b) A value set on that line would be ignored
+!   Fixed.
+! 
+! RELEASE 1.2.1
+! 
+! Release 1.2.1 of Slony-I has the following improvements over 1.2.0:
+! 
+! - Added a SYNC slonik command to allow requesting a SYNC event.
+!   This is a more useful thing to wait for than a SUBSCRIBE SET.
+! 
+! - MERGE SET now refuses to be applied if a subscriber has not
+!   yet confirmed post-subscription events
+! 
+! - Added a SLEEP slonik command to allow writing code that tells
+!   the script to pause for some number of seconds
+! 
+! - Fixed a concurrency problem where if you had multiple log
+!   shipped nodes, the threads processing them shared a single
+!   file descriptor as well as other variables.
+! 
+! - If a child process exits with return code of 0, that means it
+!   *asked* to exit, presumably because configuration changed that it
+!   needs to reload.  In that case, there's no need to wait 10s before
+!   restarting the thread; we should restart the thread immediately.
+! 
+!   This causes operations like MOVE SET to run ~10s faster per
+!   subscription change.
+! 
+! - Added a script, tools/release_checklist.sh, which performs some of
+!   the release checklist checks, such as verifying that the Slony-I
+!   version number (e.g. - 1.2.1) is consistent across various places
+!   that need to reference it.
+! 
+! - altperl scripts have had "listen path" generation removed as that is
+!   handled automatically as clusters are built.
+! 
+! - Fixed some portability problems in tools/launch_cluster.sh
+! 
+! - Added a new script, tools/search_logs.sh, meant to search hourly for
+!   errors in slon logs and warn an administrator about them.
+! 
+! RELEASE 1.2.0
+! 
+! Release 1.2 of Slony-I has numerous improvements over previous
+! versions.  
+! 
+! Many of them should represent near-invisible enhancements that improve
+! how Slony-I manages replication configuration.  These include:
+! 
+! - A major revision of memory management to limit memory usage by slon
+!   daemons.  In earlier versions, slon would try to load 100 tuples
+!   into memory at a time.  If you have tables with Very Large bytea or
+!   character varying columns, this could lead to loading 100 x 50MB
+!   into memory, twice, doing terrible things to memory consumption.
+! 
+!   slon now loads tuples in, directly, only if they are less than a
+!   certain size, and handles those 50MB tuples individually.
+! 
+! - Log switching: periodically, Slony-I will switch between storing
+!   replication data in sl_log_1 and sl_log_2, which allows regularly
+!   cleaning these tables out via TRUNCATE and which prevents some data
+!   loss problems relating to cases where different sets originate on
+!   different nodes, when transaction IDs roll over the 32 bit limits.
+! 
+! - pg_listener is now used dramatically less than it used to be, which
+!   diminishes the number of dead tuples you will find in this table.
+! 
+!   This, along with log switching, should improve Slony-I behaviour on
+!   systems where long-running transactions are common.  Older versions
+!   of Slony-I could suffer quite badly on systems that get hit by
+!   long-running transactions.
+! 
+! - DDL scripts are broken into individual statements
+! 
+!   This is more a bug fix than an enhancement; it now permits DDL
+!   scripts to create new tables and columns, and reference them later
+!   in the script.
+! 
+!   In the past, DDL was submitted to the postmaster as a single query,
+!   which meant that all of them had to reference the state of
+!   pg_catalog as it was before the DDL ran.  So you could add as many
+!   columns to tables as you liked; you could NOT, then, reference those
+!   columns, because the query processor would discover that the new
+!   column didn't exist as at "before the DDL ran."
+! 
+!   There is now a statement parser which splits scripts into individual
+!   SQL statements and passes them to the database back end
+!   individually.
+! 
+! - Slony-I tables are now marked "WITHOUT OIDS" so that they do not
+!   consume OIDS.
+! 
+!   It's only particularly important for sl_log_1/sl_log_2/sl_seqlog,
+!   but the change has been applied to all the tables Slony-I uses.
+!   UPGRADE FUNCTIONS will remove OIDs from Slony-I tables in existing
+!   schemas, too.
+! 
+! - When possible (based on log switching functionality), partial
+!   indexes on sl_log_1 and sl_log_2 are created on a per-origin-node
+!   basis.  This provides the performance boost of having an easily
+!   recognisable index, but without the risk of having XIDs from
+!   different nodes mixed together in one index, where roll-over could
+!   Cause Problems...
+! 
+! These features are generally configurable, but the defaults ought to
+! allow improved behaviour for all but the most "Extreme Uses."
+! 
+! There are also numerous enhancements that are more directly visible:
+! 
+! - Windows support
+! 
+!   A group of developers has contributed changes to allow running
+!   Slony-I as a Windows service.
+! 
+! - PostgreSQL Version Compatibility Changes
+! 
+!   Slony-I developers have been following the 8.2 release expected in
+!   fall 2006; Slony-I 1.2 can be expected to work with it without
+!   problems.
+! 
+!   Compatibility with version 7.3 has been dropped; version 1.2 notably
+!   makes use of some array functionality that didn't exist in 7.3.  If
+!   you are on 7.3, you're on a REALLY OLD version of PostgreSQL, and
+!   really ought to upgrade.  You may use Slony-I 1.1.5 to get to a more
+!   modern version, and then upgrade to 1.2 as needed.
+! 
+! - Process structure is revised considerably; in 1.1.0, an attempt was
+!   made to create an internal 'watchdog' that would restart threads
+!   that fell over for whatever reason.
+! 
+!   In 1.2, this is massively revised.  The "main" slon thread should,
+!   as of 1.2, never fall down, which means that there should no longer
+!   be a need for watchdog processes to watch carefully.
+! 
+!   This makes slon very much less fragile than it was in earlier
+!   versions.  This may revise how you want to start it up...  In the
+!   past, slon processes tended to fall over easily, mandating having
+!   some form of "watchdog."  The new behaviour points more towards
+!   "init" / "rc.d"-like handling, where, upon boot-up, one "rc.d" script
+!   might start up PostgreSQL, another one starts pgpool, and a third
+!   (which must be invoked after PostgreSQL is started) starts up a
+!   slon.
+! 
+! - Subscribe set aggressively locks tables on the subscriber to avoid
+!   failures
+! 
+!   This may become a configurable option so that sites where they
+!   Really Know What They're Doing and are sure that they won't deadlock
+!   themselves can leave the tables more open.
+! 
+!   But for most users, it's really preferable to lock the tables down
+!   on the subscriber so that you don't get 18 hours into subscribing an
+!   18GB replication set, hit a deadlock, and have to start all over.
+!   (The slon will automatically try again; the irritation is that you
+!   may have been depending on that getting done by Monday morning...)
+! 
+! - As has been the case for fairly much each release that has been
+!   made, the documentation has been significantly extended.  The "admin
+!   guide" has been augmented and cleaned up.  
+! 
+!   Notable additions include a listing of "Best Practices" (due in
+!   great part to discoveries by the oft-unsung heroes of Afilias' Data
+!   Services department) and a fairly comprehensive listing of log
+!   messages you may expect to see in your Slony-I logs.
+! 
+! - A lot of fixes to the build environment (this needs to be tested on
+!   lots of platforms)
+! 
+!   One noticeable upshot of this should be that (on Unix-like systems;
+!   Windows(tm) appears to differ) you oughtn't need to specify a whole
+!   lot of --with-pg[options] on the ./configure command line. You should
+!   be able to get most of what's needed simply by specifying the path to
+!   pg_config via --with-pgconfigdir.
+! 
+! - slon "lag interval" option
+! 
+!   You can tell a node to lag behind by a particular interval of time.
+! 
+!     slon -l "4 hours" [and probably other options :-)] 
+! 
+!   will cause the slon to ignore events until they reach the age
+!   corresponding to the requested interval.  That way, you can hold a
+!   node behind by 4 hours.
+! 
+!   This is a potential "foot gun" as there are some cases (MOVE SET,
+!   FAILOVER) where events have to be coordinated across all nodes with
+!   near-simultaneity.
+! 
+! - slon "stop after event" option
+! 
+!   You can tell a slon to terminate itself as soon as it receives a
+!   certain event from a certain node.
+! 
+!   Just as with "lag interval," this could be a bit of a foot gun...
+! 
+! - slon "run program after each log shipped SYNC" option
+! 
+!   You can specify a program to run each time a SYNC event
+!   is successfully closed off.
+! 
+! - Bug 1538 - if there is only one node, sl_event, sl_log_1 never get
+!   cleared out
+! 
+!   Logic added to cleanupevent() to clear out old sl_event entries if
+!   there is just one node.  That then allows the cleanup thread to
+!   clear sl_log_1 etc.
+! 
+! - Bug 1566 - Force all replication to occur in the ISO datestyle.
+!   This ensures that we can apply date/timestamps regardless of the
+!   datestyle they were entered in.
+  
+! - Force all replication to occur with standards_conforming_strings set
+!   to off. This ensures we can replicate a node running on 8.2 without
+!   extra escape chars showing up in the data.
+!  
+--- 1,6 ----
+  $Id$
+  
+! RELEASE 2.0.0
+  
+! The first release of version 2.0. See RELEASE-2.0 to see changes leading
+! from version 1.2 to 2.0.
+
+From cbbrowne at lists.slony.info  Mon Nov 24 07:06:20 2008
+From: cbbrowne at lists.slony.info (Chris Browne)
+Date: Mon Nov 24 07:06:21 2008
+Subject: [Slony1-commit] slony1-engine/src/slon slon.c
+Message-ID: <20081124150620.2EDB32901CD@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/src/slon
+In directory main.slony.info:/tmp/cvs-serv19612/slon
+
+Modified Files:
+	slon.c 
+Log Message:
+Patch from Hiroshi Saito to resolve some Windows problems with 2.0
+
+
+Index: slon.c
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/src/slon/slon.c,v
+retrieving revision 1.78
+retrieving revision 1.79
+diff -C2 -d -r1.78 -r1.79
+*** slon.c	1 Aug 2008 19:49:39 -0000	1.78
+--- slon.c	24 Nov 2008 15:06:18 -0000	1.79
+***************
+*** 950,953 ****
+--- 950,954 ----
+  	}
+  }
++ #endif
+  
+  /* ---------- 
+***************
+*** 958,961 ****
+--- 959,963 ----
+  slon_terminate_worker()
+  {
++ #ifndef WIN32 /* does not support in windows. */
+  	slon_log(SLON_INFO, "slon: notify worker process to shutdown\n");
+  
+***************
+*** 969,974 ****
+  	(void) close(sched_wakeuppipe[1]);
+  	(void) alarm(20);
+- }
+  #endif
+  
+  /* ---------- 
+--- 971,976 ----
+  	(void) close(sched_wakeuppipe[1]);
+  	(void) alarm(20);
+  #endif
++ }
+  
+  /* ---------- 
+
+From cbbrowne at lists.slony.info  Mon Nov 24 19:43:28 2008
+From: cbbrowne at lists.slony.info (Chris Browne)
+Date: Mon Nov 24 19:43:30 2008
+Subject: [Slony1-commit] slony1-www/content frontpage.txt news.txt
+Message-ID: <20081125034328.A3DF629002A@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-www/content
+In directory main.slony.info:/tmp/cvs-serv23353
+
+Modified Files:
+	frontpage.txt news.txt 
+Log Message:
+Update for v2.0.0
+
+
+Index: frontpage.txt
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-www/content/frontpage.txt,v
+retrieving revision 1.30
+retrieving revision 1.31
+diff -C2 -d -r1.30 -r1.31
+*** frontpage.txt	24 Sep 2008 21:32:44 -0000	1.30
+--- frontpage.txt	25 Nov 2008 03:43:26 -0000	1.31
+***************
+*** 1,11 ****
+  ---
+! Slony-I 2.0.0 second release available
+! 
+! <P> Version 2.0.0 RC2 is now <a href=
+! "http://slony.info/downloads/2.0/source/slony1-2.0.0-rc2.tar.bz2">
+! available.</a>
+  
+! See the "news" area for more details, including a copy of the release
+  notes.
+  ---
+  Slony-I 1.2.15 available
+--- 1,19 ----
+  ---
+! Slony-I 2.0.0 Released
+  
+! <P> See the "news" area for more details, including a copy of the release
+  notes.
++ 
++ <P> This is a <i>major</i> new release of Slony-I; it makes use of
++ some features introduced in PostgreSQL 8.3, and hence is not
++ compatible with versions older than 8.3.
++ 
++ <P> This is considered a pretty good tradeoff, as various
++ functionality would not be possible with earlier versions of
++ PostgreSQL.
++ <ul>
++ <li> Internal catalogues are no longer "hacked with," so that you may, with the new version, use pg_dump against subscribers and be able to expect to have a complete and consistent dump.
++ <li> Trigger handling is <i>enormously</i> cleaner.
++ </ul>
+  ---
+  Slony-I 1.2.15 available
+
+Index: news.txt
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-www/content/news.txt,v
+retrieving revision 1.48
+retrieving revision 1.49
+diff -C2 -d -r1.48 -r1.49
+*** news.txt	24 Sep 2008 21:32:44 -0000	1.48
+--- news.txt	25 Nov 2008 03:43:26 -0000	1.49
+***************
+*** 5,8 ****
+--- 5,11 ----
+  Chris Browne
+  
++ Slony-1 2.0.0 <a href="http://main.slony.info/downloads/2.0/source/slony1-2.0.0.tar.bz2">engine</a>
++ <a href="http://main.slony.info/downloads/2.0/source/slony1-2.0.0-docs.tar.bz2">documentation</a>
++ <br/>
+  Slony-1 1.2.15 <a href="http://main.slony.info/downloads/1.2/source/slony1-1.2.15.tar.bz2">engine</a>
+  <a href="http://main.slony.info/downloads/1.2/source/slony1-1.2.15-docs.tar.bz2">documentation</a>
+***************
+*** 11,14 ****
+--- 14,253 ----
+  <!-- Please keep this item at the top of the news list -->
+  ---
++ Slony-I 2.0.0 Released
++ http://main.slony.info/downloads/2.0/source/slony1-2.0.0.tar.bz2
++ 2008-11-24
++ Chris Browne
++ 
++ Differences from 1.2 stream
++ 
++ <ul>
++ <li> Removal of TABLE ADD KEY
++ 
++ <li> It drops all support for databases prior to Postgres version 8.3.
++ 
++ <p>This is required because we now make use of new functionality in
++ Postgres, namely the trigger and rule support for session replication
++ role. As of now, every node (origin/subscriber/mixed) can be dumped with
++ pg_dump and result in a consistent snapshot of the database.
++ 
++ <li> Still need alterTableRestore() for the upgrade from 1.2.x to 2.0.
++ upgradeSchema() will restore the system catalog to a consistent
++ state and define+configure the new versions of the log and deny_access
++ triggers. 
++ 
++ <li> Fix EXECUTE SCRIPT so that it records the ev_seqno for WAIT FOR EVENT
++ and make sure all DDL is executed in session_replication_role "local"
++ on the origin as well as all subscribers. This will cause the slony
++ triggers to ignore all DML statements while user triggers follow the
++ regular configuration options for ENABLE [REPLICA/ALWAYS] or DISABLE.
++ 
++ <li> Let the logshipping files also switch to session_replication_role =
++ "replica" or "local" (for DDL).
++ 
++ <li> Sequence tracking becomes enormously less expensive; rather than
++ polling *ALL* sequence values for each and every SYNC, the slon
++ stores the last value, and only records entries in sl_seqlog when
++ the value changes from that last value.  If most sequences are
++ relatively inactive, they won't require entries in sl_seqlog very
++ often.
++ 
++ <li> Change to tools/slony1_dump.sh (used to generate log shipping dump);
++   change quoting of "\\\backslashes\\\" to get rid of warning
++ 
++ <li> Cleanup thread revised to push most of the logic to evaluate which
++   tables are to be vacuumed into a pair of stored functions.
++ 
++ <P>  This fairly massively simplifies the C code.
++ 
++ <li> Revised logging levels so that most of the interesting messages are
++   spit out at SLON_CONFIG and SLON_INFO levels.  This can allow users
++   to drop out the higher DEBUG levels and still have useful logs.
++ 
++ <li> Changed log selection query to be less affected by long running
++   transaction.  This should help, in particular, the scenario where
++   it takes a very long time to subscribe to a set.  In that situation,
++   we have had the problem where applying the later SYNCs gets
++   extremely costly as the query selecting logs wound up forced into a
++   Seq Scan rather than an index scan.
++ 
++ <li> Removed all support for STORE/DROP TRIGGER commands. Users 
++   should use the ALTER TABLE [ENABLE|DISABLE] TRIGGER functionality 
++   available directly in Postgres from now on.
++ 
++ <li> Improve Wiki page generation script so that it has an option to add in
++   a set of [[Category:Foo]] tags to allow automated categorization.
++ 
++ <li> Documented how to fix tables that presently use Slony-I-generated
++   primary key candidates generated by TABLE ADD KEY
++ 
++ <li> Add some specific timestamps during the 2007 "DST rule change
++   ambiguous time" (e.g. - during the period which, under former rules,
++   was not DST, but which now is, due to the recent rule change).
++ 
++ <P>  Bill Moran ran into some problems with such dates; varying
++   PostgreSQL versions returned somewhat varying results.  This wasn't
++   a Slony-I problem; the data was indeed being replicated correctly.
++ 
++ <li> Made configure a bit smarter about automatically locating
++   docbook2man-spec.pl on Debian, Fedora, BSD.
++ 
++ <li> Tests now generate |pipe|delimited|output| indicating a number of
++   attributes of each test, including system/platform information,
++   versions, and whether or not the test succeeded or failed.
++ 
++ <li> Revised functions that generate listen paths
++ 
++ <li> tools/configure-replication.sh script permits specifying a
++   destination path for generated config files.  This enables using
++   it within automated processes, and makes it possible to use it to
++   generate Slonik scripts for tests in the "test bed," which has
++   the further merit of making tools/configure-replication.sh a
++   regularly-regression-tested tool.
++ 
++ <li> Fix to bug #15 - where long cluster name (>40 chars) leads to
++   things breaking when an index name is created that contains
++   the cluster name.
++ 
++   <P> Warn upon creating a long cluster name.
++   <p> Give a useful exception that explains the cause rather
++      than merely watching index creation fail.
++ 
++ <p><a href=   "http://www.slony.info/bugzilla/show_bug.cgi?id=15"> Bug 15 </a>
++ 
++ <li> Fix for bug #19 - added a script to help the administrator
++   search for any triggers on the database that is the source for
++   a schema that is to be used to initialize a log shipping node.
++ 
++ <p>  The problem is that some/most/sometimes all triggers and rules
++   are likely to need to be dropped from the log shipping node lest
++   they interfere with replication.
++ 
++ <li> Elimination of custom "xxid" functions
++ 
++ <P>  PostgreSQL 8.3 introduces a set of "txid" functions and a
++   "txid_snapshot" type, which eliminates the need for Slony-I to have
++   its own C functions for doing XID comparisons.
++ 
++ <p>  Note that this affects the structure of sl_event, and leads to some
++   changes in the coding of the regression tests.
++ 
++ <p>  This eliminates the src/xxid directory and contents
++ 
++ <li> All of the interesting cleanup work is now done in the stored
++   function, cleanupEvent(interval, boolean).
++ 
++ <p>  Interesting side-effect: You can now induce a cleanup manually,
++   which will be useful for testing.
++ 
++ <li> cleanupEvent now has two parameters, passed in from slon config
++   parameters:
++ 
++ <P>  interval - cleanup_interval (default '10 minutes')
++ 
++ <p>   This controls how quickly old events are trimmed out.  It used to
++    be a hard-coded value.
++ 
++ <p>   Old events are trimmed out once the confirmations are aged by
++    (cleanup_interval).
++ 
++ <p>   This then controls when the data in sl_log_1/sl_log_2 can be
++    dropped.
++ 
++ <p>   Data in *those* tables is deleted when it is older than the
++    earliest XID still captured in sl_event.
++ 
++ <p>  boolean - cleanup_deletelogs (default 'false')
++ 
++ <P>   This controls whether or not we DELETE data from sl_log_1/sl_log_2
++ 
++ <p>   By default, we now NEVER delete data from the log tables; we
++    instead use TRUNCATE.
++ 
++ <li> We now consider initiating a log switch every time cleanupEvent()
++   runs.
++ 
++ <P>  If the call to logswitch_finish() indicates that there was no log
++   switch in progress, we initiate one.
++ 
++ <P>  This means that log switches will be initiated almost as often as
++   possible.  That's a policy well worth debating :-).
++ 
++ <li> logswitch_finish() changes a fair bit...
++ 
++ <P>  It uses the same logic as in cleanupEvent() to determine if there
++   are any *relevant* tuples left in sl_log_[whatever], rather than
++   (potentially) scanning the table to see if there are any undeleted
++   tuples left.
++ 
++ <li> At slon startup time, it logs (at SLON_CONFIG level) all of the
++   parameter values.  Per <a href="http://www.slony.info/bugzilla/show_bug.cgi?id=21"> Bugzilla entry #21.</a>
++ 
++   
++ <li> New slonik "CLONE PREPARE" and "CLONE FINISH" command to assist in
++   creating duplicate nodes based on taking a copy of some existing
++   subscriber node.
++ 
++ <li> We no longer use LISTEN/NOTIFY for events and confirmations, which
++   eliminates the usage that has caused pg_listener bloat.  We instead
++   poll against the event table.
++ 
++ <li> Various instances where slonik would use a default node ID of 1 have
++   been changed to remove this.
++ 
++ <P>  Slonik scripts may need to be changed to indicate an EVENT NODE (or
++   similar) after migration to v2.0 as a result.
++ 
++ <P>  The slonik commands involved:
++ 
++ <ul>
++   <li> STORE NODE - EVENT NODE
++   <li> DROP NODE - EVENT NODE
++   <li> WAIT FOR EVENT - WAIT ON
++   <li> FAILOVER - BACKUP NODE
++   <li> EXECUTE SCRIPT - EVENT NODE
++ </ul>
++ 
++ <li> Fixed a problem where ACCEPT_SET would wait for the corresponding
++   MOVE_SET or FAILOVER_SET to arrive while holding an exclusive lock
++   on sl_config_lock, preventing the other remote worker to process
++   that event.
++ 
++ <li> Bug #54 - quite a few Bash-isms in various scripts have been
++   addressed so as to make the shell scripts more portable.
++ 
++ <li> Bug #18 - the function parameter for the logtrigger functions no
++   longer requires any trailing v's
++ 
++ <P>  Add a test to "test1" to make sure this logic gets exercised.
++ 
++ <li> Created "start_slon.sh", an rc.d-style script for starting,
++   stopping, and checking status of slon processes.
++ 
++ <P>  Integrated this into the regression tests, replacing previous
++   logic for starting/stopping slons, so that this script can be
++   considered carefully tested
++ 
++ <li> Bug #46 - incompatibility with PostgreSQL 8.4 addressed
++ 
++ <li> Use dollar quoting in stored functions
++ 
++ <li> Additional logging of the time spent running queries, broken out on
++   a by-database basis
++ 
++ <li> Fixes to documentation of WAIT FOR EVENT
++ 
++ <li> Fix to bug #63 - cleanup thread had an imperative SELECT that needed
++   to become part of an IF statement
++ 
++ <li> Enhancement - bug #61 - logshipper process should rescan the queue
++   when it empties
++ 
++ <li> Note about "duct tape" tests:  There are many of these tests that
++   reside in src/ducttape that reference features removed in v2.0.
++ 
++ <P>  We will eventually be replacing these with a more proper "test suite"
++   so we're not remedying all the ducttape tests.
++ </ul>
++ ----
+  Slony-I 2.0.0 second RC available
+  http://main.slony.info/downloads/2.0/source/slony1-2.0.0-rc2.tar.bz2
+

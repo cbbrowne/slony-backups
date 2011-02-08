@@ -1,0 +1,361 @@
+From mailings at oopsware.de  Wed Sep  1 04:52:10 2010
+From: mailings at oopsware.de (Bernd Helmle)
+Date: Wed, 01 Sep 2010 13:52:10 +0200
+Subject: [Slony1-hackers] Broken link to Slony-I 1.2.21 docs tarball
+Message-ID: <E5A45EBB377C2251DAFA884D@amenophis>
+
+The Slony-I main site has a broken link in "Quick Downloads -> 1.2.21 
+documentation" to
+
+<http://main.slony.info/downloads/1.2/source/slony1-1.2.21-docs.tar.bz2>
+
+Anyone able to fix?
+
+-- 
+Thanks
+
+	Bernd
+
+
+From ssinger at ca.afilias.info  Wed Sep  1 06:48:17 2010
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Wed, 01 Sep 2010 09:48:17 -0400
+Subject: [Slony1-hackers] Broken link to Slony-I 1.2.21 docs tarball
+In-Reply-To: <E5A45EBB377C2251DAFA884D@amenophis>
+References: <E5A45EBB377C2251DAFA884D@amenophis>
+Message-ID: <4C7E59A1.6040709@ca.afilias.info>
+
+Bernd Helmle wrote:
+> The Slony-I main site has a broken link in "Quick Downloads -> 1.2.21 
+> documentation" to
+> 
+> <http://main.slony.info/downloads/1.2/source/slony1-1.2.21-docs.tar.bz2>
+> 
+> Anyone able to fix?
+> 
+
+That file now exists.
+
+Thanks for the report.
+
+
+-- 
+Steve Singer
+Afilias Canada
+Data Services Developer
+416-673-1142
+
+From ssinger at ca.afilias.info  Tue Sep  7 08:53:09 2010
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Tue, 07 Sep 2010 11:53:09 -0400
+Subject: [Slony1-hackers] PQisthreadsafe check
+Message-ID: <4C865FE5.4070209@ca.afilias.info>
+
+The recent PQisthreadsafe configure check change seems to be broken on 
+systems that don't have libpq installed in a standard place.
+
+configure:7664: result: yes
+configure:7679: checking for PQfreemem in -lpq
+configure:7714: /usr/bin/gcc-4.3.2 -o conftest -g -O2 
+-I/usr/local/pgsql9.0/include/ -I/usr/local/pgsql9.0/include/server/ 
+-L/usr/local/pgsql9.0/lib/ conftest.c -lpq   >&5
+configure:7720: $? = 0
+configure:7738: result: yes
+configure:7753: checking PostgreSQL for thread-safety
+configure:7786: /usr/bin/gcc-4.3.2 -o conftest -g -O2 
+-I/usr/local/pgsql9.0/include/ -I/usr/local/pgsql9.0/include/server/ 
+-L/usr/local/pgsql9.0/lib/ conftest.c  -lpq >&5
+configure:7789: $? = 0
+configure:7795: ./conftest
+ld.so.1: conftest: fatal: libpq.so.5: open failed: No such file or directory
+configure:7798: $? = 265
+configure: program exited with status 265
+
+
+The compile is finding libpq via the -L but when we go to execute the 
+compiled program it can't find libpq.
+
+One option is to set LD_LIBRARY_PATH but doing this directly might not 
+be very portable (AIX uses LIBPATH for this purpose, but AIX also embeds 
+the full runtime path into the library)
+
+
+Another option is to compile the test with -rpath.  This would make 
+sense except the the syntax for that isn't portable either.
+
+Solaris(sun linker), FreeBSD:  -R
+Linux, GNU linker most places: -rpath
+AIX: -blibpath
+HPUX: something else
+
+(The above is based on looking grepping for rpath in src/makefiles/ in 
+the postgresql source tree).
+
+Will we have to implement this type of logic in autoconf? or does 
+someone have a better idea?
+
+
+
+
+
+-- 
+Steve Singer
+Afilias Canada
+Data Services Developer
+416-673-1142
+
+From ssinger at ca.afilias.info  Tue Sep  7 15:31:02 2010
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Tue, 07 Sep 2010 18:31:02 -0400
+Subject: [Slony1-hackers] PQisthreadsafe check
+In-Reply-To: <4C865FE5.4070209@ca.afilias.info>
+References: <4C865FE5.4070209@ca.afilias.info>
+Message-ID: <4C86BD26.9020803@ca.afilias.info>
+
+Steve Singer wrote:
+> The recent PQisthreadsafe configure check change seems to be broken on 
+> systems that don't have libpq installed in a standard place.
+
+
+http://github.com/ssinger/slony1-engine/tree/bug40_steve 
+http://github.com/ssinger/slony1-engine/commit/aeeaae2692930536961e3fe013a0ac7f14cd91a4)
+
+contains a proposed fix.  I'm building the test program with 
+rpath,-R,-blibpath as approriate to include the libpq directory.
+
+
+
+
+> 
+> configure:7664: result: yes
+> configure:7679: checking for PQfreemem in -lpq
+> configure:7714: /usr/bin/gcc-4.3.2 -o conftest -g -O2 
+> -I/usr/local/pgsql9.0/include/ -I/usr/local/pgsql9.0/include/server/ 
+> -L/usr/local/pgsql9.0/lib/ conftest.c -lpq   >&5
+> configure:7720: $? = 0
+> configure:7738: result: yes
+> configure:7753: checking PostgreSQL for thread-safety
+> configure:7786: /usr/bin/gcc-4.3.2 -o conftest -g -O2 
+> -I/usr/local/pgsql9.0/include/ -I/usr/local/pgsql9.0/include/server/ 
+> -L/usr/local/pgsql9.0/lib/ conftest.c  -lpq >&5
+> configure:7789: $? = 0
+> configure:7795: ./conftest
+> ld.so.1: conftest: fatal: libpq.so.5: open failed: No such file or directory
+> configure:7798: $? = 265
+> configure: program exited with status 265
+> 
+> 
+> The compile is finding libpq via the -L but when we go to execute the 
+> compiled program it can't find libpq.
+> 
+> One option is to set LD_LIBRARY_PATH but doing this directly might not 
+> be very portable (AIX uses LIBPATH for this purpose, but AIX also embeds 
+> the full runtime path into the library)
+> 
+> 
+> Another option is to compile the test with -rpath.  This would make 
+> sense except the the syntax for that isn't portable either.
+> 
+> Solaris(sun linker), FreeBSD:  -R
+> Linux, GNU linker most places: -rpath
+> AIX: -blibpath
+> HPUX: something else
+> 
+> (The above is based on looking grepping for rpath in src/makefiles/ in 
+> the postgresql source tree).
+> 
+> Will we have to implement this type of logic in autoconf? or does 
+> someone have a better idea?
+> 
+> 
+> 
+> 
+> 
+
+
+-- 
+Steve Singer
+Afilias Canada
+Data Services Developer
+416-673-1142
+
+From devrim at gunduz.org  Fri Sep 10 19:12:04 2010
+From: devrim at gunduz.org (Devrim =?ISO-8859-1?Q?G=DCND=DCZ?=)
+Date: Sat, 11 Sep 2010 05:12:04 +0300
+Subject: [Slony1-hackers] Cannot build 2.0.4 documentation
+Message-ID: <1284171124.2473.279.camel@hp-laptop2.gunduz.org>
+
+I'm seeing this on my F-13 box while trying to build slony with docs:
+
+./configure: line 6128: SLON_AC_PROG_GROFF: command not found
+
+What is the correct fix here? AFAICS it is new in 2.0.4.
+
+Regards,
+-- 
+Devrim G?ND?Z
+PostgreSQL Dan??man?/Consultant, Red Hat Certified Engineer
+PostgreSQL RPM Repository: http://yum.pgrpms.org
+Community: devrim~PostgreSQL.org, devrim.gunduz~linux.org.tr
+http://www.gunduz.org  Twitter: http://twitter.com/devrimgunduz
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: not available
+Type: application/pgp-signature
+Size: 198 bytes
+Desc: This is a digitally signed message part
+Url : http://lists.slony.info/pipermail/slony1-hackers/attachments/20100911/419d083e/attachment.pgp 
+
+From ssinger_pg at sympatico.ca  Sat Sep 11 21:21:13 2010
+From: ssinger_pg at sympatico.ca (Steve Singer)
+Date: Sun, 12 Sep 2010 00:21:13 -0400 (EDT)
+Subject: [Slony1-hackers] Cannot build 2.0.4 documentation
+In-Reply-To: <1284171124.2473.279.camel@hp-laptop2.gunduz.org>
+References: <1284171124.2473.279.camel@hp-laptop2.gunduz.org>
+Message-ID: <BLU0-SMTP8203FC79F6E27563BB471CAC760@phx.gbl>
+
+On Sat, 11 Sep 2010, Devrim G?ND?Z wrote:
+
+> I'm seeing this on my F-13 box while trying to build slony with docs:
+>
+> ./configure: line 6128: SLON_AC_PROG_GROFF: command not found
+>
+> What is the correct fix here? AFAICS it is new in 2.0.4.
+
+Try the tip of REL_2_0_STABLE that error looks pretty familiar and I have a 
+feeling  fixed it, I think it was bug 138 
+(http://bugs.slony.info/bugzilla/show_bug.cgi?id=138)
+
+
+
+
+
+
+>
+> Regards,
+> -- 
+> Devrim G?ND?Z
+> PostgreSQL Dan????man??/Consultant, Red Hat Certified Engineer
+> PostgreSQL RPM Repository: http://yum.pgrpms.org
+> Community: devrim~PostgreSQL.org, devrim.gunduz~linux.org.tr
+> http://www.gunduz.org  Twitter: http://twitter.com/devrimgunduz
+>
+
+From devrim at gunduz.org  Mon Sep 13 04:15:31 2010
+From: devrim at gunduz.org (Devrim =?ISO-8859-1?Q?G=DCND=DCZ?=)
+Date: Mon, 13 Sep 2010 14:15:31 +0300
+Subject: [Slony1-hackers] Cannot build 2.0.4 documentation
+In-Reply-To: <BLU0-SMTP8203FC79F6E27563BB471CAC760@phx.gbl>
+References: <1284171124.2473.279.camel@hp-laptop2.gunduz.org>
+	<BLU0-SMTP8203FC79F6E27563BB471CAC760@phx.gbl>
+Message-ID: <1284376531.2361.7.camel@hp-laptop2.gunduz.org>
+
+Hi,
+
+On Sun, 2010-09-12 at 00:21 -0400, Steve Singer wrote:
+> > I'm seeing this on my F-13 box while trying to build slony with
+> docs:
+> >
+> > ./configure: line 6128: SLON_AC_PROG_GROFF: command not found
+> >
+> > What is the correct fix here? AFAICS it is new in 2.0.4.
+> 
+> Try the tip of REL_2_0_STABLE that error looks pretty familiar and I
+> have a 
+> feeling  fixed it, I think it was bug 138 
+> (http://bugs.slony.info/bugzilla/show_bug.cgi?id=138) 
+
+http://git.postgresql.org/gitweb?p=slony1-engine.git;a=blobdiff;f=config/docs.m4;h=eff0d6e568b804186a69a9a6a0c21a07cc96569f;hp=9f4972ee40c388596fd63d844ecd42e4903a5984;hb=b4f202e3f67e66a311a4a32c6392bb2be3bc05a2;hpb=65af4b6002e945c3df977d12b8613b98a379113a
+
+did not fix this issue on my Fedora box...
+
+Regards,
+-- 
+Devrim G?ND?Z
+PostgreSQL Dan??man?/Consultant, Red Hat Certified Engineer
+PostgreSQL RPM Repository: http://yum.pgrpms.org
+Community: devrim~PostgreSQL.org, devrim.gunduz~linux.org.tr
+http://www.gunduz.org  Twitter: http://twitter.com/devrimgunduz
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: not available
+Type: application/pgp-signature
+Size: 198 bytes
+Desc: This is a digitally signed message part
+Url : http://lists.slony.info/pipermail/slony1-hackers/attachments/20100913/536e2172/attachment.pgp 
+
+From ssinger at ca.afilias.info  Mon Sep 13 06:56:23 2010
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Mon, 13 Sep 2010 09:56:23 -0400
+Subject: [Slony1-hackers] Cannot build 2.0.4 documentation
+In-Reply-To: <1284376531.2361.7.camel@hp-laptop2.gunduz.org>
+References: <1284171124.2473.279.camel@hp-laptop2.gunduz.org>	<BLU0-SMTP8203FC79F6E27563BB471CAC760@phx.gbl>
+	<1284376531.2361.7.camel@hp-laptop2.gunduz.org>
+Message-ID: <4C8E2D87.7040004@ca.afilias.info>
+
+Devrim G?ND?Z wrote:
+> Hi,
+> 
+> 
+> http://git.postgresql.org/gitweb?p=slony1-engine.git;a=blobdiff;f=config/docs.m4;h=eff0d6e568b804186a69a9a6a0c21a07cc96569f;hp=9f4972ee40c388596fd63d844ecd42e4903a5984;hb=b4f202e3f67e66a311a4a32c6392bb2be3bc05a2;hpb=65af4b6002e945c3df977d12b8613b98a379113a
+> 
+> did not fix this issue on my Fedora box...
+
+Did you re-run "autoconf" after applying the patch?
+
+I'm able to replicate the error you posted with REL_2_0_4 but it goes 
+away for me when I apply that patch re-run autoconf and then run 
+configure again.
+
+
+> 
+> Regards,
+> 
+> 
+> ------------------------------------------------------------------------
+> 
+> _______________________________________________
+> Slony1-hackers mailing list
+> Slony1-hackers at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-hackers
+
+
+-- 
+Steve Singer
+Afilias Canada
+Data Services Developer
+416-673-1142
+
+From devrim at gunduz.org  Mon Sep 13 10:51:20 2010
+From: devrim at gunduz.org (Devrim =?ISO-8859-1?Q?G=DCND=DCZ?=)
+Date: Mon, 13 Sep 2010 20:51:20 +0300
+Subject: [Slony1-hackers] Cannot build 2.0.4 documentation
+In-Reply-To: <4C8E2D87.7040004@ca.afilias.info>
+References: <1284171124.2473.279.camel@hp-laptop2.gunduz.org>
+	<BLU0-SMTP8203FC79F6E27563BB471CAC760@phx.gbl>
+	<1284376531.2361.7.camel@hp-laptop2.gunduz.org>
+	<4C8E2D87.7040004@ca.afilias.info>
+Message-ID: <1284400280.8398.4.camel@localhost>
+
+On Mon, 2010-09-13 at 09:56 -0400, Steve Singer wrote:
+> Did you re-run "autoconf" after applying the patch?
+
+:(
+
+Ok, it worked after adding an autoconf line in RPM spec file.
+
+Regards,
+-- 
+Devrim G?ND?Z
+PostgreSQL Dan??man?/Consultant, Red Hat Certified Engineer
+PostgreSQL RPM Repository: http://yum.pgrpms.org
+Community: devrim~PostgreSQL.org, devrim.gunduz~linux.org.tr
+http://www.gunduz.org  Twitter: http://twitter.com/devrimgunduz
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: not available
+Type: application/pgp-signature
+Size: 198 bytes
+Desc: This is a digitally signed message part
+Url : http://lists.slony.info/pipermail/slony1-hackers/attachments/20100913/657e9e24/attachment.pgp 
+

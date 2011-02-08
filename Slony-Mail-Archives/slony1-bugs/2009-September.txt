@@ -1,0 +1,164 @@
+From slony1-bugs at lists.slony.info  Tue Sep 15 13:13:03 2009
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Tue Sep 15 13:13:06 2009
+Subject: [Slony1-bugs] [Bug 55] Possible buffer overflow in slon,
+ still happens as of 1.2.14
+In-Reply-To: <bug-55-4@http.www.slony.info/bugzilla/>
+Message-ID: <20090915201303.4D9692900F9@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=55
+
+
+paul cannon <pcannon+slonybugzilla@gmail.com> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+                 CC|                            |pcannon+slonybugzilla@gmail.
+                   |                            |com
+
+
+
+
+--- Comment #1 from paul cannon <pcannon+slonybugzilla@gmail.com>  2009-09-15 13:13:02 ---
+I've found one bug which would cause the symptoms you describe, although there
+may be others :). Present in 1.2.15 and 1.2.16, at least.
+
+The problem should manifest itself when an overly long line is printed to the
+log (so it doesn't happen when the log level is low). Here's the case that was
+causing my slon to segfault; it's in sync_event() in remote_worker.c:
+
+            slon_log(SLON_DEBUG4, " ssy_action_list value: %s\n",
+                     ssy_action_list);
+
+ssy_action_list in this case was over 135000 characters. When this got into
+slon_log and that function found that its buffer was not big enough, it tried
+to resize the buffer and call vsnprintf() again, but /it reused the va_arg/,
+which is not allowed.
+
+Here is one possible approach to fixing the problem:
+
+--- old_misc.c  2009-09-15 13:57:29.000000000 -0600
++++ misc.c      2009-09-15 14:11:10.000000000 -0600
+@@ -172,7 +172,10 @@
+
+        off = strlen(outbuf);
+
+-       while (vsnprintf(&outbuf[off], outsize - off, fmt, ap) >= outsize -
+off)
++       va_list apcopy;
++       va_copy(apcopy, ap);
++
++       while (vsnprintf(&outbuf[off], outsize - off, fmt, apcopy) >= outsize -
+off)
+        {
+                outsize *= 2;
+                outbuf = realloc(outbuf, outsize);
+@@ -181,7 +184,12 @@
+                        perror("slon_log: realloc()");
+                        slon_retry();
+                }
++               va_end(apcopy);
++               va_copy(apcopy, ap);
+        }
++
++       va_end(apcopy);
++
+ #ifdef HAVE_SYSLOG
+        if (Use_syslog >= 1)
+        {
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Tue Sep 15 13:14:53 2009
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Tue Sep 15 13:14:55 2009
+Subject: [Slony1-bugs] [Bug 55] Possible buffer overflow in slon,
+ still happens as of 1.2.14
+In-Reply-To: <bug-55-4@http.www.slony.info/bugzilla/>
+Message-ID: <20090915201453.9BB2029042C@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=55
+
+
+
+
+
+--- Comment #2 from paul cannon <pcannon+slonybugzilla@gmail.com>  2009-09-15 13:14:53 ---
+Created an attachment (id=34)
+ --> (http://www.slony.info/bugzilla/attachment.cgi?id=34)
+The patch from the above comment
+
+Sorry, I'm such a Bugzilla noob. This attachment is probably better.
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Thu Sep 17 23:46:51 2009
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Thu Sep 17 23:46:52 2009
+Subject: [Slony1-bugs] [Bug 95] New: Calls to subscribeSet_int are incorrect
+	in Slonik src
+Message-ID: <bug-95-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=95
+
+           Summary: Calls to subscribeSet_int are incorrect in Slonik src
+           Product: Slony-I
+           Version: devel
+          Platform: PC
+        OS/Version: Linux
+            Status: NEW
+          Severity: critical
+          Priority: high
+         Component: slonik
+        AssignedTo: slony1-bugs@lists.slony.info
+        ReportedBy: matthew.figg@accenture.com
+                CC: slony1-bugs@lists.slony.info
+   Estimated Hours: 0.0
+
+
+We are using slony1-2.0.3-rc2 with the following node setup:
+
+Node 1: Provider of Set 1
+Node 2: Subscriber to Set 1
+Node 3: A new node about to be added to the cluster with STORE NODE
+
+There are two calls to the postgres function subscribeSet_int(integer, integer,
+integer, boolean, boolean) in slony1-engine/src/slonik/slonik.c
+
+Both calls do not pass in the last boolean input (the new OMIT COPY parameter)
+and hence you get errors.  We have only seen it when using slonik_store_node
+but looking at the code it could also happen in slonik_failed_node.
+
+We are running the following slonik script:
+
+cluster name = test_cluster;
+node 1 admin conninfo = '<db connect string omitted>';
+node 2 admin conninfo = '<db connect string omitted>';
+node 3 admin conninfo = '<db connect string omitted>';
+store node ( id = 3, comment = 'Node 3', event node = 1 );
+
+Output from slonik is:
+
+init_slave.ik:5: PGRES_FATAL_ERROR select "_test_cluster".subscribeSet_int(1,
+1, 2, 't'); select "_test_cluster".enableSubscription_int(1, 1, 2);  - ERROR: 
+function _test_cluster.subscribeset_int(integer, integer, integer, unknown)
+does not exist
+LINE 1: select "_test_cluster".subscribeSet_int(1, 1, 2, 't'); selec...
+               ^
+HINT:  No function matches the given name and argument types. You might need to
+add explicit type casts.
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.

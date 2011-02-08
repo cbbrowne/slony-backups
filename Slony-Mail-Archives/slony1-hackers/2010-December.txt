@@ -1,0 +1,2186 @@
+From cbbrowne at ca.afilias.info  Fri Dec  3 09:26:05 2010
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Fri, 03 Dec 2010 12:26:05 -0500
+Subject: [Slony1-hackers] Brainstorming Results
+Message-ID: <871v5y939u.fsf@cbbrowne.afilias-int.info>
+
+This collects ideas from meetings held in November/December 2010 for the
+next major version of Slony.
+
+It is quite likely that many of these features ''won't'' get
+implemented, based on a "more work than they're worth" evaluation.
+
+The point of the exercise has been to capture a goodly set of ideas to
+make it possible to effectively evaluate what might be worth
+implementing.
+
+== slon extensions ==
+
+=== Slon monitoring ===
+
+* per Chris Browne
+
+* slon records in a queryable form what it's working on
+
+* Requires writing (+COMMIT) at the start of the event loop
+
+* [As noted by Yehuda] This ought to also be useful with slonik, to
+  allow indicating "whazzup"?
+
+Debate took place surrounding various mechanisms.  The only one without
+dramatically unacceptable properties was to add a table to the Slony-I
+schema.
+
+; SNMP
+: Existing standard for network-based monitoring
+: Downside - requires extra infrastructure including libraries and possibly additional tooling to use it
+; [http://www.spread.org/ Spread]
+: Fast
+: Downside - requires extra infrastructure that's not particularly "standard"
+; NOTIFY/LISTEN
+: Built-in to Postgres - no new infrastructure needed
+: In Postgres 9.0+ can carry payload
+: Only becomes visible upon COMMIT
+: Results are not stored; listeners must pre-declare their interest
+; SQL table
+: Built-in to Postgres - no new infrastructure needed
+: Only becomes visible upon COMMIT
+: Another table to manage and clean up
+
+==== Monitoring Requirements ====
+
+Crucial facts that we want to know about:
+# Is replication behind?
+# What are components (e.g. - slon, slonik) doing? <BR> Note that slon has numerous threads
+# Recent abnormal states for events (e.g. - error messages)
+# Are any non-SYNC events outstanding?
+# Backlog volume?
+# What is the cluster's configuration?
+
+===== Replication Behind? =====
+
+The existing view sl_status captures this from a what-is-confirmed
+perspective.  That is not perfect, but it is not obvious that there is
+high priority to enhancing this.
+
+===== What are components doing? =====
+
+Nothing relevant is captured in a usable fashion.
+
+It is thought that what we may do is to add a table where each thread
+would capture ''what am I doing?'' (which would replace whatever was
+previously being done)
+
+This table would contain a tuple for:
+# Each remote worker thread
+# Cleanup thread
+# Each remote listener thread
+# Local SYNC thread
+
+It would track things such as:
+# Time processing started
+# What thread/process am I?
+# What node am I for?
+# What am I doing?  <BR> Possibly in several pieces, to cover the following sorts of facts:
+## Event ID
+## Event type <BR> Though this could be pulled from sl_event, given node and event ID
+## Additional event activity <BR> Again, could be pulled from sl_event, given node and event ID
+
+Note that the contents of this table should be quite tiny; a tuple per slon thread on a node.
+
+This also needs to be able to capture what '''slonik''' is doing; this seems more troublesome.
+# It is possible to have multiple slonik instances acting concurrently - multiple concurrent events!
+# There is no natural "event loop" such that slonik activities would be expected to clean themselves up over time
+
+====== Suggested slon implementation ======
+
+Two approaches emerged for establishing connections to capture this monitoring data
+# Each thread opens its own DB connection <BR> Unacceptable: Leads to ''enormous'' increase in use of DB connections that are mostly basically idle
+# Establish a "monitoring thread"
+## A message queue allows other threads to stow entries (complete with timestamps) that the monitoring thread periodically flushes to the database
+## It is plausible that this thread could be merged into the existing local SYNC thread which isn't terribly busy
+
+===== Recent abnormal states for events  =====
+
+This captures messages about the most recent problem that occurred, storing:
+# Time of abnormality
+# Event ID
+# Node ID
+# Description / Error Message
+
+===== non-SYNC events outstanding? =====
+
+This information is already captured, and may be revealed by running a query that asks, on the source node, for all events that are:
+# Not SYNC events
+# Have not been confirmed by the subscriber
+
+===== Backlog volume =====
+
+[http://www.slony.info/bugzilla/show_bug.cgi?id=166 Bug #166]
+
+This seems troublesome; calculating the number of sl_log_* tuples
+involved in a particular SYNC requires running the same complex query
+that the remote_worker thread uses to determine which tuples are to be
+applied.
+
+This is a query that is complex to generate that is fairly expensive to
+run.
+
+Note that [http://www.slony.info/bugzilla/show_bug.cgi?id=167 Bug #167] is changing this query.
+
+===== Cluster configuration =====
+
+There is an existing tool that does some analysis of cluster
+configuration; see
+[http://git.postgresql.org/gitweb?p=slony1-engine.git;a=blob;f=tools/test_slony_state.pl;h=fdc9dcc060229f39a1e1ac8608e33d63054658bf;hb=refs/heads/master
+test_slony_state.pl]
+
+It is desirable to have something that generates diagrams of the relationships between nodes, capturing:
+# Nodes
+# Subscription Sets, and the paths they take
+# Paths between nodes
+# Listen paths
+
+It would be nice for the Subscription Set diagram to include indication of replication state/lag for each node, indicating things like:
+# Event Number
+# Events Behind Parent
+# Time Behind Parent
+# Events Behind Origin
+# Time Behind Origin
+
+=== Faster Replication - COPY Protocol ===
+* Use COPY + Triggers on sl_log_*
+* per Jan Wieck
+* New encoding of tuple information
+* Triggers do direct heap updates
+* Eliminates overhead of parsing each statement
+* COPY implicitly introduces streaming
+** Eliminates need for current memory management logic for processing large tuples
+* Should reduce amount of work done by slons to parse sl_log_* cursors, generating I/U/D streams
+** Requires separating out log shipping into a separate daemon, as there are users known to depend on being able to parse log shipping data as INSERT/UPDATE/DELETE statements
+
+=== SYNC pipelining ===
+* per Jan Wieck
+* open 2 connections to source DB, start pulling new data while the previous request is pushing I/U/D requests to the subscriber
+* Might be unnecessary if using COPY+triggers to stream data
+* Maximum value comes if the time required to get to the point of '''%f seconds delay for first row''' is equal to the remainder of the time required to process the SYNC
+** If query to start up the cursor on sl_log_* takes most of the time, then there's not much gained by starting the next one early
+** If query to process sl_log_* data takes most of the time, again, there's not much gained by starting the next one early
+
+=== Compress sequences of DELETE requests ===
+* per Chris Browne
+* Note that TRUNCATE is already replicated
+* Two ways to interpret it...
+# log trigger compresses them upon receipt, essentially merging subsequent requests into a single sl_log_* tuple <BR> This changes the '''INSERT-only''' understanding of sl_log_*
+# slon remote worker thread compresses them when processing a SYNC
+
+Overall, this seems a pretty dubious feature.
+
+=== SNMP ===
+* per Chris Browne
+* Some minimal SNMP functionality was added in 2005
+* Untouched since; requires --with-netsnmp option to ./Configure
+* Should we improve it, or drop it?
+* [http://lists.slony.info/pipermail/slony1-general/2010-November/011301.html list thread]
+
+* In discussions of 2010-11-30, some debate over whether this is worth augmenting to support some of the monitoring requirements discussed elsewhere
+** In favour, SNMP exists and is a standard protocol for network-based monitoring
+** Contrary, several things were observed:
+*** Unknown whether the present code works
+*** For us to use SNMP within Slony-I for monitoring draws in a dependency on SNMP libraries and possibly other tooling.  <BR> We sure ''wouldn't'' want to mandate installing and configuring something like Nagios as a component of Slony-I.
+*** In contrast, consider that we already have '''libpq''' used everywhere; for us to capture some monitoring information in a table requires no additional components.
+
+=== Deal better with sl_log backlog ===
+* When replication is backlogged the sl_log tables can grow to be huge. This slows down replication.
+* Have slony create new sl_log_x tables as needed.
+* [http://lists.slony.info/pipermail/slony1-general/2010-November/011343.html See mailing list discussion]
+* Note that Vivek Khera has noticed it happens less when he's using SSD versus spinning disks, so evidently disk performance has material effect on this.
+
+=== Shunned Node ===
+* Per [http://lists.slony.info/pipermail/slony1-general/2010-November/011353.html discussion on list]
+* Allow configuring that some nodes should be ignored for the purpose of confirmations.
+* This allows the cleanup thread to trim out sl_log_(1|2) data.
+* FAILOVER may already support the notion that a "shunned" node might be lost.
+* An interesting extension: SUBSCRIBE SET could automatically mark the "child" node as shunned until such time as the subscription has completed and caught up.
+** This only works if only one set is involved; if there are multiple subscriptions, shunning only works out well for the first one.
+** It will work just fine for multiple subscriptions. The point here is to free the master and other forwarders than the data provider for the node, that is busy subscribing, from keeping copies of the log.
+
+=== Health Checks ===
+
+* At time of node start up, check to see if the nodes providing my subscriptions believe my node exists
+** If they do, all is well
+** If they don't, then presumably I'm a failed node
+** If a connection cannot be established, then warn of this (probably with a pretty quick timeout) but continue, for now...
+
+=== Use application_name ===
+
+* per Chris Browne
+* If on a version that supports [http://www.postgresql.org/docs/9.0/static/runtime-config-logging.html#GUC-APPLICATION-NAME GUC application_name], connections should capture "this is slon"
+* application_name is available on PG 9.0+
+* The value we use should likely include various (possibly all) of the following:
+** slon
+** ID of the node being managed by slon
+** ID of the secondary node being queried
+** perhaps the cluster name?
+
+== Bugs Known ==
+===  #53 - high RAM usage with high table # ===
+* [http://bugs.slony.info/bugzilla/show_bug.cgi?id=53 #53]
+* Likely involves replacing array with hash table
+* Possible BSD-licensed hash table implementations
+** [http://www.cl.cam.ac.uk/~cwc22/hashtable/ C Hash Table] <BR> See also [https://github.com/ryantenney/chashtable ryantenney / chashtable @ GitHub] <BR> Note: [http://xen.1045712.n5.nabble.com/Legal-concerns-added-hashtable-implementation-td2485274.html Used in Xen]
+** [http://uthash.sourceforge.net/ UTHash]
+** [http://burtleburtle.net/bob/c/lookup3.c lookup3] - Public Domain
+
+===  #80 - slon daemon restarts itself in a loop after failover ===
+* [http://bugs.slony.info/bugzilla/show_bug.cgi?id=80 #80]
+===  #81 - duplicate key sl_nodelock-pkey and duplicate slon(8) processes not detected ===
+* [http://bugs.slony.info/bugzilla/show_bug.cgi?id=81 #81]
+===  #111 - UNSUBSCRIBE SET cancels outstanding SUBSCRIBE SET ===
+* [http://bugs.slony.info/bugzilla/show_bug.cgi?id=111 #111]
+===  #126 - client side KEEPALIVE on connections ===
+* [http://bugs.slony.info/bugzilla/show_bug.cgi?id=126 #126]
+===  #137 - EXECUTE SCRIPT not applied in right order ===
+* [http://bugs.slony.info/bugzilla/show_bug.cgi?id=137 #137]
+* Shift DDL from sl_event to sl_log_(1|2)
+* Allow DBA to specify which locks EXECUTE SCRIPT requires in the slonik script
+
+===  #152 - DDL noisy - might be handled well by "Other Health Criteria" ideas ===
+* [http://bugs.slony.info/bugzilla/show_bug.cgi?id=152 #152]
+===  #163 - Change to use TIMESTAMPTZ in Slony-defined tables ===
+* [http://bugs.slony.info/bugzilla/show_bug.cgi?id=163 #163]
+=== #166 : Size of SYNC ===
+* [http://bugs.slony.info/bugzilla/show_bug.cgi?id=166 Bug #166]
+* Useful to ask how much work is involved in particular SYNCs
+* Allows evaluating questions like:
+** Is this SYNC enormous?
+** Is slon busy processing a huge SYNC?
+
+Alternatively, if SYNC is small, long running SYNC suggests something broken
+
+If we add a stored function that evaluates this, it should allow a significant simplification of C logic in src/slon/remote_worker.c which presently does the following:
+# Pull outstanding transaction lists for two events
+# Generate a potentially enormous WHERE clause indicating the set of transactions that need to be excluded when pulling tuples from sl_log_(1|2)
+# Compress that WHERE clause in order that the query not be so long that the Postgres parser falls over
+
+Instead, we imagine that a function may do the following:
+# Create a temp table to capture transaction ID values
+# Truncate that table, if it already exists
+# Pull the transaction list described above, and stow it in the temp table
+
+The WHERE clause would be altered to draw from the temp table instead of writing values explicitly into the WHERE clause.  This would eliminate a pretty substantial body of code from src/slon/remote_worker.c, including:
+# The function compress_actionseq (about 280 lines of code)
+# Portions of sync_helper()
+# Portions of sync_event()
+
+Open questions:
+* Is this a material savings?
+* Is there a problem with repeatedly running TRUNCATE against the temp table, once for each set of SYNC events that is processed?
+* Would we want an index on the temp table?
+
+== slonik extensions ==
+
+=== ABORT ===
+* Initially [http://lists.slony.info/pipermail/slony1-general/2010-November/011295.html mentioned] by Vivek Khera
+* Fail if replication is behind
+** event count - "within 3 events is OK"
+** time interval "behind by no more than 15 seconds is OK"
+* Other Health Criteria
+** per Chris Browne
+** Is node there?
+** Is replication set there?
+** Is subscription active?
+** Run SQL, fail if ERROR
+
+=== Implicit WAIT FOR EVENT ===
+* [http://lists.slony.info/pipermail/slony1-general/2010-November/011288.html proposal]
+* Initially mentioned by Chris Browne
+* Should track (per Yehuda) some status information so that if it's waiting for a sustained period of time, this isn't a mystery to the user or to people monitoring things.
+* Slonik commands that require inter-node coordination should check to see if all relevant slon processes are running
+** notable exceptions include STORE NODE, STORE PATH
+** Slonik should warn or error out if the slon isn't running
+
+==== Controlling Implicit WAIT FOR EVENT ====
+
+To support both legacy slonik scripts and new ones, the following features are suggested:
+* slonik should have a command line option that deactivates "auto-wait"
+* It may be desirable for uses to control wait behavior inside scripts, hence we should add two slonik commands:
+** activate auto wait
+** deactivate auto wait
+
+=== DATE ===
+* [http://lists.slony.info/pipermail/slony1-general/2010-November/011328.html suggested] by Stuart Bishop
+* Basically, notion of being able to get timestamps during a Slonik script
+
+=== TRY BLOCK ===
+* Chris, Stuart conversation
+* Perhaps we should forbid running non-transactional commands within a TRY block
+* Non-transactional commands
+** WAIT FOR EVENT
+** FAILOVER
+** EXECUTE SCRIPT
+** STORE NODE
+* Perhaps TRY should be eliminated?
+
+=== Specified Preamble ===
+* per Steve Singer
+* -p option draws in preamble automagically
+* See [http://lists.slony.info/pipermail/slony1-general/2010-November/011325.html]
+=== Bulk Adding Tables ===
+* per Steve Singer
+* set add table (... tables='public.*', ..);
+* set add table (.. tables='billing.(!password)', ...);
+* See [http://lists.slony.info/pipermail/slony1-general/2010-November/011325.html]
+
+=== fewer defaults for SET ADD TABLE ===
+* per Steve Singer
+* Automatically determine an ID
+* Automatically determine the origin   
+* See [http://lists.slony.info/pipermail/slony1-general/2010-November/011325.html]
+=== automate logging ===
+* per Chris Browne
+* -v option leads to all requests being logged
+* might it be valuable to allow specifying syslog parameters?
+* Verbose logging to syslog eliminates need for DATE command
+* Existing ECHO command allows simulating this manually; DATE would complete that.
+
+=== application_name ===
+* per Chris Browne
+* On PG 9.0+ (can determine based on whether GUC '''application_name''' exists or not), can capture application name
+* For slonik, it is likely apropos to set GUC '''application_name''' to '''slonik'''
+
+=== Advisory Locks ===
+Provide a method so that applications can detect advisory locks.
+Per Stuart Bishop [http://lists.slony.info/pipermail/slony1-general/2010-August/011076.html]
+
+=== New FAILOVER ===
+
+General proposal, that FAILOVER be a much more sophisticated command, allowing:
+* Dropping nodes considered dead
+* Doing several failovers of sets as one request
+
+Thus, something like:
+<pre>
+  failover (dead nodes=(1,2,4),
+            set id=1, backup node=3,
+            set id=2, backup node=5,
+            set id=3, backup node=3);
+</pre>
+
+* Failover should check various conditions and abort if any are the case
+** There need to be paths to support communications to let the new masters catch up
+** Slons need to be running for nodes that are needed to let masters catch up
+** If a node hosts a subscription that cannot be kept
+
+
+=== Interactive Mode ===
+* line by line running custom command
+
+== General Features ==
+=== Commit timestamps ===
+* per Jan Wieck
+* Requires PostgreSQL extension
+* Eliminates need for periodic generation of SYNC events
+* Simplifies queries for searching for sl_log_* data
+* Enables carryover of commit times to subscribers
+=== DDL Triggers ===
+* per Jan Wieck
+* Requires PostgreSQL extension
+* Enables automatic generation of DDL_SCRIPT events
+* Discussed as... [[DDL_Triggers]]
+
+=== pull lexxer from postgres ===
+* From TODO, probably per Peter Eisentraut
+* Note that this may be a fair bit more complex than the code in src/parsestatements
+
+=== Report on the size of pending SYNC requests ===
+* [http://bugs.slony.info/bugzilla/show_bug.cgi?id=166 Bug 166]
+* Could be implemented as an extension to test_slony_state.pl or inside of slonik
+
+=== Log Shipping ===
+* Afilias doesn't use it; wouldn't mind diminishing the code base by its removal.
+* There appear to be some users of it that would be injured by its removal, so that seems like a no-go.
+* An attractive idea: Split slon into two forms:
+# The "usual" one which manages nodes that are databases amenable to forwarding, failover, and such
+# Log-shipping-only nodes
+* Note that there is a lot of log-shipping functionality strewn throughout remote_worker.c.  If split out, this might make the log shipping node code simple, and '''regular slon''' simpler, too.
+
+=== Common Admin Conninfo ===
+
+There are several tools known that need to know administrative conninfo connection information:
+# slon processes likely use this connection to access the node that the slon manages
+# slonik requires connections potentially to all nodes, and presently uses '''ADMIN CONNINFO''' preamble material to configure this.
+# Administrative tools such as the configuration analysis tool, '''test_slony_state.pl'''
+
+It is suggested that we create a common "properties file" to capture this in a form that might be reused by various common tools.
+-- 
+let name="cbbrowne" and tld="afilias.info" in String.concat "@" [name;tld];;
+Christopher Browne
+"Bother,"  said Pooh,  "Eeyore, ready  two photon  torpedoes  and lock
+phasers on the Heffalump, Piglet, meet me in transporter room three"
+
+From cbbrowne at ca.afilias.info  Fri Dec  3 12:08:59 2010
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Fri, 03 Dec 2010 15:08:59 -0500
+Subject: [Slony1-hackers] Common representation of ADMIN CONNINFO
+Message-ID: <87wrnq7h5w.fsf@cbbrowne.afilias-int.info>
+
+[Discussion of bug #169 - http://www.slony.info/bugzilla/show_bug.cgi?id=169]
+
+There appears to be some value in trying to have a common representation
+of administrative connection data.  This was brought up in recent
+brainstorming.[1]
+
+We know of several places where this data is needed, and presently,
+there's no non-clumsy way to reuse it.
+
+1.  When running Slonik scripts, you need ADMIN CONNINFO[2] statements in
+the preamble to indicate how to connect to all the nodes.
+
+2.  There is a script that tests the state of a cluster.[3]  It presently
+oversimplifies by pulling data configured using STORE PATH.[4]
+
+This is not really correct, in general, because the connections used for
+central management mayn't be the same as those used for slons.
+
+3.  We wish to add additional scripts to help analyze cluster states.  A
+better, common way of storing this DB connection information would make
+it easier to keep all these connections straight.
+
+4.  ALTPERL tools do similar to #2 above [5].
+
+5.  slony-ctl (a Bash-based equivalent to "altperl") does similar to
+"altperl".  See bases.h[6]
+
+Effectively the only "correct" representation that exists, at present,
+is the one in Slonik preambles (#1).
+
+Footnotes: 
+[1]  http://wiki.postgresql.org/wiki/SlonyBrainstorming#Common_Admin_Conninfo
+
+[2]  http://slony.info/documentation/2.0/admconninfo.html
+
+[3]  http://slony.info/documentation/2.0/monitoring.html#test_slony_state
+
+[4]  http://slony.info/documentation/2.0/stmtstorepath.html
+
+[5]  http://git.postgresql.org/gitweb?p=slony1-engine.git;a=blob_plain;f=tools/altperl/slon_tools.conf-sample;hb=HEAD
+
+[6]  http://cvs.pgfoundry.org/cgi-bin/cvsweb.cgi/slony1-ctl/slony-ctl/etc/bases.h
+-- 
+output = reverse("ofni.sailifa.ac" "@" "enworbbc")
+Christopher Browne
+"Bother,"  said Pooh,  "Eeyore, ready  two photon  torpedoes  and lock
+phasers on the Heffalump, Piglet, meet me in transporter room three"
+
+From cbbrowne at ca.afilias.info  Fri Dec  3 12:24:51 2010
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Fri, 03 Dec 2010 15:24:51 -0500
+Subject: [Slony1-hackers] Common representation of ADMIN CONNINFO
+In-Reply-To: <87wrnq7h5w.fsf@cbbrowne.afilias-int.info> (Christopher Browne's
+	message of "Fri, 03 Dec 2010 15:08:59 -0500")
+References: <87wrnq7h5w.fsf@cbbrowne.afilias-int.info>
+Message-ID: <87sjye7gfg.fsf@cbbrowne.afilias-int.info>
+
+Christopher Browne <cbbrowne at ca.afilias.info> writes:
+> [Discussion of bug #169 - http://www.slony.info/bugzilla/show_bug.cgi?id=169]
+>
+> There appears to be some value in trying to have a common representation
+> of administrative connection data.  This was brought up in recent
+> brainstorming.[1]
+>
+> 1.  When running Slonik scripts, you need ADMIN CONNINFO[2] statements in
+> the preamble to indicate how to connect to all the nodes.
+
+There seem to be three plausible directions to go:
+
+1.  Ignore the issue, so tools do their own thing.
+
+People aren't really complaining a lot about this today, so this isn't
+totally ridiculous...
+
+2.  Treat the Slonik format as "authoritative", and add some tooling to
+allow extracting connection info from slonik scripts for reuse by the
+other tools.
+
+  2a) One might do the "quick shell script" thing where we detect lines
+  looking like "NODE [integer] ADMIN CONNINFO = '[DSN]';" and remap this
+  into an array or something for convenient access.
+
+  2b) Write a full scale parser using Bison/Flex.
+  That seems like overkill to me!
+
+3.  Come up with a new format that is intended to be widely easy to
+use/remap.
+
+Let's say, a fixed format thing like the following
+[node],"[DSN]"
+
+Thus...
+1,"port=5432 host=db1.example.info dbname=test user=slony"
+2,"port=5432 host=db2.example.info dbname=test user=slony"
+3,"port=5432 host=db3.example.info dbname=test user=slony"
+
+ 3a) Extend slonik with a command to draw conninfo from files in this
+     form
+
+ 3b) It's no large task to write a script that cuts this up and turns it
+     into:
+
+  node 1 admin conninfo='port=5432 host=db1.example.info dbname=test user=slony';
+  node 2 admin conninfo='port=5432 host=db2.example.info dbname=test user=slony';
+  node 3 admin conninfo='port=5432 host=db3.example.info dbname=test user=slony';
+
+  (It took me a few seconds to write an Emacs macro to do so, so a
+  script shouldn't be too troublesome!)
+
+  3c) Java has a notion of "property files" that would likely make this
+  look something like:
+
+    admin.conninfo.node.1="port=5432 host=db1.example.info dbname=test user=slony"
+    admin.conninfo.node.2="port=5432 host=db2.example.info dbname=test user=slony"
+    admin.conninfo.node.3="port=5432 host=db3.example.info dbname=test user=slony"
+
+  It's pretty trivial to transform this into "node [id] admin
+  conninfo='[DSN]';" lines for use by today's Slonik.
+
+I don't want to vastly overengineer this - I kind of like 2a).
+-- 
+"cbbrowne","@","ca.afilias.info"
+Christopher Browne
+"Bother,"  said Pooh,  "Eeyore, ready  two photon  torpedoes  and lock
+phasers on the Heffalump, Piglet, meet me in transporter room three"
+
+From simon at 2ndQuadrant.com  Sat Dec  4 10:38:50 2010
+From: simon at 2ndQuadrant.com (Simon Riggs)
+Date: Sat, 04 Dec 2010 18:38:50 +0000
+Subject: [Slony1-hackers] Brainstorming Results
+In-Reply-To: <871v5y939u.fsf@cbbrowne.afilias-int.info>
+References: <871v5y939u.fsf@cbbrowne.afilias-int.info>
+Message-ID: <1291487930.1664.65.camel@ebony>
+
+On Fri, 2010-12-03 at 12:26 -0500, Christopher Browne wrote:
+> === Commit timestamps ===
+> * per Jan Wieck
+> * Requires PostgreSQL extension
+> * Eliminates need for periodic generation of SYNC events
+> * Simplifies queries for searching for sl_log_* data
+> * Enables carryover of commit times to subscribers
+
+It should be possible to do this using LISTEN/NOTIFY.
+Now we can pass a payload with the NOTIFY, we just need to pass the
+transaction id. That can be handled automatically by trigger.
+
+What we need is commit order, not commit timestamp, yes?
+NOTIFY happens in commit sequence. It doesn't provide the commit
+timestamp, but perhaps that can be provided by the LISTENer, if you
+really need it.
+
+-- 
+ Simon Riggs           http://www.2ndQuadrant.com/books/
+ PostgreSQL Development, 24x7 Support, Training and Services
+ 
+
+
+From cbbrowne at ca.afilias.info  Mon Dec  6 08:28:25 2010
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Mon, 06 Dec 2010 11:28:25 -0500
+Subject: [Slony1-hackers] Brainstorming Results
+In-Reply-To: <1291487930.1664.65.camel@ebony> (Simon Riggs's message of "Sat, 
+	04 Dec 2010 18:38:50 +0000")
+References: <871v5y939u.fsf@cbbrowne.afilias-int.info>
+	<1291487930.1664.65.camel@ebony>
+Message-ID: <87k4jm7tna.fsf@cbbrowne.afilias-int.info>
+
+Simon Riggs <simon at 2ndQuadrant.com> writes:
+> On Fri, 2010-12-03 at 12:26 -0500, Christopher Browne wrote:
+>> === Commit timestamps ===
+>> * per Jan Wieck
+>> * Requires PostgreSQL extension
+>> * Eliminates need for periodic generation of SYNC events
+>> * Simplifies queries for searching for sl_log_* data
+>> * Enables carryover of commit times to subscribers
+>
+> It should be possible to do this using LISTEN/NOTIFY.
+> Now we can pass a payload with the NOTIFY, we just need to pass the
+> transaction id. That can be handled automatically by trigger.
+>
+> What we need is commit order, not commit timestamp, yes?
+> NOTIFY happens in commit sequence. It doesn't provide the commit
+> timestamp, but perhaps that can be provided by the LISTENer, if you
+> really need it.
+
+Hmm.  I'm not seeing how that would work out.  Something has to run
+NOTIFY at the end of the transaction, and I don't think we have any
+component (Slony or Postgres) that does that.
+
+Perhaps it suffices for there to be a commit hook that submits a NOTIFY
+with the present txid before completing.  If the timestamp was also
+passed back to the LISTENer, that seems like an interesting
+approximation to a commit timestamp.
+
+BTW, this is one of the items on the list that we weren't anticipating
+would be going in any time soon.  Not everything brainstormed gets done
+:-).
+-- 
+select 'cbbrowne' || '@' || 'afilias.info';
+Christopher Browne
+"Bother,"  said Pooh,  "Eeyore, ready  two photon  torpedoes  and lock
+phasers on the Heffalump, Piglet, meet me in transporter room three"
+
+From ssinger at ca.afilias.info  Mon Dec  6 10:18:47 2010
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Mon, 06 Dec 2010 13:18:47 -0500
+Subject: [Slony1-hackers] Brainstorming Results
+In-Reply-To: <1291487930.1664.65.camel@ebony>
+References: <871v5y939u.fsf@cbbrowne.afilias-int.info>
+	<1291487930.1664.65.camel@ebony>
+Message-ID: <4CFD2907.8040108@ca.afilias.info>
+
+On 10-12-04 01:38 PM, Simon Riggs wrote:
+> On Fri, 2010-12-03 at 12:26 -0500, Christopher Browne wrote:
+>> === Commit timestamps ===
+>> * per Jan Wieck
+>> * Requires PostgreSQL extension
+>> * Eliminates need for periodic generation of SYNC events
+>> * Simplifies queries for searching for sl_log_* data
+>> * Enables carryover of commit times to subscribers
+>
+> It should be possible to do this using LISTEN/NOTIFY.
+> Now we can pass a payload with the NOTIFY, we just need to pass the
+> transaction id. That can be handled automatically by trigger.
+>
+
+What happens if the server crashes before the process listening does 
+what it needs to?  I don't think the notification queue gets persisted.
+
+> What we need is commit order, not commit timestamp, yes?
+> NOTIFY happens in commit sequence. It doesn't provide the commit
+> timestamp, but perhaps that can be provided by the LISTENer, if you
+> really need it.
+
+If all one wants to do is replace sync generation then you just need the 
+ordering not the timestamps.  Personally I don't see a huge amount of 
+motivation to eliminate sync generation.
+
+
+
+
+
+From cbbrowne at ca.afilias.info  Mon Dec  6 12:25:41 2010
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Mon, 06 Dec 2010 15:25:41 -0500
+Subject: [Slony1-hackers] Brainstorming Results
+In-Reply-To: <4CFD2907.8040108@ca.afilias.info> (Steve Singer's message of
+	"Mon, 06 Dec 2010 13:18:47 -0500")
+References: <871v5y939u.fsf@cbbrowne.afilias-int.info>
+	<1291487930.1664.65.camel@ebony> <4CFD2907.8040108@ca.afilias.info>
+Message-ID: <87fwua7inu.fsf@cbbrowne.afilias-int.info>
+
+Steve Singer <ssinger at ca.afilias.info> writes:
+> On 10-12-04 01:38 PM, Simon Riggs wrote:
+>> On Fri, 2010-12-03 at 12:26 -0500, Christopher Browne wrote:
+>>> === Commit timestamps ===
+>>> * per Jan Wieck
+>>> * Requires PostgreSQL extension
+>>> * Eliminates need for periodic generation of SYNC events
+>>> * Simplifies queries for searching for sl_log_* data
+>>> * Enables carryover of commit times to subscribers
+>>
+>> It should be possible to do this using LISTEN/NOTIFY.
+>> Now we can pass a payload with the NOTIFY, we just need to pass the
+>> transaction id. That can be handled automatically by trigger.
+>
+> What happens if the server crashes before the process listening does
+> what it needs to?  I don't think the notification queue gets
+> persisted.
+
+Not anymore, no, and that could well present a problem.
+
+>> What we need is commit order, not commit timestamp, yes?
+>> NOTIFY happens in commit sequence. It doesn't provide the commit
+>> timestamp, but perhaps that can be provided by the LISTENer, if you
+>> really need it.
+>
+> If all one wants to do is replace sync generation then you just need
+> the ordering not the timestamps.  Personally I don't see a huge amount
+> of motivation to eliminate sync generation.
+
+The value to it isn't in the elimination of the sync thread, which,
+after all, only has a little over a hundred lines of code, many rather
+short.
+
+Instead, it is in eliminating the need to use the SYNC artifact to
+divide up the work, which has several effects...
+
+ a) If the slons all fall over for the weekend, then there's guaranteed
+    to be One Huge SYNC when the origin's slon comes back up.
+    
+    Note that we already have some tooling as belt-and-suspenders to guard
+    against this - see
+    <http://git.postgresql.org/gitweb?p=slony1-engine.git;a=blob;f=tools/generate_syncs.sh>.
+
+    If we already have "guard code," that cuts down the already not huge
+    or awful risk of this case, the "commit times eliminates SYNC
+    events" feature isn't terribly worthwhile on this count.
+
+ b) If there's some Very Large Update (e.g. - the UPDATE FOO SET A=B
+    WHERE ID IN ([large set of IDs]), we're liable to get stuck with
+    SYNCs that process more work than they really need to.
+
+    If we had commit timestamps, then we could stop processing (and do a
+    COMMIT, and switch to a new event) immediately upon reaching the end
+    of the big transaction.
+
+    I'll amiably go along with the thought that this doesn't really save
+    us from *all* that much work.
+
+ c) On a busy cluster with a lot of concurrent transactions on separate
+    connections, the sequence sl_action_seq is being continually updated
+    by each backend.
+
+    If we had commit timestamps, we could eliminate sl_action_seq, in
+    favor of using an in-memory variable existing independently in each
+    backend that is reset to 0 each time a new transaction starts.
+
+    Thus, no more fighting over the sequence.
+
+    We don't know for certain that it's a bottleneck that's biting
+    people heavily, but frankly, I don't think that's a factor that has
+    been readily measured.
+-- 
+(format nil "~S@~S" "cbbrowne" "afilias.info")
+Christopher Browne
+"Bother,"  said Pooh,  "Eeyore, ready  two photon  torpedoes  and lock
+phasers on the Heffalump, Piglet, meet me in transporter room three"
+
+From cbbrowne at ca.afilias.info  Mon Dec  6 13:37:12 2010
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Mon, 06 Dec 2010 16:37:12 -0500
+Subject: [Slony1-hackers] [Slony1-bugs] [Bug 176] Cluster Analysis Tool
+In-Reply-To: <20101206212619.1D610290D6C@main.slony.info>
+	(bugzilla-daemon@main.slony.info's message of "Mon, 6 Dec 2010
+	13:26:19 -0800 (PST)")
+References: <bug-176-4@http.www.slony.info/bugzilla/>
+	<20101206212619.1D610290D6C@main.slony.info>
+Message-ID: <87r5duzipj.fsf@cbbrowne.afilias-int.info>
+
+A non-text attachment was scrubbed...
+Name: listen-overview.dot.png
+Type: image/png
+Size: 33049 bytes
+Desc: not available
+Url : http://lists.slony.info/pipermail/slony1-hackers/attachments/20101206/b8244eac/attachment-0003.png 
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: paths-overview.dot.png
+Type: image/png
+Size: 67866 bytes
+Desc: not available
+Url : http://lists.slony.info/pipermail/slony1-hackers/attachments/20101206/b8244eac/attachment-0004.png 
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: subscription-overview.dot.png
+Type: image/png
+Size: 25979 bytes
+Desc: not available
+Url : http://lists.slony.info/pipermail/slony1-hackers/attachments/20101206/b8244eac/attachment-0005.png 
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: samples.tar.bz2
+Type: application/octet-stream
+Size: 110937 bytes
+Desc: not available
+Url : http://lists.slony.info/pipermail/slony1-hackers/attachments/20101206/b8244eac/attachment-0001.obj 
+
+From JanWieck at Yahoo.com  Mon Dec  6 15:42:29 2010
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Mon, 06 Dec 2010 18:42:29 -0500
+Subject: [Slony1-hackers] Brainstorming Results
+In-Reply-To: <1291487930.1664.65.camel@ebony>
+References: <871v5y939u.fsf@cbbrowne.afilias-int.info>
+	<1291487930.1664.65.camel@ebony>
+Message-ID: <4CFD74E5.5090408@Yahoo.com>
+
+On 12/4/2010 1:38 PM, Simon Riggs wrote:
+> On Fri, 2010-12-03 at 12:26 -0500, Christopher Browne wrote:
+>>  === Commit timestamps ===
+>>  * per Jan Wieck
+>>  * Requires PostgreSQL extension
+>>  * Eliminates need for periodic generation of SYNC events
+>>  * Simplifies queries for searching for sl_log_* data
+>>  * Enables carryover of commit times to subscribers
+>
+> It should be possible to do this using LISTEN/NOTIFY.
+> Now we can pass a payload with the NOTIFY, we just need to pass the
+> transaction id. That can be handled automatically by trigger.
+>
+> What we need is commit order, not commit timestamp, yes?
+> NOTIFY happens in commit sequence. It doesn't provide the commit
+> timestamp, but perhaps that can be provided by the LISTENer, if you
+> really need it.
+>
+
+I'm not sure that we will ever get to a real consensus in the community, 
+what such feature should actually look like. Maybe we should shift to 
+something slightly different, following your suggestion of making the 
+whole thing a hook.
+
+The most generic hook would IMHO be to allow an on-commit trigger. It 
+would fire as the last step in processing the deferred trigger queue. 
+The permissions for creating such beast should be DB owner or superuser. 
+That way, we offload the decision what to do in such a beast entirely to 
+the user/developer and can simply say "if you don't like the 
+implications, don't use it".
+
+It may be the most expensive type of hook when actually used for 
+something like recording the transaction commit order. But I would live 
+with that as a first step. I've got the OK from my manager to spend time 
+on this, so as soon as I find some (time), I'm going to do some hacking 
+and then write up a proposal for PG hackers.
+
+
+Jan
+
+-- 
+Anyone who trades liberty for security deserves neither
+liberty nor security. -- Benjamin Franklin
+
+From simon at 2ndQuadrant.com  Tue Dec  7 07:05:23 2010
+From: simon at 2ndQuadrant.com (Simon Riggs)
+Date: Tue, 07 Dec 2010 15:05:23 +0000
+Subject: [Slony1-hackers] Brainstorming Results
+In-Reply-To: <87fwua7inu.fsf@cbbrowne.afilias-int.info>
+References: <871v5y939u.fsf@cbbrowne.afilias-int.info>
+	<1291487930.1664.65.camel@ebony> <4CFD2907.8040108@ca.afilias.info>
+	<87fwua7inu.fsf@cbbrowne.afilias-int.info>
+Message-ID: <1291734323.2872.57.camel@ebony>
+
+On Mon, 2010-12-06 at 15:25 -0500, Christopher Browne wrote:
+> Steve Singer <ssinger at ca.afilias.info> writes:
+> > On 10-12-04 01:38 PM, Simon Riggs wrote:
+> >> On Fri, 2010-12-03 at 12:26 -0500, Christopher Browne wrote:
+> >>> === Commit timestamps ===
+> >>> * per Jan Wieck
+> >>> * Requires PostgreSQL extension
+> >>> * Eliminates need for periodic generation of SYNC events
+> >>> * Simplifies queries for searching for sl_log_* data
+> >>> * Enables carryover of commit times to subscribers
+> >>
+> >> It should be possible to do this using LISTEN/NOTIFY.
+> >> Now we can pass a payload with the NOTIFY, we just need to pass the
+> >> transaction id. That can be handled automatically by trigger.
+> >
+> > What happens if the server crashes before the process listening does
+> > what it needs to?  I don't think the notification queue gets
+> > persisted.
+> 
+> Not anymore, no, and that could well present a problem.
+
+Yes, if server crashes, many things will be lost.
+
+It seems likely to me that there will few, if any, transactions for
+which we don't know the commit timestamp. All of the current
+transactions will be lost.
+
+Do we really need the timestamp for every single transaction? Surely we
+can make a good guess from the transactions before and after.
+
+-- 
+ Simon Riggs           http://www.2ndQuadrant.com/books/
+ PostgreSQL Development, 24x7 Support, Training and Services
+ 
+
+
+From cbbrowne at ca.afilias.info  Tue Dec  7 08:12:49 2010
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Tue, 07 Dec 2010 11:12:49 -0500
+Subject: [Slony1-hackers] Brainstorming Results
+In-Reply-To: <1291734323.2872.57.camel@ebony> (Simon Riggs's message of "Tue, 
+	07 Dec 2010 15:05:23 +0000")
+References: <871v5y939u.fsf@cbbrowne.afilias-int.info>
+	<1291487930.1664.65.camel@ebony> <4CFD2907.8040108@ca.afilias.info>
+	<87fwua7inu.fsf@cbbrowne.afilias-int.info>
+	<1291734323.2872.57.camel@ebony>
+Message-ID: <87mxohzhmm.fsf@cbbrowne.afilias-int.info>
+
+Simon Riggs <simon at 2ndQuadrant.com> writes:
+> On Mon, 2010-12-06 at 15:25 -0500, Christopher Browne wrote:
+>> Steve Singer <ssinger at ca.afilias.info> writes:
+>> > On 10-12-04 01:38 PM, Simon Riggs wrote:
+>> >> On Fri, 2010-12-03 at 12:26 -0500, Christopher Browne wrote:
+>> >>> === Commit timestamps ===
+>> >>> * per Jan Wieck
+>> >>> * Requires PostgreSQL extension
+>> >>> * Eliminates need for periodic generation of SYNC events
+>> >>> * Simplifies queries for searching for sl_log_* data
+>> >>> * Enables carryover of commit times to subscribers
+>> >>
+>> >> It should be possible to do this using LISTEN/NOTIFY.
+>> >> Now we can pass a payload with the NOTIFY, we just need to pass the
+>> >> transaction id. That can be handled automatically by trigger.
+>> >
+>> > What happens if the server crashes before the process listening does
+>> > what it needs to?  I don't think the notification queue gets
+>> > persisted.
+>> 
+>> Not anymore, no, and that could well present a problem.
+>
+> Yes, if server crashes, many things will be lost.
+>
+> It seems likely to me that there will few, if any, transactions for
+> which we don't know the commit timestamp. All of the current
+> transactions will be lost.
+>
+> Do we really need the timestamp for every single transaction? Surely we
+> can make a good guess from the transactions before and after.
+
+It would be a slick added feature to actually have the timestamp for
+every single transaction.  That being captured, and carried over to
+replicas, it would be possible for triggers run on subscribers to access
+the actual commit time.  (Just requires adding a function
+get_commit_timestamp().)
+
+That could add usefully to the data available.
+
+That's not necessarily reason to require per-transaction timestamps, but
+it would be nice to have...
+-- 
+output = reverse("ofni.sailifa" "@" "enworbbc")
+Christopher Browne
+"Bother,"  said Pooh,  "Eeyore, ready  two photon  torpedoes  and lock
+phasers on the Heffalump, Piglet, meet me in transporter room three"
+
+From ssinger at ca.afilias.info  Tue Dec  7 10:25:20 2010
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Tue, 07 Dec 2010 13:25:20 -0500
+Subject: [Slony1-hackers] bulk table adding
+Message-ID: <4CFE7C10.8070604@ca.afilias.info>
+
+This design proposal describes what I have in mind for implementing bulk 
+table adding.
+
+Overview:
+--------------
+The goal of this change is to make it easier to add tables to slony.  A 
+very common use-case is to want to add all your tables to a single slony 
+replication set.  Variations on that theme include 'all the tables in a 
+schema' or 'all the tables except these'.
+
+Proposal
+-----------------
+The change proposed solution is to allow users to specify a regular 
+expression (regex) that table names will be compared against to find the 
+table.
+
+Syntax examples
+--------------------
+
+# existing syntax for a single table.
+set add table (set id=2, origin=1, id=5, fully qualified name = 
+'public.newtable', comment='some new table');
+
+#Add all tables in public
+set add table(set id=1, origin=1, tables='public.*',comment="replicated 
+public tables');
+
+#Add a single table with the tables command
+set add table(set id=1, origin=1, tables='public.newtable',comment='test');
+
+#syntax to default as much as possible
+set add table(set id=1, tables='public.*');
+
+#all tables except one
+set add table(set id=1, tables='public.(!password)');
+
+#Starting number for id values
+set add table(set id=1, id=1000,tables='public.*');
+
+Implementation Overview
+---------------------------------
+
+1. Modify parser.y in slonik to take a 'tables' option and make 
+fully_qualified_name ,set origin and id all optional.
+
+2.  Add in checks to make sure that either tables or 
+fully_qualified_table is specified.
+
+3. Write a routine that will connect to each node with a admin conninfo
+and find the next free id for a table (largest id currently used +1).
+
+4. Modify slonik to query the pgsql catalog to get a list of tables to 
+add. The intent is to let the pgsql regex handling handle the regex and 
+match against tables in the catalog (regex_matches)
+
+
+5. Modify slonik to loop through this list and add the tables using the 
+assigned ids.
+
+(A large part of 4,5 will be done in stored procedures)
+
+6. Update documentation + tests.
+
+
+Details
+---------------------
+
+To determine the next available table id I intend to loop through each 
+node that slonik has an admin conninfo for and get the maximum id value 
+from sl_table in each.  I then intend to take maximum of those + 1. This 
+method is problematic if you try to do multiple 'set add table' commands 
+concurrently.   This is no worse than if two people/scripts manually 
+pick the same table id values today.   One option to avoid this is to 
+have slonik obtain the config_lock on each node first, then submit the 
+setAddTable then release all of the config locks.  I am inclined to do 
+this unless someone can think of a reason why it might cause problems.
+
+
+
+To find the origin of a set we connect to an admin coninfo node and 
+check sl_set for that set.  We then connect to the origin specified in 
+sl_set to perform the setAddTable.
+
+
+Compatibility Issues
+-----------------------------------
+These changes should preserve the existing behaviour of the 'set add 
+table' command.
+
+
+
+From ssinger at ca.afilias.info  Tue Dec  7 10:45:20 2010
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Tue, 07 Dec 2010 13:45:20 -0500
+Subject: [Slony1-hackers] Brainstorming Results
+In-Reply-To: <1291734323.2872.57.camel@ebony>
+References: <871v5y939u.fsf@cbbrowne.afilias-int.info>	
+	<1291487930.1664.65.camel@ebony>
+	<4CFD2907.8040108@ca.afilias.info>	
+	<87fwua7inu.fsf@cbbrowne.afilias-int.info>
+	<1291734323.2872.57.camel@ebony>
+Message-ID: <4CFE80C0.1070800@ca.afilias.info>
+
+On 10-12-07 10:05 AM, Simon Riggs wrote:
+> On Mon, 2010-12-06 at 15:25 -0500, Christopher Browne wrote:
+>> Steve Singer<ssinger at ca.afilias.info>  writes:
+>
+> Yes, if server crashes, many things will be lost.
+>
+> It seems likely to me that there will few, if any, transactions for
+> which we don't know the commit timestamp. All of the current
+> transactions will be lost.
+>
+> Do we really need the timestamp for every single transaction? Surely we
+> can make a good guess from the transactions before and after.
+>
+
+If all your doing is building a replication system that moves the slave 
+from one consistent snapshot to another then you can just group the 
+transactions with no timestamp into the next commit and be fine.
+
+If one is trying to (as Chris alludes to) implement triggers on the 
+slave that can use the commit timestamp then an approximation might not 
+be good enough (depending on what these triggers are and the business 
+requirements that have lead to them), but I am still unconvinced as to 
+why you would want to use the commit timestamp (versus the timestamp of 
+the individual operations) for something.
+
+
+
+
+
+From JanWieck at Yahoo.com  Tue Dec  7 11:36:15 2010
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Tue, 07 Dec 2010 14:36:15 -0500
+Subject: [Slony1-hackers] Brainstorming Results
+In-Reply-To: <4CFE80C0.1070800@ca.afilias.info>
+References: <871v5y939u.fsf@cbbrowne.afilias-int.info>		<1291487930.1664.65.camel@ebony>	<4CFD2907.8040108@ca.afilias.info>		<87fwua7inu.fsf@cbbrowne.afilias-int.info>	<1291734323.2872.57.camel@ebony>
+	<4CFE80C0.1070800@ca.afilias.info>
+Message-ID: <4CFE8CAF.8060200@Yahoo.com>
+
+On 12/7/2010 1:45 PM, Steve Singer wrote:
+> On 10-12-07 10:05 AM, Simon Riggs wrote:
+>>  On Mon, 2010-12-06 at 15:25 -0500, Christopher Browne wrote:
+>>>  Steve Singer<ssinger at ca.afilias.info>   writes:
+>>
+>>  Yes, if server crashes, many things will be lost.
+>>
+>>  It seems likely to me that there will few, if any, transactions for
+>>  which we don't know the commit timestamp. All of the current
+>>  transactions will be lost.
+>>
+>>  Do we really need the timestamp for every single transaction? Surely we
+>>  can make a good guess from the transactions before and after.
+>>
+>
+> If all your doing is building a replication system that moves the slave
+> from one consistent snapshot to another then you can just group the
+> transactions with no timestamp into the next commit and be fine.
+>
+> If one is trying to (as Chris alludes to) implement triggers on the
+> slave that can use the commit timestamp then an approximation might not
+> be good enough (depending on what these triggers are and the business
+> requirements that have lead to them), but I am still unconvinced as to
+> why you would want to use the commit timestamp (versus the timestamp of
+> the individual operations) for something.
+
+The commit timestamp is the moment in time, at which changes that the 
+transaction made became visible to other sessions. That together with 
+the CURRENT_TIMESTAMP of any serializable transaction will let you 
+reconstruct EXACTLY the snapshot of the database, the serializable 
+transaction saw.
+
+
+Jan
+
+-- 
+Anyone who trades liberty for security deserves neither
+liberty nor security. -- Benjamin Franklin
+
+From cbbrowne at ca.afilias.info  Tue Dec  7 12:30:09 2010
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Tue, 07 Dec 2010 15:30:09 -0500
+Subject: [Slony1-hackers] bulk table adding
+In-Reply-To: <4CFE7C10.8070604@ca.afilias.info> (Steve Singer's message of
+	"Tue, 07 Dec 2010 13:25:20 -0500")
+References: <4CFE7C10.8070604@ca.afilias.info>
+Message-ID: <87fwu95nse.fsf@cbbrowne.afilias-int.info>
+
+Steve Singer <ssinger at ca.afilias.info> writes:
+> The goal of this change is to make it easier to add tables to slony.  A 
+> very common use-case is to want to add all your tables to a single slony 
+> replication set.  Variations on that theme include 'all the tables in a 
+> schema' or 'all the tables except these'.
+
+I have set up a bug to track this feature
+<http://www.slony.info/bugzilla/show_bug.cgi?id=181>
+
+I don't see anything here to notably disagree with.
+
+There are quite a few edge cases; I would suggest that the regression
+tests include the following scenarios:
+
+ a) Have a schema with NO tables that would be matched by the regex
+
+    That'll lead to no tables being added, which isn't an error, right?
+
+ b) Make sure there are some pathological-ish table names to be
+    captured/excluded, including:
+
+     - Names/schemas with spaces
+
+     - Upper + lower case mixtures
+
+     - Names containing special-ish characters including
+           :-.()'"[]
+
+  c) What happens if some tables are already replicated?
+
+     Probably they should get ignored.  Perhaps slonik should output a
+     warning in such cases?
+
+  d) Try a bit of torture to come close to having table IDs getting
+     reused.
+
+     Given your protocol for locking nodes, this should fail gracefully.
+-- 
+output = ("cbbrowne" "@" "afilias.info")
+Christopher Browne
+"Bother,"  said Pooh,  "Eeyore, ready  two photon  torpedoes  and lock
+phasers on the Heffalump, Piglet, meet me in transporter room three"
+
+From z-saito at guitar.ocn.ne.jp  Wed Dec  8 09:06:14 2010
+From: z-saito at guitar.ocn.ne.jp (Hiroshi Saito)
+Date: Thu, 9 Dec 2010 02:06:14 +0900
+Subject: [Slony1-hackers] [Slony1-general] Slony 1.2.22 & 2.0.6 Released
+References: <4CFE7605.6030905@ca.afilias.info>
+Message-ID: <6CB0F071F1F5497A9950A242C2B27086@acer08f817a9b5>
+
+Hi.
+
+As for build by MimGW, there was a problem by PostgreSQL Version 9.0.1.
+It cannot take adjustment of conditions...
+==
+$ make
+make[1]: Entering directory `/home/hiroshi/slony1-1.2.22/src'
+make[2]: Entering directory `/home/hiroshi/slony1-1.2.22/src/xxid'
+gcc -g -O2 -Wall -Wmissing-prototypes -Wmissing-declarations  -I../.. -I/usr/local/pgsql/include 
+ -I/usr/local/pgsql/include/server  -I/usr/local/pgsql/include/server/port/win32  -c -o 
+xxid.o xxid.c
+sed -e 's;FILEDESC;"Slony xxid datatype";' -e 's;VFT_APP;VFT_APP;' -e 
+'s;SLVERSION;SLONY_I_VERSION_STRING_DEC ,'`date '+%y%j' | sed 's/^0*//'`';' 
+../../src/slon/port/win32ver.rc.in > win32ver.rc
+windres -i win32ver.rc -o win32ver.o --include-dir=../..
+rm -f win32ver.rc
+dlltool --export-all --output-def xxid.def xxid.o win32ver.o
+dllwrap -o xxid.dll --def xxid.def xxid.o win32ver.o 
+/usr/local/pgsql/lib/pgxs/src/utils/dllinit.o -L/usr/local/pgsql/lib -lpostgres
+gcc: C:/MinGW/local/pgsql/lib/pgxs/src/utils/dllinit.o: No such file or directory
+C:\MinGW\bin\dllwrap.exe: C:\MinGW\bin\gcc exited with status 1
+make[2]: *** [xxid.dll] Error 1
+make[2]: Leaving directory `/home/hiroshi/slony1-1.2.22/src/xxid'
+make[1]: *** [all] Error 2
+make[1]: Leaving directory `/home/hiroshi/slony1-1.2.22/src'
+make: *** [all] Error 2
+==
+
+Please take this into consideration.
+Thanks!
+
+Regards,
+Hiroshi Saito
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: win32_config_patch
+Type: application/octet-stream
+Size: 794 bytes
+Desc: not available
+Url : http://lists.slony.info/pipermail/slony1-hackers/attachments/20101209/7ec0c805/attachment.obj 
+
+From ssinger at ca.afilias.info  Thu Dec  9 10:34:28 2010
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Thu, 09 Dec 2010 13:34:28 -0500
+Subject: [Slony1-hackers] [Slony1-general] Slony 1.2.22 & 2.0.6 Released
+In-Reply-To: <6CB0F071F1F5497A9950A242C2B27086@acer08f817a9b5>
+References: <4CFE7605.6030905@ca.afilias.info>
+	<6CB0F071F1F5497A9950A242C2B27086@acer08f817a9b5>
+Message-ID: <4D012134.8000404@ca.afilias.info>
+
+On 10-12-08 12:06 PM, Hiroshi Saito wrote:
+> Hi.
+>
+> As for build by MimGW, there was a problem by PostgreSQL Version 9.0.1.
+> It cannot take adjustment of conditions...
+> ==
+
+> Please take this into consideration.
+> Thanks!
+
+Patch applied to REL_1_2_STABLE.
+
+Thanks
+
+>
+> Regards,
+> Hiroshi Saito
+
+
+From ssinger at ca.afilias.info  Fri Dec 10 06:19:09 2010
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Fri, 10 Dec 2010 09:19:09 -0500
+Subject: [Slony1-hackers] automatic WAIT FOR proposal
+Message-ID: <4D0236DD.1080509@ca.afilias.info>
+
+This an initial proposal describes an approach to dealing with automatic 
+wait for in slony 2.1.
+
+Overview
+--------------
+In current (<=2.0) versions of slony some events are submitted to an 
+event node by slonik.  These events (that exist as rows in sl_event) get 
+propogated to other nodes via replication (slon).  When these events are 
+processed on the other node the other node runs the code (usually a 
+stored procedure) associated with the event.  Slonik thinks it is 
+finished with the command as soon as the event is created and the stored 
+procedure that slonik called has completed.
+
+Just because slonik has moved onto the next line of the script doesn't 
+mean that the previous command has yet been processed everywhere.   To 
+address this issue slonik has the 'WAIT FOR' command where you can tell 
+slonik to wait until the last event submitted a particular node has been 
+confirmed by other nodes.
+
+Properly written slonik scripts will 'WAIT FOR' some events to be 
+processed on other nodes before trying different things.
+
+The Problem
+----------------
+The problem with the above statement is that it is very imprecise. It 
+has never been clearly defined when you need to wait and against which 
+node.  Furthermore the answer to that question differs based on the 
+version of slony you are using because it is dependent on the internal 
+operation of slony.
+
+
+An informal survey of the slony mailing list shows that almost no users 
+understand how WAIT FOR should be used.
+
+Proposal
+------------
+The goal is to make slonik handle the proper waiting between events. If 
+based on the previous set of slonik commands the next command needs to 
+wait until a previous command is confirmed by another node then slonik 
+should be smart enough to figure this out and to wait.
+
+When should slonik wait?
+
+Slonik can connect to any node in the cluster (or at least any one it 
+has an admin conninfo for) to submit commands against.  If in a single 
+slonik script, slonik submits a command against a node (say node (a) ) 
+and then later submits a command against a different node (say node (b)) 
+then it would be a really good idea to ensure that any event generated 
+by the last command on node (a) has been processed on node (b) before 
+slonik submits a command to node (b).
+
+If slonik were to submit the command to node (b) before the previous 
+command reaches (b) then you might have different behaviour than if the 
+command were to be submitted to (b) after the previous event reaches (b).
+
+Question: Does slonik have to wait until the event from node (a) has 
+been submitted to all nodes or just node (b)?
+
+To answer this we assume the answer is 'no'.  Let us have another node 
+(c).  If the event from node (b) (say e2) reaches node (c) before the 
+event from node (a) (event e1) then do we have a problem?
+
+Consider the example of a user submitting a 'store node' command to a to 
+create a new node (d).  Then the user submits a 'drop node' command to 
+node (b).  If node drop node is processed on node (c) before the store 
+node then we will have an issue.
+So yes,  this is a problem.
+
+Can this actually happen?
+
+Say node (c) is in the middle of subscribing to a set directly from node 
+(a).  The remote worker on (c) will not process e1 until after the 
+subscription is finished.  However, the remote worker on (c) for node 
+(b) will be able to see and process e2 earlier.
+
+
+So the answer is 'yes', slonik must wait for the event to be confirmed 
+by more nodes than just the ones involved in the commands.
+
+part of the problem is that there is no total-ordering of events. Each 
+event gets a sequence number with respect to the event node the event 
+was created on.  There is no direct way of node (c) to be sequencing 
+events from node (a) and events from node (b) in the original order.
+
+What would solve this?
+
+1) If we had a global ordering on events maybe assigned by a cluster 
+coordinator node (c) would be able to process the events in the right order.
+2) When a event is created on node (b) if we store the fact that it has 
+already seen/confirmed event (a),1234 from node (a) we could transmit 
+this pre-condition as part of the event so node (c) can know that it 
+can't process the event from b until it has seen 1234 from (a).  This 
+way node (c) will process things in the right order but we can submit 
+events to (b) - which is up to date without having to wait for the busy 
+node (c) to get caught up.
+3) We could disallow or discourage the use of multiple event nodes and 
+require all slonik command events to originate on a single cluster node 
+(other than store path and maybe subscribe set) and provide facilities 
+for dealing with cases where that event node fails or is split.
+4) We really do require the cluster be caught up before using a 
+different event node.  This is where we automatically do the WAIT FOR ALL.
+
+
+The approach proposed here is to go with (4) where before switching 
+event nodes slonik will WAIT FOR all nodes to confirm the last event
+
+
+Implications/Drawbacks
+--------------------------
+
+If a user does invokes slonik multiple times ie 1 slonik invocation per 
+command then this feature provides nothing.
+
+If a node in the cluster is behind maybe because it is subscribing to a 
+large set or has fallen behind by a lot then slonik commands need to be 
+restricted to a single event node. We will explore the implications of 
+this later on (below).
+
+
+If a user starts a second slonik instance while the first one is waiting 
+then they have no protection.  This is no worse than they are today
+
+What are the implications of having to wait until the cluster is caught 
+up before switching event nodes?  The following are cases where you 
+might switch event/command nodes.
+
+1) STORE PATH - the event node is dictated by how you are setting up the 
+path. Furthoremore if the backwards path isn't yet set up the node won't 
+recive the confirm message
+2) SUBSCRIBE set (in 2.0.5+) always gets submitted at the origin.  So if 
+you are subscribing multiple sets slonik will switch event nodes. This 
+means that subscribing to multiple sets (with different set origins) in 
+parallel will be harder (you will need to disable automatic wait-for or 
+use different slonik invocations). You can still do parallel subscribes 
+to the same set because the subscribe set always goes to the origin in 
+2.0.5+ not the provider or the receiver.
+3) STORE/DROP listen goes to specific nodes based on the arguments but 
+you shouldn't need STORE/DROP listen commands anyway in 1.2 or 2.0
+4) CREATE/DROP SET must go to the set origin. If your creating sets the 
+cluster probably needs to be caught up.
+5) ADD TABLE/ADD SEQUENCE - must go to the origin.  Again if your 
+manipulating sets you must stick to a single set origin or have your 
+cluster be caught up
+6) MOVE TABLE goes to the origin - but the docs already warn you about 
+trying this if your cluster isn't caught up (with respect to this set)
+8) MOVE SET - Doing this with a behind cluster is already a bad idea
+9) FAILOVER - See multi-node failover discussion
+
+
+STORE PATH
+-----------
+A WAIT FOR ALL nodes won't work unless all of the paths are stored.
+When I say 'all' I mean there must exist a route from every node to 
+every other node.  The routes don't need to be direct. There are certain 
+common usage patterns that shouldn't be excluded. It would be good if 
+slonik could detect missing paths before 'changing things' because 
+otherwise users might be left with a half complete script.
+
+To do this slonik will:
+-Connect to each event node and query sl_path and build an in-memory 
+representation of the cluster configuration
+-Walk the parse tree of the slonik script and find places where the 
+event node changes.  At each of these places it will verify that the 
+path network is complete.   If the path network is not complete slonik 
+will throw an error.
+-An implicit WAIT FOR ALL command will be inserted into the parse tree
+-Nodes that have not yet been created (but have admin conninfo) data 
+will not generate 'incomplete' errors.   This means that STORE NODE,
+DROP NODE and FAILOVER events must be picked up during parse tree 
+analysis and adjust sloniks internal state
+-STORE PATH/DROP PATH commands also must be picked up by the parse tree
+analysis.
+
+Consider this slonik script:
+-------------------------------
+store node(id=2,event node=1)
+try {
+   subscribe set(set id=1,provider=1,receiver=2);
+   store path( client=1,server=2,...);
+   store path(client=2,server=1,....);
+}
+on error {
+echo 'let us ignore errors';
+}
+create set(id=2,origin=2);
+-------------------------------------
+
+Is it valid?
+If the subscribe set works then paths will exist for the create set 
+(something that would require an implicit wait for to preceed it).
+
+But if the subscribe set fails then the paths never get created and it 
+is not possible do a wait for before the create set.
+
+The easy answer is: Don't write scripts that can leave your cluster in 
+an indetermined state.   What we should do if someone tries is an open 
+question.  We could a) check that all code paths (cross product) leave 
+the cluster consistent/complete.  b) Assume the try blocks always finish 
+successfully c) don't do the parse tree analysis described above for the 
+entire script at parse time but instead do it for each block before 
+entering that block.
+I am leaning towards c.
+
+Subscription Reshaping
+--------------------------
+A common use-case is
+1-->2--->3
+and node 2 goes offline.  You might want to create a node 4 (to replace 
+node 2) and make node 3 feed off node a until node 4 is caught up then 
+have node 3 feed off node 4.  You think node (2) will come back up in a 
+while so you don't want to drop it from the cluster.
+
+subscribe set(id=1, provider=1,receiver=3);
+create node(id=4,event node=4);
+store path(client=4,server=3..);
+store path(client=3,server=4...);
+subscribe set(id=1,provider=1,receiver=4);
+
+The above script will work and will not require any implicit WAIT FOR 
+commands since the origin for the subscribe sets AND the store node is 
+1.  It is also worth noting that the first subscribe set (the reshape) 
+will also connect directly to node 3 and reconfigure the node 3 listen 
+network to pay attention to events from node 1 directly.
+
+Now consider the case where node 3 is also the origin for a set being 
+replicated to node 2 and we now want to replicate it to node 4 as well.
+
+
+subscribe set(id=1, provider=1,receiver=3);
+create node(id=4,event node=4);
+store path(client=4,server=3..);
+store path(client=3,server=4...);
+subscribe set(id=1,provider=1,receiver=4);
+--An IMPLICT WAIT FOR will be inserted here
+subscribe set(id=2,provider=3,receiver=4);
+
+The above script won't ever complete (until node 2 comes back online) 
+because the WAIT FOR ALL will be waiting for the events to be confirmed 
+by node 2.
+
+Solutions to this could be to say to users 'tough' execute that second 
+subscribe set in another slonik....
+
+How does this situation behave today:  It is pretty important the the 
+subscribe set (id=2...) does not get processed until the create 
+node(id=4) makes it to node 3.  The script as written above might not 
+work.  You would need a explicit WAIT FOR before the subsribe set 
+(id=2).   WAIT FOR(..confirmed=all) won't ever complete because node 2 
+is behind.
+
+If I were manually writing the script I could do
+WAIT FOR(id=1, confirmed=3, ...).
+The problem is today - that when node 2 comes back online it might see 
+the SUBSCRIBE SET(id=2...) from node 3 BEFORE it learns about node 4.
+Or is there some reason I don't see why this isn't a problem today? 
+This also applies to sites that intentionally lag one of their slons by 
+a few hours.  Automatic WAIT FOR is incompatible in practice with this 
+use case but I don't see how they aren't exceptionally vunerable to race 
+conditions today.
+
+
+FAILOVER
+---------------
+Most failover scenarios are not done as part of an existing script but 
+are scripts done with the 'failover' in mind.
+To that end the failover script might involve adding some paths and then 
+executing the failover command which shouldn't require any waiting
+
+Because the STORE PATH for the path from the receiver to the backup node 
+(if one is required) will be executed by slonik on the backup node then 
+the failover path checking logic that runs on the backup node will 
+always see that path (if the path was created) and no WAIT FOR is required.
+
+cluster reshaping will typically happen after the failover command - 
+because most cluster reshaping involves submitting events to the set 
+origin (which is inaccessible before the failover).
+
+After the failover commands to other nodes would require an implicit 
+WAIT FOR.. ALL.  This is fine as long as the 'failed' node is marked as 
+disabled so the ALL doesn't include the failed node (this does not 
+happen today, to be safe oyu would have to manually include a wait for 
+to each of the individual non failover target nodes).
+
+Slonik will need to be modified to see the FAILOVER and know that means 
+it should exclude the failed node from its list of 'all nodes to wait 
+for' just like it will need to do for drop node.
+
+
+Disabling Automatic WAIT FOR
+----------------------------
+Automatic WAIT FOR can be disabled in a script by adding a command like:
+"SET CONFIRM_DELAY=off"
+or turned on with
+"SET CONFIRM_DELAY=on"
+
+(or someone should put forward different syntax)
+
+Open Questions
+---------------------
+- Is the analysis above correct?
+- How do we want to handle TRY blocks. See discussion above
+-Are we willing to live with the above limitations?
+
+
+
+Comments?
+
+From cbbrowne at ca.afilias.info  Fri Dec 10 13:54:48 2010
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Fri, 10 Dec 2010 16:54:48 -0500
+Subject: [Slony1-hackers] automatic WAIT FOR proposal
+In-Reply-To: <4D0236DD.1080509@ca.afilias.info> (Steve Singer's message of
+	"Fri, 10 Dec 2010 09:19:09 -0500")
+References: <4D0236DD.1080509@ca.afilias.info>
+Message-ID: <87y67xz42f.fsf@cbbrowne.afilias-int.info>
+
+Steve Singer <ssinger at ca.afilias.info> writes:
+> The Problem
+> ----------------
+> An informal survey of the slony mailing list shows that almost no users 
+> understand how WAIT FOR should be used.
+
+I daresay that as a not-unsophisticated user of Slony, I don't always
+get it right.  I think there's only one person who has successful
+"intuition" on WAIT FOR behaviour, and I don't think it takes much
+guessing as to who that is!
+
+> Proposal
+> ------------
+> The goal is to make slonik handle the proper waiting between events. If 
+> based on the previous set of slonik commands the next command needs to 
+> wait until a previous command is confirmed by another node then slonik 
+> should be smart enough to figure this out and to wait.
+
+...
+
+> What would solve this?
+>
+> 1) If we had a global ordering on events maybe assigned by a cluster 
+> coordinator node (c) would be able to process the events in the right order.
+> 2) When a event is created on node (b) if we store the fact that it has 
+> already seen/confirmed event (a),1234 from node (a) we could transmit 
+> this pre-condition as part of the event so node (c) can know that it 
+> can't process the event from b until it has seen 1234 from (a).  This 
+> way node (c) will process things in the right order but we can submit 
+> events to (b) - which is up to date without having to wait for the busy 
+> node (c) to get caught up.
+> 3) We could disallow or discourage the use of multiple event nodes and 
+> require all slonik command events to originate on a single cluster node 
+> (other than store path and maybe subscribe set) and provide facilities 
+> for dealing with cases where that event node fails or is split.
+> 4) We really do require the cluster be caught up before using a 
+> different event node.  This is where we automatically do the WAIT FOR ALL.
+>
+> The approach proposed here is to go with (4) where before switching 
+> event nodes slonik will WAIT FOR all nodes to confirm the last event
+
+Related to #2...  We might introduce a new event that tries to
+coordinate between nodes.
+
+In effect, a "WAIT FOR EVENT" event...
+
+  So, we submit, against node #1, WAIT_FOR_EVENT (2,355).
+
+  The intent of this event is that processing of the stream of events
+  for node #1 holds back until it has received event #355 from node #2.
+
+That doesn't mandate waiting for *EVERY* node, just one node.  Multiple
+WAIT FOR EVENT requests could get you a "wait on all."  Note that this
+is on the slon side, not so much the slonik side...
+
+> 1) STORE PATH - the event node is dictated by how you are setting up the 
+> path. Furthoremore if the backwards path isn't yet set up the node won't 
+> recive the confirm message
+
+  There's an argument to be made that STORE PATH perhaps should be going
+  directly to nodes, and doesn't need to be involved in event
+  propagation.  It's pretty cool to propagate STORE PATH requests
+  everywhere, but it's not hugely necessary.
+
+  ...[erm, rethinking]...
+
+  The conninfo field only ever matters on the node where it is used.
+  But computation of listen paths requires that all nodes have the
+  [from,to] data.  So there's a partial truth there.  conninfo isn't
+  necessary, but [from,to] is...
+
+> 2) SUBSCRIBE set (in 2.0.5+) always gets submitted at the origin.  So if 
+> you are subscribing multiple sets slonik will switch event nodes. This 
+> means that subscribing to multiple sets (with different set origins) in 
+> parallel will be harder (you will need to disable automatic wait-for or 
+> use different slonik invocations). You can still do parallel subscribes 
+> to the same set because the subscribe set always goes to the origin in 
+> 2.0.5+ not the provider or the receiver.
+
+  I have always been a little uncomfortable about this change, and this
+  underlines that discomfort.  But that doesn't mean I'm right...
+
+> 3) STORE/DROP listen goes to specific nodes based on the arguments but 
+> you shouldn't need STORE/DROP listen commands anyway in 1.2 or 2.0
+
+  Right.
+
+> 4) CREATE/DROP SET must go to the set origin. If your creating sets the 
+> cluster probably needs to be caught up.
+
+  And if these events are lost, due to a FAILOVER partition or such,
+  if they were only in the partition of the cluster that was lost, it
+  doesn't matter...
+
+> 5) ADD TABLE/ADD SEQUENCE - must go to the origin.  Again if your 
+> manipulating sets you must stick to a single set origin or have your 
+> cluster be caught up
+> 6) MOVE TABLE goes to the origin - but the docs already warn you about 
+> trying this if your cluster isn't caught up (with respect to this set)
+> 8) MOVE SET - Doing this with a behind cluster is already a bad idea
+> 9) FAILOVER - See multi-node failover discussion
+
+There's a mix of needful semantics here.
+
+For instance, SET ADD TABLE/SEQUENCE only forcibly need to propagate
+alongside the successful propagation of subscriptions to those sets.
+
+That's different from the propagation needs for other events.  It seems
+to me that we might want to classify the "propagation needs"; if there
+are good names for the different classifications, then we're likely
+really onto something.  
+
+Good names aren't arriving to me on Friday afternoon :-).
+
+> STORE PATH
+> -----------
+> A WAIT FOR ALL nodes won't work unless all of the paths are stored.
+> When I say 'all' I mean there must exist a route from every node to 
+> every other node.  The routes don't need to be direct. There are certain 
+> common usage patterns that shouldn't be excluded. It would be good if 
+> slonik could detect missing paths before 'changing things' because 
+> otherwise users might be left with a half complete script.
+
+I'd classify this two ways:
+
+a) When bootstrapping a cluster, WAIT FOR ALL can't work if there aren't
+enough paths yet.  
+
+I'm not sure it makes sense to go to the extent of computing spanning
+trees or such to validate this.
+
+If we try to validate at every point, then you can't have a sequence
+of...
+
+  Set up all nodes...
+   INIT CLUSTER
+   STORE NODE
+   STORE NODE
+   STORE NODE
+
+  Then, set up paths...
+   STORE PATH
+   STORE PATH
+   STORE PATH
+   STORE PATH
+
+It seems like a logical idea to construct a cluster by setting up all
+nodes, then to set up communications between them.  It doesn't thrill me
+if we make that impossible.
+
+> The easy answer is: Don't write scripts that can leave your cluster in 
+> an indetermined state.   What we should do if someone tries is an open 
+> question.  We could a) check that all code paths (cross product) leave 
+> the cluster consistent/complete.  b) Assume the try blocks always finish 
+> successfully c) don't do the parse tree analysis described above for the 
+> entire script at parse time but instead do it for each block before 
+> entering that block.
+> I am leaning towards c.
+
+If we're going down a "prevent nondetermined states" road, then it seems
+to me there needs to be a presentation of a would-be algebra of cluster
+states so we can talk about this analytically.
+
+I think having that algebra is a prerequisite to deciding between any of
+those alternatives.
+
+> - How do we want to handle TRY blocks. See discussion above
+
+WAIT FOR and TRY are right well incompatible with each other, unless we
+determine, within the algebra, that there is some subset of commands
+that make state changes that we consider don't need to be guarded by
+WAIT FOR that are permissible in a TRY block.
+-- 
+select 'cbbrowne' || '@' || 'afilias.info';
+Christopher Browne
+"Bother,"  said Pooh,  "Eeyore, ready  two photon  torpedoes  and lock
+phasers on the Heffalump, Piglet, meet me in transporter room three"
+
+From ssinger at ca.afilias.info  Wed Dec 22 07:45:48 2010
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Wed, 22 Dec 2010 10:45:48 -0500
+Subject: [Slony1-hackers] automatic WAIT FOR proposal
+In-Reply-To: <87y67xz42f.fsf@cbbrowne.afilias-int.info>
+References: <4D0236DD.1080509@ca.afilias.info>
+	<87y67xz42f.fsf@cbbrowne.afilias-int.info>
+Message-ID: <4D121D2C.5020009@ca.afilias.info>
+
+On 10-12-10 04:54 PM, Christopher Browne wrote:
+> Steve Singer<ssinger at ca.afilias.info>  writes:
+
+>> 2) When a event is created on node (b) if we store the fact that it has
+>> already seen/confirmed event (a),1234 from node (a) we could transmit
+>> this pre-condition as part of the event so node (c) can know that it
+>> can't process the event from b until it has seen 1234 from (a).  This
+>> way node (c) will process things in the right order but we can submit
+>> events to (b) - which is up to date without having to wait for the busy
+>> node (c) to get caught up.
+
+>>
+>> The approach proposed here is to go with (4) where before switching
+>> event nodes slonik will WAIT FOR all nodes to confirm the last event
+>
+> Related to #2...  We might introduce a new event that tries to
+> coordinate between nodes.
+>
+> In effect, a "WAIT FOR EVENT" event...
+>
+>    So, we submit, against node #1, WAIT_FOR_EVENT (2,355).
+>
+>    The intent of this event is that processing of the stream of events
+>    for node #1 holds back until it has received event #355 from node #2.
+>
+> That doesn't mandate waiting for *EVERY* node, just one node.  Multiple
+> WAIT FOR EVENT requests could get you a "wait on all."  Note that this
+> is on the slon side, not so much the slonik side...
+
+I will write a design proposal that explores what things might look like 
+if we went that route.
+
+
+
+>
+>> 1) STORE PATH - the event node is dictated by how you are setting up the
+>> path. Furthoremore if the backwards path isn't yet set up the node won't
+>> recive the confirm message
+>
+>    There's an argument to be made that STORE PATH perhaps should be going
+>    directly to nodes, and doesn't need to be involved in event
+>    propagation.  It's pretty cool to propagate STORE PATH requests
+>    everywhere, but it's not hugely necessary.
+>
+>    ...[erm, rethinking]...
+>
+>    The conninfo field only ever matters on the node where it is used.
+>    But computation of listen paths requires that all nodes have the
+>    [from,to] data.  So there's a partial truth there.  conninfo isn't
+>    necessary, but [from,to] is...
+
+Exactly we need to propogate the [from,to] information.  As long as we 
+are doing that we might as well also store the conninfo (it doesn't cost 
+or hurt doing so)
+
+
+>
+>> 2) SUBSCRIBE set (in 2.0.5+) always gets submitted at the origin.  So if
+>> you are subscribing multiple sets slonik will switch event nodes. This
+>> means that subscribing to multiple sets (with different set origins) in
+>> parallel will be harder (you will need to disable automatic wait-for or
+>> use different slonik invocations). You can still do parallel subscribes
+>> to the same set because the subscribe set always goes to the origin in
+>> 2.0.5+ not the provider or the receiver.
+>
+>    I have always been a little uncomfortable about this change, and this
+>    underlines that discomfort.  But that doesn't mean I'm right...
+
+There are three ways this could work
+1) The event can be submitted to the provider.  This is how it works in 
+2.0.4 and at least 1.2.x.   The problem with this is that the 
+ENABLE_SUBSCRIPTION and the SUBSCRIBE_SET events can arrive at the 
+receiver out of order because the time it takes to go from 
+provider->origin->receiver might be faster than it takes for the message 
+to get directly from the receiver->provider. Doing this was problematic.
+
+2) You can submit the subscribe set to the origin as happens in 2.0.5. 
+If there are problems with this approach I'd like to hear about them.
+
+3) You can submit the event to the receiver.  Jan says this is how he 
+originally intended things to work in the original slony design. I'm not 
+opposed to this per-say but I feel we should have a more concrete reason 
+for changing this than gut feel.  If we are going to change this I'd 
+rather we did it before the WAIT FOR stuff.
+
+
+
+
+>
+>> 4) CREATE/DROP SET must go to the set origin. If your creating sets the
+>> cluster probably needs to be caught up.
+>
+>    And if these events are lost, due to a FAILOVER partition or such,
+>    if they were only in the partition of the cluster that was lost, it
+>    doesn't matter...
+
+You mentioned your justification for this statement when we were talking 
+about this, for the benefit of people on the list:  Unlike SYNC events 
+normal commands are stored in the sl_event of non-forwarder nodes.  This 
+means that if the CREATE SET escapes the network parition to at least 
+one node then it can eventually get propagated to the rest of the nodes 
+on that side of the divide.
+
+>
+>> 5) ADD TABLE/ADD SEQUENCE - must go to the origin.  Again if your
+>> manipulating sets you must stick to a single set origin or have your
+>> cluster be caught up
+>> 6) MOVE TABLE goes to the origin - but the docs already warn you about
+>> trying this if your cluster isn't caught up (with respect to this set)
+>> 8) MOVE SET - Doing this with a behind cluster is already a bad idea
+>> 9) FAILOVER - See multi-node failover discussion
+>
+> There's a mix of needful semantics here.
+>
+> For instance, SET ADD TABLE/SEQUENCE only forcibly need to propagate
+> alongside the successful propagation of subscriptions to those sets.
+
+I'm not convinced this is true.  Consider the following case:
+
+set 1 with origin 1.
+set 2 with origin 2.
+
+set add table(id=1,set id=1, origin=1,fully qualified 	name('public.foo');
+set add table(id=2, set id=2,origin=2,fully qualified name='public.foo');
+
+setAddTable_int checks for this condition but the check will only work 
+if the SET ADD TABLE submitted on node 1 gets propogated to node 2, even 
+though node 2 might never become a subscriber to set 1.
+
+I will point out that based on the rules for automatic wait for that I 
+defined in this proposal, slonik will wait for the first add table to be 
+propogated to node 2 before doing the second add table (since the origin 
+is different).  I think this is the correct behavior.
+
+>
+> That's different from the propagation needs for other events.  It seems
+> to me that we might want to classify the "propagation needs"; if there
+> are good names for the different classifications, then we're likely
+> really onto something.
+
+
+>
+> Good names aren't arriving to me on Friday afternoon :-).
+>
+>> STORE PATH
+>> -----------
+>> A WAIT FOR ALL nodes won't work unless all of the paths are stored.
+>> When I say 'all' I mean there must exist a route from every node to
+>> every other node.  The routes don't need to be direct. There are certain
+>> common usage patterns that shouldn't be excluded. It would be good if
+>> slonik could detect missing paths before 'changing things' because
+>> otherwise users might be left with a half complete script.
+>
+> I'd classify this two ways:
+>
+> a) When bootstrapping a cluster, WAIT FOR ALL can't work if there aren't
+> enough paths yet.
+>
+> I'm not sure it makes sense to go to the extent of computing spanning
+> trees or such to validate this.
+>
+> If we try to validate at every point, then you can't have a sequence
+> of...
+>
+>    Set up all nodes...
+>     INIT CLUSTER
+>     STORE NODE
+>     STORE NODE
+>     STORE NODE
+>
+>    Then, set up paths...
+>     STORE PATH
+>     STORE PATH
+>     STORE PATH
+>     STORE PATH
+>
+> It seems like a logical idea to construct a cluster by setting up all
+> nodes, then to set up communications between them.  It doesn't thrill me
+> if we make that impossible.
+>
+
+Is store node an exception to the rule then?
+
+Today what happens if you have a script like:
+
+init cluster(id=1)
+store node(id=2, event node=1);
+store node(id=3, event node=1);
+store node(id=3, event node=2);
+
+The last command will fail because when slonik tries to connect to node 
+3 it will determine that the slony schema already exists on node 3. 
+However the event node (2) won't actually know that node 3 has already 
+been created (since the event from 1 won't have propogated because no 
+paths exist yet)
+
+
+
+
+>> The easy answer is: Don't write scripts that can leave your cluster in
+>> an indetermined state.   What we should do if someone tries is an open
+>> question.  We could a) check that all code paths (cross product) leave
+>> the cluster consistent/complete.  b) Assume the try blocks always finish
+>> successfully c) don't do the parse tree analysis described above for the
+>> entire script at parse time but instead do it for each block before
+>> entering that block.
+>> I am leaning towards c.
+>
+> If we're going down a "prevent nondetermined states" road, then it seems
+> to me there needs to be a presentation of a would-be algebra of cluster
+> states so we can talk about this analytically.
+>
+> I think having that algebra is a prerequisite to deciding between any of
+> those alternatives.
+>
+
+That sounds like a good idea.
+When I write that alternate design on using slon side waits I will see 
+if I can develop something.
+
+>> - How do we want to handle TRY blocks. See discussion above
+>
+> WAIT FOR and TRY are right well incompatible with each other, unless we
+> determine, within the algebra, that there is some subset of commands
+> that make state changes that we consider don't need to be guarded by
+> WAIT FOR that are permissible in a TRY block.
+
+
+From ssinger at ca.afilias.info  Wed Dec 22 13:30:21 2010
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Wed, 22 Dec 2010 16:30:21 -0500
+Subject: [Slony1-hackers] automatic WAIT FOR proposal
+In-Reply-To: <4D121D2C.5020009@ca.afilias.info>
+References: <4D0236DD.1080509@ca.afilias.info>	<87y67xz42f.fsf@cbbrowne.afilias-int.info>
+	<4D121D2C.5020009@ca.afilias.info>
+Message-ID: <4D126DED.4090001@ca.afilias.info>
+
+On 10-12-22 10:45 AM, Steve Singer wrote:
+> On 10-12-10 04:54 PM, Christopher Browne wrote:
+
+>
+> I will write a design proposal that explores what things might look like
+> if we went that route.
+>
+
+First I will define some notation.
+
+Let an event with sequence number s originating at node n be known as 
+E(n,s)  (ie 1,1234)
+
+An event E(n,s) has been confirmed by node a if the function
+C(a,E(n,s)) returns true.
+
+If a direct path exists between two nodes a,b then the function P(a,b) 
+returns true.  Note P(a,b) != P(b,a)
+
+I will now define a function that returns the events from other nodes 
+confirmed on node a when E(a,s) is generated.
+
+Visible(a,E(a,s) = [E(1,s1),E(2,s2)....E(z,sz)]
+
+For example:  If  when event 1,100 was generated on node 1 node 1 had 
+sl_confirm entires indicating that it has confirmed events 2,5 3,10 and 
+4,50.
+Visible(1,E(1,100)) = [E(1,100), E(2,5), E(3,10), E(4,50) ]
+
+The order in which a set of events  leading up to an Event E(n,s) is 
+processed on a node can be expressed as an ordered list returned by the 
+Order(a,n,s) function:  Order(3,2,2)= E(1,1), E(2,1),E(1,2),E(3,1),E(2,2)
+
+This means that on node 3, the events leading up to processing of event 
+E(2,2) were  E(2,1) then E(1,2) then E(3,1).
+
+A race condition is said to exists when ever the system allows two 
+different orderings for  Order(a,n,s) that produce a different resulting 
+action.
+
+Two different orderings leading to an event being processed might not 
+lead to a race condition if their are no dependencies between the events 
+that were processed in a different order.
+
+Two events conflict  Conflict(E(n1,s1),E(n2,s2))=TRUE
+If a different result is produced by
+Order(n3,E(n1,s1)=E(n2,s2),E(n1,s1) compared with
+Order(n3,E(n2,s2)=E(n1,s1),E(n2,s2)
+
+Whether two events conflict  is dependent on the event type and the 
+arguments to those events.
+
+
+Proposition P1:  If an event E(1,1) followed by an event E(1,1+x) is 
+submitted to node 1 by slonik then  these two events will not cause a 
+race condition with each other.
+
+Proof:
+The createEvent() function obtains an exclusive lock on sl_event and 
+gets the next sequence number for the event id.  Because the exclusive 
+lock on sl_event is held until the transaction is committed it is 
+impossible for a row to be visible in sl_event with a higher sequence 
+number than another row that will be committed later.  (assumes all 
+events get generated while holding the lock on sl_event).
+
+This means that on the event node  E(1,1+x) will always happen after 
+E(1,1).   It also means that if a remote node sees E(1,1+x) in the 
+sl_event table then it will also see (or have already processed) E(1,1) 
+because E(1,1) would have committed before and we don't delete sl_event 
+rows that have not been processed.    Therefore as long as the remote 
+nodes process the events from a particular node in event id order (which 
+they do) then the remote node will always process E(1,1) before it 
+processes E(1,1+x).
+
+
+Proposition 2:
+
+If an Event (n1,s1) is only applied on node n3 when
+Visible(n1,E(n1,s1)) CONTAINED IN Order(n3,E(n1,s1))
+then no race condition is possible.
+
+Counter Proof:
+Consider the following sequence of events:
+E(1,2) : Visible(1,2)=>E(2,1) E(3,1)
+E(2,2):  Visible(2,2)=>E(1,1) E(3,1)
+
+gives
+Order(1,E(2,2)=> E(1,2), E(2,2)
+Order(2,E(1,2)=> E(2,2), E(1,2)
+
+At node three E(2,2) might get applied before or after E(1,2).
+
+The second part of the counter proof is to show that there exist event 
+types that can be generated on nodes 1,2 such that
+Conflict(E(1,2),E(2,2)=TRUE.
+
+
+create set(id=1,origin=1);  #E(1,2)
+create set(id=1,origin=2); #E(2,2)
+
+
+The behavior on node 3 is clearly differ based on which command arrives 
+at node 3 first. Furthermore node 1 and node 2 will be left
+in different states as well.
+
+Proposition 3:
+If an event E(n1,s1) is not applied on node n3 until all events in 
+Visible(n1,E(n1,s1) have all been confirmed on n3 then no event E(n2,s1) 
+exists that produces a race condition on n3 unless the conflict existed 
+on the event nodes n1 and n2.
+
+Proof:
+Assume Visible(1,E(1,1)) does not include an event E(2,1) such that
+there exists a race condition at node 3.
+
+This means that
+Order(3,E(1,1)==> E(2,1),E(1,1) produces different result than
+Order(3,E(1,1)===> E(1,1),E(2,1)
+this means that Conflict(E(1,1), E(2,1))=TRUE
+and that conflict would exist on node 1 and node 2.
+If E(2,1) had reached node 1 before E(1,1) was created then E(2,1) would 
+be part of Visible(1,E(1,1)) and would always be confirmed on node 3 
+before E(2,1) gets applied the assumptions in the proposition.
+
+If E(1,1) had reached node 2 before E(2,1) was generated then 
+Visible(2,E(2,1)) would include E(1,1) and E(1,1) would always get 
+applied on node 3 before E(2,1) because of the assumptions we made in 
+our proposition.
+
+
+This means that if IF  a) we can somehow avoid race conditions at the 
+event nodes AND  b) implement the rule "apply all events that were 
+visible on the event origin before applying the event" then we can 
+eliminate race conditions.
+
+i) I feel (a) needs to be handled by slonik and can be handled by slonik 
+waiting for the next event node to be caught up to previous event nodes 
+before submitting an event to it (discussed in a previous email on this 
+thread, though I have not formally tried to prove this
+
+ii) can be implemented by adding a new column to sl_event that stores an 
+array of event tuples - which consist of the highest events from each 
+node confirmed on the node at the time sl_event is generated.  The a 
+remoteWorker won't apply an event to its local node until the 
+pre-conditions have been met.
+
+Questions:  What is the performance impact of getting the highest 
+confirmed event id values? This is unknown - but will probably involve 
+querying sl_event and/or sl_confirm.
+
+Is it possible for an event to be included  in Visible(1,E(1,1)) that 
+might never make it to a node n3 that is trying to process E(1,1)?
+I think no.  Every event  E(x,y) that is in Visible(1,E(1,1)) is in the 
+sl_event table on node 1 by virtue of it having been confirmed on node 1 
+but not confirmed elsewhere.  If slon always pulls events (no matter 
+what the event origin) into node 3 from the node 1 sl_event table then 
+it will include E(x,y).  Even if node 3 isn't directly talking to node 
+1, any sl_event table in the cluster that contains E(1,1) would also 
+contain E(x,y) by virtue of that event being on node 1 at the time.
+
+
+I feel this produces a solution to wait for where slonik only needs to 
+wait to make sure the next event node has received all events so far.
+
+This does NOT deal with race conditions that can be created by multiple 
+concurrent slonik scripts using different event nodes but I might be 
+able to solve this with an sl_sloniklock type of table.
+
+Issues relating to TRY blocks are still somewhat outstanding - as 
+discussed in the other email.
+
+
+

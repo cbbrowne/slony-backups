@@ -1,0 +1,1226 @@
+From devrim at lists.slony.info  Tue Dec  2 13:40:12 2008
+From: devrim at lists.slony.info (Devrim GUNDUZ)
+Date: Tue Dec  2 13:40:14 2008
+Subject: [Slony1-commit] slony1-engine/redhat slon.init slony1.init
+Message-ID: <20081202214012.63E0B290089@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/redhat
+In directory main.slony.info:/tmp/cvs-serv11861
+
+Added Files:
+	slony1.init 
+Removed Files:
+	slon.init 
+Log Message:
+Fix filename
+
+
+
+--- NEW FILE: slony1.init ---
+#!/bin/sh
+# postgresql    This is the init script for starting up the Slony-I
+#
+# chkconfig: - 64 36
+# description: Starts and stops the Slon daemon that handles
+#              Slony-I replication.
+# processname: slon
+# pidfile:	/var/run/slon.pid
+#
+# v1.0.0 Devrim GUNDUZ <devrim@CommandPrompt.com>
+# - Initial version of Red Hat / Fedora init script, based on Ubuntu one.
+
+if [ -r /etc/sysconfig/slony1 ]; then
+    . /etc/sysconfig/slony1
+fi
+
+# Source function library.
+INITD=/etc/rc.d/init.d
+. $INITD/functions
+
+# Get function listing for cross-distribution logic.
+TYPESET=`typeset -f|grep "declare"`
+
+# Get config.
+. /etc/sysconfig/network
+
+# For SELinux we need to use 'runuser' not 'su'
+if [ -x /sbin/runuser ]
+then
+	SU=runuser
+else
+	SU=su
+fi
+
+# Check that networking is up.
+# We need it for slon
+[ "${NETWORKING}" = "no" ] && exit 0
+
+# Find the name of the script
+NAME=`basename $0`
+if [ ${NAME:0:1} = "S" -o ${NAME:0:1} = "K" ]
+then
+	NAME=${NAME:3}
+fi
+
+# Set defaults for configuration variables
+SLONENGINE=/usr/bin
+SLONDAEMON=$SLONENGINE/slon
+SLONCONF=/etc/slon.conf
+SLONPID=/var/run/slon.pid
+SLONLOG=/var/log/slony1
+test -x $SLONDAEMON || exit 5
+
+
+script_result=0
+
+start(){
+	SLON_START=$"Starting ${NAME} service: "
+
+	echo -n "$SLON_START"
+	$SU -l postgres -c "$SLONDAEMON -f $SLONCONF &" >> "$SLONLOG" 2>&1 < /dev/null
+	sleep 2
+
+	pid=`pidof -s "$SLONDAEMON"`
+	if [ $pid ] 
+	then
+		success "$SLON_START"
+		touch /var/lock/subsys/${NAME}
+		echo
+	else
+		failure "$PSQL_START"
+		echo
+		script_result=1
+	fi
+}
+
+stop(){
+	echo -n $"Stopping ${NAME} service: "
+        if [ $UID -ne 0 ]; then
+                RETVAL=1
+                failure
+        else
+                killproc /usr/bin/slon
+                RETVAL=$?
+                [ $RETVAL -eq 0 ] && rm -f /var/lock/subsys/${NAME}
+        fi;
+        echo
+        return $RETVAL
+}
+
+restart(){
+    stop
+    start
+}
+
+condrestart(){
+    [ -e /var/lock/subsys/${NAME} ] && restart
+}
+
+condstop(){
+    [ -e /var/lock/subsys/${NAME} ] && stop
+}
+
+# See how we were called.
+case "$1" in
+  start)
+        start
+        ;;
+  stop)
+        stop
+        ;;
+  status)
+        status slon
+        script_result=$?
+        ;;
+  restart)
+        restart
+        ;;
+  condrestart)
+        condrestart
+        ;;
+  condstop)
+        condstop
+        ;;
+  *)
+        echo $"Usage: $0 {start|stop|status|restart|condrestart|condstop}"
+        exit 1
+esac
+
+exit $script_result
+
+--- slon.init DELETED ---
+
+From devrim at lists.slony.info  Mon Dec  8 13:24:27 2008
+From: devrim at lists.slony.info (Devrim GUNDUZ)
+Date: Mon Dec  8 13:24:29 2008
+Subject: [Slony1-commit] slony1-engine slony1.spec.in
+Message-ID: <20081208212427.2E7DD290168@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine
+In directory main.slony.info:/tmp/cvs-serv16486
+
+Modified Files:
+	slony1.spec.in 
+Log Message:
+Fix Source0, per bug #66.
+
+
+
+Index: slony1.spec.in
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/slony1.spec.in,v
+retrieving revision 1.2
+retrieving revision 1.3
+diff -C2 -d -r1.2 -r1.3
+*** slony1.spec.in	21 Apr 2008 16:37:53 -0000	1.2
+--- slony1.spec.in	8 Dec 2008 21:24:25 -0000	1.3
+***************
+*** 13,17 ****
+  Group:		Applications/Databases
+  URL:		http://main.slony.info/
+! Source0:	@PACKAGE_NAME@-%{version}.tar.gz
+  BuildRoot:	%{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
+  BuildRequires:	postgresql-devel
+--- 13,17 ----
+  Group:		Applications/Databases
+  URL:		http://main.slony.info/
+! Source0:	@PACKAGE_NAME@-%{version}.tar.bz2
+  BuildRoot:	%{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
+  BuildRequires:	postgresql-devel
+
+From cbbrowne at lists.slony.info  Wed Dec 10 15:39:56 2008
+From: cbbrowne at lists.slony.info (Chris Browne)
+Date: Wed Dec 10 15:39:58 2008
+Subject: [Slony1-commit] slony1-engine/tools/altperl slonik_drop_sequence.pl
+Message-ID: <20081210233956.5FC8529025E@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/tools/altperl
+In directory main.slony.info:/tmp/cvs-serv25699
+
+Added Files:
+      Tag: REL_1_2_STABLE
+	slonik_drop_sequence.pl 
+Log Message:
+Added slonik_drop_sequence.pl as per note from Mark Stosberg
+
+
+--- NEW FILE: slonik_drop_sequence.pl ---
+#!@@PERL@@
+# $Id: slonik_drop_sequence.pl,v 1.1.4.1 2008-12-10 23:39:54 cbbrowne Exp $
+# Author: Mark Stosberg
+# Based on work by: Christopher Browne
+# Parts Copyright 2008 Summerault, LLC
+# Parts Copyright 2004 Afilias Canada
+
+use Getopt::Long;
+
+$CONFIG_FILE = '@@SYSCONFDIR@@/slon_tools.conf';
+$SHOW_USAGE  = 0;
+
+# Read command-line options
+GetOptions("config=s" => \$CONFIG_FILE,
+	   "help"     => \$SHOW_USAGE);
+
+my $USAGE =
+"Usage: slonik_drop_sequence [--config file] sequence_id set
+
+    sequence_id  The ID of the sequence to be dropped from replication
+    set  The name or ID of the set to drop the sequence from
+
+You can get the sequence_id with a query like this:  
+
+ SELECT seq_id,seq_relname from _MY_CLUSTER.sl_sequence where seq_relname = 'MY_SEQUENCE';
+
+No application-visible locking should take place.
+
+";
+
+if ($SHOW_USAGE) {
+    print $USAGE;
+    exit 0;
+}
+
+require '@@PGLIBDIR@@/slon-tools.pm';
+require $CONFIG_FILE;
+
+my ($SEQ_ID,$set) = @ARGV;
+$SET_ID = get_set($set);
+unless ($SEQ_ID && $SET_ID) {
+    die $USAGE;
+}
+
+my $slonik = '';
+
+$slonik .= genheader();
+
+# DROP TABLE
+$slonik .= "\n";
+$slonik .= "# DROP SEQUENCE \n";
+$slonik .= "  try {\n";
+$slonik .= "    SET DROP SEQUENCE (id = $SEQ_ID, origin = $SET_ORIGIN);\n";
+$slonik .= "  } on error {\n";
+$slonik .= "    echo 'Could not drop sequence $SEQ_ID for $CLUSTER_NAME!';\n";
+$slonik .= "    exit -1;\n";
+$slonik .= "  }\n";
+
+run_slonik_script($slonik, 'DROP SEQUENCE');
+
+
+From cbbrowne at lists.slony.info  Mon Dec 15 15:26:09 2008
+From: cbbrowne at lists.slony.info (Chris Browne)
+Date: Mon Dec 15 15:26:10 2008
+Subject: [Slony1-commit] slony1-engine/src/slon misc.c
+Message-ID: <20081215232609.B5911290163@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/src/slon
+In directory main.slony.info:/tmp/cvs-serv17489/src/slon
+
+Modified Files:
+      Tag: REL_2_0_STABLE
+	misc.c 
+Log Message:
+Fix to logging levels per bug #64
+http://bugs.slony.info/bugzilla/show_bug.cgi?id=64
+
+
+Index: misc.c
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/src/slon/misc.c,v
+retrieving revision 1.26
+retrieving revision 1.26.2.1
+diff -C2 -d -r1.26 -r1.26.2.1
+*** misc.c	17 Sep 2007 22:12:20 -0000	1.26
+--- misc.c	15 Dec 2008 23:26:07 -0000	1.26.2.1
+***************
+*** 61,70 ****
+  static void write_syslog(int level, const char *line);
+  
+- #define set_syslog_level(x) syslog_level = x;
+  #else    /* HAVE_SYSLOG */
+- 
+  #define Use_syslog 0
+- 
+- #define set_syslog_level(x) ;
+  #endif   /* HAVE_SYSLOG */
+  
+--- 61,66 ----
+***************
+*** 93,136 ****
+  	if (level > slon_log_level)
+  		return;
+! 
+! 	switch (level)
+! 	{
+! 		case SLON_DEBUG4:
+! 			level_c = "DEBUG4";
+! 			set_syslog_level(LOG_DEBUG);
+! 			break;
+! 		case SLON_DEBUG3:
+! 			level_c = "DEBUG3";
+! 			set_syslog_level(LOG_DEBUG);
+! 			break;
+! 		case SLON_DEBUG2:
+! 			level_c = "DEBUG2";
+! 			set_syslog_level(LOG_DEBUG);
+! 			break;
+! 		case SLON_DEBUG1:
+! 			level_c = "DEBUG1";
+! 			set_syslog_level(LOG_DEBUG);
+! 			break;
+! 		case SLON_INFO:
+! 			level_c = "INFO";
+! 			set_syslog_level(LOG_INFO);
+! 			break;
+! 		case SLON_CONFIG:
+! 			level_c = "CONFIG";
+! 			set_syslog_level(LOG_NOTICE);
+! 			break;
+! 		case SLON_WARN:
+! 			level_c = "WARN";
+! 			set_syslog_level(LOG_WARNING);
+! 			break;
+! 		case SLON_ERROR:
+! 			level_c = "ERROR";
+! 			set_syslog_level(LOG_ERR);
+! 			break;
+! 		case SLON_FATAL:
+! 			level_c = "FATAL";
+! 			set_syslog_level(LOG_ERR);
+! 			break;
+! 	}
+  
+  	va_start(ap, fmt);
+--- 89,149 ----
+  	if (level > slon_log_level)
+  		return;
+!     switch (level)
+!     {
+!         case SLON_DEBUG4:
+!             level_c = "DEBUG4";
+! #ifdef HAVE_SYSLOG
+!             syslog_level = LOG_DEBUG;
+! #endif
+!             break;
+!         case SLON_DEBUG3:
+!             level_c = "DEBUG3";
+! #ifdef HAVE_SYSLOG
+!             syslog_level = LOG_DEBUG;
+! #endif
+!             break;
+!         case SLON_DEBUG2:
+!             level_c = "DEBUG2";
+! #ifdef HAVE_SYSLOG
+!             syslog_level = LOG_DEBUG;
+! #endif
+!             break;
+!         case SLON_DEBUG1:
+!             level_c = "DEBUG1";
+! #ifdef HAVE_SYSLOG
+!             syslog_level = LOG_DEBUG;
+! #endif                                                                          
+!             break;                                                              
+!         case SLON_INFO:                                                         
+!             level_c = "INFO";                                                   
+! #ifdef HAVE_SYSLOG                                                              
+!             syslog_level = LOG_INFO;                                            
+! #endif                                                                          
+!             break;                                                              
+!         case SLON_CONFIG:                                                       
+!             level_c = "CONFIG";                                                 
+! #ifdef HAVE_SYSLOG
+!             syslog_level = LOG_WARNING;
+! #endif
+!             break;                                                              
+!         case SLON_WARN:                                                         
+!             level_c = "WARN";                                                   
+! #ifdef HAVE_SYSLOG
+!             syslog_level = LOG_WARNING;
+! #endif
+!             break;                                                              
+!         case SLON_ERROR:                                                        
+!             level_c = "ERROR";                                                  
+! #ifdef HAVE_SYSLOG                                                              
+!             syslog_level = LOG_ERR;                                             
+! #endif                                                                          
+!             break;                                                              
+!         case SLON_FATAL:                                                        
+!             level_c = "FATAL";                                                  
+! #ifdef HAVE_SYSLOG                                                              
+!             syslog_level = LOG_ERR;                                             
+! #endif                                                                          
+!             break;                                                              
+!     }
+  
+  	va_start(ap, fmt);
+
+From cbbrowne at lists.slony.info  Mon Dec 15 15:26:30 2008
+From: cbbrowne at lists.slony.info (Chris Browne)
+Date: Mon Dec 15 15:26:31 2008
+Subject: [Slony1-commit] slony1-engine/src/slon misc.c
+Message-ID: <20081215232630.77889290055@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/src/slon
+In directory main.slony.info:/tmp/cvs-serv17551
+
+Modified Files:
+	misc.c 
+Log Message:
+Fix to logging levels per bug #64
+http://bugs.slony.info/bugzilla/show_bug.cgi?id=64
+
+
+
+Index: misc.c
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/src/slon/misc.c,v
+retrieving revision 1.26
+retrieving revision 1.27
+diff -C2 -d -r1.26 -r1.27
+*** misc.c	17 Sep 2007 22:12:20 -0000	1.26
+--- misc.c	15 Dec 2008 23:26:28 -0000	1.27
+***************
+*** 61,70 ****
+  static void write_syslog(int level, const char *line);
+  
+- #define set_syslog_level(x) syslog_level = x;
+  #else    /* HAVE_SYSLOG */
+- 
+  #define Use_syslog 0
+- 
+- #define set_syslog_level(x) ;
+  #endif   /* HAVE_SYSLOG */
+  
+--- 61,66 ----
+***************
+*** 93,136 ****
+  	if (level > slon_log_level)
+  		return;
+! 
+! 	switch (level)
+! 	{
+! 		case SLON_DEBUG4:
+! 			level_c = "DEBUG4";
+! 			set_syslog_level(LOG_DEBUG);
+! 			break;
+! 		case SLON_DEBUG3:
+! 			level_c = "DEBUG3";
+! 			set_syslog_level(LOG_DEBUG);
+! 			break;
+! 		case SLON_DEBUG2:
+! 			level_c = "DEBUG2";
+! 			set_syslog_level(LOG_DEBUG);
+! 			break;
+! 		case SLON_DEBUG1:
+! 			level_c = "DEBUG1";
+! 			set_syslog_level(LOG_DEBUG);
+! 			break;
+! 		case SLON_INFO:
+! 			level_c = "INFO";
+! 			set_syslog_level(LOG_INFO);
+! 			break;
+! 		case SLON_CONFIG:
+! 			level_c = "CONFIG";
+! 			set_syslog_level(LOG_NOTICE);
+! 			break;
+! 		case SLON_WARN:
+! 			level_c = "WARN";
+! 			set_syslog_level(LOG_WARNING);
+! 			break;
+! 		case SLON_ERROR:
+! 			level_c = "ERROR";
+! 			set_syslog_level(LOG_ERR);
+! 			break;
+! 		case SLON_FATAL:
+! 			level_c = "FATAL";
+! 			set_syslog_level(LOG_ERR);
+! 			break;
+! 	}
+  
+  	va_start(ap, fmt);
+--- 89,149 ----
+  	if (level > slon_log_level)
+  		return;
+!     switch (level)
+!     {
+!         case SLON_DEBUG4:
+!             level_c = "DEBUG4";
+! #ifdef HAVE_SYSLOG
+!             syslog_level = LOG_DEBUG;
+! #endif
+!             break;
+!         case SLON_DEBUG3:
+!             level_c = "DEBUG3";
+! #ifdef HAVE_SYSLOG
+!             syslog_level = LOG_DEBUG;
+! #endif
+!             break;
+!         case SLON_DEBUG2:
+!             level_c = "DEBUG2";
+! #ifdef HAVE_SYSLOG
+!             syslog_level = LOG_DEBUG;
+! #endif
+!             break;
+!         case SLON_DEBUG1:
+!             level_c = "DEBUG1";
+! #ifdef HAVE_SYSLOG
+!             syslog_level = LOG_DEBUG;
+! #endif                                                                          
+!             break;                                                              
+!         case SLON_INFO:                                                         
+!             level_c = "INFO";                                                   
+! #ifdef HAVE_SYSLOG                                                              
+!             syslog_level = LOG_INFO;                                            
+! #endif                                                                          
+!             break;                                                              
+!         case SLON_CONFIG:                                                       
+!             level_c = "CONFIG";                                                 
+! #ifdef HAVE_SYSLOG
+!             syslog_level = LOG_WARNING;
+! #endif
+!             break;                                                              
+!         case SLON_WARN:                                                         
+!             level_c = "WARN";                                                   
+! #ifdef HAVE_SYSLOG
+!             syslog_level = LOG_WARNING;
+! #endif
+!             break;                                                              
+!         case SLON_ERROR:                                                        
+!             level_c = "ERROR";                                                  
+! #ifdef HAVE_SYSLOG                                                              
+!             syslog_level = LOG_ERR;                                             
+! #endif                                                                          
+!             break;                                                              
+!         case SLON_FATAL:                                                        
+!             level_c = "FATAL";                                                  
+! #ifdef HAVE_SYSLOG                                                              
+!             syslog_level = LOG_ERR;                                             
+! #endif                                                                          
+!             break;                                                              
+!     }
+  
+  	va_start(ap, fmt);
+
+From cbbrowne at lists.slony.info  Mon Dec 15 15:30:19 2008
+From: cbbrowne at lists.slony.info (Chris Browne)
+Date: Mon Dec 15 15:30:21 2008
+Subject: [Slony1-commit] slony1-engine/doc/adminguide adminscripts.sgml
+Message-ID: <20081215233019.7623A2901BE@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/doc/adminguide
+In directory main.slony.info:/tmp/cvs-serv17651
+
+Modified Files:
+	adminscripts.sgml 
+Log Message:
+Fix typo in docs - bug #65
+http://bugs.slony.info/bugzilla/show_bug.cgi?id=65
+
+
+Index: adminscripts.sgml
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/doc/adminguide/adminscripts.sgml,v
+retrieving revision 1.52
+retrieving revision 1.53
+diff -C2 -d -r1.52 -r1.53
+*** adminscripts.sgml	13 Oct 2008 21:27:10 -0000	1.52
+--- adminscripts.sgml	15 Dec 2008 23:30:17 -0000	1.53
+***************
+*** 620,624 ****
+  cluster.</para></listitem>
+  
+! <listitem><para> <filename>create_set.slonik</filename></para>
+  
+  <para>This is the first script to run; it sets up the requested nodes
+--- 620,624 ----
+  cluster.</para></listitem>
+  
+! <listitem><para> <filename>create_nodes.slonik</filename></para>
+  
+  <para>This is the first script to run; it sets up the requested nodes
+
+From cbbrowne at lists.slony.info  Mon Dec 15 15:31:00 2008
+From: cbbrowne at lists.slony.info (Chris Browne)
+Date: Mon Dec 15 15:31:01 2008
+Subject: [Slony1-commit] slony1-engine/doc/adminguide adminscripts.sgml
+Message-ID: <20081215233100.422A5290184@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/doc/adminguide
+In directory main.slony.info:/tmp/cvs-serv18015
+
+Modified Files:
+      Tag: REL_2_0_STABLE
+	adminscripts.sgml 
+Log Message:
+Fix typo in docs - bug #65
+http://bugs.slony.info/bugzilla/show_bug.cgi?id=65
+
+
+
+Index: adminscripts.sgml
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/doc/adminguide/adminscripts.sgml,v
+retrieving revision 1.52
+retrieving revision 1.52.2.1
+diff -C2 -d -r1.52 -r1.52.2.1
+*** adminscripts.sgml	13 Oct 2008 21:27:10 -0000	1.52
+--- adminscripts.sgml	15 Dec 2008 23:30:58 -0000	1.52.2.1
+***************
+*** 620,624 ****
+  cluster.</para></listitem>
+  
+! <listitem><para> <filename>create_set.slonik</filename></para>
+  
+  <para>This is the first script to run; it sets up the requested nodes
+--- 620,624 ----
+  cluster.</para></listitem>
+  
+! <listitem><para> <filename>create_nodes.slonik</filename></para>
+  
+  <para>This is the first script to run; it sets up the requested nodes
+
+From cbbrowne at lists.slony.info  Thu Dec 18 09:54:00 2008
+From: cbbrowne at lists.slony.info (Chris Browne)
+Date: Thu Dec 18 09:54:02 2008
+Subject: [Slony1-commit] slony1-engine/tools/altperl slon-tools.pm
+Message-ID: <20081218175400.EB4AE29015D@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/tools/altperl
+In directory main.slony.info:/tmp/cvs-serv4265
+
+Modified Files:
+      Tag: REL_1_2_STABLE
+	slon-tools.pm 
+Log Message:
+Per Cyril SCETBON - if there are multiple clusters where the cluster
+name of one is a substring of that of the other, and they are running
+on the same box, the egrep for slon processes can find both clusters' 
+slon processes.  Add an extra space to allow them to be distinguished.
+
+
+Index: slon-tools.pm
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/tools/altperl/slon-tools.pm,v
+retrieving revision 1.26.2.4
+retrieving revision 1.26.2.5
+diff -C2 -d -r1.26.2.4 -r1.26.2.5
+*** slon-tools.pm	21 Mar 2007 15:11:34 -0000	1.26.2.4
+--- slon-tools.pm	18 Dec 2008 17:53:58 -0000	1.26.2.5
+***************
+*** 118,122 ****
+    my ($dbname, $dbport, $dbhost) = ($DBNAME[$nodenum], $PORT[$nodenum], $HOST[$nodenum]);
+    #  print "Searching for PID for $dbname on port $dbport\n";
+!   my $command =  ps_args() . "| egrep \"[s]lon .*$CLUSTER_NAME\" | egrep \"host=$dbhost dbname=$dbname.*port=$dbport\" | sort -n | awk '{print \$2}'";
+    #print "Command:\n$command\n";
+    open(PSOUT, "$command|");
+--- 118,122 ----
+    my ($dbname, $dbport, $dbhost) = ($DBNAME[$nodenum], $PORT[$nodenum], $HOST[$nodenum]);
+    #  print "Searching for PID for $dbname on port $dbport\n";
+!   my $command =  ps_args() . "| egrep \"[s]lon .*$CLUSTER_NAME \" | egrep \"host=$dbhost dbname=$dbname.*port=$dbport\" | sort -n | awk '{print \$2}'";
+    #print "Command:\n$command\n";
+    open(PSOUT, "$command|");
+
+From cbbrowne at lists.slony.info  Thu Dec 18 09:54:22 2008
+From: cbbrowne at lists.slony.info (Chris Browne)
+Date: Thu Dec 18 09:54:24 2008
+Subject: [Slony1-commit] slony1-engine/tools/altperl slon-tools.pm
+Message-ID: <20081218175422.AD6F82901C8@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/tools/altperl
+In directory main.slony.info:/tmp/cvs-serv4353
+
+Modified Files:
+      Tag: REL_2_0_STABLE
+	slon-tools.pm 
+Log Message:
+Per Cyril SCETBON - if there are multiple clusters where the cluster
+name of one is a substring of that of the other, and they are running
+on the same box, the egrep for slon processes can find both clusters'
+slon processes.  Add an extra space to allow them to be distinguished.
+
+
+
+Index: slon-tools.pm
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/tools/altperl/slon-tools.pm,v
+retrieving revision 1.32
+retrieving revision 1.32.2.1
+diff -C2 -d -r1.32 -r1.32.2.1
+*** slon-tools.pm	6 Mar 2008 19:21:31 -0000	1.32
+--- slon-tools.pm	18 Dec 2008 17:54:20 -0000	1.32.2.1
+***************
+*** 118,122 ****
+    my ($dbname, $dbport, $dbhost) = ($DBNAME[$nodenum], $PORT[$nodenum], $HOST[$nodenum]);
+    #  print "Searching for PID for $dbname on port $dbport\n";
+!   my $command =  ps_args() . "| egrep \"[s]lon .*$CLUSTER_NAME\" | egrep \"host=$dbhost dbname=$dbname.*port=$dbport\" | sort -n | awk '{print \$2}'";
+    #print "Command:\n$command\n";
+    open(PSOUT, "$command|");
+--- 118,122 ----
+    my ($dbname, $dbport, $dbhost) = ($DBNAME[$nodenum], $PORT[$nodenum], $HOST[$nodenum]);
+    #  print "Searching for PID for $dbname on port $dbport\n";
+!   my $command =  ps_args() . "| egrep \"[s]lon .*$CLUSTER_NAME \" | egrep \"host=$dbhost dbname=$dbname.*port=$dbport\" | sort -n | awk '{print \$2}'";
+    #print "Command:\n$command\n";
+    open(PSOUT, "$command|");
+
+From cbbrowne at lists.slony.info  Thu Dec 18 09:54:40 2008
+From: cbbrowne at lists.slony.info (Chris Browne)
+Date: Thu Dec 18 09:54:41 2008
+Subject: [Slony1-commit] slony1-engine/tools/altperl slon-tools.pm
+Message-ID: <20081218175440.45ED329025E@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/tools/altperl
+In directory main.slony.info:/tmp/cvs-serv4373
+
+Modified Files:
+	slon-tools.pm 
+Log Message:
+Per Cyril SCETBON - if there are multiple clusters where the cluster
+name of one is a substring of that of the other, and they are running
+on the same box, the egrep for slon processes can find both clusters'
+slon processes.  Add an extra space to allow them to be distinguished.
+
+
+
+Index: slon-tools.pm
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/tools/altperl/slon-tools.pm,v
+retrieving revision 1.32
+retrieving revision 1.33
+diff -C2 -d -r1.32 -r1.33
+*** slon-tools.pm	6 Mar 2008 19:21:31 -0000	1.32
+--- slon-tools.pm	18 Dec 2008 17:54:38 -0000	1.33
+***************
+*** 118,122 ****
+    my ($dbname, $dbport, $dbhost) = ($DBNAME[$nodenum], $PORT[$nodenum], $HOST[$nodenum]);
+    #  print "Searching for PID for $dbname on port $dbport\n";
+!   my $command =  ps_args() . "| egrep \"[s]lon .*$CLUSTER_NAME\" | egrep \"host=$dbhost dbname=$dbname.*port=$dbport\" | sort -n | awk '{print \$2}'";
+    #print "Command:\n$command\n";
+    open(PSOUT, "$command|");
+--- 118,122 ----
+    my ($dbname, $dbport, $dbhost) = ($DBNAME[$nodenum], $PORT[$nodenum], $HOST[$nodenum]);
+    #  print "Searching for PID for $dbname on port $dbport\n";
+!   my $command =  ps_args() . "| egrep \"[s]lon .*$CLUSTER_NAME \" | egrep \"host=$dbhost dbname=$dbname.*port=$dbport\" | sort -n | awk '{print \$2}'";
+    #print "Command:\n$command\n";
+    open(PSOUT, "$command|");
+
+From cbbrowne at lists.slony.info  Thu Dec 18 13:27:07 2008
+From: cbbrowne at lists.slony.info (Chris Browne)
+Date: Thu Dec 18 13:27:09 2008
+Subject: [Slony1-commit] slony1-engine/src/backend slony1_funcs.sql
+Message-ID: <20081218212707.DE518290113@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/src/backend
+In directory main.slony.info:/tmp/cvs-serv20287/src/backend
+
+Modified Files:
+	slony1_funcs.sql 
+Log Message:
+Fix to bug #69
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=69
+
+The problem is that one of the new functions expects the type, "vactables", to
+exist.
+
+The "upgrade functions" function has code that *would* create it, but that
+function is not run until *after* the whole slony1_functions.sql file has been
+loaded, and that is way too late.
+
+The attached patch creates, runs, and drops, a temporary function that adds the
+type should it be missing.
+
+I have run this through regression test #1 on the HEAD branch, which includes a
+run of slonik "UPDATE FUNCTIONS."
+
+
+
+Index: slony1_funcs.sql
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/src/backend/slony1_funcs.sql,v
+retrieving revision 1.145
+retrieving revision 1.146
+diff -C2 -d -r1.145 -r1.146
+*** slony1_funcs.sql	17 Nov 2008 22:39:47 -0000	1.145
+--- slony1_funcs.sql	18 Dec 2008 21:27:05 -0000	1.146
+***************
+*** 5425,5432 ****
+  		execute 'alter table @NAMESPACE@.sl_node drop column no_spool;';
+  
+- 		-- ----
+- 		-- create new type - vactables - used by TablesToVacuum()
+- 		-- ----
+- 		execute 'create type @NAMESPACE@.vactables as (nspname name, relname name);';
+  	end if;
+  
+--- 5425,5428 ----
+***************
+*** 5670,5673 ****
+--- 5666,5686 ----
+  'returns false if autovacuum handles vacuuming of the table, or if the table does not exist; returns true if Slony-I should manage it';
+  
++ create or replace function @NAMESPACE@.setup_vactables_type () returns integer as $$
++ begin
++ 	if not exists (select 1 from pg_catalog.pg_type t, pg_catalog.pg_namespace n
++ 			where n.nspname = '_@CLUSTERNAME@' and t.typnamespace = n.oid and
++ 			t.typname = 'vactables') then
++ 		execute 'create type @NAMESPACE@.vactables as (nspname name, relname name);';
++ 	end if;
++ 	return 1;
++ end
++ $$ language plpgsql;
++ 
++ comment on function @NAMESPACE@.setup_vactables_type () is 
++ 'Function to be run as part of loading slony1_funcs.sql that creates the vactables type if it is missing';
++ 
++ select @NAMESPACE@.setup_vactables_type();
++ 
++ drop function @NAMESPACE@.setup_vactables_type ();
+  
+  -- ----------------------------------------------------------------------
+
+From cbbrowne at lists.slony.info  Thu Dec 18 13:27:51 2008
+From: cbbrowne at lists.slony.info (Chris Browne)
+Date: Thu Dec 18 13:27:53 2008
+Subject: [Slony1-commit] slony1-engine/src/backend slony1_funcs.sql
+Message-ID: <20081218212751.EB9DD290127@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/src/backend
+In directory main.slony.info:/tmp/cvs-serv20341/src/backend
+
+Modified Files:
+      Tag: REL_2_0_STABLE
+	slony1_funcs.sql 
+Log Message:
+Fix to bug #69
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=69
+
+The problem is that one of the new functions expects the type, "vactables", to
+exist.
+
+The "upgrade functions" function has code that *would* create it, but that
+function is not run until *after* the whole slony1_functions.sql file has been
+loaded, and that is way too late.
+
+The attached patch creates, runs, and drops, a temporary function that adds the
+type should it be missing.
+
+I have run this through regression test #1 on the HEAD branch, which includes a
+run of slonik "UPDATE FUNCTIONS."
+
+
+
+Index: slony1_funcs.sql
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/src/backend/slony1_funcs.sql,v
+retrieving revision 1.145
+retrieving revision 1.145.2.1
+diff -C2 -d -r1.145 -r1.145.2.1
+*** slony1_funcs.sql	17 Nov 2008 22:39:47 -0000	1.145
+--- slony1_funcs.sql	18 Dec 2008 21:27:49 -0000	1.145.2.1
+***************
+*** 5425,5432 ****
+  		execute 'alter table @NAMESPACE@.sl_node drop column no_spool;';
+  
+- 		-- ----
+- 		-- create new type - vactables - used by TablesToVacuum()
+- 		-- ----
+- 		execute 'create type @NAMESPACE@.vactables as (nspname name, relname name);';
+  	end if;
+  
+--- 5425,5428 ----
+***************
+*** 5670,5673 ****
+--- 5666,5686 ----
+  'returns false if autovacuum handles vacuuming of the table, or if the table does not exist; returns true if Slony-I should manage it';
+  
++ create or replace function @NAMESPACE@.setup_vactables_type () returns integer as $$
++ begin
++ 	if not exists (select 1 from pg_catalog.pg_type t, pg_catalog.pg_namespace n
++ 			where n.nspname = '_@CLUSTERNAME@' and t.typnamespace = n.oid and
++ 			t.typname = 'vactables') then
++ 		execute 'create type @NAMESPACE@.vactables as (nspname name, relname name);';
++ 	end if;
++ 	return 1;
++ end
++ $$ language plpgsql;
++ 
++ comment on function @NAMESPACE@.setup_vactables_type () is 
++ 'Function to be run as part of loading slony1_funcs.sql that creates the vactables type if it is missing';
++ 
++ select @NAMESPACE@.setup_vactables_type();
++ 
++ drop function @NAMESPACE@.setup_vactables_type ();
+  
+  -- ----------------------------------------------------------------------
+
+From cbbrowne at lists.slony.info  Thu Dec 18 13:35:05 2008
+From: cbbrowne at lists.slony.info (Chris Browne)
+Date: Thu Dec 18 13:35:07 2008
+Subject: [Slony1-commit] slony1-engine/src/backend slony1_funcs.sql
+Message-ID: <20081218213505.F015F290263@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/src/backend
+In directory main.slony.info:/tmp/cvs-serv20773/src/backend
+
+Modified Files:
+      Tag: REL_2_0_STABLE
+	slony1_funcs.sql 
+Log Message:
+Add in notes about changes (thus far) for 2.0.1, and update release number
+in the source code
+
+
+Index: slony1_funcs.sql
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/src/backend/slony1_funcs.sql,v
+retrieving revision 1.145.2.1
+retrieving revision 1.145.2.2
+diff -C2 -d -r1.145.2.1 -r1.145.2.2
+*** slony1_funcs.sql	18 Dec 2008 21:27:49 -0000	1.145.2.1
+--- slony1_funcs.sql	18 Dec 2008 21:35:03 -0000	1.145.2.2
+***************
+*** 408,412 ****
+  as $$
+  begin
+! 	return 0;
+  end;
+  $$ language plpgsql;
+--- 408,412 ----
+  as $$
+  begin
+! 	return 1;
+  end;
+  $$ language plpgsql;
+
+From cbbrowne at lists.slony.info  Thu Dec 18 13:35:05 2008
+From: cbbrowne at lists.slony.info (Chris Browne)
+Date: Thu Dec 18 13:35:07 2008
+Subject: [Slony1-commit] slony1-engine RELEASE config.h.in
+Message-ID: <20081218213505.C5D4A290191@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine
+In directory main.slony.info:/tmp/cvs-serv20773
+
+Modified Files:
+      Tag: REL_2_0_STABLE
+	RELEASE config.h.in 
+Log Message:
+Add in notes about changes (thus far) for 2.0.1, and update release number
+in the source code
+
+
+Index: RELEASE
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/RELEASE,v
+retrieving revision 1.3
+retrieving revision 1.3.2.1
+diff -C2 -d -r1.3 -r1.3.2.1
+*** RELEASE	24 Nov 2008 14:50:22 -0000	1.3
+--- RELEASE	18 Dec 2008 21:35:03 -0000	1.3.2.1
+***************
+*** 5,6 ****
+--- 5,18 ----
+  The first release of version 2.0. See RELEASE-2.0 to see changes leading
+  from version 1.2 to 2.0.
++ 
++ RELEASE 2.0.1
++ 
++ - Bug #69 - vactables type was being referenced before UPGRADE FUNCTIONS could actually have created it, when upgrading from an earlier version.
++ 
++   This would cause UPGRADE FUNCTIONS to fail.
++ 
++ - Bug #?? - use of syslog levels had some inappropriate break statements so that some logging would get lost.
++ 
++ - If you had multiple clusters where one cluster name was a substring of the other, slon-tools.pm could find
++   both when looking for slon processes relevant to the shorter cluster name.  Added a space to the relevant
++   bit of slon-tools.pm
+
+Index: config.h.in
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/config.h.in,v
+retrieving revision 1.21
+retrieving revision 1.21.2.1
+diff -C2 -d -r1.21 -r1.21.2.1
+*** config.h.in	24 Sep 2008 19:54:09 -0000	1.21
+--- config.h.in	18 Dec 2008 21:35:03 -0000	1.21.2.1
+***************
+*** 13,18 ****
+  #define SLONY_I_CONFIG_H
+  
+! #define SLONY_I_VERSION_STRING	"2.0.0"
+! #define SLONY_I_VERSION_STRING_DEC 2,0,0
+  
+  #ifndef PG_VERSION_MAJOR
+--- 13,18 ----
+  #define SLONY_I_CONFIG_H
+  
+! #define SLONY_I_VERSION_STRING	"2.0.1"
+! #define SLONY_I_VERSION_STRING_DEC 2,0,1
+  
+  #ifndef PG_VERSION_MAJOR
+
+From cbbrowne at lists.slony.info  Thu Dec 18 13:55:54 2008
+From: cbbrowne at lists.slony.info (Chris Browne)
+Date: Thu Dec 18 13:55:56 2008
+Subject: [Slony1-commit] slony1-engine/src/backend slony1_funcs.sql
+Message-ID: <20081218215554.6D2FB2901C8@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/src/backend
+In directory main.slony.info:/tmp/cvs-serv23724/src/backend
+
+Modified Files:
+	slony1_funcs.sql 
+Log Message:
+Failure upon FAIL OVER due to mismatch in #'s of columns in the INSERT
+into sl_event
+
+http://lists.slony.info/pipermail/slony1-general/2008-December/009033.html
+
+
+Index: slony1_funcs.sql
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/src/backend/slony1_funcs.sql,v
+retrieving revision 1.146
+retrieving revision 1.147
+diff -C2 -d -r1.146 -r1.147
+*** slony1_funcs.sql	18 Dec 2008 21:27:05 -0000	1.146
+--- slony1_funcs.sql	18 Dec 2008 21:55:52 -0000	1.147
+***************
+*** 1362,1366 ****
+  				values
+  				(p_backup_node, "pg_catalog".nextval('@NAMESPACE@.sl_event_seq'), CURRENT_TIMESTAMP,
+! 				'0', '0', '0:0:',
+  				'ACCEPT_SET', p_set_id::text,
+  				p_failed_node::text, p_backup_node::text,
+--- 1362,1366 ----
+  				values
+  				(p_backup_node, "pg_catalog".nextval('@NAMESPACE@.sl_event_seq'), CURRENT_TIMESTAMP,
+! 				pg_catalog.txid_current_snapshot(),
+  				'ACCEPT_SET', p_set_id::text,
+  				p_failed_node::text, p_backup_node::text,
+
+From cbbrowne at lists.slony.info  Thu Dec 18 13:56:23 2008
+From: cbbrowne at lists.slony.info (Chris Browne)
+Date: Thu Dec 18 13:56:24 2008
+Subject: [Slony1-commit] slony1-engine/src/backend slony1_funcs.sql
+Message-ID: <20081218215623.0CB2A290127@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/src/backend
+In directory main.slony.info:/tmp/cvs-serv23772/src/backend
+
+Modified Files:
+      Tag: REL_2_0_STABLE
+	slony1_funcs.sql 
+Log Message:
+Failure upon FAIL OVER due to mismatch in #'s of columns in the INSERT
+into sl_event
+
+http://lists.slony.info/pipermail/slony1-general/2008-December/009033.html 
+
+
+
+Index: slony1_funcs.sql
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/src/backend/slony1_funcs.sql,v
+retrieving revision 1.145.2.2
+retrieving revision 1.145.2.3
+diff -C2 -d -r1.145.2.2 -r1.145.2.3
+*** slony1_funcs.sql	18 Dec 2008 21:35:03 -0000	1.145.2.2
+--- slony1_funcs.sql	18 Dec 2008 21:56:20 -0000	1.145.2.3
+***************
+*** 1362,1366 ****
+  				values
+  				(p_backup_node, "pg_catalog".nextval('@NAMESPACE@.sl_event_seq'), CURRENT_TIMESTAMP,
+! 				'0', '0', '0:0:',
+  				'ACCEPT_SET', p_set_id::text,
+  				p_failed_node::text, p_backup_node::text,
+--- 1362,1366 ----
+  				values
+  				(p_backup_node, "pg_catalog".nextval('@NAMESPACE@.sl_event_seq'), CURRENT_TIMESTAMP,
+! 				pg_catalog.txid_current_snapshot(),
+  				'ACCEPT_SET', p_set_id::text,
+  				p_failed_node::text, p_backup_node::text,
+
+From cbbrowne at lists.slony.info  Fri Dec 19 13:00:06 2008
+From: cbbrowne at lists.slony.info (Chris Browne)
+Date: Fri Dec 19 13:00:08 2008
+Subject: [Slony1-commit] slony1-www/content frontpage.txt
+Message-ID: <20081219210006.AA78F290058@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-www/content
+In directory main.slony.info:/tmp/cvs-serv4370/content
+
+Modified Files:
+	frontpage.txt 
+Log Message:
+Add notes that 1.2-to-2.0 conversion doesn't yet exist :-(
+
+
+Index: frontpage.txt
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-www/content/frontpage.txt,v
+retrieving revision 1.31
+retrieving revision 1.32
+diff -C2 -d -r1.31 -r1.32
+*** frontpage.txt	25 Nov 2008 03:43:26 -0000	1.31
+--- frontpage.txt	19 Dec 2008 21:00:04 -0000	1.32
+***************
+*** 16,20 ****
+  <li> Trigger handling is <i>enormously</i> cleaner.
+  </ul>
+! ---
+  Slony-I 1.2.15 available
+  
+--- 16,31 ----
+  <li> Trigger handling is <i>enormously</i> cleaner.
+  </ul>
+! 
+! <P> Unfortunately, it needs to be noted that there is not, as of yet,
+! an upgrade procedure to upgrade an installation of Slony-I 1.2.x to
+! 2.0.  At present, upgrading to 2.0 will essentially require dropping
+! out replication and recreating it.
+! 
+! <P> We hope to have an answer as to how to deal with this in the new year.
+! 
+! <P> Follow <a href=
+! "http://www.slony.info/bugzilla/show_bug.cgi?id=69"> Bug #69 </a> for
+! more details on this.
+! --- 
+  Slony-I 1.2.15 available
+  
+
+From cbbrowne at lists.slony.info  Fri Dec 19 13:02:47 2008
+From: cbbrowne at lists.slony.info (Chris Browne)
+Date: Fri Dec 19 13:02:49 2008
+Subject: [Slony1-commit] slony1-www/content news.txt
+Message-ID: <20081219210247.6AC22290009@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-www/content
+In directory main.slony.info:/tmp/cvs-serv4770/content
+
+Modified Files:
+	news.txt 
+Log Message:
+Add news item about upgrading 1.2.x to 2.0
+
+
+Index: news.txt
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-www/content/news.txt,v
+retrieving revision 1.49
+retrieving revision 1.50
+diff -C2 -d -r1.49 -r1.50
+*** news.txt	25 Nov 2008 03:43:26 -0000	1.49
+--- news.txt	19 Dec 2008 21:02:45 -0000	1.50
+***************
+*** 13,16 ****
+--- 13,28 ----
+  Slony-1 1.1.9 <a href="http://main.slony.info/downloads/1.1/source/slony1-1.1.9.tar.bz2">engine</a>
+  <!-- Please keep this item at the top of the news list -->
++ 
++ No way currently to upgrade from Slony-I 1.2.x to 2.0.x
++ http://www.slony.info/bugzilla/show_bug.cgi?id=69
++ 2008-12-19
++ Chris Browne
++ 
++ <P> Unfortunately, it needs to be noted that there is not, as of yet,
++ an upgrade procedure to upgrade an installation of Slony-I 1.2.x to
++ 2.0.  At present, upgrading to 2.0 will essentially require dropping
++ out replication and recreating it.
++ 
++ <P> We hope to have an answer as to how to deal with this in the new year.
+  ---
+  Slony-I 2.0.0 Released
+
+From cbbrowne at lists.slony.info  Fri Dec 19 13:03:26 2008
+From: cbbrowne at lists.slony.info (Chris Browne)
+Date: Fri Dec 19 13:03:28 2008
+Subject: [Slony1-commit] slony1-www/content news.txt
+Message-ID: <20081219210326.D20D1290009@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-www/content
+In directory main.slony.info:/tmp/cvs-serv4832/content
+
+Modified Files:
+	news.txt 
+Log Message:
+Typo
+
+
+Index: news.txt
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-www/content/news.txt,v
+retrieving revision 1.50
+retrieving revision 1.51
+diff -C2 -d -r1.50 -r1.51
+*** news.txt	19 Dec 2008 21:02:45 -0000	1.50
+--- news.txt	19 Dec 2008 21:03:24 -0000	1.51
+***************
+*** 14,17 ****
+--- 14,18 ----
+  <!-- Please keep this item at the top of the news list -->
+  
++ ---
+  No way currently to upgrade from Slony-I 1.2.x to 2.0.x
+  http://www.slony.info/bugzilla/show_bug.cgi?id=69
+

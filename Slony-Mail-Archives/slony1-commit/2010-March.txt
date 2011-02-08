@@ -1,0 +1,1233 @@
+From cbbrowne at lists.slony.info  Thu Mar 11 13:38:07 2010
+From: cbbrowne at lists.slony.info (Chris Browne)
+Date: Thu, 11 Mar 2010 21:38:07 +0000
+Subject: [Slony1-commit] slony1-engine/src/slon remote_listen.c
+	remote_worker.c
+Message-ID: <20100311213807.ABB4C290423@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/src/slon
+In directory main.slony.info:/tmp/cvs-serv11819
+
+Modified Files:
+      Tag: REL_1_2_STABLE
+	remote_listen.c remote_worker.c 
+Log Message:
+Apparently fixes to memory leaks via freeing values at more apropos times
+
+
+Index: remote_worker.c
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/src/slon/remote_worker.c,v
+retrieving revision 1.124.2.41
+retrieving revision 1.124.2.42
+diff -C 2 -d -r1.124.2.41 -r1.124.2.42
+*** remote_worker.c	22 Feb 2010 18:45:02 -0000	1.124.2.41
+--- remote_worker.c	11 Mar 2010 21:38:04 -0000	1.124.2.42
+***************
+*** 1390,1393 ****
+--- 1390,1394 ----
+  						rstat = PQresultStatus(res);
+  						slon_log (SLON_CONFIG, "DDL success - %s\n", PQresStatus(rstat));
++ 						PQclear(res);
+  					}
+  					slon_log(SLON_INFO, "completed DDL script - run ddlScript_complete_int()\n");
+***************
+*** 1485,1488 ****
+--- 1486,1490 ----
+  	dstring_free(&query1);
+  	dstring_free(&query2);
++ 	dstring_free(&lsquery);
+  	free(wd->tab_fqname);
+  	free(wd->tab_forward);
+***************
+*** 4917,4920 ****
+--- 4919,4923 ----
+  		{
+  			dstring_free(&query);
++ 			dstring_free(&query2);
+  			pthread_mutex_unlock(&(provider->helper_lock));
+  			pthread_exit(NULL);
+***************
+*** 5308,5311 ****
+--- 5311,5315 ----
+  						log_cmddata = PQgetvalue(res2, 0, 0);
+  						largemem = log_cmdsize;
++ 						PQclear(res2);
+  					}
+  
+***************
+*** 5393,5397 ****
+  					if (largemem > 0)
+  					{
+- 						PQclear(res2);
+  						pthread_mutex_lock(&(wd->workdata_lock));
+  						wd->workdata_largemem += largemem;
+--- 5397,5400 ----
+
+Index: remote_listen.c
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/src/slon/remote_listen.c,v
+retrieving revision 1.31.2.5
+retrieving revision 1.31.2.6
+diff -C 2 -d -r1.31.2.5 -r1.31.2.6
+*** remote_listen.c	22 Dec 2009 17:10:10 -0000	1.31.2.5
+--- remote_listen.c	11 Mar 2010 21:38:04 -0000	1.31.2.6
+***************
+*** 267,270 ****
+--- 267,271 ----
+  					 node->no_id,
+  					 dstring_data(&query1), PQresultErrorMessage(res));
++ 				dstring_free(&query1);
+  				PQclear(res);
+  				slon_disconnectdb(conn);
+***************
+*** 342,345 ****
+--- 343,347 ----
+  		}
+  		if (oldpstate != poll_state) { /* Switched states... */
++ 			dstring_init(&query1);
+  			switch (poll_state) {
+  			case SLON_POLLSTATE_POLL:
+***************
+*** 368,371 ****
+--- 370,374 ----
+  					 node->no_id,
+  					 dstring_data(&query1), PQresultErrorMessage(res));
++ 				dstring_free(&query1);
+  				PQclear(res);
+  				slon_disconnectdb(conn);
+***************
+*** 375,378 ****
+--- 378,382 ----
+  				continue;
+  			}
++ 			dstring_free(&query1);
+  			PQclear(res);
+  		}
+
+
+From cbbrowne at lists.slony.info  Thu Mar 11 13:38:54 2010
+From: cbbrowne at lists.slony.info (Chris Browne)
+Date: Thu, 11 Mar 2010 21:38:54 +0000
+Subject: [Slony1-commit] slony1-engine RELEASE
+Message-ID: <20100311213854.8260A290429@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine
+In directory main.slony.info:/tmp/cvs-serv11914
+
+Modified Files:
+      Tag: REL_1_2_STABLE
+	RELEASE 
+Log Message:
+Update release notes
+
+
+Index: RELEASE
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/RELEASE,v
+retrieving revision 1.1.2.45
+retrieving revision 1.1.2.46
+diff -C 2 -d -r1.1.2.45 -r1.1.2.46
+*** RELEASE	9 Dec 2009 20:51:10 -0000	1.1.2.45
+--- RELEASE	11 Mar 2010 21:38:52 -0000	1.1.2.46
+***************
+*** 1,4 ****
+--- 1,12 ----
+  $Id$
+  
++ Release 1.2.21
++ 
++ - Bug #108 - remove Emacs fodder from test scripts
++ 
++ - Bug #110 - some quoting problems in Perl script
++ 
++ - Free objects to eliminate memory leaks
++ 
+  Release 1.2.20
+  
+
+
+From cbbrowne at lists.slony.info  Thu Mar 11 13:40:10 2010
+From: cbbrowne at lists.slony.info (Chris Browne)
+Date: Thu, 11 Mar 2010 21:40:10 +0000
+Subject: [Slony1-commit] slony1-engine/tests run_test.sh
+Message-ID: <20100311214010.CB9EF290247@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/tests
+In directory main.slony.info:/tmp/cvs-serv11986
+
+Modified Files:
+      Tag: REL_2_0_STABLE
+	run_test.sh 
+Log Message:
+Improve error reporting to indicate DB conn info in case where failure is
+due to bad conn info
+
+
+Index: run_test.sh
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/tests/run_test.sh,v
+retrieving revision 1.26.2.4
+retrieving revision 1.26.2.5
+diff -C 2 -d -r1.26.2.4 -r1.26.2.5
+*** run_test.sh	21 Jul 2009 21:17:44 -0000	1.26.2.4
+--- run_test.sh	11 Mar 2010 21:40:08 -0000	1.26.2.5
+***************
+*** 55,60 ****
+--- 55,63 ----
+  #load settings
+  
++ echo "Loading default settings"
+  . settings.ik
++ echo "Loading test-specific settings"
+  . $testname/settings.ik
++ echo "Loading support functions"
+  . support_funcs.sh
+  
+***************
+*** 218,222 ****
+  	    echo "STORE PATH (SERVER=@node${i}, CLIENT=@node${j}, CONNINFO='dbname=${db} host=${host} user=${buser} port=${port}');" >> $mktmp/slonik.script
+            else
+!             err 3 "No conninfo"
+            fi
+          fi
+--- 221,225 ----
+  	    echo "STORE PATH (SERVER=@node${i}, CLIENT=@node${j}, CONNINFO='dbname=${db} host=${host} user=${buser} port=${port}');" >> $mktmp/slonik.script
+            else
+!             err 3 "No conninfo - bdb=${bdb} bhost=${bhost} user=${buser} bport=${bport}"
+            fi
+          fi
+
+
+From cbbrowne at lists.slony.info  Thu Mar 11 13:41:05 2010
+From: cbbrowne at lists.slony.info (Chris Browne)
+Date: Thu, 11 Mar 2010 21:41:05 +0000
+Subject: [Slony1-commit] slony1-engine RELEASE
+Message-ID: <20100311214105.D2EE4290247@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine
+In directory main.slony.info:/tmp/cvs-serv12333
+
+Modified Files:
+      Tag: REL_2_0_STABLE
+	RELEASE 
+Log Message:
+Update release notes
+
+
+Index: RELEASE
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/RELEASE,v
+retrieving revision 1.3.2.20
+retrieving revision 1.3.2.21
+diff -C 2 -d -r1.3.2.20 -r1.3.2.21
+*** RELEASE	11 Feb 2010 23:11:01 -0000	1.3.2.20
+--- RELEASE	11 Mar 2010 21:41:03 -0000	1.3.2.21
+***************
+*** 179,180 ****
+--- 179,182 ----
+  
+  - Bug #106 - misleading error message when setting up session configuration
++ 
++ - Improve test harness to report conninfo in case where connection fails
+
+
+From cbbrowne at lists.slony.info  Tue Mar 30 08:28:40 2010
+From: cbbrowne at lists.slony.info (Chris Browne)
+Date: Tue, 30 Mar 2010 15:28:40 +0000
+Subject: [Slony1-commit] slony1-engine/doc/adminguide faq.sgml slon.sgml
+Message-ID: <20100330152840.EECBA2900C6@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/doc/adminguide
+In directory main.slony.info:/tmp/cvs-serv11500
+
+Modified Files:
+      Tag: REL_2_0_STABLE
+	faq.sgml slon.sgml 
+Log Message:
+Add notes on recommending *not* suppressing WAL via synchronous_commit
+GUC per discussion on list with Peter Geoghegan
+
+
+Index: slon.sgml
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/doc/adminguide/slon.sgml,v
+retrieving revision 1.34
+retrieving revision 1.34.2.1
+diff -C 2 -d -r1.34 -r1.34.2.1
+*** slon.sgml	27 Mar 2008 21:00:58 -0000	1.34
+--- slon.sgml	30 Mar 2010 15:28:38 -0000	1.34.2.1
+***************
+*** 357,361 ****
+       </para>
+  
+!      <para> See more details on <xref linkend="slon-config-command-on-logarchive">.</para>
+      </listitem>
+     </varlistentry>
+--- 357,361 ----
+       </para>
+  
+!      <para> See more details on <xref linkend="slon-config-command-on-logarchive"/>.</para>
+      </listitem>
+     </varlistentry>
+
+Index: faq.sgml
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/doc/adminguide/faq.sgml,v
+retrieving revision 1.80.2.4
+retrieving revision 1.80.2.5
+diff -C 2 -d -r1.80.2.4 -r1.80.2.5
+*** faq.sgml	11 Feb 2010 17:52:01 -0000	1.80.2.4
+--- faq.sgml	30 Mar 2010 15:28:38 -0000	1.80.2.5
+***************
+*** 1338,1341 ****
+--- 1338,1411 ----
+  above, it could be faster to drop the node and recreate it than to let
+  it catch up across a week's worth of updates...  </para> </answer>
++ </qandaentry>
++ 
++ <qandaentry>
++ 
++ <question> <para>As of version 8.3, &postgres; offers a
++ <envar>synchronous_commit</envar> parameter which may be set either
++ via GUC or <filename>postgresql.conf</filename> which can provide some
++ performance gains by not logging results in WAL.  Would it be sensible
++ to turn off synchronous commit on a subscriber node?  </para>
++ </question>
++ 
++ <answer><para> Unfortunately, there is an unpleasant failure case
++ which this would introduce. </para>
++ 
++ <para>Consider...</para>
++ 
++ <itemizedlist>
++ 
++ <listitem><para> Node #2 claims to have committed up to transaction
++ T5, but the WAL only really has records up to T3.</para></listitem>
++ 
++ <listitem><para> Node #1, the "master", got the report back that #2 is
++ up to date to T5.</para></listitem>
++ 
++ <listitem><para> Node #2 experiences a failure (e.g. - power
++ outage).</para></listitem>
++ 
++ </itemizedlist>
++ 
++ <para>There are two possible outcomes, now, one OK, and one not so OK...</para>
++ 
++ <itemizedlist>
++ 
++ <listitem><para> OK </para>
++ 
++ <para> Node #2 gets restarted, replays WAL, knows it's only got data
++ up to T3, and heads back to node #1, asking for transaction T4 and
++ others.</para>
++ 
++ <para> No problem.</para></listitem>
++ 
++ <listitem><para> Not so OK.</para>
++ 
++ <para> Before node #2 gets back up, node #1 has run an iteration of
++ the cleanup thread, which trims out all the data up to T5, because the
++ other nodes confirmed up to that point.</para>
++ 
++ <para> Node #2 gets restarted, replays WAL, knows it's only got data
++ up to T3, and heads back to node #1, asking for transaction T4 and
++ T5.</para>
++ 
++ <para> Oops.  Node #1 just trimmed those log entries
++ out.</para></listitem>
++ </itemizedlist>
++ 
++ <para>The race condition here is quite easy to exercise - you just
++ need to suppress the restart of node 2 for a while, long enough for
++ node 1 to run the cleanup thread.</para>
++ 
++ <para>You might evade the problem somewhat by setting the &lslon; parameter
++ <xref linkend="slon-config-cleanup-interval"/> to a larger value.</para>
++ 
++ <para>Unfortunately, any time the outage of node 2 could exceed that
++ interval, the risk of losing log data inexorably emerges.</para>
++ 
++ </answer>
++ 
++ <answer><para> As a result, it cannot be recommended that users run
++ &slony1; in a fashion where it suppresses WAL writing via
++ <envar>synchronous_commit</envar>. </para> </answer>
+  
+  </qandaentry>
+
+
+From ssinger at lists.slony.info  Wed Mar 31 06:22:22 2010
+From: ssinger at lists.slony.info (Steve Singer,,,)
+Date: Wed, 31 Mar 2010 13:22:22 +0000
+Subject: [Slony1-commit] slony1-engine/src/slon remote_worker.c
+	remote_listen.c
+Message-ID: <20100331132223.0DDC6290CB7@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/src/slon
+In directory main.slony.info:/tmp/cvs-serv3830
+
+Modified Files:
+      Tag: REL_1_2_STABLE
+	remote_worker.c remote_listen.c 
+Log Message:
+Reverting 1.124.2.42 
+
+The memory is being freed too soon. 
+See http://lists.slony.info/pipermail/slony1-hackers/2010-March/000309.html
+core dumps were observed from this patch though we are leaking memory
+without it.
+
+
+Index: remote_worker.c
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/src/slon/remote_worker.c,v
+retrieving revision 1.124.2.42
+retrieving revision 1.124.2.43
+diff -C 2 -d -r1.124.2.42 -r1.124.2.43
+*** remote_worker.c	11 Mar 2010 21:38:04 -0000	1.124.2.42
+--- remote_worker.c	31 Mar 2010 13:22:20 -0000	1.124.2.43
+***************
+*** 1390,1394 ****
+  						rstat = PQresultStatus(res);
+  						slon_log (SLON_CONFIG, "DDL success - %s\n", PQresStatus(rstat));
+- 						PQclear(res);
+  					}
+  					slon_log(SLON_INFO, "completed DDL script - run ddlScript_complete_int()\n");
+--- 1390,1393 ----
+***************
+*** 1486,1490 ****
+  	dstring_free(&query1);
+  	dstring_free(&query2);
+- 	dstring_free(&lsquery);
+  	free(wd->tab_fqname);
+  	free(wd->tab_forward);
+--- 1485,1488 ----
+***************
+*** 4919,4923 ****
+  		{
+  			dstring_free(&query);
+- 			dstring_free(&query2);
+  			pthread_mutex_unlock(&(provider->helper_lock));
+  			pthread_exit(NULL);
+--- 4917,4920 ----
+***************
+*** 5311,5315 ****
+  						log_cmddata = PQgetvalue(res2, 0, 0);
+  						largemem = log_cmdsize;
+- 						PQclear(res2);
+  					}
+  
+--- 5308,5311 ----
+***************
+*** 5397,5400 ****
+--- 5393,5397 ----
+  					if (largemem > 0)
+  					{
++ 						PQclear(res2);
+  						pthread_mutex_lock(&(wd->workdata_lock));
+  						wd->workdata_largemem += largemem;
+
+Index: remote_listen.c
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/src/slon/remote_listen.c,v
+retrieving revision 1.31.2.6
+retrieving revision 1.31.2.7
+diff -C 2 -d -r1.31.2.6 -r1.31.2.7
+*** remote_listen.c	11 Mar 2010 21:38:04 -0000	1.31.2.6
+--- remote_listen.c	31 Mar 2010 13:22:20 -0000	1.31.2.7
+***************
+*** 267,271 ****
+  					 node->no_id,
+  					 dstring_data(&query1), PQresultErrorMessage(res));
+- 				dstring_free(&query1);
+  				PQclear(res);
+  				slon_disconnectdb(conn);
+--- 267,270 ----
+***************
+*** 343,347 ****
+  		}
+  		if (oldpstate != poll_state) { /* Switched states... */
+- 			dstring_init(&query1);
+  			switch (poll_state) {
+  			case SLON_POLLSTATE_POLL:
+--- 342,345 ----
+***************
+*** 370,374 ****
+  					 node->no_id,
+  					 dstring_data(&query1), PQresultErrorMessage(res));
+- 				dstring_free(&query1);
+  				PQclear(res);
+  				slon_disconnectdb(conn);
+--- 368,371 ----
+***************
+*** 378,382 ****
+  				continue;
+  			}
+- 			dstring_free(&query1);
+  			PQclear(res);
+  		}
+--- 375,378 ----
+
+
+From ssinger at lists.slony.info  Wed Mar 31 06:38:40 2010
+From: ssinger at lists.slony.info (Steve Singer,,,)
+Date: Wed, 31 Mar 2010 13:38:40 +0000
+Subject: [Slony1-commit] slony1-engine/tests/testutf8 generate_dml.sh
+Message-ID: <20100331133840.44753290C90@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/tests/testutf8
+In directory main.slony.info:/tmp/cvs-serv5990/tests/testutf8
+
+Modified Files:
+      Tag: REL_1_2_STABLE
+	generate_dml.sh 
+Log Message:
+Perform a va_copy and use the copy in the loop that uses va_args.
+You are not allowed to use va_args multiple times.
+
+Fix for bug # 55
+
+Patch submitted by Paul Cannon
+
+
+Index: generate_dml.sh
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/tests/testutf8/generate_dml.sh,v
+retrieving revision 1.3.2.2
+retrieving revision 1.3.2.3
+diff -C 2 -d -r1.3.2.2 -r1.3.2.3
+*** generate_dml.sh	2 Apr 2007 18:51:56 -0000	1.3.2.2
+--- generate_dml.sh	31 Mar 2010 13:38:38 -0000	1.3.2.3
+***************
+*** 49,52 ****
+--- 49,53 ----
+      echo "INSERT INTO utf8table (string) values ('t3 -- \303\241 - ${txtb}');" >> $GENDATA
+      echo "INSERT INTO utf8table (string) values ('t3 - \303\241 -- ${txtb}');" >> $GENDATA
++     echo "INSERT INTO utf8table (string) values(repeat('test1234',4000)||'bar');" >> $GENDATA
+      if [ ${i} -ge ${numrows} ]; then
+        break;
+
+
+From ssinger at lists.slony.info  Wed Mar 31 06:38:40 2010
+From: ssinger at lists.slony.info (Steve Singer,,,)
+Date: Wed, 31 Mar 2010 13:38:40 +0000
+Subject: [Slony1-commit] slony1-engine/src/slon misc.c
+Message-ID: <20100331133840.526CA290CA8@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/src/slon
+In directory main.slony.info:/tmp/cvs-serv5990/src/slon
+
+Modified Files:
+      Tag: REL_1_2_STABLE
+	misc.c 
+Log Message:
+Perform a va_copy and use the copy in the loop that uses va_args.
+You are not allowed to use va_args multiple times.
+
+Fix for bug # 55
+
+Patch submitted by Paul Cannon
+
+
+Index: misc.c
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/src/slon/misc.c,v
+retrieving revision 1.22.2.6
+retrieving revision 1.22.2.7
+diff -C 2 -d -r1.22.2.6 -r1.22.2.7
+*** misc.c	11 Feb 2010 21:16:35 -0000	1.22.2.6
+--- misc.c	31 Mar 2010 13:38:38 -0000	1.22.2.7
+***************
+*** 177,181 ****
+  	off = strlen(outbuf);
+  
+! 	while (vsnprintf(&outbuf[off], outsize - off - 1, fmt, ap) >= outsize - off - 1)
+  	{
+  		outsize *= 2;
+--- 177,183 ----
+  	off = strlen(outbuf);
+  
+! 	va_list apcopy;
+! 	va_copy(apcopy, ap);
+! 	while (vsnprintf(&outbuf[off], outsize - off - 1, fmt, apcopy) >= outsize - off - 1)
+  	{
+  		outsize *= 2;
+***************
+*** 186,190 ****
+--- 188,197 ----
+  			slon_retry();
+  		}
++ 		va_end(apcopy);
++ 		va_copy(apcopy, ap);
+  	}
++ 
++ 	va_end(apcopy);
++ 
+  #ifdef HAVE_SYSLOG
+  	if (Use_syslog >= 1)
+
+
+From ssinger at lists.slony.info  Wed Mar 31 07:12:04 2010
+From: ssinger at lists.slony.info (Steve Singer,,,)
+Date: Wed, 31 Mar 2010 14:12:04 +0000
+Subject: [Slony1-commit] slony1-engine/src/slon misc.c
+Message-ID: <20100331141204.79432290268@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/src/slon
+In directory main.slony.info:/tmp/cvs-serv15656/src/slon
+
+Modified Files:
+      Tag: REL_2_0_STABLE
+	misc.c 
+Log Message:
+Perform a va_copy and use the copy in the loop that uses va_args.
+You are not allowed to use va_args multiple times.
+
+Fix for bug # 55
+
+Patch submitted by Paul Cannon
+
+
+
+Index: misc.c
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/src/slon/misc.c,v
+retrieving revision 1.26.2.4
+retrieving revision 1.26.2.5
+diff -C 2 -d -r1.26.2.4 -r1.26.2.5
+*** misc.c	11 Feb 2010 20:50:45 -0000	1.26.2.4
+--- misc.c	31 Mar 2010 14:12:02 -0000	1.26.2.5
+***************
+*** 189,194 ****
+  
+  	off = (int) strlen(outbuf);
+! 
+! 	while (vsnprintf(&outbuf[off], (size_t) (outsize - off), fmt, ap) >= outsize - off - 1)
+  	{
+  		outsize *= 2;
+--- 189,195 ----
+  
+  	off = (int) strlen(outbuf);
+! 	va_list apcopy;
+! 	va_copy(apcopy,ap);
+! 	while (vsnprintf(&outbuf[off], (size_t) (outsize - off), fmt, apcopy) >= outsize - off - 1)
+  	{
+  		outsize *= 2;
+***************
+*** 199,203 ****
+--- 200,209 ----
+  			slon_retry();
+  		}
++ 		va_end(apcopy);
++ 		va_copy(apcopy, ap);
+  	}
++ 
++ 	va_end(apcopy);
++ 
+  #ifdef HAVE_SYSLOG
+  	if (Use_syslog >= 1)
+
+
+From ssinger at lists.slony.info  Wed Mar 31 07:12:04 2010
+From: ssinger at lists.slony.info (Steve Singer,,,)
+Date: Wed, 31 Mar 2010 14:12:04 +0000
+Subject: [Slony1-commit] slony1-engine/tests/testutf8 generate_dml.sh
+Message-ID: <20100331141204.850AB290C16@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/tests/testutf8
+In directory main.slony.info:/tmp/cvs-serv15656/tests/testutf8
+
+Modified Files:
+      Tag: REL_2_0_STABLE
+	generate_dml.sh 
+Log Message:
+Perform a va_copy and use the copy in the loop that uses va_args.
+You are not allowed to use va_args multiple times.
+
+Fix for bug # 55
+
+Patch submitted by Paul Cannon
+
+
+
+Index: generate_dml.sh
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/tests/testutf8/generate_dml.sh,v
+retrieving revision 1.5.2.1
+retrieving revision 1.5.2.2
+diff -C 2 -d -r1.5.2.1 -r1.5.2.2
+*** generate_dml.sh	28 Apr 2009 21:48:20 -0000	1.5.2.1
+--- generate_dml.sh	31 Mar 2010 14:12:02 -0000	1.5.2.2
+***************
+*** 49,52 ****
+--- 49,53 ----
+      echo "INSERT INTO utf8table (string) values ('t3 -- \303\241 - ${txtb}');" >> $GENDATA
+      echo "INSERT INTO utf8table (string) values ('t3 - \303\241 -- ${txtb}');" >> $GENDATA
++     echo "INSERT INTO utf8table (string) values(repeat('test1234',4000)||'bar');" >> $GENDATA
+      if [ ${i} -ge ${numrows} ]; then
+        break;
+
+
+From cbbrowne at lists.slony.info  Wed Mar 31 11:06:51 2010
+From: cbbrowne at lists.slony.info (Chris Browne)
+Date: Wed, 31 Mar 2010 18:06:51 +0000
+Subject: [Slony1-commit] slony1-engine RELEASE
+Message-ID: <20100331180651.92B78290247@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine
+In directory main.slony.info:/tmp/cvs-serv6390
+
+Modified Files:
+      Tag: REL_1_2_STABLE
+	RELEASE 
+Log Message:
+Document fix of bug #55
+
+
+Index: RELEASE
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/RELEASE,v
+retrieving revision 1.1.2.46
+retrieving revision 1.1.2.47
+diff -C 2 -d -r1.1.2.46 -r1.1.2.47
+*** RELEASE	11 Mar 2010 21:38:52 -0000	1.1.2.46
+--- RELEASE	31 Mar 2010 18:06:49 -0000	1.1.2.47
+***************
+*** 9,12 ****
+--- 9,14 ----
+  - Free objects to eliminate memory leaks
+  
++ - Bug #55 - cannot use va_args multiple times
++ 
+  Release 1.2.20
+  
+
+
+From cbbrowne at lists.slony.info  Wed Mar 31 11:06:51 2010
+From: cbbrowne at lists.slony.info (Chris Browne)
+Date: Wed, 31 Mar 2010 18:06:51 +0000
+Subject: [Slony1-commit] slony1-engine/tests/testutf8 README
+Message-ID: <20100331180651.A5420290349@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/tests/testutf8
+In directory main.slony.info:/tmp/cvs-serv6390/tests/testutf8
+
+Modified Files:
+      Tag: REL_1_2_STABLE
+	README 
+Log Message:
+Document fix of bug #55
+
+
+Index: README
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/tests/testutf8/README,v
+retrieving revision 1.1
+retrieving revision 1.1.4.1
+diff -C 2 -d -r1.1 -r1.1.4.1
+*** README	15 Nov 2005 21:25:36 -0000	1.1
+--- README	31 Mar 2010 18:06:49 -0000	1.1.4.1
+***************
+*** 3,4 ****
+--- 3,7 ----
+  This test involves creating databases in UNICODE form, and stowing
+  UTF-8 values in a relevant table.
++ 
++ Also added a test case for bug #55 where a Very Large tuple needed to be generated.
++ http://www.slony.info/bugzilla/show_bug.cgi?id=55
+
+
+From cbbrowne at lists.slony.info  Wed Mar 31 11:08:31 2010
+From: cbbrowne at lists.slony.info (Chris Browne)
+Date: Wed, 31 Mar 2010 18:08:31 +0000
+Subject: [Slony1-commit] slony1-engine RELEASE
+Message-ID: <20100331180831.CE07E290247@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine
+In directory main.slony.info:/tmp/cvs-serv6517
+
+Modified Files:
+      Tag: REL_2_0_STABLE
+	RELEASE 
+Log Message:
+Add notes about bug#55 to release notes, regression test
+
+
+Index: RELEASE
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/RELEASE,v
+retrieving revision 1.3.2.21
+retrieving revision 1.3.2.22
+diff -C 2 -d -r1.3.2.21 -r1.3.2.22
+*** RELEASE	11 Mar 2010 21:41:03 -0000	1.3.2.21
+--- RELEASE	31 Mar 2010 18:08:29 -0000	1.3.2.22
+***************
+*** 181,182 ****
+--- 181,184 ----
+  
+  - Improve test harness to report conninfo in case where connection fails
++ 
++ - Bug #55 - va_args cannot be used multiple times
+
+
+From cbbrowne at lists.slony.info  Wed Mar 31 11:08:31 2010
+From: cbbrowne at lists.slony.info (Chris Browne)
+Date: Wed, 31 Mar 2010 18:08:31 +0000
+Subject: [Slony1-commit] slony1-engine/tests/testutf8 README
+Message-ID: <20100331180831.E5486290C16@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/tests/testutf8
+In directory main.slony.info:/tmp/cvs-serv6517/tests/testutf8
+
+Modified Files:
+      Tag: REL_2_0_STABLE
+	README 
+Log Message:
+Add notes about bug#55 to release notes, regression test
+
+
+Index: README
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/tests/testutf8/README,v
+retrieving revision 1.2
+retrieving revision 1.2.2.1
+diff -C 2 -d -r1.2 -r1.2.2.1
+*** README	7 Sep 2007 19:50:11 -0000	1.2
+--- README	31 Mar 2010 18:08:29 -0000	1.2.2.1
+***************
+*** 5,6 ****
+--- 5,9 ----
+  
+  Both nodes use slon .conf files
++ 
++ Add in test for bug #55 - very large tuple added
++ http://www.slony.info/bugzilla/show_bug.cgi?id=55
+
+
+From cbbrowne at lists.slony.info  Wed Mar 31 11:10:18 2010
+From: cbbrowne at lists.slony.info (Chris Browne)
+Date: Wed, 31 Mar 2010 18:10:18 +0000
+Subject: [Slony1-commit] slony1-engine/tests/testutf8 README
+Message-ID: <20100331181018.2C966290247@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/tests/testutf8
+In directory main.slony.info:/tmp/cvs-serv6614/tests/testutf8
+
+Modified Files:
+	README 
+Log Message:
+Add notes about bug #55 to test which exercises the fix
+
+
+Index: README
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/tests/testutf8/README,v
+retrieving revision 1.2
+retrieving revision 1.3
+diff -C 2 -d -r1.2 -r1.3
+*** README	7 Sep 2007 19:50:11 -0000	1.2
+--- README	31 Mar 2010 18:10:16 -0000	1.3
+***************
+*** 5,6 ****
+--- 5,9 ----
+  
+  Both nodes use slon .conf files
++ 
++ Add in test for bug #55 - very large tuple added
++ http://www.slony.info/bugzilla/show_bug.cgi?id=55
+
+
+From ssinger at lists.slony.info  Tue Mar 30 08:38:43 2010
+From: ssinger at lists.slony.info (Steve Singer,,,)
+Date: Tue, 30 Mar 2010 15:38:43 +0000
+Subject: [Slony1-commit] slony1-engine/src/slonik slonik.c
+Message-ID: <20100330153843.977D0290C42@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/src/slonik
+In directory main.slony.info:/tmp/cvs-serv12386
+
+Modified Files:
+      Tag: REL_2_0_STABLE
+	slonik.c 
+Log Message:
+msg
+
+Index: slonik.c
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/src/slonik/slonik.c,v
+retrieving revision 1.91.2.8
+retrieving revision 1.91.2.9
+diff -C 2 -d -r1.91.2.8 -r1.91.2.9
+*** slonik.c	20 Nov 2009 19:36:43 -0000	1.91.2.8
+--- slonik.c	30 Mar 2010 15:38:41 -0000	1.91.2.9
+***************
+*** 1878,1887 ****
+                  use_minor = 3;
+          }
+!         else    /* above 8.3 */
+          {
+                  use_major = 8;
+!                 use_minor = 3;
+                  printf("%s:%d: Possible unsupported PostgreSQL "
+!                        "version (%d) %d.%d, defaulting to 8.3 support\n",
+  		       stmt->stmt_filename, stmt->stmt_lno, adminfo->pg_version,
+  		       (adminfo->pg_version/10000), ((adminfo->pg_version%10000)/100));
+--- 1878,1892 ----
+                  use_minor = 3;
+          }
+! 	else if ((adminfo->pg_version >= 80400) && (adminfo->pg_version < 80500)) /* 8.4 */
+! 	{
+! 		use_major = 8;
+! 		use_minor = 4;
+! 	}
+!         else    /* above 8.4 */
+          {
+                  use_major = 8;
+!                 use_minor = 4;
+                  printf("%s:%d: Possible unsupported PostgreSQL "
+!                        "version (%d) %d.%d, defaulting to 8.4 support\n",
+  		       stmt->stmt_filename, stmt->stmt_lno, adminfo->pg_version,
+  		       (adminfo->pg_version/10000), ((adminfo->pg_version%10000)/100));
+
+
+From ssinger at lists.slony.info  Tue Mar 30 08:55:44 2010
+From: ssinger at lists.slony.info (Steve Singer,,,)
+Date: Tue, 30 Mar 2010 15:55:44 +0000
+Subject: [Slony1-commit] slony1-engine/src/slonik slonik.c
+Message-ID: <20100330155544.2E7A629014A@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/src/slonik
+In directory main.slony.info:/tmp/cvs-serv13917
+
+Modified Files:
+      Tag: REL_2_0_STABLE
+	slonik.c 
+Log Message:
+Updating comment to reflect reality.
++ The below log message that should have been applied with the previous checkin
+-------
+Load the v84 slony1_funcs file when running on an 8.4 system.
+This checks the autovacuum status in the proper way for 8.4
+
+Bug 116
+Patch submitted by Peter Eisentraut
+
+
+
+
+Index: slonik.c
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/src/slonik/slonik.c,v
+retrieving revision 1.91.2.9
+retrieving revision 1.91.2.10
+diff -C 2 -d -r1.91.2.9 -r1.91.2.10
+*** slonik.c	30 Mar 2010 15:38:41 -0000	1.91.2.9
+--- slonik.c	30 Mar 2010 15:55:41 -0000	1.91.2.10
+***************
+*** 1803,1807 ****
+  	{
+  		use_major = 8;
+! 		use_minor = 4;   /* at this point, there's nothing specifically different in 8.4 from 8.3 */
+  	}
+  	else	/* above 8.4 ??? */
+--- 1803,1807 ----
+  	{
+  		use_major = 8;
+! 		use_minor = 4;   
+  	}
+  	else	/* above 8.4 ??? */
+
+
+From ssinger at lists.slony.info  Tue Mar 30 10:58:52 2010
+From: ssinger at lists.slony.info (Steve Singer,,,)
+Date: Tue, 30 Mar 2010 17:58:52 +0000
+Subject: [Slony1-commit] slony1-engine/tools slony1_extract_schema.sh
+	slony1_extract_for_upgrade.sh
+Message-ID: <20100330175852.AB268290CA2@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/tools
+In directory main.slony.info:/tmp/cvs-serv23391
+
+Modified Files:
+      Tag: REL_1_2_STABLE
+	slony1_extract_schema.sh 
+Added Files:
+      Tag: REL_1_2_STABLE
+	slony1_extract_for_upgrade.sh 
+Log Message:
+slony1_extract_schema.sh will now compare the major versions of postgres and pg_dump
+to make sure they match.
+
+Added slony1_extract_schema_for_upgrade.sh a wrapper script that will handle 
+the requried steps for getting a schema from an older postgres that can be
+used as input to a newer version
+
+Addresses bug # 114
+
+
+Index: slony1_extract_schema.sh
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/tools/slony1_extract_schema.sh,v
+retrieving revision 1.1
+retrieving revision 1.1.4.1
+diff -C 2 -d -r1.1 -r1.1.4.1
+*** slony1_extract_schema.sh	3 Jan 2005 17:04:20 -0000	1.1
+--- slony1_extract_schema.sh	30 Mar 2010 17:58:50 -0000	1.1.4.1
+***************
+*** 14,19 ****
+  	exit 1
+  fi
+- 
+- # ----
+  # Remember call arguments and get the nodeId of the DB specified
+  # ----
+--- 14,17 ----
+***************
+*** 26,29 ****
+--- 24,38 ----
+  
+  # ----
++ # Check version
++ # ----
++ PGBINVER=`pg_dump --version|sed -e 's/.*\([0-9]+*\.[0-9]+*\)\.[0-9]*/\1/'`
++ PGBACKENDVER=`psql -q -At -c 'select version()' $dbname | sed -e 's/.*PostgreSQL \([0-8]+*\.[0-9]+*\).*/\1/'`
++ if [ "x$PGBINVER" != "x$PGBACKENDVER" ];
++ then
++   echo "Postgresql backend $PGBACKENDVER does not match pg_dump version $PGBINVER"
++   exit 1
++ fi
++ # ----
++ # ----
+  # Print a warning for sets originating remotely that their
+  # triggers and constraints will not be included in the dump.
+
+--- NEW FILE: slony1_extract_for_upgrade.sh ---
+#!/bin/sh
+# ----------
+# slony1_extract_for_upgrade
+#
+#	Script to extract the user schema of a slony node in preperation
+#       for an upgrade of postgresql.
+#
+# This script will:
+#
+#      1) Call slony1_extract_schema.sh to extract the schema in the format
+#         suitable for the current pg version
+#      2) Create a temp database and restore the schema to it
+#      3) Use the pg_dump of the postgresql version you are upgrading to to
+#         dump the schema to a format suitable for restoring on the new
+#         postgresql.
+#
+#
+# Note: This script requires slony1_extract_schema.sh to be in your $PATH
+#
+# ----------
+
+# ----
+# Check for correct usage
+# ----
+if test $# -ne 5 ; then
+	echo "usage: $0 dbname clustername tempdbname existing_pgbindir new_pgbindir" >&2
+	exit 1
+fi
+
+# Remember call arguments and get the nodeId of the DB specified
+# ----
+dbname=$1
+cluster=$2
+tmpdb=$3
+existing_pgbindir=$4
+new_pgbindir=$5
+TMP=tmp_schema.$$
+
+
+
+if [ $? -ne 0 ]
+then
+   echo "error extracting existing schema"
+   exit 1
+fi
+
+if [ ! -f $existing_pgbindir/pg_dump ]
+then
+    echo "error $existing_pgbindir does not contain pg_dump"
+    exit 1
+fi
+
+if [ ! -f $new_pgbindir/pg_dump ]
+then
+    echo "error $new_pgbindir does not contain pg_dump"
+    exit 1
+fi
+
+###
+# Step 1, extract the schema.
+##
+PATH=$existing_pgbindir:$PATH slony1_extract_schema.sh $dbname $cluster $tmpdb >$TMP.sql
+
+
+createdb $tmpdb >/dev/null
+if [ $? -ne 0 ]
+then
+    echo "error creating temp db"
+    exit 1
+fi
+
+psql $tmpdb <$TMP.sql >/dev/null
+if [ $? -ne 0 ]
+then
+    echo "error restoring schema"
+    exit 1;
+fi
+$new_pgbindir/pg_dump -s $tmpdb
+
+dropdb $tmpdb
+
+From ssinger at lists.slony.info  Tue Mar 30 11:05:20 2010
+From: ssinger at lists.slony.info (Steve Singer,,,)
+Date: Tue, 30 Mar 2010 18:05:20 +0000
+Subject: [Slony1-commit] slony1-engine/tools slony1_extract_for_upgrade.sh
+	slony1_extract_schema.sh
+Message-ID: <20100330180520.0EB29290C3C@main.slony.info>
+
+Update of /home/cvsd/slony1/slony1-engine/tools
+In directory main.slony.info:/tmp/cvs-serv24090
+
+Modified Files:
+      Tag: REL_2_0_STABLE
+	slony1_extract_schema.sh 
+Added Files:
+      Tag: REL_2_0_STABLE
+	slony1_extract_for_upgrade.sh 
+Log Message:
+slony1_extract_schema.sh will now compare the major versions of postgres and pg_dump
+to make sure they match.
+
+Added slony1_extract_schema_for_upgrade.sh a wrapper script that will handle
+the requried steps for getting a schema from an older postgres that can be
+used as input to a newer version
+
+Addresses bug # 114, merged from 1.2 branch
+
+
+
+--- NEW FILE: slony1_extract_for_upgrade.sh ---
+#!/bin/sh
+# ----------
+# slony1_extract_for_upgrade
+#
+#	Script to extract the user schema of a slony node in preperation
+#       for an upgrade of postgresql.
+#
+# This script will:
+#
+#      1) Call slony1_extract_schema.sh to extract the schema in the format
+#         suitable for the current pg version
+#      2) Create a temp database and restore the schema to it
+#      3) Use the pg_dump of the postgresql version you are upgrading to to
+#         dump the schema to a format suitable for restoring on the new
+#         postgresql.
+#
+#
+# Note: This script requires slony1_extract_schema.sh to be in your $PATH
+#
+# ----------
+
+# ----
+# Check for correct usage
+# ----
+if test $# -ne 5 ; then
+	echo "usage: $0 dbname clustername tempdbname existing_pgbindir new_pgbindir" >&2
+	exit 1
+fi
+
+# Remember call arguments and get the nodeId of the DB specified
+# ----
+dbname=$1
+cluster=$2
+tmpdb=$3
+existing_pgbindir=$4
+new_pgbindir=$5
+TMP=tmp_schema.$$
+
+
+
+if [ $? -ne 0 ]
+then
+   echo "error extracting existing schema"
+   exit 1
+fi
+
+if [ ! -f $existing_pgbindir/pg_dump ]
+then
+    echo "error $existing_pgbindir does not contain pg_dump"
+    exit 1
+fi
+
+if [ ! -f $new_pgbindir/pg_dump ]
+then
+    echo "error $new_pgbindir does not contain pg_dump"
+    exit 1
+fi
+
+###
+# Step 1, extract the schema.
+##
+PATH=$existing_pgbindir:$PATH slony1_extract_schema.sh $dbname $cluster $tmpdb >$TMP.sql
+
+
+createdb $tmpdb >/dev/null
+if [ $? -ne 0 ]
+then
+    echo "error creating temp db"
+    exit 1
+fi
+
+psql $tmpdb <$TMP.sql >/dev/null
+if [ $? -ne 0 ]
+then
+    echo "error restoring schema"
+    exit 1;
+fi
+$new_pgbindir/pg_dump -s $tmpdb
+
+dropdb $tmpdb
+Index: slony1_extract_schema.sh
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/tools/slony1_extract_schema.sh,v
+retrieving revision 1.1
+retrieving revision 1.1.6.1
+diff -C 2 -d -r1.1 -r1.1.6.1
+*** slony1_extract_schema.sh	3 Jan 2005 17:04:20 -0000	1.1
+--- slony1_extract_schema.sh	30 Mar 2010 18:05:17 -0000	1.1.6.1
+***************
+*** 14,19 ****
+  	exit 1
+  fi
+- 
+- # ----
+  # Remember call arguments and get the nodeId of the DB specified
+  # ----
+--- 14,17 ----
+***************
+*** 26,29 ****
+--- 24,38 ----
+  
+  # ----
++ # Check version
++ # ----
++ PGBINVER=`pg_dump --version|sed -e 's/.*\([0-9]+*\.[0-9]+*\)\.[0-9]*/\1/'`
++ PGBACKENDVER=`psql -q -At -c 'select version()' $dbname | sed -e 's/.*PostgreSQL \([0-8]+*\.[0-9]+*\).*/\1/'`
++ if [ "x$PGBINVER" != "x$PGBACKENDVER" ];
++ then
++   echo "Postgresql backend $PGBACKENDVER does not match pg_dump version $PGBINVER"
++   exit 1
++ fi
++ # ----
++ # ----
+  # Print a warning for sets originating remotely that their
+  # triggers and constraints will not be included in the dump.
+
+

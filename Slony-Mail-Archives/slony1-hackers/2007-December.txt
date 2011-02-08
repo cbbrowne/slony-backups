@@ -1,0 +1,991 @@
+From cbbrowne at ca.afilias.info  Mon Dec  3 07:40:55 2007
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Mon Dec  3 07:41:00 2007
+Subject: [Slony1-hackers] Broken builds with make install DESTDIR
+In-Reply-To: <200712031253.31571.petere@postgresql.org> (Peter Eisentraut's
+	message of "Mon, 3 Dec 2007 12:53:30 +0100")
+References: <CD28FF50E73C3E073F402908@imhotep.credativ.de>
+	<60ve7l81mv.fsf@dba2.int.libertyrms.com>
+	<200712031253.31571.petere@postgresql.org>
+Message-ID: <603auj6b20.fsf@dba2.int.libertyrms.com>
+
+Peter Eisentraut <petere@postgresql.org> writes:
+> On third thought, since a PostgreSQL installation is supposed to be 
+> relocatable (cf. Windows), this should actually work, but I would ask Bernd 
+> to post a more complete bug report.
+
+I'll leave Bug #17 as outstanding for now, on the basis of this...
+-- 
+select 'cbbrowne' || '@' || 'linuxfinances.info';
+http://www3.sympatico.ca/cbbrowne/sap.html
+"Whose n-grams did you use, Doctor?"
+"Why, my own of course.  I haven't lost my mind -- I've got it on backup
+ tape!"
+From cbbrowne at ca.afilias.info  Tue Dec  4 10:54:30 2007
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Tue Dec  4 10:54:38 2007
+Subject: [Slony1-hackers] Revisions to SYNC grouping handling
+In-Reply-To: <607ijz5p8s.fsf@dba2.int.libertyrms.com> (Christopher Browne's
+	message of "Fri, 30 Nov 2007 17:42:59 -0500")
+References: <607ijz5p8s.fsf@dba2.int.libertyrms.com>
+Message-ID: <601wa2z3x5.fsf@dba2.int.libertyrms.com>
+
+Christopher Browne <cbbrowne@ca.afilias.info> writes:
+> It seems warranted to do some cleaning up of the handling of SYNC
+> grouping in -HEAD, as what is there now has a confusion of
+> embarassment of riches in quantity of possible policy...
+>
+> There are a bunch of grouping-related options at present that seem to
+> interact somewhat confusingly...
+>
+> - sync_group_maxsize - default 20, min 0, max 10000
+> - desired_sync_time  - default 60000ms, min 0ms (which shuts this off), max 6000000ms
+>
+> It then interacts in a somewhat complex fashion, where we tend to
+> start with processing 1 SYNC, then doubling and adding 1, with
+> [various attempts to set upper limits].
+>
+> In some testing one of my colleagues was doing recently, it seemed to
+> be interacting in a fashion that made it appear as though the
+> configuration parameters were not all being considered.
+>
+> I'm going to throw this out to the -hackers list, for comment
+> *without* yet tossing out the further thoughts that I have; I'll
+> comment further on that next week.
+
+JP Fletcher observed the following issue, that apparently slon was
+ignoring the sync_group_maxsize of 100, and running "way long."
+
+  http://www.slony.info/bugzilla/show_bug.cgi?id=23
+
+It seemed a bit surprising, save for the consideration that there are
+a bunch of parameters, some of them encoded inside the code.
+
+I'm going to start merely by describing what's there, without trying
+to define what ought to be.
+
+1.  The logic, as of v1.2, starts by trying to double the number of
+SYNCs grouped together each time:
+
+per code:
+   max_sync = ((last_sync_group_size * 200) / 100) + 1;
+
+The reason for this logic is that we gain some economies of scale by
+combining SYNCs together, and so should presumably attempt, fairly
+quickly, to increase the number of SYNCs towards a maximum.  Doubling
+the number processed each time is a pretty quick way to do this.
+
+There could be merit to parameterizing this, to change the rate of
+increase from "x2" to "x5" or "x10" or "x1.5".
+
+2.  There is logic to try to estimate an "ideal" number of SYNCs to
+group together based on how long they took last time.
+
+per code:
+   ideal_sync = (last_sync_group_size * desired_sync_time) / last_sync_length;
+
+With this, there is an attempt to try to have a "set of SYNCS" be
+processed (and committed) every "desired_sync_time" ms.
+
+It seems not-outrageous to say: "We'd like to group SYNCs so that we
+get processing done every 5 minutes (e.g. - every 300000ms)", with,
+thus, a COMMIT roughly every 5 minutes, if we're doing the huge amount
+of work required to catch up after replication has fallen well behind.
+
+Stopping every 5 minutes to do a COMMIT would seem likely to not
+impose a huge extra burden over (say) doing a commit every 10 minutes.
+
+Unfortunately, there's not necessarily any statistical reason to
+believe that sizes of SYNCs are, in any sense, uniform in their size,
+so it is entirely plausible for this approach to be *totally* wishful
+thinking.
+
+3.  On the other hand, if it turns out that we'll be doing a Seq Scan
+across sl_log_1/sl_log_2, then there may be little sense in processing
+anything much less than "the whole of sl_log_1 (or sl_log-2)".
+
+If you're doing a Seq Scan each time you do *any* SYNC processing,
+then the cost of pulling sl_log_n data is such that you might as well
+process the Whole Thang, and do Seq Scan fewer times.
+
+I believe that this is no longer an issue in Slony-I CVS HEAD, due to
+the following having been committed on July 3, 2007:
+
+<http://lists.slony.info/pipermail/slony1-commit/2007-July/001854.html>
+
+4.  Log shipping introduces a desire to strictly minimize the number
+of SYNCs grouped together, ideally to 1, in order that you might
+substitute files from one node into another.
+
+These are four competing ways of determining how many SYNCs might be
+grouped together.
+
+Right now, in 1.2 and -HEAD, we use a combination of 1. and 2., but
+apparently with some bug present that allows the maximum grouping to
+exceed the sync_group_maxsize parameter.
+
+It might *possibly* be of some value to allow user control of how
+quickly grouping accelerates (e.g. - a value to use in lieu of the
+value "200" in the code fragment above).  Or perhaps we have too many
+knobs already.  Opinions will be listened to.
+-- 
+let name="cbbrowne" and tld="linuxfinances.info" in name ^ "@" ^ tld;;
+http://linuxfinances.info/info/x.html
+The nice thing about Windows is  - It does not just crash, it displays
+a dialog box and lets you press 'OK' first.  (Arno Schaefer's .sig)
+From mux at oxado.com  Wed Dec  5 06:23:21 2007
+From: mux at oxado.com (Maxime Henrion)
+Date: Wed Dec  5 06:23:38 2007
+Subject: [Slony1-hackers] Problem with SUBSCRIBE SET/SYNC/MERGE SET
+Message-ID: <1196864601.1494.11.camel@localhost>
+
+	Hello all,
+
+
+
+I have code that generates slonik scripts to automatically add new
+tables to existing sets.  So I run the CREATE SET / SET ADD TABLE /
+SUBSCRIBE SET / MERGE SET commands, all intertwined with WAIT FOR EVENT
+calls and all commands wrapped in try blocks so as to catch any problem.
+
+My problem is that I very often get failures with timeouts on the WAIT
+FOR EVENT call that is right after the SYNC command, issued so as to be
+sure that SUBSCRIBE SET is finished, as recommended in the
+documentation.
+
+I'd like to double-check that everything I'm doing is correct because
+the documentation is very confusing on this.  In the documentation of
+the SYNC command, there is this example slonik code:
+
+SUBSCRIBE SET (ID = 10, PROVIDER = 1, RECEIVER = 2);
+WAIT FOR EVENT (ORIGIN = 2, CONFIRMED = 1);
+SYNC (ID = 1);
+WAIT FOR EVENT (ORIGIN = 1, CONFIRMED = 2);
+
+This is what I am doing in my own script.  However, the documentation
+for the MERGE SET command gives this other example:
+
+# Assuming that set 1 has direct subscribers 2 and 3
+SUBSCRIBE SET (ID = 999, PROVIDER = 1, RECEIVER = 2);
+WAIT FOR EVENT (ORIGIN = 2, CONFIRMED = 1);
+SYNC (ID=1);
+SUBSCRIBE SET (ID = 999, PROVIDER = 1, RECEIVER = 3);
+WAIT FOR EVENT (ORIGIN = 3, CONFIRMED = 1);
+SYNC (ID=1);
+MERGE SET ( ID = 1, ADD ID = 999, ORIGIN = 1 );
+
+As you can see, there is no WAIT FOR EVENT call after the SYNC calls,
+and the script proceeds directly to the MERGE SET command!  So I'm
+thinking this might be why my script always fail with a timeout; maybe I
+shouldn't have a WAIT FOR EVENT call there, and maybe the example in the
+documentation of the SYNC command should be fixed?
+ 
+Here is the generated slonik script I have been talking about:
+
+cluster name = foo;
+<node conninfos skipped>
+
+try {
+        create set (id = 13858, origin = 3);
+} on error {
+        echo 'Could not create set id 13858!';
+        exit 1;
+}
+wait for event (origin = 3, confirmed = 4, wait on = 3);
+try {
+        set add table (set id = 13858, origin = 3, id = 2732,
+          full qualified name = 'public.foo_13858');
+        set add table (set id = 13858, origin = 3, id = 2733,
+          full qualified name = 'public.bar_13858');
+
+} on error {
+        echo 'Could not populate set id 13858!';
+        drop set (id = 13858, origin = 3);
+        exit 1;
+}
+try {
+        subscribe set (id = 13858, provider = 3, receiver = 4,
+          forward = yes);
+} on error {
+        echo 'Could not subscribe set id 13858 to node 4!';
+        exit 1;
+}
+wait for event (origin = 4, confirmed = 3, wait on = 4);
+
+sync (id = 3);
+wait for event (origin = 3, confirmed = 4, wait on = 3);
+
+try {
+        merge set (id = 5, add id = 13858, origin = 3);
+} on error {
+        echo 'Could not merge set id 13858 in set id 5!';
+        exit 1;
+}
+wait for event (origin = 3, confirmed = ALL, wait on = 3);
+
+As I said, the timeout occurs just after the SYNC call.
+
+Any help would be greatly appreciated.
+
+Thanks,
+Maxime
+
+From cbbrowne at ca.afilias.info  Mon Dec 17 15:53:51 2007
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Mon Dec 17 15:54:03 2007
+Subject: [Slony1-hackers] Separating log pulling from log processing
+Message-ID: <60lk7s7u9c.fsf@dba2.int.libertyrms.com>
+
+An idea that has been brought up as being potentially of some value in
+improving performance is that of changing the processing of sl_log_*
+tables from the present "SELECT [relevant tuples] from sl_log_n" to...
+
+On Provider:
+  copy (select * from sl_log_n where [relevant tuples]) to stdout;
+
+On Subscriber:
+  copy _slony_schema.sl_log_[current] from stdin;
+
+This would have a number of interesting direct effects:
+
+- It eliminates the need for us to optimize this for tuple size; the
+  COPY won't chew slon memory arbitrarily badly.
+
+- COPY gets the data into the log table pretty much As Quickly As Is
+  Conceivably Possible.  Way more efficient than as a set of INSERT
+  statements.
+
+- We then need to run some process on the subscriber node to process
+  all the tuples.  It has been suggested that this be either rules or
+  triggers on sl_log_n.
+
+But in some conversations, some neat further ideas suggest
+themselves...
+
+Forget the triggers/rules; *all* that the COPY does is the COPY.  A
+*later* "APPLY" phase sees to applying the updates to replicated
+tables.
+
+This would have a number of interesting effects:
+
+- It eliminates the need for the "SYNC pipelining" idea (or rather
+  simplifies it drastically)
+
+  If "COPY" and "APPLY" are separate threads altogether, then the
+  "COPY" thread can keep busy pulling data, perhaps pulling
+  dramatically ahead of the "APPLY" thread.
+
+- It will improve latency for cascaded subscribers.
+
+  Data is available for forwarding to other nodes as soon as "COPY" is
+  done; no need to wait for "APPLY."
+
+- We might even have nodes that don't bother with an APPLY thread.
+
+  In this case, the database would consist purely of the
+  Slony-I-specific schema, with *no* data other than configuration and
+  sl_log_* data.
+
+  As this node has no "application data", it might be set up to store
+  sl_log_* data for a much longer period of time.
+
+- Possible arguable downside: This eliminates the ability to have a
+  non-"Forwarding" node.
+-- 
+output = ("cbbrowne" "@" "linuxdatabases.info")
+http://linuxdatabases.info/info/unix.html
+This login session:  only $23.95!
+From cbbrowne at ca.afilias.info  Thu Dec 20 11:56:35 2007
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Thu Dec 20 11:56:43 2007
+Subject: [Slony1-hackers] Optimization of sl_log_* handling: Look Ma,
+	no DELETEs!
+Message-ID: <60d4t15edo.fsf@dba2.int.libertyrms.com>
+
+The patch below, applied to CVS HEAD, changes behaviour thus:
+
+- All of the interesting cleanup work is now done in the stored
+  function, cleanupEvent(interval, boolean).
+
+  Interesting side-effect: You can now induce a cleanup manually,
+  which will be useful for testing.
+
+- This function now has two parameters, passed in from slon config
+  parameters:
+
+  interval - cleanup_interval (default '10 minutes')
+
+   This controls how quickly old events are trimmed out.  It used to
+   be a hard-coded value.
+
+   Old events are trimmed out once the confirmations are aged by
+   (cleanup_interval).
+
+   This then controls when the data in sl_log_1/sl_log_2 can be
+   dropped.
+
+   Data in *those* tables is deleted when it is older than the
+   earliest XID still captured in sl_event.
+
+  boolean - cleanup_deletelogs (default 'false')
+
+   This controls whether or not we DELETE data from sl_log_1/sl_log_2.
+
+- We now consider initiating a log switch every time cleanupEvent()
+  runs.
+
+  If the call to logswitch_finish() indicates that there was no log
+  switch in progress, we initiate one.
+
+  This means that log switches will be initiated almost as often as
+  possible.  That's a policy well worth debating :-).
+
+- logswitch_finish() changes a fair bit...
+
+  It uses the same logic as in cleanupEvent() to determine if there
+  are any *relevant* tuples left in sl_log_[whatever], rather than
+  (potentially) scanning the table to see if there are any undeleted
+  tuples left.
+
+
+Index: src/backend/slony1_funcs.sql
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/src/backend/slony1_funcs.sql,v
+retrieving revision 1.126
+diff -c -u -r1.126 slony1_funcs.sql
+--- src/backend/slony1_funcs.sql	11 Dec 2007 20:39:41 -0000	1.126
++++ src/backend/slony1_funcs.sql	20 Dec 2007 19:42:14 -0000
+@@ -1958,7 +1958,7 @@
+ 	-- Remember our snapshots xmax as for the set locking
+ 	-- ----
+ 	update @NAMESPACE@.sl_set
+-			set set_locked = "pg_catalog".txid_snapshot_xmax("public".txid_current_snapshot())
++			set set_locked = "pg_catalog".txid_snapshot_xmax("pg_catalog".txid_current_snapshot())
+ 			where set_id = p_set_id;
+ 
+ 	return p_set_id;
+@@ -2080,7 +2080,7 @@
+ 	if v_set_row.set_locked isnull then
+ 		raise exception ''Slony-I: set % is not locked'', p_set_id;
+ 	end if;
+-	if v_set_row.set_locked > "pg_catalog".txid_snapshot_xmin("public".txid_current_snapshot()) then
++	if v_set_row.set_locked > "pg_catalog".txid_snapshot_xmin("pg_catalog".txid_current_snapshot()) then
+ 		raise exception ''Slony-I: cannot move set % yet, transactions < % are still in progress'',
+ 				p_set_id, v_set_row.set_locked;
+ 	end if;
+@@ -4382,16 +4382,22 @@
+ p_con_timestamp, and raises an event to forward this confirmation.';
+ 
+ -- ----------------------------------------------------------------------
+--- FUNCTION cleanupEvent ()
++-- FUNCTION cleanupEvent (interval, deletelogs)
+ --
+ -- ----------------------------------------------------------------------
+-create or replace function @NAMESPACE@.cleanupEvent ()
++create or replace function @NAMESPACE@.cleanupEvent (interval, boolean)
+ returns int4
+ as '
+ declare
++	p_interval alias for $1;
++	p_deletelogs alias for $2;
+ 	v_max_row	record;
+ 	v_min_row	record;
+ 	v_max_sync	int8;
++	v_origin	int8;
++	v_seqno		int8;
++	v_xmin		bigint;
++	v_rc            int8;
+ begin
+ 	-- ----
+ 	-- First remove all but the oldest confirm row per origin,receiver pair
+@@ -4466,14 +4472,33 @@
+ 	-- ----
+ 	perform @NAMESPACE@.cleanupNodelock();
+ 
++	-- ----
++	-- Find the eldest event left, for each origin
++	-- ----
++        for v_origin, v_seqno, v_xmin in
++	  select ev_origin, ev_seqno, "pg_catalog".txid_snapshot_xmin(ev_snapshot) from @NAMESPACE@.sl_event
++          where (ev_origin, ev_seqno) in (select ev_origin, min(ev_seqno) from @NAMESPACE@.sl_event where ev_type = ''SYNC'' group by ev_origin)
++	loop
++		if p_deletelogs then
++			delete from @NAMESPACE@.sl_log_1 where log_origin = v_origin and log_txid < v_xmin;		
++			delete from @NAMESPACE@.sl_log_2 where log_origin = v_origin and log_txid < v_xmin;		
++		end if;
++		delete from @NAMESPACE@.sl_seqlog where seql_origin = v_origin and seql_ev_seqno < v_seqno;
++        end loop;
++	
++	v_rc := @NAMESPACE@.logswitch_finish();
++	if v_rc = 0 then   -- no switch in progress
++		perform @NAMESPACE@.logswitch_start();
++	end if;
++
+ 	return 0;
+ end;
+ ' language plpgsql;
+-comment on function @NAMESPACE@.cleanupEvent () is
++comment on function @NAMESPACE@.cleanupEvent (interval, boolean) is
+ 'cleaning old data out of sl_confirm, sl_event.  Removes all but the
+ last sl_confirm row per (origin,receiver), and then removes all events
+ that are confirmed by all nodes in the whole cluster up to the last
+-SYNC.  ';
++SYNC.  Deletes now-orphaned entries from sl_log_* if delete_logs parameter is set';
+ 
+ 
+ -- ----------------------------------------------------------------------
+@@ -5080,6 +5105,10 @@
+ DECLARE
+ 	v_current_status	int4;
+ 	v_dummy				record;
++	v_origin	int8;
++	v_seqno		int8;
++	v_xmin		bigint;
++	v_purgeable boolean;
+ BEGIN
+ 	-- ----
+ 	-- Grab the central configuration lock to prevent race conditions
+@@ -5103,18 +5132,29 @@
+ 	-- status = 2: sl_log_1 active, cleanup sl_log_2
+ 	-- ----
+ 	if v_current_status = 2 then
++		v_purgeable := ''true'';
+ 		-- ----
+ 		-- The cleanup thread calls us after it did the delete and
+ 		-- vacuum of both log tables. If sl_log_2 is empty now, we
+ 		-- can truncate it and the log switch is done.
+ 		-- ----
+-		for v_dummy in select 1 from @NAMESPACE@.sl_log_2 loop
++		
++	        for v_origin, v_seqno, v_xmin in
++		  select ev_origin, ev_seqno, "pg_catalog".txid_snapshot_xmin(ev_snapshot) from @NAMESPACE@.sl_event
++	          where (ev_origin, ev_seqno) in (select ev_origin, min(ev_seqno) from @NAMESPACE@.sl_event where ev_type = ''SYNC'' group by ev_origin)
++		loop
++			select 1 from @NAMESPACE@.sl_log_2 where log_origin = v_origin and log_txid < v_xmin limit 1;		
++			if exists then
++				v_purgeable := ''false'';
++			end if;
++	        end loop;
++		if not v_purgeable then
+ 			-- ----
+ 			-- Found a row ... log switch is still in progress.
+ 			-- ----
+ 			raise notice ''Slony-I: log switch to sl_log_1 still in progress - sl_log_2 not truncated'';
+ 			return -1;
+-		end loop;
++		end if;
+ 
+ 		raise notice ''Slony-I: log switch to sl_log_1 complete - truncate sl_log_2'';
+ 		truncate @NAMESPACE@.sl_log_2;
+@@ -5132,18 +5172,28 @@
+ 	-- status = 3: sl_log_2 active, cleanup sl_log_1
+ 	-- ----
+ 	if v_current_status = 3 then
++		v_purgeable := ''true'';
+ 		-- ----
+ 		-- The cleanup thread calls us after it did the delete and
+ 		-- vacuum of both log tables. If sl_log_2 is empty now, we
+ 		-- can truncate it and the log switch is done.
+ 		-- ----
+-		for v_dummy in select 1 from @NAMESPACE@.sl_log_1 loop
++	        for v_origin, v_seqno, v_xmin in
++		  select ev_origin, ev_seqno, "pg_catalog".txid_snapshot_xmin(ev_snapshot) from @NAMESPACE@.sl_event
++	          where (ev_origin, ev_seqno) in (select ev_origin, min(ev_seqno) from @NAMESPACE@.sl_event where ev_type = ''SYNC'' group by ev_origin)
++		loop
++			select 1 from @NAMESPACE@.sl_log_1 where log_origin = v_origin and log_txid < v_xmin limit 1;		
++			if exists then
++				v_purgeable := ''false'';
++			end if;
++	        end loop;
++		if not v_purgeable then
+ 			-- ----
+ 			-- Found a row ... log switch is still in progress.
+ 			-- ----
+ 			raise notice ''Slony-I: log switch to sl_log_2 still in progress - sl_log_1 not truncated'';
+ 			return -1;
+-		end loop;
++		end if;
+ 
+ 		raise notice ''Slony-I: log switch to sl_log_2 complete - truncate sl_log_1'';
+ 		truncate @NAMESPACE@.sl_log_1;
+@@ -5160,7 +5210,13 @@
+ comment on function @NAMESPACE@.logswitch_finish() is
+ 'logswitch_finish()
+ 
+-Attempt to finalize a log table switch in progress';
++Attempt to finalize a log table switch in progress
++return values:
++  -1 if switch in progress, but not complete
++   0 if no switch in progress
++   1 if performed truncate on sl_log_2
++   2 if performed truncate on sl_log_1
++';
+ 
+ 
+ -- ----------------------------------------------------------------------
+Index: src/slon/cleanup_thread.c
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/src/slon/cleanup_thread.c,v
+retrieving revision 1.40
+diff -c -u -r1.40 cleanup_thread.c
+--- src/slon/cleanup_thread.c	19 Oct 2007 18:38:35 -0000	1.40
++++ src/slon/cleanup_thread.c	20 Dec 2007 19:42:14 -0000
+@@ -30,6 +30,9 @@
+  * ----------
+  */
+ int			vac_frequency = SLON_VACUUM_FREQUENCY;
++char *cleanup_interval;
++bool cleanup_deletelogs;
++
+ static int	vac_bias = 0;
+ static unsigned long earliest_xid = 0;
+ static unsigned long get_earliest_xid(PGconn *dbconn);
+@@ -45,17 +48,16 @@
+ cleanupThread_main(/*@unused@*/ void *dummy)
+ {
+ 	SlonConn   *conn;
+-	SlonDString query1;
++	SlonDString query_baseclean;
+ 	SlonDString query2;
+-	SlonDString query3;
++	SlonDString query_pertbl;
+ 
+ 	PGconn	   *dbconn;
+ 	PGresult   *res;
+ 	PGresult   *res2;
+ 	struct timeval tv_start;
+ 	struct timeval tv_end;
+-	int			n,
+-				t;
++	int			t;
+ 	int			vac_count = 0;
+ 	int			vac_enable = SLON_VACUUM_FREQUENCY;
+ 	char	   *vacuum_action;
+@@ -91,8 +93,12 @@
+ 	/*
+ 	 * Build the query string for calling the cleanupEvent() stored procedure
+ 	 */
+-	dstring_init(&query1);
+-	slon_mkquery(&query1, "select %s.cleanupEvent(); ", rtcfg_namespace);
++	dstring_init(&query_baseclean);
++	slon_mkquery(&query_baseclean, "select %s.cleanupEvent('%s'::interval, '%s'::boolean); ", 
++		     rtcfg_namespace, 
++		     cleanup_interval,
++		     cleanup_deletelogs ? "true" : "false"
++		);
+ 	dstring_init(&query2);
+ 
+ 	/*
+@@ -109,12 +115,12 @@
+ 		 * Call the stored procedure cleanupEvent()
+ 		 */
+ 		gettimeofday(&tv_start, NULL);
+-		res = PQexec(dbconn, dstring_data(&query1));
++		res = PQexec(dbconn, dstring_data(&query_baseclean));
+ 		if (PQresultStatus(res) != PGRES_TUPLES_OK)
+ 		{
+ 			slon_log(SLON_FATAL,
+ 					 "cleanupThread: \"%s\" - %s",
+-					 dstring_data(&query1), PQresultErrorMessage(res));
++					 dstring_data(&query_baseclean), PQresultErrorMessage(res));
+ 			PQclear(res);
+ 			slon_retry();
+ 			break;
+@@ -125,87 +131,17 @@
+ 				 "cleanupThread: %8.3f seconds for cleanupEvent()\n",
+ 				 TIMEVAL_DIFF(&tv_start, &tv_end));
+ 
+-		/*
+-		 * Clean up the logs and eventually finish switching logs
+-		 */
+-		gettimeofday(&tv_start, NULL);
+ 		slon_mkquery(&query2,
+-					 "select ev_origin, ev_seqno, "
+-					 "  \"public\".txid_snapshot_xmin(ev_snapshot) "
+-					 "from %s.sl_event "
+-					 "where (ev_origin, ev_seqno) in "
+-					 "    (select ev_origin, min(ev_seqno) "
+-					 "     from %s.sl_event "
+-					 "     where ev_type = 'SYNC' "
+-					 "     group by ev_origin); ",
+-					 rtcfg_namespace, rtcfg_namespace);
+-		res = PQexec(dbconn, dstring_data(&query2));
+-		if (PQresultStatus(res) != PGRES_TUPLES_OK)
+-		{
+-			slon_log(SLON_FATAL,
+-					 "cleanupThread: \"%s\" - %s",
+-					 dstring_data(&query2), PQresultErrorMessage(res));
+-			PQclear(res);
+-			slon_retry();
+-			break;
+-		}
+-		n = PQntuples(res);
+-		for (t = 0; t < n; t++)
++			     "select %s.logswitch_weekly(); ",
++			     rtcfg_namespace);
++		res2 = PQexec(dbconn, dstring_data(&query2));
++		if (PQresultStatus(res2) != PGRES_TUPLES_OK)
+ 		{
+-			slon_mkquery(&query2,
+-						 "delete from %s.sl_log_1 "
+-						 "where log_origin = '%s' "
+-						 "and log_txid < '%s'; "
+-						 "delete from %s.sl_log_2 "
+-						 "where log_origin = '%s' "
+-						 "and log_txid < '%s'; "
+-						 "delete from %s.sl_seqlog "
+-						 "where seql_origin = '%s' "
+-						 "and seql_ev_seqno < '%s'; "
+-						 "select %s.logswitch_finish(); ",
+-						 rtcfg_namespace, PQgetvalue(res, t, 0),
+-						 PQgetvalue(res, t, 2),
+-						 rtcfg_namespace, PQgetvalue(res, t, 0),
+-						 PQgetvalue(res, t, 2),
+-						 rtcfg_namespace, PQgetvalue(res, t, 0),
+-						 PQgetvalue(res, t, 1),
+-						 rtcfg_namespace);
+-			res2 = PQexec(dbconn, dstring_data(&query2));
+-			if (PQresultStatus(res2) != PGRES_TUPLES_OK)
+-			{
+-				slon_log(SLON_FATAL,
+-						 "cleanupThread: \"%s\" - %s",
+-						 dstring_data(&query2), PQresultErrorMessage(res2));
+-				PQclear(res);
+-				PQclear(res2);
+-				slon_retry();
+-				break;
+-			}
+-			PQclear(res2);
+-
+-			/*
+-			 * Eventually kick off a logswitch. This might fail,
+-			 * but this is not really slon's problem, so we just
+-			 * shrug and move on if it does.
+-			 */
+-			slon_mkquery(&query2,
+-						 "select %s.logswitch_weekly(); ",
+-						 rtcfg_namespace);
+-			res2 = PQexec(dbconn, dstring_data(&query2));
+-			if (PQresultStatus(res2) != PGRES_TUPLES_OK)
+-			{
+-				slon_log(SLON_WARN,
+-						 "cleanupThread: \"%s\" - %s",
+-						 dstring_data(&query2), PQresultErrorMessage(res2));
+-			}
+-			PQclear(res2);
++			slon_log(SLON_WARN,
++				 "cleanupThread: \"%s\" - %s",
++				 dstring_data(&query2), PQresultErrorMessage(res2));
+ 		}
+-		PQclear(res);
+-		gettimeofday(&tv_end, NULL);
+-		slon_log(SLON_INFO,
+-				 "cleanupThread: %8.3f seconds for delete logs\n",
+-				 TIMEVAL_DIFF(&tv_start, &tv_end));
+-
++		PQclear(res2);
+ 		/*
+ 		 * Detain the usual suspects (vacuum event and log data)
+ 		 */
+@@ -266,21 +202,21 @@
+ 
+ 				slon_log (SLON_DEBUG1, "cleanupThread: %s analyze \"%s\".%s;\n",
+ 					      vacuum_action, tab_nspname, tab_relname);
+-				dstring_init(&query3);
+-				slon_mkquery (&query3, "%s analyze \"%s\".%s;",
++				dstring_init(&query_pertbl);
++				slon_mkquery (&query_pertbl, "%s analyze \"%s\".%s;",
+ 					      vacuum_action, tab_nspname, tab_relname);
+-				res2 = PQexec(dbconn, dstring_data(&query3));
++				res2 = PQexec(dbconn, dstring_data(&query_pertbl));
+ 				if (PQresultStatus(res) != PGRES_COMMAND_OK)  /* query error */
+                                 {
+                  	                slon_log(SLON_ERROR,
+ 	                                        "cleanupThread: \"%s\" - %s",
+-                                                dstring_data(&query3), PQresultErrorMessage(res2));
++                                                dstring_data(&query_pertbl), PQresultErrorMessage(res2));
+                                                 /*
+                                                  * slon_retry(); break;
+                                                  */                  
+                                 }
+ 				PQclear(res2);
+-				dstring_reset(&query3);
++				dstring_reset(&query_pertbl);
+ 			}
+ 			gettimeofday(&tv_end, NULL);
+ 			slon_log(SLON_INFO,
+@@ -290,7 +226,7 @@
+ 			/*
+ 			 * Free Resources
+ 			 */
+-			dstring_free(&query3);
++			dstring_free(&query_pertbl);
+ 
+ 		}
+ 	}
+@@ -298,7 +234,7 @@
+ 	/*
+ 	 * Free Resources
+ 	 */
+-	dstring_free(&query1);
++	dstring_free(&query_baseclean);
+ 	dstring_free(&query2);
+ 
+ 	/*
+@@ -330,11 +266,11 @@
+ {
+ 	long long	xid;
+ 	PGresult   *res;
+-	SlonDString query1;
++	SlonDString query;
+ 
+-	dstring_init(&query1);
+-	(void) slon_mkquery(&query1, "select %s.getMinXid();", rtcfg_namespace);
+-	res = PQexec(dbconn, dstring_data(&query1));
++	dstring_init(&query);
++	(void) slon_mkquery(&query, "select %s.getMinXid();", rtcfg_namespace);
++	res = PQexec(dbconn, dstring_data(&query));
+ 	if (PQresultStatus(res) != PGRES_TUPLES_OK)
+ 	{
+ 		slon_log(SLON_FATAL, "cleanupThread: could not getMinXid()!\n");
+@@ -345,7 +281,7 @@
+ 	xid = strtoll(PQgetvalue(res, 0, 0), NULL, 10);
+ 	slon_log(SLON_DEBUG1, "cleanupThread: minxid: %d\n", xid);
+ 	PQclear(res);
+-	dstring_free(&query1);
++	dstring_free(&query);
+ 	return (unsigned long)xid;
+ }
+ 
+Index: src/slon/confoptions.c
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/src/slon/confoptions.c,v
+retrieving revision 1.25
+diff -c -u -r1.25 confoptions.c
+--- src/slon/confoptions.c	30 Jul 2007 22:34:33 -0000	1.25
++++ src/slon/confoptions.c	20 Dec 2007 19:42:14 -0000
+@@ -720,6 +720,17 @@
+ 		true
+ 	},
+ 
++	{
++		{
++			(const char *)"cleanup_deletelogs",
++			gettext_noop("Should the cleanup thread DELETE sl_log_? entries or not"),
++			gettext_noop("Should the cleanup thread DELETE sl_log_? entries or not"),
++			SLON_C_BOOL
++		},
++		&cleanup_deletelogs,
++		false
++	},
++
+ 	{{0}}
+ };
+ 
+@@ -859,6 +870,18 @@
+ 		"slon"
+ 	},
+ #endif
++	{
++		{
++			(const char *)"cleanup_interval",
++			gettext_noop("A PostgreSQL value compatible with ::interval "
++						 "which indicates what aging interval should be used "
++						 "for deleting old events, and hence for purging sl_log_* tables."),
++			NULL,
++			SLON_C_STRING
++		},
++		&cleanup_interval,
++		"10 minutes"
++	},
+ 	{{0}}
+ };
+ 
+Index: src/slon/confoptions.h
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/src/slon/confoptions.h,v
+retrieving revision 1.35
+diff -c -u -r1.35 confoptions.h
+--- src/slon/confoptions.h	20 Apr 2007 20:53:18 -0000	1.35
++++ src/slon/confoptions.h	20 Dec 2007 19:42:14 -0000
+@@ -13,7 +13,6 @@
+ extern char *pid_file;
+ extern char *archive_dir;
+ 
+-extern int	vac_frequency;
+ extern int	slon_log_level;
+ extern int	sync_interval;
+ extern int	sync_interval_timeout;
+@@ -27,6 +26,16 @@
+ extern int	quit_sync_provider;
+ extern int	quit_sync_finalsync;
+ 
++/*
++ * ----------
++ * Global variables in cleanup_thread.c
++ * ----------
++ */
++
++extern int	vac_frequency;
++extern char *cleanup_interval;
++extern bool cleanup_deletelogs;
++
+ char	   *Syslog_ident;
+ char	   *Syslog_facility;
+ int			Use_syslog;
+Index: src/slon/slon.h
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/src/slon/slon.h,v
+retrieving revision 1.65
+diff -c -u -r1.65 slon.h
+--- src/slon/slon.h	19 Oct 2007 18:38:35 -0000	1.65
++++ src/slon/slon.h	20 Dec 2007 19:42:14 -0000
+@@ -472,6 +472,8 @@
+  */
+ 
+ extern int	vac_frequency;
++extern char *cleanup_interval;
++extern bool cleanup_deletelogs;
+ 
+ /* ----------
+  * Functions in cleanup_thread.c
+Index: tests/test1/README
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/tests/test1/README,v
+retrieving revision 1.11
+diff -c -u -r1.11 README
+--- tests/test1/README	11 Dec 2007 20:37:39 -0000	1.11
++++ tests/test1/README	20 Dec 2007 19:42:14 -0000
+@@ -29,3 +29,5 @@
+ 
+ 8.  It uses a slon.conf file for node #2 to make sure that the logic
+ of the config file parser gets exercised.
++
++9.  It runs the cleanupEvent() function by hand
+Index: tests/test1/generate_dml.sh
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/tests/test1/generate_dml.sh,v
+retrieving revision 1.15
+diff -c -u -r1.15 generate_dml.sh
+--- tests/test1/generate_dml.sh	11 Dec 2007 20:37:39 -0000	1.15
++++ tests/test1/generate_dml.sh	20 Dec 2007 19:42:14 -0000
+@@ -83,5 +83,14 @@
+       warn 3 "generate_sync_event() failed - rc=${rc} see $mktmp/gensync.log* for details"
+   fi
+   status "completed generate_sync_event() test"
++
++  pint="1 second"
++  dellogs="true"
++  $pgbindir/psql -h $host -p $port -d $db -U $user -c "select \"_${CLUSTER1}\".cleanupEvent('${pint}'::interval,'${dellogs}'::boolean);" 1> $mktmp/gensync.log.1 2> $mktmp/gensync.log
++  rc=$?
++  if [ $rc -ne 0 ]; then
++      warn 3 "cleanupEvent() failed - rc=${rc} see $mktmp/gensync.log* for details"
++  fi
++  status "completed generate_sync_event(${pint},${dellogs}) test"
+   status "done"
+ }
+
+-- 
+let name="cbbrowne" and tld="ca.afilias.info" in String.concat "@" [name;tld];;
+<http://dba2.int.libertyrms.com/>
+Christopher Browne
+(416) 673-4124 (land)
+From devrim at CommandPrompt.com  Tue Dec 25 00:28:19 2007
+From: devrim at CommandPrompt.com (Devrim =?ISO-8859-1?Q?G=DCND=DCZ?=)
+Date: Tue Dec 25 00:32:30 2007
+Subject: [Slony1-hackers] Slony-I 1.2.12 compile error on CentOS 4.6
+Message-ID: <1198571299.3591.73.camel@localhost.localdomain>
+
+SGksCgpJJ20gZ2V0dGluZyB0aGlzIG9uIENlbnRPUyA0LjYgKGdjYyAzLjQuNikgLCB3aGlsZSBj
+b21waWxpbmcgU2xvbnktSSAxLjIuMTIgYWdhaW5zdCBQb3N0Z3JlU1FMIDguMyBiZXRhNDoKCj09
+PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09
+PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09CmdjYyAtZyAtTzIgLVdhbGwgLVdt
+aXNzaW5nLXByb3RvdHlwZXMgLVdtaXNzaW5nLWRlY2xhcmF0aW9ucyAtSS4uLy4uIC1EUEdTSEFS
+RT0iXCIvdXNyL2xvY2FsL3Bnc3FsODMvc2hhcmUvXCIiICBzbG9uaWsubyBkYnV0aWwubyBwYXJz
+ZXIubyAgLi4vcGFyc2VzdGF0ZW1lbnRzL3NjYW5uZXIubyAtTC91c3IvbG9jYWwvcGdzcWw4My9s
+aWIvIC1ML3Vzci9sb2NhbC9wZ3NxbDgzL2xpYi8gLWxwcSAgLVdsLC1ycGF0aCwvdXNyL2xvY2Fs
+L3Bnc3FsODMvbGliLyAtbyBzbG9uaWsKbWFrZVsyXTogTGVhdmluZyBkaXJlY3RvcnkgYC91c3Iv
+bG9jYWwvc3JjL3Nsb255MS0xLjIuMTIvc3JjL3Nsb25paycKbWFrZVsyXTogRW50ZXJpbmcgZGly
+ZWN0b3J5IGAvdXNyL2xvY2FsL3NyYy9zbG9ueTEtMS4yLjEyL3NyYy9iYWNrZW5kJwpnY2MgLWcg
+LU8yIC1XYWxsIC1XbWlzc2luZy1wcm90b3R5cGVzIC1XbWlzc2luZy1kZWNsYXJhdGlvbnMgLUku
+Li8uLiAtZnBpYyAtSS91c3IvbG9jYWwvcGdzcWw4My9pbmNsdWRlLyAtSS91c3IvbG9jYWwvcGdz
+cWw4My9pbmNsdWRlL3NlcnZlci8gIC1jIC1vIHNsb255MV9mdW5jcy5vIHNsb255MV9mdW5jcy5j
+CnNsb255MV9mdW5jcy5jOiBJbiBmdW5jdGlvbiBgZ2V0Q2x1c3RlclN0YXR1cyc6CnNsb255MV9m
+dW5jcy5jOjEzNTc6IHdhcm5pbmc6IHBhc3NpbmcgYXJnIDEgb2YgYHR5cGVuYW1lVHlwZUlkJyBm
+cm9tIGluY29tcGF0aWJsZSBwb2ludGVyIHR5cGUKc2xvbnkxX2Z1bmNzLmM6MTM1NzogZXJyb3I6
+IHRvbyBmZXcgYXJndW1lbnRzIHRvIGZ1bmN0aW9uIGB0eXBlbmFtZVR5cGVJZCcKc2xvbnkxX2Z1
+bmNzLmM6MTQ0MDogd2FybmluZzogcGFzc2luZyBhcmcgMSBvZiBgdHlwZW5hbWVUeXBlSWQnIGZy
+b20gaW5jb21wYXRpYmxlIHBvaW50ZXIgdHlwZQpzbG9ueTFfZnVuY3MuYzoxNDQwOiBlcnJvcjog
+dG9vIGZldyBhcmd1bWVudHMgdG8gZnVuY3Rpb24gYHR5cGVuYW1lVHlwZUlkJwptYWtlWzJdOiAq
+KiogW3Nsb255MV9mdW5jcy5vXSBFcnJvciAxCm1ha2VbMl06IExlYXZpbmcgZGlyZWN0b3J5IGAv
+dXNyL2xvY2FsL3NyYy9zbG9ueTEtMS4yLjEyL3NyYy9iYWNrZW5kJwptYWtlWzFdOiAqKiogW2Fs
+bF0gRXJyb3IgMgptYWtlWzFdOiBMZWF2aW5nIGRpcmVjdG9yeSBgL3Vzci9sb2NhbC9zcmMvc2xv
+bnkxLTEuMi4xMi9zcmMnCm1ha2U6ICoqKiBbYWxsXSBFcnJvciAyCj09PT09PT09PT09PT09PT09
+PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09
+PT09PT09PT09PT09PT09PT09PT09CgpBbnkgdGhvdWdodHM/CgpSZWdhcmRzLAotLSAKRGV2cmlt
+IEfDnE5Ew5xaICwgUkhDRQpQb3N0Z3JlU1FMIFJlcGxpY2F0aW9uLCBDb25zdWx0aW5nLCBDdXN0
+b20gRGV2ZWxvcG1lbnQsIDI0eDcgc3VwcG9ydApNYW5hZ2VkIFNlcnZpY2VzLCBTaGFyZWQgYW5k
+IERlZGljYXRlZCBIb3N0aW5nCkNvLUF1dGhvcnM6IHBsUEhQLCBPREJDbmcgLSBodHRwOi8vd3d3
+LmNvbW1hbmRwcm9tcHQuY29tLwotLS0tLS0tLS0tLS0tLSBuZXh0IHBhcnQgLS0tLS0tLS0tLS0t
+LS0KQSBub24tdGV4dCBhdHRhY2htZW50IHdhcyBzY3J1YmJlZC4uLgpOYW1lOiBub3QgYXZhaWxh
+YmxlClR5cGU6IGFwcGxpY2F0aW9uL3BncC1zaWduYXR1cmUKU2l6ZTogMTg5IGJ5dGVzCkRlc2M6
+IFRoaXMgaXMgYSBkaWdpdGFsbHkgc2lnbmVkIG1lc3NhZ2UgcGFydApVcmwgOiBodHRwOi8vbGlz
+dHMuc2xvbnkuaW5mby9waXBlcm1haWwvc2xvbnkxLWhhY2tlcnMvYXR0YWNobWVudHMvMjAwNzEy
+MjUvNzQ0ZDE3NmUvYXR0YWNobWVudC5wZ3AK
+From devrim at CommandPrompt.com  Tue Dec 25 00:47:48 2007
+From: devrim at CommandPrompt.com (Devrim =?ISO-8859-1?Q?G=DCND=DCZ?=)
+Date: Tue Dec 25 00:52:00 2007
+Subject: [Slony1-hackers] Slony-I 1.2.12 compile error on CentOS 4.6
+In-Reply-To: <1198571299.3591.73.camel@localhost.localdomain>
+References: <1198571299.3591.73.camel@localhost.localdomain>
+Message-ID: <1198572468.3591.76.camel@localhost.localdomain>
+
+SGksCgpPbiBUdWUsIDIwMDctMTItMjUgYXQgMDA6MjggLTA4MDAsIERldnJpbSBHw5xORMOcWiB3
+cm90ZToKPiBJJ20gZ2V0dGluZyB0aGlzIG9uIENlbnRPUyA0LjYgKGdjYyAzLjQuNikgLCB3aGls
+ZSBjb21waWxpbmcgU2xvbnktSQo+IDEuMi4xMiBhZ2FpbnN0IFBvc3RncmVTUUwgOC4zIGJldGE0
+OgoKQWhoLCBuZXZlcm1pbmQuIEZvdW5kIENocmlzJyByZXBseSBmb3IgdGhlIHNhbWUgcXVlc3Rp
+b24gLS0gQ1ZTIHRpcApjb21waWxlcyBmaW5lLgoKUmVnYXJkcywKLS0gCkRldnJpbSBHw5xORMOc
+WiAsIFJIQ0UKUG9zdGdyZVNRTCBSZXBsaWNhdGlvbiwgQ29uc3VsdGluZywgQ3VzdG9tIERldmVs
+b3BtZW50LCAyNHg3IHN1cHBvcnQKTWFuYWdlZCBTZXJ2aWNlcywgU2hhcmVkIGFuZCBEZWRpY2F0
+ZWQgSG9zdGluZwpDby1BdXRob3JzOiBwbFBIUCwgT0RCQ25nIC0gaHR0cDovL3d3dy5jb21tYW5k
+cHJvbXB0LmNvbS8KLS0tLS0tLS0tLS0tLS0gbmV4dCBwYXJ0IC0tLS0tLS0tLS0tLS0tCkEgbm9u
+LXRleHQgYXR0YWNobWVudCB3YXMgc2NydWJiZWQuLi4KTmFtZTogbm90IGF2YWlsYWJsZQpUeXBl
+OiBhcHBsaWNhdGlvbi9wZ3Atc2lnbmF0dXJlClNpemU6IDE4OSBieXRlcwpEZXNjOiBUaGlzIGlz
+IGEgZGlnaXRhbGx5IHNpZ25lZCBtZXNzYWdlIHBhcnQKVXJsIDogaHR0cDovL2xpc3RzLnNsb255
+LmluZm8vcGlwZXJtYWlsL3Nsb255MS1oYWNrZXJzL2F0dGFjaG1lbnRzLzIwMDcxMjI1L2I4MGVh
+NzdiL2F0dGFjaG1lbnQucGdwCg==
+From petere at postgresql.org  Mon Dec  3 03:53:45 2007
+From: petere at postgresql.org (Peter Eisentraut)
+Date: Thu Sep 25 08:30:52 2008
+Subject: [Slony1-hackers] Broken builds with make install DESTDIR
+In-Reply-To: <60ve7l81mv.fsf@dba2.int.libertyrms.com>
+References: <CD28FF50E73C3E073F402908@imhotep.credativ.de>
+	<60ve7l81mv.fsf@dba2.int.libertyrms.com>
+Message-ID: <200712031253.31571.petere@postgresql.org>
+
+Am Donnerstag, 29. November 2007 schrieb Christopher Browne:
+> Bernd Helmle <mailings@oopsware.de> writes:
+> > There are some minor issues open, but i would like to hear opinions
+> > before continuing to prepare a general patch to make that work. It
+> > would be useful, since building PostgreSQL works quite well that way
+> > and i think it's a common task to build RPMs as well.
+>
+> I have added this to Bugzilla...
+>
+> http://bugs.slony.info/bugzilla/show_bug.cgi?id=17
+
+Building a package A against a package B that is not properly installed is 
+obviously not expected to work.  Installing package B with DESTDIR set counts 
+as "not properly installed".[*]  So I don't really see the issue here.  Now 
+since Bernd has supposedly taken the patches from my Debian package, there is 
+probably something else going on, but the description in the bug doesn't 
+convey that.
+
+[*] -- If you are not following: The proper way to do that would be to install 
+package B with DESTDIR, wrap it up into some sort of package (rpm, deb, tgz, 
+etc.) from there, then install that package into the real location, then 
+build package A.
+
+On third thought, since a PostgreSQL installation is supposed to be 
+relocatable (cf. Windows), this should actually work, but I would ask Bernd 
+to post a more complete bug report.

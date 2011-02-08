@@ -1,0 +1,3105 @@
+From msteben at autorevenue.com  Wed Dec  1 06:33:03 2010
+From: msteben at autorevenue.com (Mark Steben)
+Date: Wed, 1 Dec 2010 09:33:03 -0500
+Subject: [Slony1-general] server crash on slave: slon-start to do catch-up
+	VS re-subscribe
+Message-ID: <20101201143311.460AC2901C0@main.slony.info>
+
+Hi ? we are running postgres 8.3.11 and two weeks ago started slony 2.0.5 on
+a VM slave, and a standalone
+Master.  The database approaches 200 GB in size and the subscription process
+took about 16 hours
+Success!  Unforturately the NEXT day the underlying server on the vm slave
+experienced a 
+Hardware memory crash and we lost connectivity. 
+
+We now have the hardware crash resolved and wish 
+to restart slony this weekend. 
+I have verified that there have been no schema changes.
+ Should I:
+  1. issue a ./slon_start and allow slony to catch-up two weeks worth of 
+     updates
+        Or
+  2. Punt, start from scratch, redefine everything and rerun the 16 hour
+     subscription process?
+
+Master config:
+
+Linux ar-db-psql-1desq 2.6.18-194.11.3.el5 #1 SMP Mon Aug 30 16:19:16 EDT
+2010 x86_64 x86_64 x86_64 GNU/Linux
+
+Slave config:
+
+Linux ar-db3-phys 2.6.18-194.26.1.el5 #1 SMP Tue Nov 9 12:54:20 EST 2010
+x86_64 x86_64 x86_64 GNU/Linux
+
+Thank you,
+
+   
+Mark Steben?|?Database Administrator?
+@utoRevenue? - "Keeping Customers Close"?
+95D Ashley Ave, West Springfield, MA 01089 
+413.243.4800 x1512 (Phone) |413.732-1824 (Fax) 
+@utoRevenue is a registered trademark and a division of Dominion
+Enterprises?
+?
+
+
+
+
+From vivek at khera.org  Wed Dec  1 06:52:24 2010
+From: vivek at khera.org (Vick Khera)
+Date: Wed, 1 Dec 2010 09:52:24 -0500
+Subject: [Slony1-general] server crash on slave: slon-start to do
+ catch-up VS re-subscribe
+In-Reply-To: <20101201143311.460AC2901C0@main.slony.info>
+References: <20101201143311.460AC2901C0@main.slony.info>
+Message-ID: <AANLkTikhQibd8R9zrbfY5VU2t2VF7NmtfSPfAc1Wytis@mail.gmail.com>
+
+On Wed, Dec 1, 2010 at 9:33 AM, Mark Steben <msteben at autorevenue.com> wrote:
+> ?Should I:
+> ?1. issue a ./slon_start and allow slony to catch-up two weeks worth of
+> ? ? updates
+> ? ? ? ?Or
+> ?2. Punt, start from scratch, redefine everything and rerun the 16 hour
+> ? ? subscription process?
+>
+
+It all depends on the rate of change in your database. Do you do a lot
+of insert/update/deletes to the DB?  Take a look at the number of rows
+in the sl_log_1 and sl_log_2 tables in your replication schema on the
+master.  If the number is very very high, say in the tens or hundreds
+of milliions, then perhaps restarting from scratch may be helpful.  If
+it is in the low tens of millions, I'd venture to day you could
+recover by just restarting slony.  One optimization may be to drop all
+indexes (except the PK index) on the replica until it is caught up.
+This will reduce the I/O it needs to apply the changes.
+
+From P.Tecza at icm.edu.pl  Wed Dec  1 07:27:25 2010
+From: P.Tecza at icm.edu.pl (=?UTF-8?Q?Pawe=C5=82_T=C4=99cza?=)
+Date: Wed, 01 Dec 2010 16:27:25 +0100
+Subject: [Slony1-general] Purging Slony
+Message-ID: <1291217245.6988.34.camel@localhost>
+
+Hello There,
+
+What is an official way for purging Slony
+schema/columns/functions/whatever from a database?
+
+Can I use slonik_* scripts for that task? What script order should be?
+slonik_unsubscribe_set, slonik_drop_set, slonik_uninstall_nodes, drop
+schema _replication?
+
+My best regards,
+Pawel Tecza
+
+
+
+From vivek at khera.org  Wed Dec  1 07:30:02 2010
+From: vivek at khera.org (Vick Khera)
+Date: Wed, 1 Dec 2010 10:30:02 -0500
+Subject: [Slony1-general] Purging Slony
+In-Reply-To: <1291217245.6988.34.camel@localhost>
+References: <1291217245.6988.34.camel@localhost>
+Message-ID: <AANLkTikLJP2op_VN5+iPbKzLo0aKZoKS25bTLKOwU+Q4@mail.gmail.com>
+
+you want to use the uninstall node slonik function.  i usually do drop
+node for the replicas first.  not sure if that is necessary unless you
+want o preserve those nodes.
+
+From devrim at gunduz.org  Wed Dec  1 07:30:49 2010
+From: devrim at gunduz.org (Devrim =?ISO-8859-1?Q?G=DCND=DCZ?=)
+Date: Wed, 01 Dec 2010 17:30:49 +0200
+Subject: [Slony1-general] Purging Slony
+In-Reply-To: <1291217245.6988.34.camel@localhost>
+References: <1291217245.6988.34.camel@localhost>
+Message-ID: <1291217449.3257.6.camel@hp-laptop02.gunduz.org>
+
+On Wed, 2010-12-01 at 16:27 +0100, Pawe? T?cza wrote:
+> 
+> What is an official way for purging Slony
+> schema/columns/functions/whatever from a database?
+> 
+> Can I use slonik_* scripts for that task? What script order should be?
+> slonik_unsubscribe_set, slonik_drop_set, slonik_uninstall_nodes, drop
+> schema _replication? 
+
+After killing slons, slonik_uninstall_nodes should be sufficient.
+-- 
+Devrim G?ND?Z
+PostgreSQL Dan??man?/Consultant, Red Hat Certified Engineer
+PostgreSQL RPM Repository: http://yum.pgrpms.org
+Community: devrim~PostgreSQL.org, devrim.gunduz~linux.org.tr
+http://www.gunduz.org  Twitter: http://twitter.com/devrimgunduz
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: not available
+Type: application/pgp-signature
+Size: 198 bytes
+Desc: This is a digitally signed message part
+Url : http://lists.slony.info/pipermail/slony1-general/attachments/20101201/4eebba84/attachment.pgp 
+
+From P.Tecza at icm.edu.pl  Wed Dec  1 08:03:18 2010
+From: P.Tecza at icm.edu.pl (=?UTF-8?Q?Pawe=C5=82_T=C4=99cza?=)
+Date: Wed, 01 Dec 2010 17:03:18 +0100
+Subject: [Slony1-general] Purging Slony
+In-Reply-To: <1291217449.3257.6.camel@hp-laptop02.gunduz.org>
+References: <1291217245.6988.34.camel@localhost>
+	<1291217449.3257.6.camel@hp-laptop02.gunduz.org>
+Message-ID: <1291219398.6988.61.camel@localhost>
+
+Dnia 2010-12-01, ?ro o godzinie 17:30 +0200, Devrim G?ND?Z pisze: 
+> On Wed, 2010-12-01 at 16:27 +0100, Pawe? T?cza wrote:
+> > 
+> > What is an official way for purging Slony
+> > schema/columns/functions/whatever from a database?
+> > 
+> > Can I use slonik_* scripts for that task? What script order should be?
+> > slonik_unsubscribe_set, slonik_drop_set, slonik_uninstall_nodes, drop
+> > schema _replication? 
+> 
+> After killing slons, slonik_uninstall_nodes should be sufficient.
+
+Vick and Devrim,
+
+Thanks a lot for your rapid reply! :D
+
+Before sending my post here I was trying to purge Slony in a following
+way:
+
+myDB=# drop schema _replication cascade;
+NOTICE:  drop cascades to 274 other objects
+DETAIL:  drop cascades to type _replication.xxid
+[...]
+drop cascades to function _replication.denyaccess()
+drop cascades to function _replication.lockedset()
+and 174 other objects (see server log for list)
+DROP SCHEMA
+
+# slonik_unsubscribe_set 1 10 |slonik
+<stdin>:13: unsubscribed node 10 from set 1
+
+# slonik_drop_set set1 |slonik
+<stdin>:6: PGRES_FATAL_ERROR select "_replication".dropSet(1);  - ERROR:
+schema "_replication" does not exist
+
+# slonik_uninstall_nodes
+cluster name = replication;
+node 1 admin conninfo='host=hostM dbname=myDB user=slony port=5432
+password=secret';
+node 10 admin conninfo='host=hostS dbname=myDB user=slony port=5432
+password=secret;
+  uninstall node (id=10);
+  uninstall node (id=2);
+
+slonik_* scripts removed a lot of Slony stuff, but they didn't drop only
+one column called "_Slony-I_replication_rowID" from tables of my
+database. Finally I dropped them by hand (alter table ... drop
+column ...).
+
+Probably it was my fault that I dropped the schema before dropping set
+"set1".
+
+Regards,
+Pawel
+
+
+
+From JanWieck at Yahoo.com  Wed Dec  1 10:13:15 2010
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Wed, 01 Dec 2010 13:13:15 -0500
+Subject: [Slony1-general] Purging Slony
+In-Reply-To: <1291219398.6988.61.camel@localhost>
+References: <1291217245.6988.34.camel@localhost>	<1291217449.3257.6.camel@hp-laptop02.gunduz.org>
+	<1291219398.6988.61.camel@localhost>
+Message-ID: <4CF6903B.3000506@Yahoo.com>
+
+On 12/1/2010 11:03 AM, Pawe? T?cza wrote:
+> Dnia 2010-12-01, ?ro o godzinie 17:30 +0200, Devrim G?ND?Z pisze:
+>>  On Wed, 2010-12-01 at 16:27 +0100, Pawe? T?cza wrote:
+>>  >
+>>  >  What is an official way for purging Slony
+>>  >  schema/columns/functions/whatever from a database?
+>>  >
+>>  >  Can I use slonik_* scripts for that task? What script order should be?
+>>  >  slonik_unsubscribe_set, slonik_drop_set, slonik_uninstall_nodes, drop
+>>  >  schema _replication?
+>>
+>>  After killing slons, slonik_uninstall_nodes should be sufficient.
+>
+> Vick and Devrim,
+>
+> Thanks a lot for your rapid reply! :D
+>
+> Before sending my post here I was trying to purge Slony in a following
+> way:
+>
+> myDB=# drop schema _replication cascade;
+> NOTICE:  drop cascades to 274 other objects
+> DETAIL:  drop cascades to type _replication.xxid
+> [...]
+> drop cascades to function _replication.denyaccess()
+> drop cascades to function _replication.lockedset()
+> and 174 other objects (see server log for list)
+> DROP SCHEMA
+>
+> # slonik_unsubscribe_set 1 10 |slonik
+> <stdin>:13: unsubscribed node 10 from set 1
+>
+> # slonik_drop_set set1 |slonik
+> <stdin>:6: PGRES_FATAL_ERROR select "_replication".dropSet(1);  - ERROR:
+> schema "_replication" does not exist
+>
+> # slonik_uninstall_nodes
+> cluster name = replication;
+> node 1 admin conninfo='host=hostM dbname=myDB user=slony port=5432
+> password=secret';
+> node 10 admin conninfo='host=hostS dbname=myDB user=slony port=5432
+> password=secret;
+>    uninstall node (id=10);
+>    uninstall node (id=2);
+>
+> slonik_* scripts removed a lot of Slony stuff, but they didn't drop only
+> one column called "_Slony-I_replication_rowID" from tables of my
+> database. Finally I dropped them by hand (alter table ... drop
+> column ...).
+>
+> Probably it was my fault that I dropped the schema before dropping set
+> "set1".
+
+That was definitely a mistake. Never do that unless you are on Slony 2.0.x.
+
+For subscribers under version < 2.0 there is the possibility to be left 
+with a corrupted system catalog that is rather tricky (and risky) to 
+recover from. This will be the case if your schema has any user defined 
+triggers or foreign keys.
+
+The master database should be fine regardless.
+
+
+
+
+-- 
+Anyone who trades liberty for security deserves neither
+liberty nor security. -- Benjamin Franklin
+
+From cbbrowne at ca.afilias.info  Wed Dec  1 10:42:02 2010
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Wed, 01 Dec 2010 13:42:02 -0500
+Subject: [Slony1-general] server crash on slave: slon-start to do
+	catch-up VS re-subscribe
+In-Reply-To: <AANLkTikhQibd8R9zrbfY5VU2t2VF7NmtfSPfAc1Wytis@mail.gmail.com>
+	(Vick Khera's message of "Wed, 1 Dec 2010 09:52:24 -0500")
+References: <20101201143311.460AC2901C0@main.slony.info>
+	<AANLkTikhQibd8R9zrbfY5VU2t2VF7NmtfSPfAc1Wytis@mail.gmail.com>
+Message-ID: <87sjyh8hdx.fsf@cbbrowne.afilias-int.info>
+
+Vick Khera <vivek at khera.org> writes:
+> On Wed, Dec 1, 2010 at 9:33 AM, Mark Steben <msteben at autorevenue.com> wrote:
+>> ?Should I:
+>> ?1. issue a ./slon_start and allow slony to catch-up two weeks worth of
+>> ? ? updates
+>> ? ? ? ?Or
+>> ?2. Punt, start from scratch, redefine everything and rerun the 16 hour
+>> ? ? subscription process?
+>
+> It all depends on the rate of change in your database. Do you do a lot
+> of insert/update/deletes to the DB?  Take a look at the number of rows
+> in the sl_log_1 and sl_log_2 tables in your replication schema on the
+> master.  If the number is very very high, say in the tens or hundreds
+> of milliions, then perhaps restarting from scratch may be helpful.  If
+> it is in the low tens of millions, I'd venture to day you could
+> recover by just restarting slony.  One optimization may be to drop all
+> indexes (except the PK index) on the replica until it is caught up.
+> This will reduce the I/O it needs to apply the changes.
+
+It's uncertain what the bottleneck will be; that may well depend on
+local characteristics, such that it may be a mistaken assumption to
+assume that saving on index writes is material.
+
+I think something would be learned by simply letting Slony catch up.
+There are some interesting open questions as to the pathologies when
+there's truly a lot of data in sl_log_1/2.
+
+I don't imagine it would take too terribly long to figure out if things
+are catching up, between:
+
+  a) Watching the sl_status view to verify that the lag times are
+     falling, and
+
+  b) Grepping the subscriber's logs for the following log lines:
+
+  slon_log(SLON_DEBUG1, "remoteHelperThread_%d_%d: inserts=%d updates=%d deletes=%d truncates=%d\n",
+				 node->no_id, provider->no_id,
+				 pm.num_inserts, pm.num_updates,
+				 pm.num_deletes, pm.num_truncates);
+
+  slon_log(SLON_INFO, "remoteWorkerThread_%d: SYNC "
+			 INT64_FORMAT " done in %.3f seconds\n",
+			 node->no_id, event->ev_seqno,
+			 TIMEVAL_DIFF(&tv_start, &tv_now));
+
+If, after a few hours, things aren't catching up, it should be easy
+enough to drop and resubscribe.
+
+Something we want to do (and Jan has on his todo list) is to see what
+pathologies fall out for the query that pulls sl_log_* data.  That'll
+involve adding some extra logging, such as submitting an "EXPLAIN"
+against the relevant query to see how pricey it appears to be.
+-- 
+"cbbrowne","@","afilias.info"
+Christopher Browne
+"Bother,"  said Pooh,  "Eeyore, ready  two photon  torpedoes  and lock
+phasers on the Heffalump, Piglet, meet me in transporter room three"
+
+From P.Tecza at icm.edu.pl  Wed Dec  1 14:32:50 2010
+From: P.Tecza at icm.edu.pl (=?UTF-8?Q?Pawe=C5=82_T=C4=99cza?=)
+Date: Wed, 01 Dec 2010 23:32:50 +0100
+Subject: [Slony1-general] Purging Slony
+In-Reply-To: <4CF6903B.3000506@Yahoo.com>
+References: <1291217245.6988.34.camel@localhost>
+	<1291217449.3257.6.camel@hp-laptop02.gunduz.org>
+	<1291219398.6988.61.camel@localhost>  <4CF6903B.3000506@Yahoo.com>
+Message-ID: <1291242770.2491.13.camel@localhost>
+
+Dnia 2010-12-01, ?ro o godzinie 13:13 -0500, Jan Wieck pisze: 
+> On 12/1/2010 11:03 AM, Pawe? T?cza wrote:
+
+> > Probably it was my fault that I dropped the schema before dropping set
+> > "set1".
+> 
+> That was definitely a mistake. Never do that unless you are on Slony 2.0.x.
+> 
+> For subscribers under version < 2.0 there is the possibility to be left 
+> with a corrupted system catalog that is rather tricky (and risky) to 
+> recover from. This will be the case if your schema has any user defined 
+> triggers or foreign keys.
+> 
+> The master database should be fine regardless.
+
+Hello Jan,
+
+Thanks for your comment!
+
+I use Slony 1.2.20 under Ubuntu 10.04 LTS. Next time I'll try to use
+only slonik_uninstall_nodes script, according to the advice of Vick and
+Devrim :)
+
+Best regards,
+Pawel
+
+
+
+From matthias at aic.at  Thu Dec  2 06:15:21 2010
+From: matthias at aic.at (Matthias Leopold)
+Date: Thu, 02 Dec 2010 15:15:21 +0100
+Subject: [Slony1-general] "multi step" replication?
+Message-ID: <4CF7A9F9.60406@aic.at>
+
+hi,
+
+is it possible for a node to be subscriber and origin for the same set 
+at the same time so it "forwards" changes to its subscribers?
+
+in 
+http://scanningpages.wordpress.com/2010/10/09/9-0-streaming-replication-vs-slony/ 
+it says slony is usable when "I want to replicate from A==>B and then 
+have B replicate to C and D?". but does this mean "at the same time"? i 
+couldn't find this in the documentation
+
+i'm looking for a solution like this to reduce the number of slon 
+daemons (currently 11) on my origin server. are there other solutions 
+when you have "a lot of" nodes?
+
+i'm using slony 1.2.15
+
+thx
+matthias
+
+
+From ajs at crankycanuck.ca  Thu Dec  2 06:34:55 2010
+From: ajs at crankycanuck.ca (Andrew Sullivan)
+Date: Thu, 2 Dec 2010 09:34:55 -0500
+Subject: [Slony1-general] "multi step" replication?
+In-Reply-To: <4CF7A9F9.60406@aic.at>
+References: <4CF7A9F9.60406@aic.at>
+Message-ID: <20101202143454.GH2525@shinkuro.com>
+
+On Thu, Dec 02, 2010 at 03:15:21PM +0100, Matthias Leopold wrote:
+> hi,
+> 
+> is it possible for a node to be subscriber and origin for the same set 
+> at the same time so it "forwards" changes to its subscribers?
+
+I think the terminology you have isn't quite right, but yes.  This is
+a major feature of Slony.  The word you want is "provider".  Have a
+look at the concepts documentation at
+http://slony.info/documentation/2.0/concepts.html.
+
+Something Slony does well here that, last I checked, nobody else does
+well is to handle complicated intermediate failures.  For instance,
+suppose you have a four-node-deep replication chain:
+origin->subscriber/provider->subscriber/provider->subscriber.  If you
+had simultaneous failure of any two of the provider nodes (including
+the origin), you would still be able to reshape all this so that the
+final subscriber wouldn't be an orphan.  Managing this is complicated,
+however, and it's part of where Slony gets its (somewhat deserved)
+reputation for being tricky to operate.
+
+> i'm looking for a solution like this to reduce the number of slon 
+> daemons (currently 11) on my origin server. are there other solutions 
+> when you have "a lot of" nodes?
+
+Note that there's no reason the slon has to run on the origin.  You're
+not going to get a huge advantage in terms of query load from moving
+around providers.  You might want to look at log shipping.
+
+A
+
+-- 
+Andrew Sullivan
+ajs at crankycanuck.ca
+
+From vivek at khera.org  Thu Dec  2 07:11:10 2010
+From: vivek at khera.org (Vick Khera)
+Date: Thu, 2 Dec 2010 10:11:10 -0500
+Subject: [Slony1-general] "multi step" replication?
+In-Reply-To: <4CF7A9F9.60406@aic.at>
+References: <4CF7A9F9.60406@aic.at>
+Message-ID: <AANLkTikx7xiQXbioGZ6vbYkC3psUNKLcUrvUaj63di3R@mail.gmail.com>
+
+On Thu, Dec 2, 2010 at 9:15 AM, Matthias Leopold <matthias at aic.at> wrote:
+> is it possible for a node to be subscriber and origin for the same set
+> at the same time so it "forwards" changes to its subscribers?
+>
+
+Yes. When you "SUBSCRIBE SET" for node "B", you specify "forward=yes"
+option.  Then other nodes can subscribe with node B as the origin as
+well.  Works really well.
+
+From ssinger at ca.afilias.info  Thu Dec  2 08:33:07 2010
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Thu, 02 Dec 2010 11:33:07 -0500
+Subject: [Slony1-general] 1.2.22 rc2 & 2.0.6 rc3 released
+Message-ID: <4CF7CA43.7010600@ca.afilias.info>
+
+New release candidates are available for 1.2.22 and 2.0.6
+
+1.2.22 rc2
+================
+Changes from 1.2.22 rc1
+- Docbook-utils detection for man pages fixed for some platforms
+- tar file does not include test-scanner.o file
+
+
+2.0.6 rc3
+================
+http://www.slony.info/downloads/2.0/source/slony1-2.0.6.rc3-docs.tar.bz2
+http://www.slony.info/downloads/2.0/source/slony1-2.0.6.rc3.tar.bz2
+
+Changes from 2.0.6 rc2
+
+- Fix for bug #154, previous fix did not work
+- tar file does not include test-scanner.o file
+
+Please check them out and let us know if there are any
+
+From vivek at khera.org  Thu Dec  2 11:16:49 2010
+From: vivek at khera.org (Vick Khera)
+Date: Thu, 2 Dec 2010 14:16:49 -0500
+Subject: [Slony1-general] 1.2.22 rc2 & 2.0.6 rc3 released
+In-Reply-To: <4CF7CA43.7010600@ca.afilias.info>
+References: <4CF7CA43.7010600@ca.afilias.info>
+Message-ID: <AANLkTimVvbi_SNdgryKVYecb8yZSb+Yvid1PdMbSBpHr@mail.gmail.com>
+
+On Thu, Dec 2, 2010 at 11:33 AM, Steve Singer <ssinger at ca.afilias.info> wrote:
+> 1.2.22 rc2
+>
+
+Builds and installs fine for FreeBSD port system.
+
+From wmoran at potentialtech.com  Fri Dec  3 06:41:28 2010
+From: wmoran at potentialtech.com (Bill Moran)
+Date: Fri, 3 Dec 2010 09:41:28 -0500
+Subject: [Slony1-general] How stable do people feel Slony 2 is?
+Message-ID: <20101203094128.4e8313ee.wmoran@potentialtech.com>
+
+
+Earlier this year, Slony I 2.x was pretty unstable.  I know a lot of
+work as been done since then.
+
+I'm curious to hear "reports from the field".  Our Slony I v1 clusters
+are pretty stable, and while we'd like to move to more recent code,
+we can't afford to sacrifice that stability.
+
+If folks with production experience with the newer code could chime in
+about their experience, I'd greatly appreciate it.
+
+-- 
+Bill Moran
+http://www.potentialtech.com
+http://people.collaborativefusion.com/~wmoran/
+
+From ktm at rice.edu  Fri Dec  3 07:26:42 2010
+From: ktm at rice.edu (Kenneth Marshall)
+Date: Fri, 3 Dec 2010 09:26:42 -0600
+Subject: [Slony1-general] How stable do people feel Slony 2 is?
+In-Reply-To: <20101203094128.4e8313ee.wmoran@potentialtech.com>
+References: <20101203094128.4e8313ee.wmoran@potentialtech.com>
+Message-ID: <20101203152642.GD19162@aart.is.rice.edu>
+
+Up to version 2.0.3, there were problems. I never tried 2.0.4
+because 2.0.5 came out. It is the first version of 2.0 that
+is stable and works well here.
+
+Cheers,
+Ken
+
+On Fri, Dec 03, 2010 at 09:41:28AM -0500, Bill Moran wrote:
+> 
+> Earlier this year, Slony I 2.x was pretty unstable.  I know a lot of
+> work as been done since then.
+> 
+> I'm curious to hear "reports from the field".  Our Slony I v1 clusters
+> are pretty stable, and while we'd like to move to more recent code,
+> we can't afford to sacrifice that stability.
+> 
+> If folks with production experience with the newer code could chime in
+> about their experience, I'd greatly appreciate it.
+> 
+> -- 
+> Bill Moran
+> http://www.potentialtech.com
+> http://people.collaborativefusion.com/~wmoran/
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+> 
+
+From cbbrowne at ca.afilias.info  Fri Dec  3 09:21:19 2010
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Fri, 03 Dec 2010 12:21:19 -0500
+Subject: [Slony1-general] Slony Feature Brainstorming
+Message-ID: <8762va93hs.fsf@cbbrowne.afilias-int.info>
+
+After a number of days of discussions, we have discussed a goodly number
+of would-be features of Slony.  An overview of the discussion may be
+found here:
+   http://wiki.postgresql.org/wiki/SlonyBrainstorming
+
+There are a number of the features discussed that were considered of
+higher priority for Afilias (who happen to pay salaries for some of
+us!), and items are being ported into:
+  a) A ToDo list
+     http://wiki.postgresql.org/wiki/SlonyToDo
+
+  b) Ultimately, we'll set up bugs in the Slony-I Bugzilla instance for
+     work items.
+
+Discussion is encouraged, and the bugs will likely get discussed on the
+-hackers list before trying to come down to specific implementation
+approaches.
+-- 
+(reverse (concatenate 'string "ofni.sailifa" "@" "enworbbc"))
+Christopher Browne
+"Bother,"  said Pooh,  "Eeyore, ready  two photon  torpedoes  and lock
+phasers on the Heffalump, Piglet, meet me in transporter room three"
+
+From ssinger at ca.afilias.info  Fri Dec  3 10:19:25 2010
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Fri, 03 Dec 2010 13:19:25 -0500
+Subject: [Slony1-general] 1.2.22 rc2 & 2.0.6 rc3 released
+In-Reply-To: <AANLkTimVvbi_SNdgryKVYecb8yZSb+Yvid1PdMbSBpHr@mail.gmail.com>
+References: <4CF7CA43.7010600@ca.afilias.info>
+	<AANLkTimVvbi_SNdgryKVYecb8yZSb+Yvid1PdMbSBpHr@mail.gmail.com>
+Message-ID: <4CF934AD.30004@ca.afilias.info>
+
+On 10-12-02 02:16 PM, Vick Khera wrote:
+> On Thu, Dec 2, 2010 at 11:33 AM, Steve Singer<ssinger at ca.afilias.info>  wrote:
+>> 1.2.22 rc2
+>>
+>
+> Builds and installs fine for FreeBSD port system.
+
+Thanks for testing + reporting this.
+
+For others on the list testing.  Our plan is to release both on Monday 
+(unless we hear reports of problems).
+
+
+From cbbrowne at ca.afilias.info  Fri Dec  3 12:45:50 2010
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Fri, 03 Dec 2010 15:45:50 -0500
+Subject: [Slony1-general] Feature: SNMP
+In-Reply-To: <87hbfeqz0a.fsf@cbbrowne.afilias-int.info> (Christopher Browne's
+	message of "Thu, 18 Nov 2010 13:15:33 -0500")
+References: <87hbfeqz0a.fsf@cbbrowne.afilias-int.info>
+Message-ID: <87oc927fgh.fsf@cbbrowne.afilias-int.info>
+
+Christopher Browne <cbbrowne at ca.afilias.info> writes:
+> I note that it only works if you configure --with-netsnmp; I'm pretty
+> sure I have never used this for tests, let alone production usage.
+
+An attempt to build with this turned on fails, so I don't think it has
+worked for quite a while now.
+
+Bug #170 proposes removal:
+http://www.slony.info/bugzilla/show_bug.cgi?id=170
+-- 
+output = reverse("ofni.sailifa" "@" "enworbbc")
+Christopher Browne
+"Bother,"  said Pooh,  "Eeyore, ready  two photon  torpedoes  and lock
+phasers on the Heffalump, Piglet, meet me in transporter room three"
+
+From smarchand at sgo.fr  Mon Dec  6 05:09:29 2010
+From: smarchand at sgo.fr (Sebastien Marchand)
+Date: Mon, 6 Dec 2010 14:09:29 +0100
+Subject: [Slony1-general] Replication schema bidrectionnal ?
+Message-ID: <000001cb9546$d3336040$799a20c0$@sgo.fr>
+
+Hi,
+
+ 
+
+I must replicate 2 servers ( A -> B )
+
+But not 2 databases but 1 database with 2 schemas ^^
+
+ 
+
+In one database DB1 with schemas S1 and S2, S1 from server A to server B ans
+S2 from server B to server A.
+
+ 
+
+Server A                              Server B
+
+DB1                                       DB1
+
+S1------------------------->S1
+
+S2<------------------------S2
+
+ 
+
+I can to that, but i can't add a table in the futur L
+
+ 
+
+It's possible or not to do that ?
+
+ 
+
+Tank you
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20101206/19106b43/attachment.htm 
+
+From vivek at khera.org  Mon Dec  6 05:18:48 2010
+From: vivek at khera.org (Vick Khera)
+Date: Mon, 6 Dec 2010 08:18:48 -0500
+Subject: [Slony1-general] Replication schema bidrectionnal ?
+In-Reply-To: <000001cb9546$d3336040$799a20c0$@sgo.fr>
+References: <000001cb9546$d3336040$799a20c0$@sgo.fr>
+Message-ID: <AANLkTinqy9thc=iqS6yeZPfD3ab3p1LyefKNAMbsV0AT@mail.gmail.com>
+
+On Mon, Dec 6, 2010 at 8:09 AM, Sebastien Marchand <smarchand at sgo.fr> wrote:
+> In one database DB1 with schemas S1 and S2, S1 from server A to server B ans
+> S2 from server B to server A.
+
+Slony1's basic unit of replication is the table.  As long as you're
+two sets do not need to overlap the tables, you should be just fine.
+
+From JanWieck at Yahoo.com  Mon Dec  6 06:41:50 2010
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Mon, 06 Dec 2010 09:41:50 -0500
+Subject: [Slony1-general] Replication schema bidrectionnal ?
+In-Reply-To: <000001cb9546$d3336040$799a20c0$@sgo.fr>
+References: <000001cb9546$d3336040$799a20c0$@sgo.fr>
+Message-ID: <4CFCF62E.6090401@Yahoo.com>
+
+On 12/6/2010 8:09 AM, Sebastien Marchand wrote:
+> Hi,
+>
+> I must replicate 2 servers ( A -> B )
+>
+> But not 2 databases but 1 database with 2 schemas ^^
+>
+> In one database DB1 with schemas S1 and S2, S1 from server A to server B
+> ans S2 from server B to server A.
+>
+> Server A Server B
+>
+> DB1 DB1
+>
+> S1------------------------->S1
+>
+> S2<------------------------S2
+>
+> I can to that, but i can?t add a table in the futur L
+>
+> It?s possible or not to do that ?
+
+You would build two replication sets. Set one originating on server A 
+and subscribed by server B, set two originating on server B and 
+subscribed by server A. Like Vick said, as long as you don't need 
+partial table replication, you'll be fine.
+
+Adding tables later works the same as if you had just one origin. You 
+need to create a temporary set that you add those tables to, subscribe 
+it to the same nodes that are subscribed to the existing set and when 
+those subscriptions are complete, you merge the sets together.
+
+
+Jan
+
+-- 
+Anyone who trades liberty for security deserves neither
+liberty nor security. -- Benjamin Franklin
+
+From smarchand at sgo.fr  Mon Dec  6 07:49:46 2010
+From: smarchand at sgo.fr (Sebastien Marchand)
+Date: Mon, 6 Dec 2010 16:49:46 +0100
+Subject: [Slony1-general] Replication schema bidrectionnal ?
+In-Reply-To: <4CFCF62E.6090401@Yahoo.com>
+References: <000001cb9546$d3336040$799a20c0$@sgo.fr>
+	<4CFCF62E.6090401@Yahoo.com>
+Message-ID: <000501cb955d$356ffd20$a04ff760$@sgo.fr>
+
+Thanks a lot.
+
+It's work ^^
+
+On 12/6/2010 8:09 AM, Sebastien Marchand wrote:
+> Hi,
+>
+> I must replicate 2 servers ( A -> B )
+>
+> But not 2 databases but 1 database with 2 schemas ^^
+>
+> In one database DB1 with schemas S1 and S2, S1 from server A to server 
+> B ans S2 from server B to server A.
+>
+> Server A Server B
+>
+> DB1 DB1
+>
+> S1------------------------->S1
+>
+> S2<------------------------S2
+>
+> I can to that, but i can't add a table in the futur L
+>
+> It's possible or not to do that ?
+
+You would build two replication sets. Set one originating on server A and
+subscribed by server B, set two originating on server B and subscribed by
+server A. Like Vick said, as long as you don't need partial table
+replication, you'll be fine.
+
+Adding tables later works the same as if you had just one origin. You need
+to create a temporary set that you add those tables to, subscribe it to the
+same nodes that are subscribed to the existing set and when those
+subscriptions are complete, you merge the sets together.
+
+
+Jan
+
+--
+Anyone who trades liberty for security deserves neither liberty nor
+security. -- Benjamin Franklin
+
+
+From ssinger at ca.afilias.info  Tue Dec  7 09:59:33 2010
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Tue, 07 Dec 2010 12:59:33 -0500
+Subject: [Slony1-general] Slony 1.2.22 & 2.0.6 Released
+Message-ID: <4CFE7605.6030905@ca.afilias.info>
+
+The Slony team would like to announce a release of minor updates to the 
+1.2 and 2.0 release streams.
+
+1.2.22
+---------
+
+http://www.slony.info/downloads/1.2/source/slony1-1.2.22-docs.tar.bz2
+http://www.slony.info/downloads/1.2/source/slony1-1.2.22.tar.bz2
+
+-Bug #118 -  Use TRUNCATE ONLY when cleaning out tables on subscribers 
+in versions of Postgresql that require it.
+
+-Explicit support for version 9.0
+
+-Removing obsolete EXTERNALLENGTH for 8.4 and 9.0
+
+-Bug # 138 - Fix syntax in autoconf m4 file to define GROFF
+
+-Fix for bug #159, distclean deletes the slony_logshipper flex/bison 
+generated files.
+
+-Detect docbook-utils paths on Debian,Fedora,SuSE,*BSD
+
+
+2.0.6
+----------
+
+http://www.slony.info/downloads/2.0/source/slony1-2.0.6.tar.bz2
+http://www.slony.info/downloads/2.0/source/slony1-2.0.6-docs.tar.bz2
+
+-Fix for bug #158, Removing extranous '//' from the perl script.
+
+-Fix for bug #155, slon can segfault while shutting down.
+
+-Fix for bug #162, typenameTypeId() changes signatures in 9.1
+
+-Fix for bug #160, if slon gets confused waiting for its child it will exit.
+
+-Fix for bug #159, distclean deletes the slony_logshipper flex/bison 
+generated files.
+
+-Fix for bug #154, previous fix did not work
+
+
+
+From nimesh.satam at gmail.com  Thu Dec  9 04:58:56 2010
+From: nimesh.satam at gmail.com (Nimesh Satam)
+Date: Thu, 9 Dec 2010 18:28:56 +0530
+Subject: [Slony1-general] Upgrading to postgres-9 using slony
+Message-ID: <AANLkTimWU+-owCGrdpjdp5P9=KjfvXp7YVD_aDyVs=_v@mail.gmail.com>
+
+Hi,
+
+Can anybody let me know if I can use slony1-2.0.6 to upgrade postgres from
+8.4.2 to 9.0.1?
+
+The slony1-2.0.6 document does not have any section describing this part.
+Although it was available on slony1-2.0.2.
+
+Thanks in advance.
+
+Regards,
+Nimesh.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20101209/9769702e/attachment.htm 
+
+From devrim at gunduz.org  Thu Dec  9 05:08:29 2010
+From: devrim at gunduz.org (Devrim =?ISO-8859-1?Q?G=DCND=DCZ?=)
+Date: Thu, 09 Dec 2010 15:08:29 +0200
+Subject: [Slony1-general] Upgrading to postgres-9 using slony
+In-Reply-To: <AANLkTimWU+-owCGrdpjdp5P9=KjfvXp7YVD_aDyVs=_v@mail.gmail.com>
+References: <AANLkTimWU+-owCGrdpjdp5P9=KjfvXp7YVD_aDyVs=_v@mail.gmail.com>
+Message-ID: <1291900109.2406.4.camel@hp-laptop02.gunduz.org>
+
+On Thu, 2010-12-09 at 18:28 +0530, Nimesh Satam wrote:
+> Can anybody let me know if I can use slony1-2.0.6 to upgrade postgres
+> from 8.4.2 to 9.0.1? 
+
+Yes, you can.
+
+Regards,
+-- 
+Devrim G?ND?Z
+PostgreSQL Dan??man?/Consultant, Red Hat Certified Engineer
+PostgreSQL RPM Repository: http://yum.pgrpms.org
+Community: devrim~PostgreSQL.org, devrim.gunduz~linux.org.tr
+http://www.gunduz.org  Twitter: http://twitter.com/devrimgunduz
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: not available
+Type: application/pgp-signature
+Size: 198 bytes
+Desc: This is a digitally signed message part
+Url : http://lists.slony.info/pipermail/slony1-general/attachments/20101209/b8c3c05e/attachment.pgp 
+
+From threshar at torgo.978.org  Thu Dec  9 13:00:49 2010
+From: threshar at torgo.978.org (Jeff)
+Date: Thu, 09 Dec 2010 16:00:49 -0500
+Subject: [Slony1-general] Replication schema bidrectionnal ?
+In-Reply-To: <4CFCF62E.6090401@Yahoo.com>
+References: <000001cb9546$d3336040$799a20c0$@sgo.fr>
+	<4CFCF62E.6090401@Yahoo.com>
+Message-ID: <16529596-58C6-4B5A-BD49-334E83DDC64E@torgo.978.org>
+
+
+On Dec 6, 2010, at 9:41 AM, Jan Wieck wrote:
+
+>>
+>
+> You would build two replication sets. Set one originating on server A
+> and subscribed by server B, set two originating on server B and
+> subscribed by server A. Like Vick said, as long as you don't need
+> partial table replication, you'll be fine.
+>
+> Adding tables later works the same as if you had just one origin. You
+> need to create a temporary set that you add those tables to, subscribe
+> it to the same nodes that are subscribed to the existing set and when
+> those subscriptions are complete, you merge the sets together.
+>
+
+Assuming each chunk of data is isolatable (say, everything related to  
+branch X)
+
+Couldn't we create a partitioned table where we replicate say  
+partition1 from a->b and partition2 from b->a?
+
+then we'll see a happy unified view of a table..
+
+That could be interesting... Now I'm thinking about a couple potential  
+ideas based on this.
+
+--
+Jeff Trout <jeff at jefftrout.com>
+http://www.stuarthamm.net/
+http://www.dellsmartexitin.com/
+
+
+
+
+From ssinger at ca.afilias.info  Thu Dec  9 15:54:11 2010
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Thu, 09 Dec 2010 18:54:11 -0500
+Subject: [Slony1-general] Replication schema bidrectionnal ?
+In-Reply-To: <16529596-58C6-4B5A-BD49-334E83DDC64E@torgo.978.org>
+References: <000001cb9546$d3336040$799a20c0$@sgo.fr>	<4CFCF62E.6090401@Yahoo.com>
+	<16529596-58C6-4B5A-BD49-334E83DDC64E@torgo.978.org>
+Message-ID: <4D016C23.1060008@ca.afilias.info>
+
+On 10-12-09 04:00 PM, Jeff wrote:
+>
+> On Dec 6, 2010, at 9:41 AM, Jan Wieck wrote:
+>
+> Assuming each chunk of data is isolatable (say, everything related to
+> branch X)
+>
+> Couldn't we create a partitioned table where we replicate say
+> partition1 from a->b and partition2 from b->a?
+>
+> then we'll see a happy unified view of a table..
+>
+> That could be interesting... Now I'm thinking about a couple potential
+> ideas based on this.
+>
+
+I can't think of a reason why this wouldn't work.
+
+
+
+> --
+> Jeff Trout<jeff at jefftrout.com>
+> http://www.stuarthamm.net/
+> http://www.dellsmartexitin.com/
+>
+>
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+
+
+From vivek at khera.org  Fri Dec 10 10:59:54 2010
+From: vivek at khera.org (Vick Khera)
+Date: Fri, 10 Dec 2010 13:59:54 -0500
+Subject: [Slony1-general] Replication schema bidrectionnal ?
+In-Reply-To: <16529596-58C6-4B5A-BD49-334E83DDC64E@torgo.978.org>
+References: <000001cb9546$d3336040$799a20c0$@sgo.fr>
+	<4CFCF62E.6090401@Yahoo.com>
+	<16529596-58C6-4B5A-BD49-334E83DDC64E@torgo.978.org>
+Message-ID: <AANLkTik0AFUo1t=E+QK95hZYC2d_yd-eMkA8V6ehenvQ@mail.gmail.com>
+
+On Thu, Dec 9, 2010 at 4:00 PM, Jeff <threshar at torgo.978.org> wrote:
+> Couldn't we create a partitioned table where we replicate say
+> partition1 from a->b and partition2 from b->a?
+>
+
+Yes, that would work since partitionA and partitionB are in separate
+tables. Just leave the parent table empty and do not replicate it.
+
+From ludaludaluda at gmail.com  Fri Dec 10 12:53:43 2010
+From: ludaludaluda at gmail.com (luda posch)
+Date: Fri, 10 Dec 2010 15:53:43 -0500
+Subject: [Slony1-general] Generating SQL statement from SYNC
+	sl_event.ev_seqno
+Message-ID: <AANLkTin7ZfzqmtTh9PnveML_nCYCoyJCAH=nebgL_TKn@mail.gmail.com>
+
+I want to be able to see specifically what sql statements pertain to which
+SYNC events.  It does not look like either of my log tables have any
+relation to the sl_event.ev_seqno, although I do see in the log tables
+things that look like that is where the information i am looking for is (ie:
+log_cmdtype, log_cmddata)
+
+I thought that log_actionseq would pertain to sl_event.ev_seqno, but no
+entires exist in my logs where log_actionseq=ev_seqno, so I am confused.
+
+does anybody know where to find this information?
+
+(I am not looking for an algorithm to convert log_cmdtype and log_cmddata
+into SQL statements, I am looking for the location of the specific
+information pertaining to a SYNC event.)
+
+Thank you!
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20101210/41449fef/attachment.htm 
+
+From cbbrowne at ca.afilias.info  Fri Dec 10 14:16:25 2010
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Fri, 10 Dec 2010 17:16:25 -0500
+Subject: [Slony1-general] Generating SQL statement from SYNC
+	sl_event.ev_seqno
+In-Reply-To: <AANLkTin7ZfzqmtTh9PnveML_nCYCoyJCAH=nebgL_TKn@mail.gmail.com>
+	(luda posch's message of "Fri, 10 Dec 2010 15:53:43 -0500")
+References: <AANLkTin7ZfzqmtTh9PnveML_nCYCoyJCAH=nebgL_TKn@mail.gmail.com>
+Message-ID: <87tyilz32e.fsf@cbbrowne.afilias-int.info>
+
+luda posch <ludaludaluda at gmail.com> writes:
+> I want to be able to see specifically what sql statements pertain to which SYNC
+> events.? It does not look like either of my log tables have any relation to the
+> sl_event.ev_seqno, although I do see in the log tables things that look like
+> that is where the information i am looking for is (ie: log_cmdtype,
+> log_cmddata)
+>
+> I thought that log_actionseq would pertain to sl_event.ev_seqno, but no entires
+> exist in my logs where log_actionseq=ev_seqno, so I am confused.
+>
+> does anybody know where to find this information?
+>
+> (I am not looking for an algorithm to convert log_cmdtype and log_cmddata into
+> SQL statements, I am looking for the location of the specific information
+> pertaining to a SYNC event.)
+
+Definitely nontrivial.
+
+The association is that a SYNC consists of all the transactions with
+XIDs that are:
+ a) After the previous SYNC
+ b) Before the current SYNC
+ c) Not outstanding in the current SYNC 
+ d) Possibly from before the previous SYNC, but committed after that
+    SYNC.
+
+[Possibly that's not a perfect explanation...  The query that computes
+the relationship between a SYNC and the sl_log_* entries for it is
+pretty gory!]
+
+If you look at recent bug #167
+http://www.slony.info/bugzilla/show_bug.cgi?id=167
+
+It addresses how to get at this information.
+
+Jan revised the code that presently computes the query that pulls
+sl_log_* entries; that material is almost certainly useful for your
+analysis.
+
+The way the query is computed is definitely not trivial :-).
+-- 
+output = ("cbbrowne" "@" "ca.afilias.info")
+Christopher Browne
+"Bother,"  said Pooh,  "Eeyore, ready  two photon  torpedoes  and lock
+phasers on the Heffalump, Piglet, meet me in transporter room three"
+
+From francescoboccacci at libero.it  Tue Dec 14 06:01:54 2010
+From: francescoboccacci at libero.it (francescoboccacci at libero.it)
+Date: Tue, 14 Dec 2010 15:01:54 +0100 (CET)
+Subject: [Slony1-general] Slony message
+Message-ID: <31111759.2704921292335314939.JavaMail.defaultUser@defaultHost>
+
+Hi to all.
+I have some doubts about how slony-I replication process works.
+I Have one master and 4 slaves that share some tables.
+I create a cluster script and run it. After i run slon daemon in all nodes. 
+At 
+the end i run subscribe script. After this operation my server (linux) show 
+messages but i don't undestand if this is normal or what are. After 2 hours 
+it 
+still show me message like these:
+
+
+
+
+
+NOTICE:  Slony-I: Logswitch to sl_log_2 initiated
+CONTEXT:  SQL statement "SELECT  "_sql_cluster_1_2_3_4_9".logswitch_start()"
+PL/pgSQL function "cleanupevent" line 101 at PERFORM
+NOTICE:  Slony-I: Logswitch to sl_log_2 initiated
+CONTEXT:  SQL statement "SELECT  "_sql_cluster_1_2_3_4_9".logswitch_start()"
+PL/pgSQL function "cleanupevent" line 101 at PERFORM
+NOTICE:  Slony-I: Logswitch to sl_log_2 initiated
+CONTEXT:  SQL statement "SELECT  "_sql_cluster_1_2_3_4_9".logswitch_start()"
+PL/pgSQL function "cleanupevent" line 101 at PERFORM
+NOTICE:  Slony-I: Logswitch to sl_log_2 initiated
+CONTEXT:  SQL statement "SELECT  "_sql_cluster_1_2_3_4_9".logswitch_start()"
+PL/pgSQL function "cleanupevent" line 101 at PERFORM
+NOTICE:  Slony-I: Logswitch to sl_log_2 initiated
+CONTEXT:  SQL statement "SELECT  "_sql_cluster_1_2_3_4_9".logswitch_start()"
+PL/pgSQL function "cleanupevent" line 101 at PERFORM
+NOTICE:  Slony-I: log switch to sl_log_2 complete - truncate sl_log_1
+CONTEXT:  PL/pgSQL function "cleanupevent" line 99 at assignment
+NOTICE:  Slony-I: log switch to sl_log_2 complete - truncate sl_log_1
+CONTEXT:  PL/pgSQL function "cleanupevent" line 99 at assignment
+NOTICE:  Slony-I: log switch to sl_log_2 complete - truncate sl_log_1
+CONTEXT:  PL/pgSQL function "cleanupevent" line 99 at assignment
+NOTICE:  Slony-I: log switch to sl_log_2 complete - truncate sl_log_1
+CONTEXT:  PL/pgSQL function "cleanupevent" line 99 at assignment
+NOTICE:  Slony-I: log switch to sl_log_2 complete - truncate sl_log_1
+CONTEXT:  PL/pgSQL function "cleanupevent" line 99 at assignment
+NOTICE:  Slony-I: Logswitch to sl_log_1 initiated
+CONTEXT:  SQL statement "SELECT  "_sql_cluster_1_2_3_4_9".logswitch_start()"
+PL/pgSQL function "cleanupevent" line 101 at PERFORM
+NOTICE:  Slony-I: Logswitch to sl_log_1 initiated
+CONTEXT:  SQL statement "SELECT  "_sql_cluster_1_2_3_4_9".logswitch_start()"
+PL/pgSQL function "cleanupevent" line 101 at PERFORM
+NOTICE:  Slony-I: Logswitch to sl_log_1 initiated
+CONTEXT:  SQL statement "SELECT  "_sql_cluster_1_2_3_4_9".logswitch_start()"
+PL/pgSQL function "cleanupevent" line 101 at PERFORM
+NOTICE:  Slony-I: Logswitch to sl_log_1 initiated
+CONTEXT:  SQL statement "SELECT  "_sql_cluster_1_2_3_4_9".logswitch_start()"
+PL/pgSQL function "cleanupevent" line 101 at PERFORM
+NOTICE:  Slony-I: Logswitch to sl_log_1 initiated
+CONTEXT:  SQL statement "SELECT  "_sql_cluster_1_2_3_4_9".logswitch_start()"
+PL/pgSQL function "cleanupevent" line 101 at PERFORM
+NOTICE:  Slony-I: log switch to sl_log_1 complete - truncate sl_log_2
+CONTEXT:  PL/pgSQL function "cleanupevent" line 99 at assignment
+NOTICE:  Slony-I: log switch to sl_log_1 complete - truncate sl_log_2
+CONTEXT:  PL/pgSQL function "cleanupevent" line 99 at assignment
+NOTICE:  Slony-I: log switch to sl_log_1 complete - truncate sl_log_2
+CONTEXT:  PL/pgSQL function "cleanupevent" line 99 at assignment
+NOTICE:  Slony-I: log switch to sl_log_1 complete - truncate sl_log_2
+CONTEXT:  PL/pgSQL function "cleanupevent" line 99 at assignment
+NOTICE:  Slony-I: log switch to sl_log_1 complete - truncate sl_log_2
+CONTEXT:  PL/pgSQL function "cleanupevent" line 99 at assignment
+
+..
+and so on.
+What happen? I need to restart some process or wait the end of the process?
+
+Please help me.
+
+Thanks to all
+
+Francesco 
+
+From ssinger at ca.afilias.info  Tue Dec 14 06:58:32 2010
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Tue, 14 Dec 2010 09:58:32 -0500
+Subject: [Slony1-general] Slony message
+In-Reply-To: <31111759.2704921292335314939.JavaMail.defaultUser@defaultHost>
+References: <31111759.2704921292335314939.JavaMail.defaultUser@defaultHost>
+Message-ID: <4D078618.20903@ca.afilias.info>
+
+On 10-12-14 09:01 AM, francescoboccacci at libero.it wrote:
+> Hi to all.
+> I have some doubts about how slony-I replication process works.
+> I Have one master and 4 slaves that share some tables.
+> I create a cluster script and run it. After i run slon daemon in all nodes.
+> At
+> the end i run subscribe script. After this operation my server (linux) show
+> messages but i don't undestand if this is normal or what are. After 2 hours
+> it
+> still show me message like these:
+>
+
+All of the messages below are normal messages from slony during normal 
+operations of slony.  I don't see any indication of a problem.
+
+If you connect to your slaves, do you see your data replicated?
+
+If your still having a problem look at what the 
+_sql_cluster_1_2_3_4_9.sl_status table contains.
+
+Also it is good practice to include which version of slony your using 
+when posting messages to the list.
+
+
+
+>
+>
+>
+>
+> NOTICE:  Slony-I: Logswitch to sl_log_2 initiated
+> CONTEXT:  SQL statement "SELECT  "_sql_cluster_1_2_3_4_9".logswitch_start()"
+> PL/pgSQL function "cleanupevent" line 101 at PERFORM
+> NOTICE:  Slony-I: Logswitch to sl_log_2 initiated
+> CONTEXT:  SQL statement "SELECT  "_sql_cluster_1_2_3_4_9".logswitch_start()"
+> PL/pgSQL function "cleanupevent" line 101 at PERFORM
+> NOTICE:  Slony-I: Logswitch to sl_log_2 initiated
+> CONTEXT:  SQL statement "SELECT  "_sql_cluster_1_2_3_4_9".logswitch_start()"
+> PL/pgSQL function "cleanupevent" line 101 at PERFORM
+> NOTICE:  Slony-I: Logswitch to sl_log_2 initiated
+> CONTEXT:  SQL statement "SELECT  "_sql_cluster_1_2_3_4_9".logswitch_start()"
+> PL/pgSQL function "cleanupevent" line 101 at PERFORM
+> NOTICE:  Slony-I: Logswitch to sl_log_2 initiated
+> CONTEXT:  SQL statement "SELECT  "_sql_cluster_1_2_3_4_9".logswitch_start()"
+> PL/pgSQL function "cleanupevent" line 101 at PERFORM
+> NOTICE:  Slony-I: log switch to sl_log_2 complete - truncate sl_log_1
+> CONTEXT:  PL/pgSQL function "cleanupevent" line 99 at assignment
+> NOTICE:  Slony-I: log switch to sl_log_2 complete - truncate sl_log_1
+> CONTEXT:  PL/pgSQL function "cleanupevent" line 99 at assignment
+> NOTICE:  Slony-I: log switch to sl_log_2 complete - truncate sl_log_1
+> CONTEXT:  PL/pgSQL function "cleanupevent" line 99 at assignment
+> NOTICE:  Slony-I: log switch to sl_log_2 complete - truncate sl_log_1
+> CONTEXT:  PL/pgSQL function "cleanupevent" line 99 at assignment
+> NOTICE:  Slony-I: log switch to sl_log_2 complete - truncate sl_log_1
+> CONTEXT:  PL/pgSQL function "cleanupevent" line 99 at assignment
+> NOTICE:  Slony-I: Logswitch to sl_log_1 initiated
+> CONTEXT:  SQL statement "SELECT  "_sql_cluster_1_2_3_4_9".logswitch_start()"
+> PL/pgSQL function "cleanupevent" line 101 at PERFORM
+> NOTICE:  Slony-I: Logswitch to sl_log_1 initiated
+> CONTEXT:  SQL statement "SELECT  "_sql_cluster_1_2_3_4_9".logswitch_start()"
+> PL/pgSQL function "cleanupevent" line 101 at PERFORM
+> NOTICE:  Slony-I: Logswitch to sl_log_1 initiated
+> CONTEXT:  SQL statement "SELECT  "_sql_cluster_1_2_3_4_9".logswitch_start()"
+> PL/pgSQL function "cleanupevent" line 101 at PERFORM
+> NOTICE:  Slony-I: Logswitch to sl_log_1 initiated
+> CONTEXT:  SQL statement "SELECT  "_sql_cluster_1_2_3_4_9".logswitch_start()"
+> PL/pgSQL function "cleanupevent" line 101 at PERFORM
+> NOTICE:  Slony-I: Logswitch to sl_log_1 initiated
+> CONTEXT:  SQL statement "SELECT  "_sql_cluster_1_2_3_4_9".logswitch_start()"
+> PL/pgSQL function "cleanupevent" line 101 at PERFORM
+> NOTICE:  Slony-I: log switch to sl_log_1 complete - truncate sl_log_2
+> CONTEXT:  PL/pgSQL function "cleanupevent" line 99 at assignment
+> NOTICE:  Slony-I: log switch to sl_log_1 complete - truncate sl_log_2
+> CONTEXT:  PL/pgSQL function "cleanupevent" line 99 at assignment
+> NOTICE:  Slony-I: log switch to sl_log_1 complete - truncate sl_log_2
+> CONTEXT:  PL/pgSQL function "cleanupevent" line 99 at assignment
+> NOTICE:  Slony-I: log switch to sl_log_1 complete - truncate sl_log_2
+> CONTEXT:  PL/pgSQL function "cleanupevent" line 99 at assignment
+> NOTICE:  Slony-I: log switch to sl_log_1 complete - truncate sl_log_2
+> CONTEXT:  PL/pgSQL function "cleanupevent" line 99 at assignment
+>
+> ..
+> and so on.
+> What happen? I need to restart some process or wait the end of the process?
+>
+> Please help me.
+>
+> Thanks to all
+>
+> Francesco
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+
+
+From francescoboccacci at libero.it  Tue Dec 14 07:14:42 2010
+From: francescoboccacci at libero.it (francescoboccacci at libero.it)
+Date: Tue, 14 Dec 2010 16:14:42 +0100 (CET)
+Subject: [Slony1-general] R: Re:  Slony message
+Message-ID: <25335560.2730071292339682326.JavaMail.defaultUser@defaultHost>
+
+Hi,
+sorry if i have no insert a slonik version. I'm a new user of Slonik.
+My version is slon version 2.0.4 and i have postgresql 8.4 in my server.
+I run subscribe.sh in putty and now my question is:
+If i disconnect putty section what happend to my slonik process?
+Can i write these log rows into a log files?
+Thanks for your help.
+
+Francesco
+
+>----Messaggio originale----
+>Da: ssinger at ca.afilias.info
+>Data: 14/12/2010 15.58
+>A: "francescoboccacci at libero.it"<francescoboccacci at libero.it>
+>Cc: <slony1-general at lists.slony.info>
+>Ogg: Re: [Slony1-general] Slony message
+>
+>On 10-12-14 09:01 AM, francescoboccacci at libero.it wrote:
+>> Hi to all.
+>> I have some doubts about how slony-I replication process works.
+>> I Have one master and 4 slaves that share some tables.
+>> I create a cluster script and run it. After i run slon daemon in all 
+nodes.
+>> At
+>> the end i run subscribe script. After this operation my server (linux) 
+show
+>> messages but i don't undestand if this is normal or what are. After 2 
+hours
+>> it
+>> still show me message like these:
+>>
+>
+>All of the messages below are normal messages from slony during normal 
+>operations of slony.  I don't see any indication of a problem.
+>
+>If you connect to your slaves, do you see your data replicated?
+>
+>If your still having a problem look at what the 
+>_sql_cluster_1_2_3_4_9.sl_status table contains.
+>
+>Also it is good practice to include which version of slony your using 
+>when posting messages to the list.
+>
+>
+>
+>>
+>>
+>>
+>>
+>> NOTICE:  Slony-I: Logswitch to sl_log_2 initiated
+>> CONTEXT:  SQL statement "SELECT  "_sql_cluster_1_2_3_4_9".
+logswitch_start()"
+>> PL/pgSQL function "cleanupevent" line 101 at PERFORM
+>> NOTICE:  Slony-I: Logswitch to sl_log_2 initiated
+>> CONTEXT:  SQL statement "SELECT  "_sql_cluster_1_2_3_4_9".
+logswitch_start()"
+>> PL/pgSQL function "cleanupevent" line 101 at PERFORM
+>> NOTICE:  Slony-I: Logswitch to sl_log_2 initiated
+>> CONTEXT:  SQL statement "SELECT  "_sql_cluster_1_2_3_4_9".
+logswitch_start()"
+>> PL/pgSQL function "cleanupevent" line 101 at PERFORM
+>> NOTICE:  Slony-I: Logswitch to sl_log_2 initiated
+>> CONTEXT:  SQL statement "SELECT  "_sql_cluster_1_2_3_4_9".
+logswitch_start()"
+>> PL/pgSQL function "cleanupevent" line 101 at PERFORM
+>> NOTICE:  Slony-I: Logswitch to sl_log_2 initiated
+>> CONTEXT:  SQL statement "SELECT  "_sql_cluster_1_2_3_4_9".
+logswitch_start()"
+>> PL/pgSQL function "cleanupevent" line 101 at PERFORM
+>> NOTICE:  Slony-I: log switch to sl_log_2 complete - truncate sl_log_1
+>> CONTEXT:  PL/pgSQL function "cleanupevent" line 99 at assignment
+>> NOTICE:  Slony-I: log switch to sl_log_2 complete - truncate sl_log_1
+>> CONTEXT:  PL/pgSQL function "cleanupevent" line 99 at assignment
+>> NOTICE:  Slony-I: log switch to sl_log_2 complete - truncate sl_log_1
+>> CONTEXT:  PL/pgSQL function "cleanupevent" line 99 at assignment
+>> NOTICE:  Slony-I: log switch to sl_log_2 complete - truncate sl_log_1
+>> CONTEXT:  PL/pgSQL function "cleanupevent" line 99 at assignment
+>> NOTICE:  Slony-I: log switch to sl_log_2 complete - truncate sl_log_1
+>> CONTEXT:  PL/pgSQL function "cleanupevent" line 99 at assignment
+>> NOTICE:  Slony-I: Logswitch to sl_log_1 initiated
+>> CONTEXT:  SQL statement "SELECT  "_sql_cluster_1_2_3_4_9".
+logswitch_start()"
+>> PL/pgSQL function "cleanupevent" line 101 at PERFORM
+>> NOTICE:  Slony-I: Logswitch to sl_log_1 initiated
+>> CONTEXT:  SQL statement "SELECT  "_sql_cluster_1_2_3_4_9".
+logswitch_start()"
+>> PL/pgSQL function "cleanupevent" line 101 at PERFORM
+>> NOTICE:  Slony-I: Logswitch to sl_log_1 initiated
+>> CONTEXT:  SQL statement "SELECT  "_sql_cluster_1_2_3_4_9".
+logswitch_start()"
+>> PL/pgSQL function "cleanupevent" line 101 at PERFORM
+>> NOTICE:  Slony-I: Logswitch to sl_log_1 initiated
+>> CONTEXT:  SQL statement "SELECT  "_sql_cluster_1_2_3_4_9".
+logswitch_start()"
+>> PL/pgSQL function "cleanupevent" line 101 at PERFORM
+>> NOTICE:  Slony-I: Logswitch to sl_log_1 initiated
+>> CONTEXT:  SQL statement "SELECT  "_sql_cluster_1_2_3_4_9".
+logswitch_start()"
+>> PL/pgSQL function "cleanupevent" line 101 at PERFORM
+>> NOTICE:  Slony-I: log switch to sl_log_1 complete - truncate sl_log_2
+>> CONTEXT:  PL/pgSQL function "cleanupevent" line 99 at assignment
+>> NOTICE:  Slony-I: log switch to sl_log_1 complete - truncate sl_log_2
+>> CONTEXT:  PL/pgSQL function "cleanupevent" line 99 at assignment
+>> NOTICE:  Slony-I: log switch to sl_log_1 complete - truncate sl_log_2
+>> CONTEXT:  PL/pgSQL function "cleanupevent" line 99 at assignment
+>> NOTICE:  Slony-I: log switch to sl_log_1 complete - truncate sl_log_2
+>> CONTEXT:  PL/pgSQL function "cleanupevent" line 99 at assignment
+>> NOTICE:  Slony-I: log switch to sl_log_1 complete - truncate sl_log_2
+>> CONTEXT:  PL/pgSQL function "cleanupevent" line 99 at assignment
+>>
+>> ..
+>> and so on.
+>> What happen? I need to restart some process or wait the end of the 
+process?
+>>
+>> Please help me.
+>>
+>> Thanks to all
+>>
+>> Francesco
+>> _______________________________________________
+>> Slony1-general mailing list
+>> Slony1-general at lists.slony.info
+>> http://lists.slony.info/mailman/listinfo/slony1-general
+>
+>
+
+
+
+From ssinger at ca.afilias.info  Tue Dec 14 07:19:50 2010
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Tue, 14 Dec 2010 10:19:50 -0500
+Subject: [Slony1-general] R: Re:  Slony message
+In-Reply-To: <25335560.2730071292339682326.JavaMail.defaultUser@defaultHost>
+References: <25335560.2730071292339682326.JavaMail.defaultUser@defaultHost>
+Message-ID: <4D078B16.9060906@ca.afilias.info>
+
+On 10-12-14 10:14 AM, francescoboccacci at libero.it wrote:
+> Hi,
+> sorry if i have no insert a slonik version. I'm a new user of Slonik.
+> My version is slon version 2.0.4 and i have postgresql 8.4 in my server.
+> I run subscribe.sh in putty and now my question is:
+> If i disconnect putty section what happend to my slonik process?
+> Can i write these log rows into a log files?
+> Thanks for your help.
+
+If you exit putty the slons should continue to run disconnected from the 
+terminal.
+
+If you start the slon processes so that they redirect the standard 
+output/error to a log file you can redirect them to a log file.
+
+
+
+You can also get slon to log to syslog
+http://www.slony.info/documentation/2.0/runtime-config.html
+
+
+
+>
+> Francesco
+>
+>> ----Messaggio originale----
+>> Da: ssinger at ca.afilias.info
+>> Data: 14/12/2010 15.58
+>> A: "francescoboccacci at libero.it"<francescoboccacci at libero.it>
+>> Cc:<slony1-general at lists.slony.info>
+>> Ogg: Re: [Slony1-general] Slony message
+>>
+>> On 10-12-14 09:01 AM, francescoboccacci at libero.it wrote:
+>>> Hi to all.
+>>> I have some doubts about how slony-I replication process works.
+>>> I Have one master and 4 slaves that share some tables.
+>>> I create a cluster script and run it. After i run slon daemon in all
+> nodes.
+>>> At
+>>> the end i run subscribe script. After this operation my server (linux)
+> show
+>>> messages but i don't undestand if this is normal or what are. After 2
+> hours
+>>> it
+>>> still show me message like these:
+>>>
+>>
+>> All of the messages below are normal messages from slony during normal
+>> operations of slony.  I don't see any indication of a problem.
+>>
+>> If you connect to your slaves, do you see your data replicated?
+>>
+>> If your still having a problem look at what the
+>> _sql_cluster_1_2_3_4_9.sl_status table contains.
+>>
+>> Also it is good practice to include which version of slony your using
+>> when posting messages to the list.
+>>
+>>
+>>
+>>>
+>>>
+>>>
+>>>
+>>> NOTICE:  Slony-I: Logswitch to sl_log_2 initiated
+>>> CONTEXT:  SQL statement "SELECT  "_sql_cluster_1_2_3_4_9".
+> logswitch_start()"
+>>> PL/pgSQL function "cleanupevent" line 101 at PERFORM
+>>> NOTICE:  Slony-I: Logswitch to sl_log_2 initiated
+>>> CONTEXT:  SQL statement "SELECT  "_sql_cluster_1_2_3_4_9".
+> logswitch_start()"
+>>> PL/pgSQL function "cleanupevent" line 101 at PERFORM
+>>> NOTICE:  Slony-I: Logswitch to sl_log_2 initiated
+>>> CONTEXT:  SQL statement "SELECT  "_sql_cluster_1_2_3_4_9".
+> logswitch_start()"
+>>> PL/pgSQL function "cleanupevent" line 101 at PERFORM
+>>> NOTICE:  Slony-I: Logswitch to sl_log_2 initiated
+>>> CONTEXT:  SQL statement "SELECT  "_sql_cluster_1_2_3_4_9".
+> logswitch_start()"
+>>> PL/pgSQL function "cleanupevent" line 101 at PERFORM
+>>> NOTICE:  Slony-I: Logswitch to sl_log_2 initiated
+>>> CONTEXT:  SQL statement "SELECT  "_sql_cluster_1_2_3_4_9".
+> logswitch_start()"
+>>> PL/pgSQL function "cleanupevent" line 101 at PERFORM
+>>> NOTICE:  Slony-I: log switch to sl_log_2 complete - truncate sl_log_1
+>>> CONTEXT:  PL/pgSQL function "cleanupevent" line 99 at assignment
+>>> NOTICE:  Slony-I: log switch to sl_log_2 complete - truncate sl_log_1
+>>> CONTEXT:  PL/pgSQL function "cleanupevent" line 99 at assignment
+>>> NOTICE:  Slony-I: log switch to sl_log_2 complete - truncate sl_log_1
+>>> CONTEXT:  PL/pgSQL function "cleanupevent" line 99 at assignment
+>>> NOTICE:  Slony-I: log switch to sl_log_2 complete - truncate sl_log_1
+>>> CONTEXT:  PL/pgSQL function "cleanupevent" line 99 at assignment
+>>> NOTICE:  Slony-I: log switch to sl_log_2 complete - truncate sl_log_1
+>>> CONTEXT:  PL/pgSQL function "cleanupevent" line 99 at assignment
+>>> NOTICE:  Slony-I: Logswitch to sl_log_1 initiated
+>>> CONTEXT:  SQL statement "SELECT  "_sql_cluster_1_2_3_4_9".
+> logswitch_start()"
+>>> PL/pgSQL function "cleanupevent" line 101 at PERFORM
+>>> NOTICE:  Slony-I: Logswitch to sl_log_1 initiated
+>>> CONTEXT:  SQL statement "SELECT  "_sql_cluster_1_2_3_4_9".
+> logswitch_start()"
+>>> PL/pgSQL function "cleanupevent" line 101 at PERFORM
+>>> NOTICE:  Slony-I: Logswitch to sl_log_1 initiated
+>>> CONTEXT:  SQL statement "SELECT  "_sql_cluster_1_2_3_4_9".
+> logswitch_start()"
+>>> PL/pgSQL function "cleanupevent" line 101 at PERFORM
+>>> NOTICE:  Slony-I: Logswitch to sl_log_1 initiated
+>>> CONTEXT:  SQL statement "SELECT  "_sql_cluster_1_2_3_4_9".
+> logswitch_start()"
+>>> PL/pgSQL function "cleanupevent" line 101 at PERFORM
+>>> NOTICE:  Slony-I: Logswitch to sl_log_1 initiated
+>>> CONTEXT:  SQL statement "SELECT  "_sql_cluster_1_2_3_4_9".
+> logswitch_start()"
+>>> PL/pgSQL function "cleanupevent" line 101 at PERFORM
+>>> NOTICE:  Slony-I: log switch to sl_log_1 complete - truncate sl_log_2
+>>> CONTEXT:  PL/pgSQL function "cleanupevent" line 99 at assignment
+>>> NOTICE:  Slony-I: log switch to sl_log_1 complete - truncate sl_log_2
+>>> CONTEXT:  PL/pgSQL function "cleanupevent" line 99 at assignment
+>>> NOTICE:  Slony-I: log switch to sl_log_1 complete - truncate sl_log_2
+>>> CONTEXT:  PL/pgSQL function "cleanupevent" line 99 at assignment
+>>> NOTICE:  Slony-I: log switch to sl_log_1 complete - truncate sl_log_2
+>>> CONTEXT:  PL/pgSQL function "cleanupevent" line 99 at assignment
+>>> NOTICE:  Slony-I: log switch to sl_log_1 complete - truncate sl_log_2
+>>> CONTEXT:  PL/pgSQL function "cleanupevent" line 99 at assignment
+>>>
+>>> ..
+>>> and so on.
+>>> What happen? I need to restart some process or wait the end of the
+> process?
+>>>
+>>> Please help me.
+>>>
+>>> Thanks to all
+>>>
+>>> Francesco
+>>> _______________________________________________
+>>> Slony1-general mailing list
+>>> Slony1-general at lists.slony.info
+>>> http://lists.slony.info/mailman/listinfo/slony1-general
+>>
+>>
+>
+>
+
+
+From francescoboccacci at libero.it  Tue Dec 14 07:58:21 2010
+From: francescoboccacci at libero.it (francescoboccacci at libero.it)
+Date: Tue, 14 Dec 2010 16:58:21 +0100 (CET)
+Subject: [Slony1-general] R: Re: R: Re:  Slony message
+Message-ID: <1291866.2745041292342301783.JavaMail.defaultUser@defaultHost>
+
+Ok..Thanks a lot
+
+Francesco
+
+>----Messaggio originale----
+>Da: ssinger at ca.afilias.info
+>Data: 14/12/2010 16.19
+>A: "francescoboccacci at libero.it"<francescoboccacci at libero.it>
+>Cc: <slony1-general at lists.slony.info>
+>Ogg: Re: R: Re: [Slony1-general] Slony message
+>
+>On 10-12-14 10:14 AM, francescoboccacci at libero.it wrote:
+>> Hi,
+>> sorry if i have no insert a slonik version. I'm a new user of Slonik.
+>> My version is slon version 2.0.4 and i have postgresql 8.4 in my server.
+>> I run subscribe.sh in putty and now my question is:
+>> If i disconnect putty section what happend to my slonik process?
+>> Can i write these log rows into a log files?
+>> Thanks for your help.
+>
+>If you exit putty the slons should continue to run disconnected from the 
+>terminal.
+>
+>If you start the slon processes so that they redirect the standard 
+>output/error to a log file you can redirect them to a log file.
+>
+>
+>
+>You can also get slon to log to syslog
+>http://www.slony.info/documentation/2.0/runtime-config.html
+>
+>
+>
+>>
+>> Francesco
+>>
+>>> ----Messaggio originale----
+>>> Da: ssinger at ca.afilias.info
+>>> Data: 14/12/2010 15.58
+>>> A: "francescoboccacci at libero.it"<francescoboccacci at libero.it>
+>>> Cc:<slony1-general at lists.slony.info>
+>>> Ogg: Re: [Slony1-general] Slony message
+>>>
+>>> On 10-12-14 09:01 AM, francescoboccacci at libero.it wrote:
+>>>> Hi to all.
+>>>> I have some doubts about how slony-I replication process works.
+>>>> I Have one master and 4 slaves that share some tables.
+>>>> I create a cluster script and run it. After i run slon daemon in all
+>> nodes.
+>>>> At
+>>>> the end i run subscribe script. After this operation my server (linux)
+>> show
+>>>> messages but i don't undestand if this is normal or what are. After 2
+>> hours
+>>>> it
+>>>> still show me message like these:
+>>>>
+>>>
+>>> All of the messages below are normal messages from slony during normal
+>>> operations of slony.  I don't see any indication of a problem.
+>>>
+>>> If you connect to your slaves, do you see your data replicated?
+>>>
+>>> If your still having a problem look at what the
+>>> _sql_cluster_1_2_3_4_9.sl_status table contains.
+>>>
+>>> Also it is good practice to include which version of slony your using
+>>> when posting messages to the list.
+>>>
+>>>
+>>>
+>>>>
+>>>>
+>>>>
+>>>>
+>>>> NOTICE:  Slony-I: Logswitch to sl_log_2 initiated
+>>>> CONTEXT:  SQL statement "SELECT  "_sql_cluster_1_2_3_4_9".
+>> logswitch_start()"
+>>>> PL/pgSQL function "cleanupevent" line 101 at PERFORM
+>>>> NOTICE:  Slony-I: Logswitch to sl_log_2 initiated
+>>>> CONTEXT:  SQL statement "SELECT  "_sql_cluster_1_2_3_4_9".
+>> logswitch_start()"
+>>>> PL/pgSQL function "cleanupevent" line 101 at PERFORM
+>>>> NOTICE:  Slony-I: Logswitch to sl_log_2 initiated
+>>>> CONTEXT:  SQL statement "SELECT  "_sql_cluster_1_2_3_4_9".
+>> logswitch_start()"
+>>>> PL/pgSQL function "cleanupevent" line 101 at PERFORM
+>>>> NOTICE:  Slony-I: Logswitch to sl_log_2 initiated
+>>>> CONTEXT:  SQL statement "SELECT  "_sql_cluster_1_2_3_4_9".
+>> logswitch_start()"
+>>>> PL/pgSQL function "cleanupevent" line 101 at PERFORM
+>>>> NOTICE:  Slony-I: Logswitch to sl_log_2 initiated
+>>>> CONTEXT:  SQL statement "SELECT  "_sql_cluster_1_2_3_4_9".
+>> logswitch_start()"
+>>>> PL/pgSQL function "cleanupevent" line 101 at PERFORM
+>>>> NOTICE:  Slony-I: log switch to sl_log_2 complete - truncate sl_log_1
+>>>> CONTEXT:  PL/pgSQL function "cleanupevent" line 99 at assignment
+>>>> NOTICE:  Slony-I: log switch to sl_log_2 complete - truncate sl_log_1
+>>>> CONTEXT:  PL/pgSQL function "cleanupevent" line 99 at assignment
+>>>> NOTICE:  Slony-I: log switch to sl_log_2 complete - truncate sl_log_1
+>>>> CONTEXT:  PL/pgSQL function "cleanupevent" line 99 at assignment
+>>>> NOTICE:  Slony-I: log switch to sl_log_2 complete - truncate sl_log_1
+>>>> CONTEXT:  PL/pgSQL function "cleanupevent" line 99 at assignment
+>>>> NOTICE:  Slony-I: log switch to sl_log_2 complete - truncate sl_log_1
+>>>> CONTEXT:  PL/pgSQL function "cleanupevent" line 99 at assignment
+>>>> NOTICE:  Slony-I: Logswitch to sl_log_1 initiated
+>>>> CONTEXT:  SQL statement "SELECT  "_sql_cluster_1_2_3_4_9".
+>> logswitch_start()"
+>>>> PL/pgSQL function "cleanupevent" line 101 at PERFORM
+>>>> NOTICE:  Slony-I: Logswitch to sl_log_1 initiated
+>>>> CONTEXT:  SQL statement "SELECT  "_sql_cluster_1_2_3_4_9".
+>> logswitch_start()"
+>>>> PL/pgSQL function "cleanupevent" line 101 at PERFORM
+>>>> NOTICE:  Slony-I: Logswitch to sl_log_1 initiated
+>>>> CONTEXT:  SQL statement "SELECT  "_sql_cluster_1_2_3_4_9".
+>> logswitch_start()"
+>>>> PL/pgSQL function "cleanupevent" line 101 at PERFORM
+>>>> NOTICE:  Slony-I: Logswitch to sl_log_1 initiated
+>>>> CONTEXT:  SQL statement "SELECT  "_sql_cluster_1_2_3_4_9".
+>> logswitch_start()"
+>>>> PL/pgSQL function "cleanupevent" line 101 at PERFORM
+>>>> NOTICE:  Slony-I: Logswitch to sl_log_1 initiated
+>>>> CONTEXT:  SQL statement "SELECT  "_sql_cluster_1_2_3_4_9".
+>> logswitch_start()"
+>>>> PL/pgSQL function "cleanupevent" line 101 at PERFORM
+>>>> NOTICE:  Slony-I: log switch to sl_log_1 complete - truncate sl_log_2
+>>>> CONTEXT:  PL/pgSQL function "cleanupevent" line 99 at assignment
+>>>> NOTICE:  Slony-I: log switch to sl_log_1 complete - truncate sl_log_2
+>>>> CONTEXT:  PL/pgSQL function "cleanupevent" line 99 at assignment
+>>>> NOTICE:  Slony-I: log switch to sl_log_1 complete - truncate sl_log_2
+>>>> CONTEXT:  PL/pgSQL function "cleanupevent" line 99 at assignment
+>>>> NOTICE:  Slony-I: log switch to sl_log_1 complete - truncate sl_log_2
+>>>> CONTEXT:  PL/pgSQL function "cleanupevent" line 99 at assignment
+>>>> NOTICE:  Slony-I: log switch to sl_log_1 complete - truncate sl_log_2
+>>>> CONTEXT:  PL/pgSQL function "cleanupevent" line 99 at assignment
+>>>>
+>>>> ..
+>>>> and so on.
+>>>> What happen? I need to restart some process or wait the end of the
+>> process?
+>>>>
+>>>> Please help me.
+>>>>
+>>>> Thanks to all
+>>>>
+>>>> Francesco
+>>>> _______________________________________________
+>>>> Slony1-general mailing list
+>>>> Slony1-general at lists.slony.info
+>>>> http://lists.slony.info/mailman/listinfo/slony1-general
+>>>
+>>>
+>>
+>>
+>
+>
+
+
+
+From JanWieck at Yahoo.com  Tue Dec 14 09:49:44 2010
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Tue, 14 Dec 2010 12:49:44 -0500
+Subject: [Slony1-general] R: Re:  Slony message
+In-Reply-To: <25335560.2730071292339682326.JavaMail.defaultUser@defaultHost>
+References: <25335560.2730071292339682326.JavaMail.defaultUser@defaultHost>
+Message-ID: <4D07AE38.5040201@Yahoo.com>
+
+On 12/14/2010 10:14 AM, francescoboccacci at libero.it wrote:
+> Hi,
+> sorry if i have no insert a slonik version. I'm a new user of Slonik.
+> My version is slon version 2.0.4 and i have postgresql 8.4 in my server.
+> I run subscribe.sh in putty and now my question is:
+> If i disconnect putty section what happend to my slonik process?
+> Can i write these log rows into a log files?
+> Thanks for your help.
+
+It would be a good idea to have the slon daemons start during system 
+start up (rc.d or init.d scripts depending on your environment). 
+Otherwise you run the risk that no replication is happening after a 
+reboot and that tends to build some ugly backlog.
+
+
+Jan
+
+-- 
+Anyone who trades liberty for security deserves neither
+liberty nor security. -- Benjamin Franklin
+
+From francescoboccacci at libero.it  Tue Dec 14 11:58:19 2010
+From: francescoboccacci at libero.it (francescoboccacci at libero.it)
+Date: Tue, 14 Dec 2010 20:58:19 +0100 (CET)
+Subject: [Slony1-general] R: Re:  R: Re:  Slony message
+Message-ID: <20327040.924361292356699625.JavaMail.defaultUser@defaultHost>
+
+
+Thank you for your suggestion. I'm going to insert a script at start up of my 
+system.
+
+Francesco
+>----Messaggio originale----
+>Da: JanWieck at Yahoo.com
+>Data: 14/12/2010 18.49
+>A: "francescoboccacci at libero.it"<francescoboccacci at libero.it>
+>Cc: <ssinger at ca.afilias.info>, <slony1-general at lists.slony.info>
+>Ogg: Re: [Slony1-general] R: Re:  Slony message
+>
+>On 12/14/2010 10:14 AM, francescoboccacci at libero.it wrote:
+>> Hi,
+>> sorry if i have no insert a slonik version. I'm a new user of Slonik.
+>> My version is slon version 2.0.4 and i have postgresql 8.4 in my server.
+>> I run subscribe.sh in putty and now my question is:
+>> If i disconnect putty section what happend to my slonik process?
+>> Can i write these log rows into a log files?
+>> Thanks for your help.
+>
+>It would be a good idea to have the slon daemons start during system 
+>start up (rc.d or init.d scripts depending on your environment). 
+>Otherwise you run the risk that no replication is happening after a 
+>reboot and that tends to build some ugly backlog.
+>
+>
+>Jan
+>
+>-- 
+>Anyone who trades liberty for security deserves neither
+>liberty nor security. -- Benjamin Franklin
+>
+
+
+
+From Ger.Timmens at adyen.com  Wed Dec 15 08:43:00 2010
+From: Ger.Timmens at adyen.com (Ger Timmens)
+Date: Wed, 15 Dec 2010 17:43:00 +0100
+Subject: [Slony1-general] slon_kill
+In-Reply-To: <mailman.1.1292356801.2707.slony1-general@lists.slony.info>
+References: <mailman.1.1292356801.2707.slony1-general@lists.slony.info>
+Message-ID: <4D08F014.900@adyen.com>
+
+L.S.,
+
+We are running slony-1.2.20 and when using the slon_tools utilities
+we encountered the following bug. When you have multiple replication
+clusters running the slon_kill command just kills all slons instead
+of just the ones referenced in the corresponding configuration file.
+
+Just let me know if this is the right place to mention this.
+
+Regards,
+
+Ger Timmens
+
+From smccloud at geo-comm.com  Fri Dec 17 09:03:01 2010
+From: smccloud at geo-comm.com (Shaun McCloud)
+Date: Fri, 17 Dec 2010 17:03:01 +0000
+Subject: [Slony1-general] Slony-I 2.0.4-1 & PostgreSQL 8.4.6 Problem
+Message-ID: <7742DD496427B743BC8B7BBF6D380BA0A52C61@EXCHANGE10.geo-comm.local>
+
+Ok,
+I'm trying to setup a 4 node cluster that I had working fine in Slony-I 1.x & PostgreSQL 8.3.x and running into a major problem.
+
+This is on Windows Server 2008 R2 (currently our only choice for the web app that uses the DB).
+
+I get the following errors when I try to subscribe the client nodes to the master, they appear as subscriptions in the master database but the clients never subscribe.  I am at my wits end and about to wipe the servers out and then reinstall Windows, PostgreSQL, everything else I need.  I know I could go back to PostgreSQL 8.3 but I'd rather run 8.4 since it should be supported longer than 8.3 will be.  All the files I am using for the process are listed below.  The guide I'm using is located at http://www.enterprisedb.com/learning/tutorial/slony_postgresql.do
+
+Any help anyone can provide will be very helpful.
+
+C:\cluster>slonik subscribeset.sk
+subscribeset.sk:5: NOTICE:  subscribe set: omit_copy=f
+subscribeset.sk:5: NOTICE:  subscribe set: omit_copy=f
+CONTEXT:  SQL statement "SELECT  "_ncnccluster".subscribeSet_int( $1 ,  $2 ,  $3 ,  $4 ,  $5 )"
+PL/pgSQL function "subscribeset" line 68 at PERFORM
+subscribeset.sk:6: NOTICE:  subscribe set: omit_copy=f
+subscribeset.sk:6: NOTICE:  subscribe set: omit_copy=f
+CONTEXT:  SQL statement "SELECT  "_ncnccluster".subscribeSet_int( $1 ,  $2 ,  $3 ,  $4 ,  $5 )"
+PL/pgSQL function "subscribeset" line 68 at PERFORM
+subscribeset.sk:7: NOTICE:  subscribe set: omit_copy=f
+subscribeset.sk:7: NOTICE:  subscribe set: omit_copy=f
+CONTEXT:  SQL statement "SELECT  "_ncnccluster".subscribeSet_int( $1 ,  $2 ,  $3 ,  $4 ,  $5 )"
+PL/pgSQL function "subscribeset" line 68 at PERFORM
+
+The files I'm using for building the replication cluster are as follows (using the guide I found at EnterpriseDB)
+
+Preamble.sk
+# file preamble.sk
+
+cluster name = ncnccluster;
+node 1 admin conninfo = 'dbname=ncnc host=192.168.7.80 user=sde password=geocomm';
+node 2 admin conninfo = 'dbname=ncnc host=192.168.7.81 user=sde password=geocomm';
+node 3 admin conninfo = 'dbname=ncnc host=192.168.7.82 user=sde password=geocomm';
+node 4 admin conninfo = 'dbname=ncnc host=192.168.7.83 user=sde password=geocomm';
+
+Initcluster.sk
+# file initcluster.sk
+
+include <preamble.sk>;
+
+init cluster (id=1, comment='hostname=192.168.7.80');
+
+Addnode.sk
+# file addnode.sk
+
+include <preamble.sk>;
+
+store node (id=2, comment='hostname=192.168.7.81', event node=1);
+store node (id=3, comment='hostname=192.168.7.82', event node=1);
+store node (id=4, comment='hostname=192.168.7.83', event node=1);
+
+Addpaths.sk
+# file addpaths.sk
+
+include <preamble.sk>;
+
+store path (server=1, client=2, conninfo='dbname=ncnc host=192.168.7.80 user=sde password=password');
+store path (server=1, client=3, conninfo='dbname=ncnc host=192.168.7.80 user=sde password=password');
+store path (server=1, client=4, conninfo='dbname=ncnc host=192.168.7.80 user=sde password=password');
+store path (server=2, client=1, conninfo='dbname=ncnc host=192.168.7.81 user=sde password=password');
+store path (server=2, client=3, conninfo='dbname=ncnc host=192.168.7.81 user=sde password=password');
+store path (server=2, client=4, conninfo='dbname=ncnc host=192.168.7.81 user=sde password=password');
+store path (server=3, client=1, conninfo='dbname=ncnc host=192.168.7.82 user=sde password=password');
+store path (server=3, client=2, conninfo='dbname=ncnc host=192.168.7.82 user=sde password=password');
+store path (server=3, client=4, conninfo='dbname=ncnc host=192.168.7.82 user=sde password=password');
+store path (server=4, client=1, conninfo='dbname=ncnc host=192.168.7.83 user=sde password=password');
+store path (server=4, client=2, conninfo='dbname=ncnc host=192.168.7.83 user=sde password=password');
+store path (server=4, client=3, conninfo='dbname=ncnc host=192.168.7.83 user=sde password=password');
+
+192.168.7.80.slon
+# file 192.168.7.80.slon
+
+cluster='ncnccluster'
+conn_info='dbname=ncnc host=192.168.7.80 user=sde password=password'
+
+192.168.7.81.slon
+# file 192.168.7.81.slon
+
+cluster='ncnccluster'
+conn_info='dbname=ncnc host=192.168.7.81 user=sde password=password'
+
+192.168.7.82.slon
+# file 192.168.7.82.slon
+
+cluster='ncnccluster'
+conn_info='dbname=ncnc host=192.168.7.82 user=sde password=password'
+
+192.168.7.83.slon
+# file 192.168.7.83.slon
+
+cluster='ncnccluster'
+conn_info='dbname=ncnc host=192.168.7.83 user=sde password=password'
+
+Buildset.sk
+# file buildset.sk
+
+include <preamble.sk>;
+
+create set (id=1, origin=1, comment='NCNC Regional Dataset');
+
+Addtables.sk
+# file addtables.sk
+
+include <preamble.sk>;
+
+set add table(set id=1,origin=1, id=1, fully qualified name='sde.alt_routing',key='ar_pk',comment='Alternate routing data');
+set add table(set id=1,origin=1, id=2, fully qualified name='sde.centerline',key='cl_pk',comment='Centerline data');
+set add table(set id=1,origin=1, id=3, fully qualified name='sde.county',key='ct_pk',comment='County data');
+set add table(set id=1,origin=1, id=4, fully qualified name='sde.fire_service_boundary',key='fsb_pk',comment='Fire service boundary data');
+set add table(set id=1,origin=1, id=5, fully qualified name='sde.law_service_boundary',key='lsb_pk',comment='Law service boundary data');
+set add table(set id=1,origin=1, id=6, fully qualified name='sde.medical_service_boundary',key='msb_pk',comment='Medical service boundary data');
+set add table(set id=1,origin=1, id=7, fully qualified name='sde.municpal_boundary',key='mb_pk',comment='Municpal boundary data');
+set add table(set id=1,origin=1, id=8, fully qualified name='sde.psap',key='psap_pk',comment='PSAP data');
+set add table(set id=1,origin=1, id=9, fully qualified name='sde.rescue_service_boundary',key='rsb_pk',comment='Rescue service boundary data');
+set add table(set id=1,origin=1, id=10, fully qualified name='sde.structures',key='s_pk',comment='Structures data');
+
+Subscribeset.sk
+# file subscribeset.sk
+
+include <preamble.sk>;
+
+subscribe set (id=1, provider=1, receiver=2, forward=yes);
+sync(id=1);
+wait for event (origin=1, confirmed=2, wait on=1);
+subscribe set (id=1, provider=1, receiver=3, forward=yes);
+sync(id=1);
+wait for event (origin=1, confirmed=3, wait on=1);
+subscribe set (id=1, provider=1, receiver=4, forward=yes);
+sync(id=1);
+wait for event (origin=1, confirmed=4, wait on=1);
+
+
+Shaun McCloud - Software Testing Analyst
+GeoComm Inc.
+601 W. Saint Germain St., Saint Cloud, MN 56301
+Office: 320.240.0040 Fax: 320.240.2389 Toll Free: 888.436.2666
+click here to visit www.geo-comm.com<http://www.geo-comm.com/>
+Microsoft Certified Desktop Support Technician (MCDST)
+Do or do not, there is no try.
+    -Yoda
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20101217/21378f16/attachment.htm 
+
+From ssinger at ca.afilias.info  Fri Dec 17 09:43:13 2010
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Fri, 17 Dec 2010 12:43:13 -0500
+Subject: [Slony1-general] Slony-I 2.0.4-1 & PostgreSQL 8.4.6 Problem
+In-Reply-To: <7742DD496427B743BC8B7BBF6D380BA0A52C61@EXCHANGE10.geo-comm.local>
+References: <7742DD496427B743BC8B7BBF6D380BA0A52C61@EXCHANGE10.geo-comm.local>
+Message-ID: <4D0BA131.5040809@ca.afilias.info>
+
+On 10-12-17 12:03 PM, Shaun McCloud wrote:
+> Ok,
+>
+> I?m trying to setup a 4 node cluster that I had working fine in Slony-I
+> 1.x & PostgreSQL 8.3.x and running into a major problem.
+>
+
+What is the problem?
+
+
+> This is on Windows Server 2008 R2 (currently our only choice for the web
+> app that uses the DB).
+>
+> I get the following errors when I try to subscribe the client nodes to
+> the master, they appear as subscriptions in the master database but the
+> clients never subscribe. I am at my wits end and about to wipe the
+> servers out and then reinstall Windows, PostgreSQL, everything else I
+> need. I know I could go back to PostgreSQL 8.3 but I?d rather run 8.4
+> since it should be supported longer than 8.3 will be. All the files I am
+> using for the process are listed below. The guide I?m using is located
+> at http://www.enterprisedb.com/learning/tutorial/slony_postgresql.do
+>
+> Any help anyone can provide will be very helpful.
+>
+> C:\cluster>slonik subscribeset.sk
+>
+> subscribeset.sk:5: NOTICE: subscribe set: omit_copy=f
+>
+> subscribeset.sk:5: NOTICE: subscribe set: omit_copy=f
+>
+> CONTEXT: SQL statement "SELECT "_ncnccluster".subscribeSet_int( $1 , $2
+> , $3 , $4 , $5 )"
+>
+> PL/pgSQL function "subscribeset" line 68 at PERFORM
+>
+> subscribeset.sk:6: NOTICE: subscribe set: omit_copy=f
+>
+> subscribeset.sk:6: NOTICE: subscribe set: omit_copy=f
+>
+> CONTEXT: SQL statement "SELECT "_ncnccluster".subscribeSet_int( $1 , $2
+> , $3 , $4 , $5 )"
+>
+> PL/pgSQL function "subscribeset" line 68 at PERFORM
+>
+> subscribeset.sk:7: NOTICE: subscribe set: omit_copy=f
+>
+> subscribeset.sk:7: NOTICE: subscribe set: omit_copy=f
+>
+> CONTEXT: SQL statement "SELECT "_ncnccluster".subscribeSet_int( $1 , $2
+> , $3 , $4 , $5 )"
+>
+> PL/pgSQL function "subscribeset" line 68 at PERFORM
+
+
+None of those messages are errors, it looks to me like things might be 
+working properly.  In windows I THINK slon logs to the windows event log 
+(but I might be mistaken)   Did you see error messages from there 
+indicating slon was having issues.
+
+It also looks like that at least your first subscribe set finished 
+successfully.
+
+
+From cbbrowne at ca.afilias.info  Fri Dec 17 10:09:23 2010
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Fri, 17 Dec 2010 13:09:23 -0500
+Subject: [Slony1-general] Slony-I 2.0.4-1 & PostgreSQL 8.4.6 Problem
+In-Reply-To: <4D0BA131.5040809@ca.afilias.info> (Steve Singer's message of
+	"Fri, 17 Dec 2010 12:43:13 -0500")
+References: <7742DD496427B743BC8B7BBF6D380BA0A52C61@EXCHANGE10.geo-comm.local>
+	<4D0BA131.5040809@ca.afilias.info>
+Message-ID: <87d3p0z2y4.fsf@cbbrowne.afilias-int.info>
+
+Steve Singer <ssinger at ca.afilias.info> writes:
+> On 10-12-17 12:03 PM, Shaun McCloud wrote:
+>> Ok,
+>>
+>> I?m trying to setup a 4 node cluster that I had working fine in Slony-I
+>> 1.x & PostgreSQL 8.3.x and running into a major problem.
+>>
+>
+> What is the problem?
+>
+>
+>> This is on Windows Server 2008 R2 (currently our only choice for the web
+>> app that uses the DB).
+>>
+>> I get the following errors when I try to subscribe the client nodes to
+>> the master, they appear as subscriptions in the master database but the
+>> clients never subscribe. I am at my wits end and about to wipe the
+>> servers out and then reinstall Windows, PostgreSQL, everything else I
+>> need. I know I could go back to PostgreSQL 8.3 but I?d rather run 8.4
+>> since it should be supported longer than 8.3 will be. All the files I am
+>> using for the process are listed below. The guide I?m using is located
+>> at http://www.enterprisedb.com/learning/tutorial/slony_postgresql.do
+>>
+>> Any help anyone can provide will be very helpful.
+>>
+>> C:\cluster>slonik subscribeset.sk
+>>
+>> subscribeset.sk:5: NOTICE: subscribe set: omit_copy=f
+>>
+>> subscribeset.sk:5: NOTICE: subscribe set: omit_copy=f
+>>
+>> CONTEXT: SQL statement "SELECT "_ncnccluster".subscribeSet_int( $1 , $2
+>> , $3 , $4 , $5 )"
+>>
+>> PL/pgSQL function "subscribeset" line 68 at PERFORM
+>>
+>> subscribeset.sk:6: NOTICE: subscribe set: omit_copy=f
+>>
+>> subscribeset.sk:6: NOTICE: subscribe set: omit_copy=f
+>>
+>> CONTEXT: SQL statement "SELECT "_ncnccluster".subscribeSet_int( $1 , $2
+>> , $3 , $4 , $5 )"
+>>
+>> PL/pgSQL function "subscribeset" line 68 at PERFORM
+>>
+>> subscribeset.sk:7: NOTICE: subscribe set: omit_copy=f
+>>
+>> subscribeset.sk:7: NOTICE: subscribe set: omit_copy=f
+>>
+>> CONTEXT: SQL statement "SELECT "_ncnccluster".subscribeSet_int( $1 , $2
+>> , $3 , $4 , $5 )"
+>>
+>> PL/pgSQL function "subscribeset" line 68 at PERFORM
+>
+>
+> None of those messages are errors, it looks to me like things might be 
+> working properly.  In windows I THINK slon logs to the windows event log 
+> (but I might be mistaken)   Did you see error messages from there 
+> indicating slon was having issues.
+>
+> It also looks like that at least your first subscribe set finished 
+> successfully.
+
+Indeed, those are just NOTICE messages, added in at the start of the
+function subscribeSet() and subscribeSet_int(), presumably as part of
+the process of validating functionality of omit_copy.
+
+Those messages should get removed; I'll see about doing that in HEAD.
+
+There could be a problem here, but the messages that are being indicated
+don't indicate problems.
+-- 
+(format nil "~S@~S" "cbbrowne" "ca.afilias.info")
+Christopher Browne
+"Bother,"  said Pooh,  "Eeyore, ready  two photon  torpedoes  and lock
+phasers on the Heffalump, Piglet, meet me in transporter room three"
+
+From smccloud at geo-comm.com  Fri Dec 17 11:35:18 2010
+From: smccloud at geo-comm.com (Shaun McCloud)
+Date: Fri, 17 Dec 2010 19:35:18 +0000
+Subject: [Slony1-general] Slony-I 2.0.4-1 & PostgreSQL 8.4.6 Problem
+In-Reply-To: <87d3p0z2y4.fsf@cbbrowne.afilias-int.info>
+References: <7742DD496427B743BC8B7BBF6D380BA0A52C61@EXCHANGE10.geo-comm.local>
+	<4D0BA131.5040809@ca.afilias.info>
+	<87d3p0z2y4.fsf@cbbrowne.afilias-int.info>
+Message-ID: <7742DD496427B743BC8B7BBF6D380BA0A53071@EXCHANGE10.geo-comm.local>
+
+I tried again from within PGAdmin III and got told that it couldn't execute SELECT _ncnccluster.subscribeset
+
+Since the servers have to be shipped out next week, I am just going to roll back to PostgreSQL 8.3.x since I know I can get that working and then do more testing with 8.4 in the lab.
+
+Shaun McCloud - Software Testing Analyst
+GeoComm Inc.
+601 W. Saint Germain St., Saint Cloud, MN 56301
+Office: 320.240.0040 Fax: 320.240.2389 Toll Free: 888.436.2666
+click here to visit www.geo-comm.com
+Microsoft Certified Desktop Support Technician (MCDST) 
+Do or do not, there is no try.
+    -Yoda
+
+
+-----Original Message-----
+From: slony1-general-bounces at lists.slony.info [mailto:slony1-general-bounces at lists.slony.info] On Behalf Of Christopher Browne
+Sent: Friday, December 17, 2010 12:09
+To: Steve Singer
+Cc: slony1-general at lists.slony.info
+Subject: Re: [Slony1-general] Slony-I 2.0.4-1 & PostgreSQL 8.4.6 Problem
+
+Steve Singer <ssinger at ca.afilias.info> writes:
+> On 10-12-17 12:03 PM, Shaun McCloud wrote:
+>> Ok,
+>>
+>> I?m trying to setup a 4 node cluster that I had working fine in 
+>> Slony-I 1.x & PostgreSQL 8.3.x and running into a major problem.
+>>
+>
+> What is the problem?
+>
+>
+>> This is on Windows Server 2008 R2 (currently our only choice for the 
+>> web app that uses the DB).
+>>
+>> I get the following errors when I try to subscribe the client nodes 
+>> to the master, they appear as subscriptions in the master database 
+>> but the clients never subscribe. I am at my wits end and about to 
+>> wipe the servers out and then reinstall Windows, PostgreSQL, 
+>> everything else I need. I know I could go back to PostgreSQL 8.3 but 
+>> I?d rather run 8.4 since it should be supported longer than 8.3 will 
+>> be. All the files I am using for the process are listed below. The 
+>> guide I?m using is located at 
+>> http://www.enterprisedb.com/learning/tutorial/slony_postgresql.do
+>>
+>> Any help anyone can provide will be very helpful.
+>>
+>> C:\cluster>slonik subscribeset.sk
+>>
+>> subscribeset.sk:5: NOTICE: subscribe set: omit_copy=f
+>>
+>> subscribeset.sk:5: NOTICE: subscribe set: omit_copy=f
+>>
+>> CONTEXT: SQL statement "SELECT "_ncnccluster".subscribeSet_int( $1 , 
+>> $2 , $3 , $4 , $5 )"
+>>
+>> PL/pgSQL function "subscribeset" line 68 at PERFORM
+>>
+>> subscribeset.sk:6: NOTICE: subscribe set: omit_copy=f
+>>
+>> subscribeset.sk:6: NOTICE: subscribe set: omit_copy=f
+>>
+>> CONTEXT: SQL statement "SELECT "_ncnccluster".subscribeSet_int( $1 , 
+>> $2 , $3 , $4 , $5 )"
+>>
+>> PL/pgSQL function "subscribeset" line 68 at PERFORM
+>>
+>> subscribeset.sk:7: NOTICE: subscribe set: omit_copy=f
+>>
+>> subscribeset.sk:7: NOTICE: subscribe set: omit_copy=f
+>>
+>> CONTEXT: SQL statement "SELECT "_ncnccluster".subscribeSet_int( $1 , 
+>> $2 , $3 , $4 , $5 )"
+>>
+>> PL/pgSQL function "subscribeset" line 68 at PERFORM
+>
+>
+> None of those messages are errors, it looks to me like things might be 
+> working properly.  In windows I THINK slon logs to the windows event log
+> (but I might be mistaken)   Did you see error messages from there 
+> indicating slon was having issues.
+>
+> It also looks like that at least your first subscribe set finished 
+> successfully.
+
+Indeed, those are just NOTICE messages, added in at the start of the function subscribeSet() and subscribeSet_int(), presumably as part of the process of validating functionality of omit_copy.
+
+Those messages should get removed; I'll see about doing that in HEAD.
+
+There could be a problem here, but the messages that are being indicated don't indicate problems.
+--
+(format nil "~S@~S" "cbbrowne" "ca.afilias.info") Christopher Browne "Bother,"  said Pooh,  "Eeyore, ready  two photon  torpedoes  and lock phasers on the Heffalump, Piglet, meet me in transporter room three"
+_______________________________________________
+Slony1-general mailing list
+Slony1-general at lists.slony.info
+http://lists.slony.info/mailman/listinfo/slony1-general
+
+From scott.marlowe at gmail.com  Sat Dec 18 23:14:58 2010
+From: scott.marlowe at gmail.com (Scott Marlowe)
+Date: Sun, 19 Dec 2010 00:14:58 -0700
+Subject: [Slony1-general] can't drop set.
+Message-ID: <AANLkTikFLk69Bc-i193BRhoYFKXSEr=-ajov3fCuMgWs@mail.gmail.com>
+
+So, I've got a 5 node system, and some of the nodes have entries for a
+test set, and some don't.  The "control" or local machine does not.
+when running drop set I get the error
+
+Slonik script:
+
+cluster name = slony_www;
+node 6 admin conninfo='host=db6 dbname=www user=slony port=5432';
+
+  cluster name = slony_www;
+ node 6 admin conninfo='host=db6 dbname=www user=slony port=5432';
+ node 7 admin conninfo='host=db7 dbname=www user=slony port=5432';
+ node 3 admin conninfo='host=db7 dbname=www user=slony port=5433';
+ node 1 admin conninfo='host=db1 dbname=www user=slony port=5432';
+ node 2 admin conninfo='host=db2 dbname=www user=slony port=5432';
+
+echo 'Dropping set 204';
+try {
+    drop set (id = 204, origin = 6);
+  }
+  on error {
+    exit 1;
+  }
+  echo 'Dropped Set 204';
+
+
+<stdin>:5: PGRES_FATAL_ERROR select "_slony_www".dropSet(204);  -
+ERROR:  Slony-I: set 204 does not originate on local node
+
+The entry for the 204 set is on nodes 6, 7, 3, and 1.  Node 2 is the
+control node that is missing the entry.
+
+It takes somewhere on the order of a half a day to re-establish slony
+replication if I have to tear it all down and start over, so I'd like
+to just be able to drop this half-created set.  But it won't go.
+
+-- 
+To understand recursion, one must first understand recursion.
+
+From ssinger at ca.afilias.info  Sun Dec 19 20:21:39 2010
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Sun, 19 Dec 2010 23:21:39 -0500
+Subject: [Slony1-general] can't drop set.
+In-Reply-To: <AANLkTikFLk69Bc-i193BRhoYFKXSEr=-ajov3fCuMgWs@mail.gmail.com>
+References: <AANLkTikFLk69Bc-i193BRhoYFKXSEr=-ajov3fCuMgWs@mail.gmail.com>
+Message-ID: <4D0ED9D3.6000805@ca.afilias.info>
+
+On 10-12-19 02:14 AM, Scott Marlowe wrote:
+> So, I've got a 5 node system, and some of the nodes have entries for a
+> test set, and some don't.  The "control" or local machine does not.
+> when running drop set I get the error
+>
+
+I'm not sure what you mean by "control" node.
+
+Which node is the origin  of the set your trying to drop? Is it node 6? 
+What is in sl_set on node 6?  The origin parameter drop DROP SET should 
+be the set origin.
+
+
+> Slonik script:
+>
+> cluster name = slony_www;
+> node 6 admin conninfo='host=db6 dbname=www user=slony port=5432';
+>
+>    cluster name = slony_www;
+>   node 6 admin conninfo='host=db6 dbname=www user=slony port=5432';
+>   node 7 admin conninfo='host=db7 dbname=www user=slony port=5432';
+>   node 3 admin conninfo='host=db7 dbname=www user=slony port=5433';
+>   node 1 admin conninfo='host=db1 dbname=www user=slony port=5432';
+>   node 2 admin conninfo='host=db2 dbname=www user=slony port=5432';
+>
+> echo 'Dropping set 204';
+> try {
+>      drop set (id = 204, origin = 6);
+>    }
+>    on error {
+>      exit 1;
+>    }
+>    echo 'Dropped Set 204';
+>
+>
+> <stdin>:5: PGRES_FATAL_ERROR select "_slony_www".dropSet(204);  -
+> ERROR:  Slony-I: set 204 does not originate on local node
+>
+> The entry for the 204 set is on nodes 6, 7, 3, and 1.  Node 2 is the
+> control node that is missing the entry.
+>
+> It takes somewhere on the order of a half a day to re-establish slony
+> replication if I have to tear it all down and start over, so I'd like
+> to just be able to drop this half-created set.  But it won't go.
+>
+
+
+From johnlicheng at gmail.com  Mon Dec 20 08:50:55 2010
+From: johnlicheng at gmail.com (John Cheng)
+Date: Mon, 20 Dec 2010 08:50:55 -0800
+Subject: [Slony1-general] Slony replication falling behind
+Message-ID: <AANLkTimqWuJJASyx=s5VjMVAX=-4tLomu7n5yGe7ToJY@mail.gmail.com>
+
+Hi,
+
+We have a production system where our Slony replication process (one
+master to one slave) appears to be falling behind. The sl_log_1 table
+on the master keeps increasing in size while the slave is consistently
+100% utilized. The slave appears to be executing update/insert/delete
+statements that have been queued up by Slony.
+
+I'm not sure how to go about troubleshooting whether slony is just
+falling behind or if it is not replicating at all.
+
+I suspect a new nightly process that batch deletes and loads hundreds
+of thousands of records could've caused this behavior, and the tables
+involved in this process should not be replicated by Slony. If I were
+to remove this table from the replication set (using the SET DROP
+TABLE slonik script), would that automatically help Slony replication
+catch up? How does Slony handle pending updates when you remove an
+affected table from the replication set.
+
+
+-- 
+---
+John L Cheng
+
+From JanWieck at Yahoo.com  Mon Dec 20 09:28:10 2010
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Mon, 20 Dec 2010 12:28:10 -0500
+Subject: [Slony1-general] Slony replication falling behind
+In-Reply-To: <AANLkTimqWuJJASyx=s5VjMVAX=-4tLomu7n5yGe7ToJY@mail.gmail.com>
+References: <AANLkTimqWuJJASyx=s5VjMVAX=-4tLomu7n5yGe7ToJY@mail.gmail.com>
+Message-ID: <4D0F922A.3060700@Yahoo.com>
+
+On 12/20/2010 11:50 AM, John Cheng wrote:
+> Hi,
+>
+> We have a production system where our Slony replication process (one
+> master to one slave) appears to be falling behind. The sl_log_1 table
+> on the master keeps increasing in size while the slave is consistently
+> 100% utilized. The slave appears to be executing update/insert/delete
+> statements that have been queued up by Slony.
+>
+> I'm not sure how to go about troubleshooting whether slony is just
+> falling behind or if it is not replicating at all.
+>
+> I suspect a new nightly process that batch deletes and loads hundreds
+> of thousands of records could've caused this behavior,
+
+This is a known problem and will be addressed in version 2.1. At this 
+point I unfortunately cannot tell when exactly 2.1 will be released.
+
+See bug 167 here: http://www.slony.info/bugzilla/show_bug.cgi?id=167
+
+We also consider backpatching this into 2.0, but that is a rather 
+drastic change to a STABLE branch.
+
+> ... and the tables
+> involved in this process should not be replicated by Slony. If I were
+> to remove this table from the replication set (using the SET DROP
+> TABLE slonik script), would that automatically help Slony replication
+> catch up? How does Slony handle pending updates when you remove an
+> affected table from the replication set.
+
+Slony would not propagate that SET DROP TABLE until it has caught up 
+with the backlog.
+
+You could note the table ID from sl_table, remove it from the set via 
+SET DROP TABLE and then manually delete all rows from sl_log_1 and 
+sl_log_2 that belong to that log_tableid. This should cause any ill side 
+effects.
+
+
+Jan
+
+-- 
+Anyone who trades liberty for security deserves neither
+liberty nor security. -- Benjamin Franklin
+
+From zhidong.she at gmail.com  Tue Dec 21 23:45:10 2010
+From: zhidong.she at gmail.com (Zhidong She)
+Date: Wed, 22 Dec 2010 15:45:10 +0800
+Subject: [Slony1-general] A getlocalnodeid bug?
+Message-ID: <AANLkTinS23Jue0ZpSiigMs_jz1cs8__mBRhbOgeHMYmk@mail.gmail.com>
+
+Hi all,
+
+We are using slonyI 2.0.5 to build our master/slave postgres HA solution for
+our project. So far slonyI works fine except for a strange getlocalnodeid
+issue. Could somebody please help to figure me out?
+
+The scenario is, we have host A as master (define as node 1 in slonic), host
+B (node 2) as slave at beginning. The data was replicated to host B from A
+by slony.
+Then we stop postgres on host A, and in host B run failover command and drop
+node A from cluster. Thus the db service was switch to host B.
+
+Establish a connection to host B via psql, and execute "select
+_cluster.getlocalnodeid('_cluster')", it returns 2. Keep this connection for
+a while.
+
+So far everything is good.
+
+Stop all slon process on host A and B.
+Then start the postgres server on host A, and in both host A and host B,
+execute "drop schema _cluster cascade" to clean all the cluster information.
+
+Build the cluster again, this time host B as master (node 1), host A as
+slave (node 2), and start the slon in both nodes.
+
+Setup a new connection to host B and execute same "select
+_cluster.getlocalnodeid('_cluster')", it returns 1.
+But in the old connection we kept before, this command still return 2. At
+the same time, in old connection, the update/insert/delete operation can not
+be synchronized to host A.
+It's strange that the cluster is rebuilt and slon is restarted but why only
+old connection the localnodeid is still 2 and can not be resynchronized?
+
+Anyone idea?
+
+Thanks very much for your time!
+
+Br,
+Zhidong
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20101222/0f9293ea/attachment.htm 
+
+From ssinger at ca.afilias.info  Wed Dec 22 06:57:53 2010
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Wed, 22 Dec 2010 09:57:53 -0500
+Subject: [Slony1-general] A getlocalnodeid bug?
+In-Reply-To: <AANLkTinS23Jue0ZpSiigMs_jz1cs8__mBRhbOgeHMYmk@mail.gmail.com>
+References: <AANLkTinS23Jue0ZpSiigMs_jz1cs8__mBRhbOgeHMYmk@mail.gmail.com>
+Message-ID: <4D1211F1.9040007@ca.afilias.info>
+
+On 10-12-22 02:45 AM, Zhidong She wrote:
+> Hi all,
+
+The old connection has a cached query plan for the getLocalNodeId() 
+function.
+
+If you uninstall a slony node any database connections that were open 
+from before slony might not behave as expected.
+
+
+
+
+>
+> We are using slonyI 2.0.5 to build our master/slave postgres HA solution
+> for our project. So far slonyI works fine except for a strange
+> getlocalnodeid issue. Could somebody please help to figure me out?
+>
+> The scenario is, we have host A as master (define as node 1 in slonic),
+> host B (node 2) as slave at beginning. The data was replicated to host B
+> from A by slony.
+> Then we stop postgres on host A, and in host B run failover command and
+> drop node A from cluster. Thus the db service was switch to host B.
+>
+> Establish a connection to host B via psql, and execute "select
+> _cluster.getlocalnodeid('_cluster')", it returns 2. Keep this connection
+> for a while.
+>
+> So far everything is good.
+>
+> Stop all slon process on host A and B.
+> Then start the postgres server on host A, and in both host A and host B,
+> execute "drop schema _cluster cascade" to clean all the cluster information.
+>
+> Build the cluster again, this time host B as master (node 1), host A as
+> slave (node 2), and start the slon in both nodes.
+>
+> Setup a new connection to host B and execute same "select
+> _cluster.getlocalnodeid('_cluster')", it returns 1.
+> But in the old connection we kept before, this command still return 2.
+> At the same time, in old connection, the update/insert/delete operation
+> can not be synchronized to host A.
+> It's strange that the cluster is rebuilt and slon is restarted but why
+> only old connection the localnodeid is still 2 and can not be
+> resynchronized?
+>
+> Anyone idea?
+>
+> Thanks very much for your time!
+>
+> Br,
+> Zhidong
+>
+>
+>
+>
+>
+>
+>
+>
+>
+>
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+
+
+From JanWieck at Yahoo.com  Wed Dec 22 10:06:27 2010
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Wed, 22 Dec 2010 13:06:27 -0500
+Subject: [Slony1-general] Generating SQL statement from
+	SYNC	sl_event.ev_seqno
+In-Reply-To: <87tyilz32e.fsf@cbbrowne.afilias-int.info>
+References: <AANLkTin7ZfzqmtTh9PnveML_nCYCoyJCAH=nebgL_TKn@mail.gmail.com>
+	<87tyilz32e.fsf@cbbrowne.afilias-int.info>
+Message-ID: <4D123E23.6080107@Yahoo.com>
+
+On 12/10/2010 5:16 PM, Christopher Browne wrote:
+> luda posch<ludaludaluda at gmail.com>  writes:
+>>  I want to be able to see specifically what sql statements pertain to which SYNC
+>>  events.  It does not look like either of my log tables have any relation to the
+>>  sl_event.ev_seqno, although I do see in the log tables things that look like
+>>  that is where the information i am looking for is (ie: log_cmdtype,
+>>  log_cmddata)
+>>
+>>  I thought that log_actionseq would pertain to sl_event.ev_seqno, but no entires
+>>  exist in my logs where log_actionseq=ev_seqno, so I am confused.
+>>
+>>  does anybody know where to find this information?
+>>
+>>  (I am not looking for an algorithm to convert log_cmdtype and log_cmddata into
+>>  SQL statements, I am looking for the location of the specific information
+>>  pertaining to a SYNC event.)
+>
+> Definitely nontrivial.
+>
+> The association is that a SYNC consists of all the transactions with
+> XIDs that are:
+>   a) After the previous SYNC
+>   b) Before the current SYNC
+>   c) Not outstanding in the current SYNC
+>   d) Possibly from before the previous SYNC, but committed after that
+>      SYNC.
+>
+> [Possibly that's not a perfect explanation...  The query that computes
+> the relationship between a SYNC and the sl_log_* entries for it is
+> pretty gory!]
+
+Let me try.
+
+On any given node there is a row in sl_setsync for each set, the node is 
+subscribed to. sl_setsync.ssy_snapshot is the txid_snapshot of the last 
+processed sync. Let that be snapshot1.
+
+There is also a txid_snapshot coming with the next SYNC event which is 
+sl_event.ev_snapshot. Let that be snapshot2.
+
+These are serializable transaction snapshots generated by the SYNC 
+events on the origin. The log rows contain a log_txid field that tells 
+which transaction on the origin had created them. In Postgres a 
+serializable transaction can only see rows that were committed before 
+the transaction created its snapshot.
+
+To get all the sl_log_1 and sl_log_2 rows, that need to be processed to 
+get the subscriber from snapshot1 (where it is now) to snapshot2, we 
+have to select all the log rows who's log_txid was NOT visible by 
+snapshot1 and was visible by snapshot2. This way Slony subscribers 
+always leap from one serializable snapshot (of the origin) to another. 
+In other words, after processing this part of the log, the subscriber 
+database looks exactly like the origin looked to the serializable 
+transaction that created snapshot2. Had that transaction been a pg_dump 
+instead, the dump would contain exactly what the subscriber looks like 
+right now.
+
+The actual query that implements this logic looks like this:
+
+> select log_origin, log_txid, log_tableid, log_actionseq,
+> 		log_cmdtype, octet_length(log_cmddata),
+> 		case when octet_length(log_cmddata) <= 8192 then log_cmddata else null end
+> 	from "_T1".sl_log_1
+> 	where log_origin = 11
+> 	and log_tableid in (1,2,3,4)
+> 	and log_txid >= '6594216' and log_txid < '6594282'
+> 	and "pg_catalog".txid_visible_in_snapshot(log_txid, '6594282:6594282:')
+> union all
+> select log_origin, log_txid, log_tableid, log_actionseq,
+> 		log_cmdtype, octet_length(log_cmddata),
+> 		case when octet_length(log_cmddata) <= 8192 then log_cmddata else null end
+> 	from "_T1".sl_log_1
+> 	where log_origin = 11
+> 	and log_tableid in (1,2,3,4)
+> 	and log_txid in (
+> 		select * from "pg_catalog".txid_snapshot_xip('6594216:6594216:')
+> 		except
+> 		select * from "pg_catalog".txid_snapshot_xip('6594282:6594282:')
+> 	)
+>
+> order by log_actionseq
+
+And there are two more UNION ALL's for the other sl_log table while a 
+log switch is in progress. To make matters even worse, the snapshot 
+information in this query comes partially from the event on the data 
+provider and partially from the sl_setsync table on the subscriber. 
+Since the event corresponding to the sl_setsync entry has been confirmed 
+already, it might not exist on the data provider any more. So you 
+definitely need to query both databases to get all the information 
+needed to assemble that query.
+
+Anyhow, this is definitely not a query to quickly type into psql.
+
+
+Jan
+
+-- 
+Anyone who trades liberty for security deserves neither
+liberty nor security. -- Benjamin Franklin
+
+From zhidong.she at gmail.com  Thu Dec 23 01:18:23 2010
+From: zhidong.she at gmail.com (Zhidong She)
+Date: Thu, 23 Dec 2010 17:18:23 +0800
+Subject: [Slony1-general] A getlocalnodeid bug?
+In-Reply-To: <4D1211F1.9040007@ca.afilias.info>
+References: <AANLkTinS23Jue0ZpSiigMs_jz1cs8__mBRhbOgeHMYmk@mail.gmail.com>
+	<4D1211F1.9040007@ca.afilias.info>
+Message-ID: <AANLkTinhtL746P_E7fneo8pBU2EWtusvDgbfNAv9LtUv@mail.gmail.com>
+
+The cached query plan is not same as cached data, right? I think the data
+(node id) should be new since I totally destroied the cluster and rebuilt
+it.
+
+The purpose of uninstall and rebuild the cluster is that we want to add the
+failure node back to cluster and let it be a new slave node rahter than
+master original.
+Is there other method can implement rejoining the cluster?
+
+On Wed, Dec 22, 2010 at 10:57 PM, Steve Singer <ssinger at ca.afilias.info>wrote:
+
+> On 10-12-22 02:45 AM, Zhidong She wrote:
+>
+>> Hi all,
+>>
+>
+> The old connection has a cached query plan for the getLocalNodeId()
+> function.
+>
+> If you uninstall a slony node any database connections that were open from
+> before slony might not behave as expected.
+>
+>
+>
+>
+>
+>> We are using slonyI 2.0.5 to build our master/slave postgres HA solution
+>> for our project. So far slonyI works fine except for a strange
+>> getlocalnodeid issue. Could somebody please help to figure me out?
+>>
+>> The scenario is, we have host A as master (define as node 1 in slonic),
+>> host B (node 2) as slave at beginning. The data was replicated to host B
+>> from A by slony.
+>> Then we stop postgres on host A, and in host B run failover command and
+>> drop node A from cluster. Thus the db service was switch to host B.
+>>
+>> Establish a connection to host B via psql, and execute "select
+>> _cluster.getlocalnodeid('_cluster')", it returns 2. Keep this connection
+>> for a while.
+>>
+>> So far everything is good.
+>>
+>> Stop all slon process on host A and B.
+>> Then start the postgres server on host A, and in both host A and host B,
+>> execute "drop schema _cluster cascade" to clean all the cluster
+>> information.
+>>
+>> Build the cluster again, this time host B as master (node 1), host A as
+>> slave (node 2), and start the slon in both nodes.
+>>
+>> Setup a new connection to host B and execute same "select
+>> _cluster.getlocalnodeid('_cluster')", it returns 1.
+>> But in the old connection we kept before, this command still return 2.
+>> At the same time, in old connection, the update/insert/delete operation
+>> can not be synchronized to host A.
+>> It's strange that the cluster is rebuilt and slon is restarted but why
+>> only old connection the localnodeid is still 2 and can not be
+>> resynchronized?
+>>
+>> Anyone idea?
+>>
+>> Thanks very much for your time!
+>>
+>> Br,
+>> Zhidong
+>>
+>>
+>>
+>>
+>>
+>>
+>>
+>>
+>>
+>>
+>>
+>> _______________________________________________
+>> Slony1-general mailing list
+>> Slony1-general at lists.slony.info
+>> http://lists.slony.info/mailman/listinfo/slony1-general
+>>
+>
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20101223/15c2ac0e/attachment.htm 
+
+From ssinger_pg at sympatico.ca  Tue Dec 28 10:24:23 2010
+From: ssinger_pg at sympatico.ca (Steve Singer)
+Date: Tue, 28 Dec 2010 13:24:23 -0500
+Subject: [Slony1-general] A getlocalnodeid bug?
+In-Reply-To: <AANLkTinhtL746P_E7fneo8pBU2EWtusvDgbfNAv9LtUv@mail.gmail.com>
+References: <AANLkTinS23Jue0ZpSiigMs_jz1cs8__mBRhbOgeHMYmk@mail.gmail.com>
+	<4D1211F1.9040007@ca.afilias.info>
+	<AANLkTinhtL746P_E7fneo8pBU2EWtusvDgbfNAv9LtUv@mail.gmail.com>
+Message-ID: <BLU0-SMTP307EAA12C2B53EC9695F50AC010@phx.gbl>
+
+On Thu, 23 Dec 2010, Zhidong She wrote:
+
+> The cached query plan is not same as cached data, right? I think the data (node id) should be
+> new since I totally destroied the cluster and rebuilt it.
+
+Right the plan is cached not the data.
+
+> 
+> The purpose of uninstall and rebuild the cluster is that we want to add the failure node back
+> to cluster and let it be a new slave node rahter than master original.
+> Is there other method can implement rejoining the cluster?
+
+You can drop the old node (DROP NODE) command and create a new node (STORE 
+NODE) replicate to the new node then use (MOVE SET) to move the master to 
+the restored node.
+
+
+
+> 
+> On Wed, Dec 22, 2010 at 10:57 PM, Steve Singer <ssinger at ca.afilias.info> wrote:
+>       On 10-12-22 02:45 AM, Zhidong She wrote:
+>             Hi all,
+> 
+>
+>       The old connection has a cached query plan for the getLocalNodeId() function.
+>
+>       If you uninstall a slony node any database connections that were open from before
+>       slony might not behave as expected.
+> 
+> 
+> 
+> 
+> 
+> We are using slonyI 2.0.5 to build our master/slave postgres HA solution
+> for our project. So far slonyI works fine except for a strange
+> getlocalnodeid issue. Could somebody please help to figure me out?
+> 
+> The scenario is, we have host A as master (define as node 1 in slonic),
+> host B (node 2) as slave at beginning. The data was replicated to host B
+> from A by slony.
+> Then we stop postgres on host A, and in host B run failover command and
+> drop node A from cluster. Thus the db service was switch to host B.
+> 
+> Establish a connection to host B via psql, and execute "select
+> _cluster.getlocalnodeid('_cluster')", it returns 2. Keep this connection
+> for a while.
+> 
+> So far everything is good.
+> 
+> Stop all slon process on host A and B.
+> Then start the postgres server on host A, and in both host A and host B,
+> execute "drop schema _cluster cascade" to clean all the cluster information.
+> 
+> Build the cluster again, this time host B as master (node 1), host A as
+> slave (node 2), and start the slon in both nodes.
+> 
+> Setup a new connection to host B and execute same "select
+> _cluster.getlocalnodeid('_cluster')", it returns 1.
+> But in the old connection we kept before, this command still return 2.
+> At the same time, in old connection, the update/insert/delete operation
+> can not be synchronized to host A.
+> It's strange that the cluster is rebuilt and slon is restarted but why
+> only old connection the localnodeid is still 2 and can not be
+> resynchronized?
+> 
+> Anyone idea?
+> 
+> Thanks very much for your time!
+> 
+> Br,
+> Zhidong
+> 
+> 
+> 
+> 
+> 
+> 
+> 
+> 
+> 
+> 
+> 
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+> 
+> 
+> 
+> 
+>
+
+
+From gangulynj at gmail.com  Wed Dec 29 02:34:10 2010
+From: gangulynj at gmail.com (lakshmi priya)
+Date: Wed, 29 Dec 2010 16:04:10 +0530
+Subject: [Slony1-general] post
+Message-ID: <AANLkTinky3A20dBJT7w1mGWERomkbfkF4g22VYE=_8xc@mail.gmail.com>
+
+I have doubt in slony
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20101229/3485021a/attachment.htm 
+
+From singh.gurjeet at gmail.com  Wed Dec 29 06:14:05 2010
+From: singh.gurjeet at gmail.com (Gurjeet Singh)
+Date: Wed, 29 Dec 2010 09:14:05 -0500
+Subject: [Slony1-general] post
+In-Reply-To: <AANLkTinky3A20dBJT7w1mGWERomkbfkF4g22VYE=_8xc@mail.gmail.com>
+References: <AANLkTinky3A20dBJT7w1mGWERomkbfkF4g22VYE=_8xc@mail.gmail.com>
+Message-ID: <AANLkTimZoCfPXf-tpsQZVJeVNkXFB5WL5POa-+ssYp2c@mail.gmail.com>
+
+Ask the question... you have wasted significant bandwidth and time by just
+asking to ask the question :)
+
+On Wed, Dec 29, 2010 at 5:34 AM, lakshmi priya <gangulynj at gmail.com> wrote:
+
+> I have doubt in slony
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+>
+>
+
+
+-- 
+gurjeet.singh
+@ EnterpriseDB - The Enterprise Postgres Company
+http://www.EnterpriseDB.com
+
+singh.gurjeet@{ gmail | yahoo }.com
+Twitter/Skype: singh_gurjeet
+
+Mail sent from my BlackLaptop device
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20101229/3f6f782a/attachment.htm 
+
+From scott.marlowe at gmail.com  Wed Dec 29 07:57:24 2010
+From: scott.marlowe at gmail.com (Scott Marlowe)
+Date: Wed, 29 Dec 2010 08:57:24 -0700
+Subject: [Slony1-general] post
+In-Reply-To: <AANLkTinky3A20dBJT7w1mGWERomkbfkF4g22VYE=_8xc@mail.gmail.com>
+References: <AANLkTinky3A20dBJT7w1mGWERomkbfkF4g22VYE=_8xc@mail.gmail.com>
+Message-ID: <AANLkTim-JtP-dM6Ew2S4U9HJ3XfnsVZjruxr6TtCUJMr@mail.gmail.com>
+
+On Wed, Dec 29, 2010 at 3:34 AM, lakshmi priya <gangulynj at gmail.com> wrote:
+> I have doubt in slony
+
+Not me.  It's worked well the last 5 years or so I've used it.
+
+From singh.gurjeet at gmail.com  Wed Dec 29 08:01:34 2010
+From: singh.gurjeet at gmail.com (Gurjeet Singh)
+Date: Wed, 29 Dec 2010 11:01:34 -0500
+Subject: [Slony1-general] post
+In-Reply-To: <AANLkTim-JtP-dM6Ew2S4U9HJ3XfnsVZjruxr6TtCUJMr@mail.gmail.com>
+References: <AANLkTinky3A20dBJT7w1mGWERomkbfkF4g22VYE=_8xc@mail.gmail.com>
+	<AANLkTim-JtP-dM6Ew2S4U9HJ3XfnsVZjruxr6TtCUJMr@mail.gmail.com>
+Message-ID: <AANLkTin80qTgVpN50Ug_1fjQkFZNarAcDhmvDiEDgygT@mail.gmail.com>
+
+On Wed, Dec 29, 2010 at 10:57 AM, Scott Marlowe <scott.marlowe at gmail.com>wrote:
+
+> On Wed, Dec 29, 2010 at 3:34 AM, lakshmi priya <gangulynj at gmail.com>
+> wrote:
+> > I have doubt in slony
+>
+> Not me.  It's worked well the last 5 years or so I've used it.
+>
+>
+LOL. Me neither.
+-- 
+gurjeet.singh
+@ EnterpriseDB - The Enterprise Postgres Company
+http://www.EnterpriseDB.com
+
+singh.gurjeet@{ gmail | yahoo }.com
+Twitter/Skype: singh_gurjeet
+
+Mail sent from my BlackLaptop device
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20101229/17daf063/attachment.htm 
+
+From msteben at autorevenue.com  Wed Dec 29 13:03:35 2010
+From: msteben at autorevenue.com (Mark Steben)
+Date: Wed, 29 Dec 2010 16:03:35 -0500
+Subject: [Slony1-general] ERROR: duplicate key value violates unique
+	constraint "sl_nodelock-pkey" error - bugzilla # 132
+Message-ID: <20101229210353.1D460290D29@main.slony.info>
+
+Hi - I've been running slony 2.0.4 in test for a few weeks now.
+
+Just last week we physically moved the machine that houses the master db
+
+To a server block that the slave also resides on. We changed the i/p and
+also
+
+Began running with pgpool (port 9999) as the administrator.
+
+ 
+
+It was then that we began throwing the above error.  No matter how many
+times
+
+I've cleared out sl_nodelock and restarted slon I still get the same error
+on
+
+The master postgres log.  Reading through the slony docs and entering
+bugzilla
+
+For the first time, I come to realize this is a bug that has been fixed.
+
+ 
+
+I'm not a systems administrator so, while I do database upgrades, I'm not as
+familiar
+
+With applying patches on existing software and I'm totally new to bugzilla.
+Need some
+
+Guidance.  Do I:
+
+     1. Upgrade to 2.0.5?
+
+      2. apply a patch? If so where do I find it?
+
+ 
+
+Thanks for your time,  
+
+ 
+
+Mark Steben | Database Administrator 
+ <http://www.autorevenue.com> @utoRevenueR - "Keeping Customers Close" 
+95D Ashley Ave, West Springfield, MA 01089 
+413.243.4800 x1512 (Phone) |413.732-1824 (Fax) 
+ <http://www.dominionenterprises.com> @utoRevenue is a registered trademark
+and a division of Dominion Enterprises 
+ 
+
+ 
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20101229/45c6be56/attachment.htm 
+
+From gangulynj at gmail.com  Wed Dec 29 20:14:45 2010
+From: gangulynj at gmail.com (lakshmi priya)
+Date: Thu, 30 Dec 2010 09:44:45 +0530
+Subject: [Slony1-general] slony
+Message-ID: <AANLkTiktCds-UiyMskfW7-47C2=Y5bQLevxSYf+cTBDV@mail.gmail.com>
+
+hello,
+
+      I have created two database,and replications takes place.In my first
+database there is a table called node.In that table i have created a status
+field..now i have check the condition for my status field if my status = 1
+my values have to replicate in slave table els status =0  then my field
+shouldnot replicate in my slave.
+
+please clear my doubt its urgent.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20101230/e1f0ed30/attachment.htm 
+
+From scott.marlowe at gmail.com  Wed Dec 29 20:17:43 2010
+From: scott.marlowe at gmail.com (Scott Marlowe)
+Date: Wed, 29 Dec 2010 21:17:43 -0700
+Subject: [Slony1-general] slony
+In-Reply-To: <AANLkTiktCds-UiyMskfW7-47C2=Y5bQLevxSYf+cTBDV@mail.gmail.com>
+References: <AANLkTiktCds-UiyMskfW7-47C2=Y5bQLevxSYf+cTBDV@mail.gmail.com>
+Message-ID: <AANLkTi=KYVj8+NOjTZ0i+XQ2dsGeByCph2h1REMECVi3@mail.gmail.com>
+
+On Wed, Dec 29, 2010 at 9:14 PM, lakshmi priya <gangulynj at gmail.com> wrote:
+> hello,
+>
+> ????? I have created two database,and replications takes place.In my first
+> database there is a table called node.In that table i have created a status
+> field..now i have check the condition for my status field if my status = 1
+> my values have to replicate in slave table els status =0? then my field
+> shouldnot replicate in my slave.
+>
+> please clear my doubt its urgent.
+
+Slony doesn't do that.  What you can do is to create a separate table
+on the master that a trigger puts inserts from the first table there
+if the status=1, then replicate that table, and use a view on the
+other end to make it look like the master.  I guess.
+
+From singh.gurjeet at gmail.com  Wed Dec 29 20:35:56 2010
+From: singh.gurjeet at gmail.com (Gurjeet Singh)
+Date: Wed, 29 Dec 2010 23:35:56 -0500
+Subject: [Slony1-general] post
+In-Reply-To: <AANLkTi=x145iXL9TEe4D+6NstCS+h+pjVaWLiRC8HA5T@mail.gmail.com>
+References: <AANLkTinky3A20dBJT7w1mGWERomkbfkF4g22VYE=_8xc@mail.gmail.com>
+	<AANLkTimZoCfPXf-tpsQZVJeVNkXFB5WL5POa-+ssYp2c@mail.gmail.com>
+	<AANLkTi=x145iXL9TEe4D+6NstCS+h+pjVaWLiRC8HA5T@mail.gmail.com>
+Message-ID: <AANLkTimwsmd8k8mQ5G+Kh-eWBdoEHGBxpKJ5LU20reiU@mail.gmail.com>
+
+On Wed, Dec 29, 2010 at 11:12 PM, lakshmi priya <gangulynj at gmail.com> wrote:
+
+> hi Gurjeet singh,
+>        I have created two database,and replications takes place.In my first
+> database there is a table called node.In that table i have created a status
+> field..now i have check the condition for my status field if my status = 1
+> my values have to replicate in slave table els status =0  then my field
+> shouldnot replicate in my slave.
+>
+> please clear my doubt its urgent.
+>
+
+i) Slony replicates rows, and not individual fields.
+ii) Slony cannot do selective replication; it will replicate all rows in a
+table.
+
+So you might want create a separate table for status=1 rows, and maintain it
+using a trigger and then replicate that table.
+
+Regards,
+-- 
+gurjeet.singh
+@ EnterpriseDB - The Enterprise Postgres Company
+http://www.EnterpriseDB.com
+
+singh.gurjeet@{ gmail | yahoo }.com
+Twitter/Skype: singh_gurjeet
+
+Mail sent from my BlackLaptop device
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20101229/ac52c966/attachment.htm 
+

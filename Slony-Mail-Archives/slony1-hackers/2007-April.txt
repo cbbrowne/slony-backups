@@ -1,0 +1,1961 @@
+From cbbrowne at ca.afilias.info  Thu Apr  5 12:12:53 2007
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Thu Apr  5 12:13:01 2007
+Subject: [Slony1-hackers] Idea to increase throughput: Pipelining Index
+	generation
+Message-ID: <607isqeitm.fsf@dba2.int.libertyrms.com>
+
+Here's an approach that could substantially improve data load speed,
+for the "COPY_SET" operation, at the (regrettable, and I can't see a
+way around it) cost of a somewhat increased possibility of interfering
+activities making the load fail...
+
+The general idea is that we know that building indices takes a while,
+and we might as well kick off index generation in parallel with
+loading later data.
+
+If we do so, this happens via opening multiple concurrent connections.
+Let us suppose this is a configurable parameter, which we set to 4.
+
+On the soon-to-be subscriber...
+
+-> loop through all the tables, locking them, and transforming them
+    into "replicated mode."
+
+    Close the transaction (alas).
+
+Then, for each table...
+-> Grab a connection from the pool (might have up to 4 connections in the pool)
+-> Break off the indices
+-> COPY data into the table
+-> Restore the indices, and submit a request to reindex the table
+
+At that point, the reindex is running asynchronously.  And the loop
+continues.  
+
+- If there is a connection free that isn't busy, another COPY can
+  occur immediately.
+
+- If not, then a new connection might need to be created (up to 4).
+
+- If all 4 connections are busy, then we need to sleep 10s and retry.
+
+This should largely eliminate indexing time from the process, unless
+the table with the most expensive indices is at the end of the
+replication set.
+-- 
+select 'cbbrowne' || '@' || 'ca.afilias.info';
+<http://dba2.int.libertyrms.com/>
+Christopher Browne
+(416) 673-4124 (land)
+From andrew.george.hammond at gmail.com  Thu Apr  5 17:19:43 2007
+From: andrew.george.hammond at gmail.com (Andrew Hammond)
+Date: Thu Apr  5 17:19:52 2007
+Subject: [Slony1-hackers] anonymous CVS broken
+Message-ID: <5a0a9d6f0704051719i7b581f9el169bdfe58eabc7d9@mail.gmail.com>
+
+ilouse614n4hf:~/src ahammond$
+CVSROOT=":pserver:anonymous@main.slony.info:/slony1" cvs co
+slony1-engine
+
+...
+
+U slony1-engine/tools/altperl/slony_show_configuration.pl
+cvs checkout: Updating slony1-engine/tools/mkservice
+cvs checkout: failed to create lock directory for
+`/slony1/slony1-engine/tools/mkservice'
+(/slony1/slony1-engine/tools/mkservice/#cvs.lock): Permission denied
+cvs checkout: failed to obtain dir lock in repository
+`/slony1/slony1-engine/tools/mkservice'
+cvs [checkout aborted]: read lock failed - giving up
+
+
+Looks like a permission error on the newly created mkservice directory.
+
+Andrew
+From darcyb at commandprompt.com  Wed Apr 18 15:47:27 2007
+From: darcyb at commandprompt.com (Darcy Buskermolen)
+Date: Wed Apr 18 15:51:06 2007
+Subject: [Slony1-hackers] Re: [Slony1-commit] slony1-engine/src/slon
+	cleanup_thread.c confoptions.c confoptions.h local_listen.c
+	misc.c remote_listen.c remote_worker.c slon.c slon.h snmp_thread.c
+In-Reply-To: <20070418221909.ED9D32902FE@main.slony.info>
+References: <20070418221909.ED9D32902FE@main.slony.info>
+Message-ID: <200704181547.27982.darcyb@commandprompt.com>
+
+On April 18, 2007 03:19 pm, Chris Browne wrote:
+> Update of /home/cvsd/slony1/slony1-engine/src/slon
+> In directory main.slony.info:/tmp/cvs-serv31807
+
+
+I'm not sure I like what splint has done, especially in some cases:
+
+surely, this is not quite right.. casting a long to an int?
+
+
+          ev_origin = (int) strtol(PQgetvalue(res, tupno, 0), NULL, 10);
+
+
+also blindly typedeving the (void)slon_mkquery();  perhaps the proper answer 
+is to actually check the return of mkquery  and act on that.  it returns an 
+int afterall.
+
+Eitherway, adding the (cast) surely seems like treeting the symptom, and not 
+the ailment.
+
+
+>
+> Modified Files:
+> 	cleanup_thread.c confoptions.c confoptions.h local_listen.c
+> 	misc.c remote_listen.c remote_worker.c slon.c slon.h
+> 	snmp_thread.c
+> Log Message:
+> A barrel of little type changes based on running Splint analysis on the
+> code base (e.g. - extended LINT).  Mostly about adding type annotations;
+> values that need to be cast between int/size_t, annotating that functions
+> that return values that we ignore pass back (void), and such.
+>
+>
+> Index: remote_listen.c
+> ===================================================================
+> RCS file: /home/cvsd/slony1/slony1-engine/src/slon/remote_listen.c,v
+> retrieving revision 1.33
+> retrieving revision 1.34
+> diff -C2 -d -r1.33 -r1.34
+> *** remote_listen.c	2 Feb 2007 20:24:16 -0000	1.33
+> --- remote_listen.c	18 Apr 2007 22:19:07 -0000	1.34
+> ***************
+> *** 241,245 ****
+>   			 * register the node connection.
+>   			 */
+> ! 			slon_mkquery(&query1,
+>   				     /* "listen \"_%s_Event\"; " */
+>   				     /*	 skip confirms "listen \"_%s_Confirm\"; " */
+> --- 241,245 ----
+>   			 * register the node connection.
+>   			 */
+> ! 			(void) slon_mkquery(&query1,
+>   				     /* "listen \"_%s_Event\"; " */
+>   				     /*	 skip confirms "listen \"_%s_Confirm\"; " */
+> ***************
+> *** 344,348 ****
+>   					 node->no_id);
+>
+> ! 				slon_mkquery(&query1,
+>   					     "unlisten \"_%s_Event\"; ",
+>   					     rtcfg_cluster_name);
+> --- 344,348 ----
+>   					 node->no_id);
+>
+> ! 				(void) slon_mkquery(&query1,
+>   					     "unlisten \"_%s_Event\"; ",
+>   					     rtcfg_cluster_name);
+> ***************
+> *** 352,356 ****
+>   					 "remoteListenThread_%d: LISTEN\n",
+>   					 node->no_id);
+> ! 				slon_mkquery(&query1,
+>   					     "listen \"_%s_Event\"; ",
+>   					     rtcfg_cluster_name);
+> --- 352,356 ----
+>   					 "remoteListenThread_%d: LISTEN\n",
+>   					 node->no_id);
+> ! 				(void) slon_mkquery(&query1,
+>   					     "listen \"_%s_Event\"; ",
+>   					     rtcfg_cluster_name);
+> ***************
+> *** 599,603 ****
+>   	 * the sl_confirm table.
+>   	 */
+> ! 	slon_mkquery(&query,
+>   				 "select con_origin, con_received, "
+>   				 "    max(con_seqno) as con_seqno, "
+> --- 599,603 ----
+>   	 * the sl_confirm table.
+>   	 */
+> ! 	(void) slon_mkquery(&query,
+>   				 "select con_origin, con_received, "
+>   				 "    max(con_seqno) as con_seqno, "
+> ***************
+> *** 675,679 ****
+>   	 * for here.
+>   	 */
+> ! 	slon_mkquery(&query,
+>   				 "select ev_origin, ev_seqno, ev_timestamp, "
+>   				 "       ev_minxid, ev_maxxid, ev_xip, "
+> --- 675,679 ----
+>   	 * for here.
+>   	 */
+> ! 	(void) slon_mkquery(&query,
+>   				 "select ev_origin, ev_seqno, ev_timestamp, "
+>   				 "       ev_minxid, ev_maxxid, ev_xip, "
+> ***************
+> *** 692,696 ****
+>   	{
+>   		dstring_init(&q2);
+> ! 		slon_mkquery(&q2, "where ev_timestamp < now() - '%s'::interval and (",
+> lag_interval); where_or_or = dstring_data(&q2);
+>   	}
+> --- 692,696 ----
+>   	{
+>   		dstring_init(&q2);
+> ! 		(void) slon_mkquery(&q2, "where ev_timestamp < now() - '%s'::interval
+> and (", lag_interval); where_or_or = dstring_data(&q2);
+>   	}
+> ***************
+> *** 731,739 ****
+>   		return -1;
+>   	}
+> ! 	time(&timeout);
+>   	timeout += remote_listen_timeout;
+>   	while (PQisBusy(conn->dbconn) != 0)
+>   	{
+> ! 		time(&now);
+>   		if (now >= timeout)
+>   		{
+> --- 731,739 ----
+>   		return -1;
+>   	}
+> ! 	(void) time(&timeout);
+>   	timeout += remote_listen_timeout;
+>   	while (PQisBusy(conn->dbconn) != 0)
+>   	{
+> ! 		(void) time(&now);
+>   		if (now >= timeout)
+>   		{
+> ***************
+> *** 780,785 ****
+>   		int64		ev_seqno;
+>
+> ! 		ev_origin = strtol(PQgetvalue(res, tupno, 0), NULL, 10);
+> ! 		slon_scanint64(PQgetvalue(res, tupno, 1), &ev_seqno);
+>
+>   		slon_log(SLON_DEBUG2, "remoteListenThread_%d: "
+> --- 780,785 ----
+>   		int64		ev_seqno;
+>
+> ! 		ev_origin = (int) strtol(PQgetvalue(res, tupno, 0), NULL, 10);
+> ! 		(void) slon_scanint64(PQgetvalue(res, tupno, 1), &ev_seqno);
+>
+>   		slon_log(SLON_DEBUG2, "remoteListenThread_%d: "
+>
+> Index: local_listen.c
+> ===================================================================
+> RCS file: /home/cvsd/slony1/slony1-engine/src/slon/local_listen.c,v
+> retrieving revision 1.39
+> retrieving revision 1.40
+> diff -C2 -d -r1.39 -r1.40
+> *** local_listen.c	27 Oct 2006 20:10:57 -0000	1.39
+> --- local_listen.c	18 Apr 2007 22:19:07 -0000	1.40
+> ***************
+> *** 67,71 ****
+>   	 * Listen for local events
+>   	 */
+> ! 	slon_mkquery(&query1,
+>   		     /* "listen \"_%s_Event\"; " */
+>   		     "listen \"_%s_Restart\"; ",
+> --- 67,71 ----
+>   	 * Listen for local events
+>   	 */
+> ! 	(void) slon_mkquery(&query1,
+>   		     /* "listen \"_%s_Event\"; " */
+>   		     "listen \"_%s_Restart\"; ",
+> ***************
+> *** 89,93 ****
+>   #define NODELOCKERROR "ERROR:  duplicate key violates unique constraint
+> \"sl_nodelock-pkey\""
+>
+> ! 	slon_mkquery(&query1,
+>   				 "select %s.cleanupNodelock(); "
+>   				 "insert into %s.sl_nodelock values ("
+> --- 89,93 ----
+>   #define NODELOCKERROR "ERROR:  duplicate key violates unique constraint
+> \"sl_nodelock-pkey\""
+>
+> ! 	(void) slon_mkquery(&query1,
+>   				 "select %s.cleanupNodelock(); "
+>   				 "insert into %s.sl_nodelock values ("
+> ***************
+> *** 148,152 ****
+>   		 * Drain notifications.
+>   		 */
+> ! 		PQconsumeInput(dbconn);
+>   		restart_request = false;
+>   		while ((notification = PQnotifies(dbconn)) != NULL)
+> --- 148,152 ----
+>   		 * Drain notifications.
+>   		 */
+> ! 		(void) PQconsumeInput(dbconn);
+>   		restart_request = false;
+>   		while ((notification = PQnotifies(dbconn)) != NULL)
+> ***************
+> *** 154,158 ****
+>   			if (strcmp(restart_notify, notification->relname) == 0)
+>   				restart_request = true;
+> ! 			PQfreemem(notification);
+>   		}
+>   		if (restart_request)
+> --- 154,158 ----
+>   			if (strcmp(restart_notify, notification->relname) == 0)
+>   				restart_request = true;
+> ! 			(void) PQfreemem(notification);
+>   		}
+>   		if (restart_request)
+> ***************
+> *** 172,176 ****
+>   		 * Query the database for new local events
+>   		 */
+> ! 		slon_mkquery(&query1,
+>   					 "select ev_seqno, ev_timestamp, "
+>   					 "       ev_minxid, ev_maxxid, ev_xip, "
+> --- 172,176 ----
+>   		 * Query the database for new local events
+>   		 */
+> ! 		(void) slon_mkquery(&query1,
+>   					 "select ev_seqno, ev_timestamp, "
+>   					 "       ev_minxid, ev_maxxid, ev_xip, "
+> ***************
+> *** 507,511 ****
+>   				 */
+>   				dstring_init(&query2);
+> ! 				slon_mkquery(&query2,
+>   							 "select sub_provider from %s.sl_subscribe "
+>   					     "    where sub_receiver = %d and sub_set = %d",
+> --- 507,511 ----
+>   				 */
+>   				dstring_init(&query2);
+> ! 				(void) slon_mkquery(&query2,
+>   							 "select sub_provider from %s.sl_subscribe "
+>   					     "    where sub_receiver = %d and sub_set = %d",
+>
+> Index: misc.c
+> ===================================================================
+> RCS file: /home/cvsd/slony1/slony1-engine/src/slon/misc.c,v
+> retrieving revision 1.23
+> retrieving revision 1.24
+> diff -C2 -d -r1.23 -r1.24
+> *** misc.c	27 Oct 2006 20:10:57 -0000	1.23
+> --- misc.c	18 Apr 2007 22:19:07 -0000	1.24
+> ***************
+> *** 77,80 ****
+> --- 77,81 ----
+>   	static int	outsize = -1;
+>   	int			off;
+> + 	int  len;
+>   	char	   *level_c = NULL;
+>
+> ***************
+> *** 141,145 ****
+>   	{
+>   		outsize = 8192;
+> ! 		outbuf = malloc(outsize);
+>   		if (outbuf == NULL)
+>   		{
+> --- 142,146 ----
+>   	{
+>   		outsize = 8192;
+> ! 		outbuf = malloc((size_t) outsize);
+>   		if (outbuf == NULL)
+>   		{
+> ***************
+> *** 149,153 ****
+>   		}
+>   	}
+> ! 	outbuf[0] = 0;
+>
+>   	if (logtimestamp == true && (Use_syslog != 1)
+> --- 150,154 ----
+>   		}
+>   	}
+> ! 	outbuf[0] = (char) 0;
+>
+>   	if (logtimestamp == true && (Use_syslog != 1)
+> ***************
+> *** 157,161 ****
+>   		)
+>   	{
+> ! 		strftime(time_buf, sizeof(time_buf), log_timestamp_format,
+> localtime(&stamp_time)); sprintf(outbuf, "%s ", time_buf);
+>   	}
+> --- 158,166 ----
+>   		)
+>   	{
+> ! 		len = strftime(time_buf, sizeof(time_buf), log_timestamp_format,
+> localtime(&stamp_time)); ! 		if (len == 0 && time_buf[0] != '\0') {
+> ! 			perror("slon_log: problem with strftime()");
+> ! 			slon_retry();
+> ! 		}
+>   		sprintf(outbuf, "%s ", time_buf);
+>   	}
+> ***************
+> *** 166,175 ****
+>   	sprintf(outbuf, "%s%-6.6s ", outbuf, level_c);
+>
+> ! 	off = strlen(outbuf);
+>
+> ! 	while (vsnprintf(&outbuf[off], outsize - off, fmt, ap) >= outsize - off)
+>   	{
+>   		outsize *= 2;
+> ! 		outbuf = realloc(outbuf, outsize);
+>   		if (outbuf == NULL)
+>   		{
+> --- 171,180 ----
+>   	sprintf(outbuf, "%s%-6.6s ", outbuf, level_c);
+>
+> ! 	off = (int) strlen(outbuf);
+>
+> ! 	while (vsnprintf(&outbuf[off], (size_t) (outsize - off), fmt, ap) >=
+> outsize - off) {
+>   		outsize *= 2;
+> ! 		outbuf = realloc(outbuf, (size_t) outsize);
+>   		if (outbuf == NULL)
+>   		{
+> ***************
+> *** 188,193 ****
+>   		win32_eventlog(level, outbuf);
+>   #endif
+> ! 	fwrite(outbuf, strlen(outbuf), 1, stdout);
+> ! 	fflush(stdout);
+>   	pthread_mutex_unlock(&log_mutex);
+>
+> --- 193,198 ----
+>   		win32_eventlog(level, outbuf);
+>   #endif
+> ! 	(void) fwrite(outbuf, strlen(outbuf), 1, stdout);
+> ! 	(void) fflush(stdout);
+>   	pthread_mutex_unlock(&log_mutex);
+>
+> ***************
+> *** 233,237 ****
+>   		{
+>   			*result = -INT64CONST(0x7fffffffffffffff) - 1;
+> ! 			return true;
+>   		}
+>   #endif
+> --- 238,242 ----
+>   		{
+>   			*result = -INT64CONST(0x7fffffffffffffff) - 1;
+> ! 			return (int) true;
+>   		}
+>   #endif
+> ***************
+> *** 275,279 ****
+>   	static int	syslog_fac = LOG_LOCAL0;
+>
+> ! 	int			len = strlen(line);
+>
+>   	if (Use_syslog == 0)
+> --- 280,284 ----
+>   	static int	syslog_fac = LOG_LOCAL0;
+>
+> ! 	int			len = (int) strlen(line);
+>
+>   	if (Use_syslog == 0)
+> ***************
+> *** 333,337 ****
+>   				*strchr(buf, '\n') = '\0';
+>
+> ! 			buflen = strlen(buf);
+>
+>   			if (buflen <= 0)
+> --- 338,342 ----
+>   				*strchr(buf, '\n') = '\0';
+>
+> ! 			buflen = (int) strlen(buf);
+>
+>   			if (buflen <= 0)
+>
+> Index: remote_worker.c
+> ===================================================================
+> RCS file: /home/cvsd/slony1/slony1-engine/src/slon/remote_worker.c,v
+> retrieving revision 1.136
+> retrieving revision 1.137
+> diff -C2 -d -r1.136 -r1.137
+> *** remote_worker.c	18 Apr 2007 15:03:51 -0000	1.136
+> --- remote_worker.c	18 Apr 2007 22:19:07 -0000	1.137
+> ***************
+> *** 286,294 ****
+>   	SlonWorkMsg *msg;
+>   	SlonWorkMsg_event *event;
+> ! 	int			check_config = true;
+>   	int64		curr_config = -1;
+>   	char		seqbuf[64];
+> ! 	int			event_ok;
+> ! 	int			need_reloadListen = false;
+>   	int			rc;
+>
+> --- 286,294 ----
+>   	SlonWorkMsg *msg;
+>   	SlonWorkMsg_event *event;
+> ! 	bool			check_config = true;
+>   	int64		curr_config = -1;
+>   	char		seqbuf[64];
+> ! 	bool			event_ok;
+> ! 	bool			need_reloadListen = false;
+>   	int			rc;
+>
+> ***************
+> *** 301,305 ****
+>   	 */
+>   	wd = (WorkerGroupData *) malloc(sizeof(WorkerGroupData));
+> ! 	memset(wd, 0, sizeof(WorkerGroupData));
+>
+>   	pthread_mutex_init(&(wd->workdata_lock), NULL);
+> --- 301,310 ----
+>   	 */
+>   	wd = (WorkerGroupData *) malloc(sizeof(WorkerGroupData));
+> ! 	if (wd == 0) {
+> ! 		slon_log(SLON_ERROR, "remoteWorkerThread_%d: could not malloc() space
+> for WorkerGroupData\n"); ! 		slon_retry();
+> ! 	} else {
+> ! 		memset(wd, 0, sizeof(WorkerGroupData));
+> ! 	}
+>
+>   	pthread_mutex_init(&(wd->workdata_lock), NULL);
+> ***************
+> *** 315,319 ****
+>   	memset(wd->tab_fqname, 0, sizeof(char *) * wd->tab_fqname_size);
+>   	wd->tab_forward = malloc(wd->tab_fqname_size);
+> ! 	memset(wd->tab_forward, 0, wd->tab_fqname_size);
+>
+>   	dstring_init(&query1);
+> --- 320,324 ----
+>   	memset(wd->tab_fqname, 0, sizeof(char *) * wd->tab_fqname_size);
+>   	wd->tab_forward = malloc(wd->tab_fqname_size);
+> ! 	memset(wd->tab_forward, 0, (size_t) (wd->tab_fqname_size));
+>
+>   	dstring_init(&query1);
+> ***************
+> *** 331,335 ****
+>   	 * Put the connection into replication mode
+>   	 */
+> ! 	slon_mkquery(&query1,
+>   				 "select %s.setSessionRole('_%s', 'slon'); ",
+>   				 rtcfg_namespace, rtcfg_cluster_name);
+> --- 336,340 ----
+>   	 * Put the connection into replication mode
+>   	 */
+> ! 	(void) slon_mkquery(&query1,
+>   				 "select %s.setSessionRole('_%s', 'slon'); ",
+>   				 rtcfg_namespace, rtcfg_cluster_name);
+> ***************
+> *** 447,451 ****
+>   		 * with us as a provider will pick up the news.
+>   		 */
+> ! 		slon_mkquery(&query1,
+>   					 "begin transaction; "
+>   					 "set transaction isolation level serializable; ");
+> --- 452,456 ----
+>   		 * with us as a provider will pick up the news.
+>   		 */
+> ! 		(void) slon_mkquery(&query1,
+>   					 "begin transaction; "
+>   					 "set transaction isolation level serializable; ");
+> ***************
+> *** 577,581 ****
+>   				 * specified timeout.
+>   				 */
+> ! 				slon_mkquery(&query2, "rollback transaction");
+>   				if (query_execute(node, local_dbconn, &query2) < 0)
+>   					slon_retry();
+> --- 582,586 ----
+>   				 * specified timeout.
+>   				 */
+> ! 				(void) slon_mkquery(&query2, "rollback transaction");
+>   				if (query_execute(node, local_dbconn, &query2) < 0)
+>   					slon_retry();
+> ***************
+> *** 693,702 ****
+>   						slon_retry();
+>
+> ! 					slon_mkquery(&query1, "select %s.uninstallNode(); ",
+>   								 rtcfg_namespace);
+>   					if (query_execute(node, local_dbconn, &query1) < 0)
+>   						slon_retry();
+>
+> ! 					slon_mkquery(&query1, "drop schema %s cascade; ",
+>   								 rtcfg_namespace);
+>   					query_execute(node, local_dbconn, &query1);
+> --- 698,707 ----
+>   						slon_retry();
+>
+> ! 					(void) slon_mkquery(&query1, "select %s.uninstallNode(); ",
+>   								 rtcfg_namespace);
+>   					if (query_execute(node, local_dbconn, &query1) < 0)
+>   						slon_retry();
+>
+> ! 					(void) slon_mkquery(&query1, "drop schema %s cascade; ",
+>   								 rtcfg_namespace);
+>   					query_execute(node, local_dbconn, &query1);
+> ***************
+> *** 841,845 ****
+>   				if (archive_dir)
+>   				{
+> ! 					slon_mkquery(&lsquery,
+>   								 "delete from %s.sl_setsync_offline "
+>   								 "  where ssy_setid= %d;",
+> --- 846,850 ----
+>   				if (archive_dir)
+>   				{
+> ! 					(void) slon_mkquery(&lsquery,
+>   								 "delete from %s.sl_setsync_offline "
+>   								 "  where ssy_setid= %d;",
+> ***************
+> *** 1029,1033 ****
+>   				{
+>   					slon_log(SLON_DEBUG2, "ACCEPT_SET - node not origin\n");
+> ! 					slon_mkquery(&query2,
+>   								 "select 1 from %s.sl_event "
+>   								 "where "
+> --- 1034,1038 ----
+>   				{
+>   					slon_log(SLON_DEBUG2, "ACCEPT_SET - node not origin\n");
+> ! 					(void) slon_mkquery(&query2,
+>   								 "select 1 from %s.sl_event "
+>   								 "where "
+> ***************
+> *** 1125,1129 ****
+>   					slon_retry();
+>
+> ! 				slon_mkquery(&query1,
+>   							 "select sub_provider from %s.sl_subscribe "
+>   							 "	where sub_receiver = %d and sub_set = %d",
+> --- 1130,1134 ----
+>   					slon_retry();
+>
+> ! 				(void) slon_mkquery(&query1,
+>   							 "select sub_provider from %s.sl_subscribe "
+>   							 "	where sub_receiver = %d and sub_set = %d",
+> ***************
+> *** 1214,1218 ****
+>   					int			sleeptime = 15;
+>
+> ! 					slon_mkquery(&query2, "rollback transaction");
+>   					check_config = true;
+>
+> --- 1219,1223 ----
+>   					int			sleeptime = 15;
+>
+> ! 					(void) slon_mkquery(&query2, "rollback transaction");
+>   					check_config = true;
+>
+> ***************
+> *** 1263,1267 ****
+>   						{
+>   							rtcfg_enableSubscription(sub_set, sub_provider, sub_forward);
+> ! 							slon_mkquery(&query1,
+>   								"select %s.enableSubscription(%d, %d, %d); ",
+>   										 rtcfg_namespace,
+> --- 1268,1272 ----
+>   						{
+>   							rtcfg_enableSubscription(sub_set, sub_provider, sub_forward);
+> ! 							(void) slon_mkquery(&query1,
+>   								"select %s.enableSubscription(%d, %d, %d); ",
+>   										 rtcfg_namespace,
+> ***************
+> *** 1325,1329 ****
+>   				if (archive_dir)
+>   				{
+> ! 					slon_mkquery(&lsquery,
+>   								 "delete from %s.sl_setsync_offline "
+>   								 "  where ssy_setid= %d;",
+> --- 1330,1334 ----
+>   				if (archive_dir)
+>   				{
+> ! 					(void) slon_mkquery(&lsquery,
+>   								 "delete from %s.sl_setsync_offline "
+>   								 "  where ssy_setid= %d;",
+> ***************
+> *** 1383,1387 ****
+>   					strncpy(dest, ddl_script + startpos, endpos-startpos);
+>   					dest[STMTS[stmtno]-startpos] = 0;
+> ! 					slon_mkquery(&query1, dest);
+>   					slon_log(SLON_CONFIG, "remoteWorkerThread_%d: DDL Statement %d:
+> [%s]\n", node->no_id, stmtno, dest);
+> --- 1388,1392 ----
+>   					strncpy(dest, ddl_script + startpos, endpos-startpos);
+>   					dest[STMTS[stmtno]-startpos] = 0;
+> ! 					(void) slon_mkquery(&query1, dest);
+>   					slon_log(SLON_CONFIG, "remoteWorkerThread_%d: DDL Statement %d:
+> [%s]\n", node->no_id, stmtno, dest);
+> ***************
+> *** 1403,1407 ****
+>   				}
+>
+> ! 				slon_mkquery(&query1, "select %s.ddlScript_complete_int(%d, %d); ",
+>   					     rtcfg_namespace,
+>   					     ddl_setid,
+> --- 1408,1412 ----
+>   				}
+>
+> ! 				(void) slon_mkquery(&query1, "select %s.ddlScript_complete_int(%d,
+> %d); ", rtcfg_namespace,
+>   					     ddl_setid,
+> ***************
+> *** 1466,1470 ****
+>   			else
+>   			{
+> ! 				slon_mkquery(&query1, "rollback transaction;");
+>   			}
+>   			if (query_execute(node, local_dbconn, &query1) < 0)
+> --- 1471,1475 ----
+>   			else
+>   			{
+> ! 				(void) slon_mkquery(&query1, "rollback transaction;");
+>   			}
+>   			if (query_execute(node, local_dbconn, &query1) < 0)
+> ***************
+> *** 2314,2318 ****
+>   			 node->no_id, confirm->con_origin, seqbuf, confirm->con_received);
+>
+> ! 	slon_mkquery(&query,
+>   				 "select %s.forwardConfirm(%d, %d, '%s', '%q'); ",
+>   				 rtcfg_namespace,
+> --- 2319,2323 ----
+>   			 node->no_id, confirm->con_origin, seqbuf, confirm->con_received);
+>
+> ! 	(void) slon_mkquery(&query,
+>   				 "select %s.forwardConfirm(%d, %d, '%s', '%q'); ",
+>   				 rtcfg_namespace,
+> ***************
+> *** 2517,2521 ****
+>   	 * Register this connection in sl_nodelock
+>   	 */
+> ! 	slon_mkquery(&query1,
+>   				 "select %s.registerNodeConnection(%d); ",
+>   				 rtcfg_namespace, rtcfg_nodeid);
+> --- 2522,2526 ----
+>   	 * Register this connection in sl_nodelock
+>   	 */
+> ! 	(void) slon_mkquery(&query1,
+>   				 "select %s.registerNodeConnection(%d); ",
+>   				 rtcfg_namespace, rtcfg_nodeid);
+> ***************
+> *** 2544,2548 ****
+>   	if (sub_provider == set_origin)
+>   	{
+> ! 		slon_mkquery(&query1,
+>   					 "start transaction; "
+>   					 "set transaction isolation level serializable; "
+> --- 2549,2553 ----
+>   	if (sub_provider == set_origin)
+>   	{
+> ! 		(void) slon_mkquery(&query1,
+>   					 "start transaction; "
+>   					 "set transaction isolation level serializable; "
+> ***************
+> *** 2584,2588 ****
+>   	else
+>   	{
+> ! 		slon_mkquery(&query1,
+>   					 "start transaction; "
+>   					 "set transaction isolation level serializable; ");
+> --- 2589,2593 ----
+>   	else
+>   	{
+> ! 		(void) slon_mkquery(&query1,
+>   					 "start transaction; "
+>   					 "set transaction isolation level serializable; ");
+> ***************
+> *** 2614,2618 ****
+>   	 * Select the list of all tables the provider currently has in the set.
+>   	 */
+> ! 	slon_mkquery(&query1,
+>   				 "select T.tab_id, "
+>   				 "    %s.slon_quote_brute(PGN.nspname) || '.' || "
+> --- 2619,2623 ----
+>   	 * Select the list of all tables the provider currently has in the set.
+>   	 */
+> ! 	(void) slon_mkquery(&query1,
+>   				 "select T.tab_id, "
+>   				 "    %s.slon_quote_brute(PGN.nspname) || '.' || "
+> ***************
+> *** 2660,2664 ****
+>   				 node->no_id, tab_fqname);
+>
+> ! 		slon_mkquery(&query3, "select * from %s limit 0;",
+>   			     tab_fqname);
+>   		res2 = PQexec(loc_dbconn, dstring_data(&query3));
+> --- 2665,2669 ----
+>   				 node->no_id, tab_fqname);
+>
+> ! 		(void) slon_mkquery(&query3, "select * from %s limit 0;",
+>   			     tab_fqname);
+>   		res2 = PQexec(loc_dbconn, dstring_data(&query3));
+> ***************
+> *** 2683,2687 ****
+>   		 */
+>
+> ! 		slon_mkquery(&query3, "lock table %s;\n", tab_fqname);
+>   		res2 = PQexec(loc_dbconn, dstring_data(&query3));
+>   		if (PQresultStatus(res2) != PGRES_COMMAND_OK)
+> --- 2688,2692 ----
+>   		 */
+>
+> ! 		(void) slon_mkquery(&query3, "lock table %s;\n", tab_fqname);
+>   		res2 = PQexec(loc_dbconn, dstring_data(&query3));
+>   		if (PQresultStatus(res2) != PGRES_COMMAND_OK)
+> ***************
+> *** 2707,2711 ****
+>   	 * Add in the sequences contained in the set
+>   	 */
+> ! 	slon_mkquery(&query1,
+>   				 "select SQ.seq_id, "
+>   				 "    %s.slon_quote_brute(PGN.nspname) || '.' || "
+> --- 2712,2716 ----
+>   	 * Add in the sequences contained in the set
+>   	 */
+> ! 	(void) slon_mkquery(&query1,
+>   				 "select SQ.seq_id, "
+>   				 "    %s.slon_quote_brute(PGN.nspname) || '.' || "
+> ***************
+> *** 2749,2753 ****
+>   				 node->no_id, seq_fqname);
+>
+> ! 		slon_mkquery(&query1,
+>   					 "select %s.setAddSequence_int(%d, %s, '%q', '%q')",
+>   					 rtcfg_namespace, set_id, seq_id,
+> --- 2754,2758 ----
+>   				 node->no_id, seq_fqname);
+>
+> ! 		(void) slon_mkquery(&query1,
+>   					 "select %s.setAddSequence_int(%d, %s, '%q', '%q')",
+>   					 rtcfg_namespace, set_id, seq_id,
+> ***************
+> *** 2772,2776 ****
+>   	 * Select the list of all tables the provider currently has in the set.
+>   	 */
+> ! 	slon_mkquery(&query1,
+>   				 "select T.tab_id, "
+>   				 "    %s.slon_quote_brute(PGN.nspname) || '.' || "
+> --- 2777,2781 ----
+>   	 * Select the list of all tables the provider currently has in the set.
+>   	 */
+> ! 	(void) slon_mkquery(&query1,
+>   				 "select T.tab_id, "
+>   				 "    %s.slon_quote_brute(PGN.nspname) || '.' || "
+> ***************
+> *** 2827,2831 ****
+>   		 * suppressed.
+>   		 */
+> ! 		slon_mkquery(&query1,
+>   					 "select %s.setAddTable_int(%d, %d, '%q', '%q', '%q'); ",
+>   					 rtcfg_namespace,
+> --- 2832,2836 ----
+>   		 * suppressed.
+>   		 */
+> ! 		(void) slon_mkquery(&query1,
+>   					 "select %s.setAddTable_int(%d, %d, '%q', '%q', '%q'); ",
+>   					 rtcfg_namespace,
+> ***************
+> *** 2847,2851 ****
+>   		 * Copy the content of sl_trigger for this table
+>   		 */
+> ! 		slon_mkquery(&query1,
+>   					 "select trig_tgname from %s.sl_trigger "
+>   					 "where trig_tabid = %d; ",
+> --- 2852,2856 ----
+>   		 * Copy the content of sl_trigger for this table
+>   		 */
+> ! 		(void) slon_mkquery(&query1,
+>   					 "select trig_tgname from %s.sl_trigger "
+>   					 "where trig_tabid = %d; ",
+> ***************
+> *** 2871,2875 ****
+>   		for (tupno2 = 0; tupno2 < ntuples2; tupno2++)
+>   		{
+> ! 			slon_mkquery(&query1,
+>   						 "select %s.storeTrigger(%d, '%q'); ",
+>   					   rtcfg_namespace, tab_id, PQgetvalue(res2, tupno2, 0));
+> --- 2876,2880 ----
+>   		for (tupno2 = 0; tupno2 < ntuples2; tupno2++)
+>   		{
+> ! 			(void) slon_mkquery(&query1,
+>   						 "select %s.storeTrigger(%d, '%q'); ",
+>   					   rtcfg_namespace, tab_id, PQgetvalue(res2, tupno2, 0));
+> ***************
+> *** 2898,2902 ****
+>   				 node->no_id, tab_fqname);
+>
+> ! 		slon_mkquery(&query2, "select %s.copyFields(%d);",
+>   					 rtcfg_namespace, tab_id);
+>
+> --- 2903,2907 ----
+>   				 node->no_id, tab_fqname);
+>
+> ! 		(void) slon_mkquery(&query2, "select %s.copyFields(%d);",
+>   					 rtcfg_namespace, tab_id);
+>
+> ***************
+> *** 2920,2924 ****
+>   		}
+>
+> ! 		slon_mkquery(&query2, "select %s.pre74();",
+>   					 rtcfg_namespace);
+>   		res4 = PQexec(loc_dbconn, dstring_data(&query2));
+> --- 2925,2929 ----
+>   		}
+>
+> ! 		(void) slon_mkquery(&query2, "select %s.pre74();",
+>   					 rtcfg_namespace);
+>   		res4 = PQexec(loc_dbconn, dstring_data(&query2));
+> ***************
+> *** 2949,2953 ****
+>   				 node->no_id, nodeon73);
+>
+> ! 		slon_mkquery(&query1,
+>   					 "select %s.prepareTableForCopy(%d); "
+>   					 "copy %s %s from stdin; ",
+> --- 2954,2958 ----
+>   				 node->no_id, nodeon73);
+>
+> ! 		(void) slon_mkquery(&query1,
+>   					 "select %s.prepareTableForCopy(%d); "
+>   					 "copy %s %s from stdin; ",
+> ***************
+> *** 2976,2980 ****
+>   		if (archive_dir)
+>   		{
+> ! 			slon_mkquery(&query1,
+>   			 "delete from %s;copy %s %s from stdin;", tab_fqname, tab_fqname,
+>   						 nodeon73 ? "" : PQgetvalue(res3, 0, 0));
+> --- 2981,2985 ----
+>   		if (archive_dir)
+>   		{
+> ! 			(void) slon_mkquery(&query1,
+>   			 "delete from %s;copy %s %s from stdin;", tab_fqname, tab_fqname,
+>   						 nodeon73 ? "" : PQgetvalue(res3, 0, 0));
+> ***************
+> *** 2996,3000 ****
+>   		 * Begin a COPY to stdout for the table on the provider DB
+>   		 */
+> ! 		slon_mkquery(&query1,
+>   			   "copy %s %s to stdout; ", tab_fqname, PQgetvalue(res3, 0, 0));
+>   		PQclear(res3);
+> --- 3001,3005 ----
+>   		 * Begin a COPY to stdout for the table on the provider DB
+>   		 */
+> ! 		(void) slon_mkquery(&query1,
+>   			   "copy %s %s to stdout; ", tab_fqname, PQgetvalue(res3, 0, 0));
+>   		PQclear(res3);
+> ***************
+> *** 3319,3323 ****
+>   		 * Analyze the table to update statistics
+>   		 */
+> ! 		slon_mkquery(&query1, "select %s.finishTableAfterCopy(%d); "
+>   					 "analyze %s; ",
+>   					 rtcfg_namespace, tab_id,
+> --- 3324,3328 ----
+>   		 * Analyze the table to update statistics
+>   		 */
+> ! 		(void) slon_mkquery(&query1, "select %s.finishTableAfterCopy(%d); "
+>   					 "analyze %s; ",
+>   					 rtcfg_namespace, tab_id,
+> ***************
+> *** 3357,3361 ****
+>   	 * ENABLE_SUBSCRIPTION event.
+>   	 */
+> ! 	slon_mkquery(&query1,
+>   				 "select SL.seql_seqid, SL.seql_last_value, "
+>   				 "    %s.slon_quote_brute(PGN.nspname) || '.' || "
+> --- 3362,3366 ----
+>   	 * ENABLE_SUBSCRIPTION event.
+>   	 */
+> ! 	(void) slon_mkquery(&query1,
+>   				 "select SL.seql_seqid, SL.seql_last_value, "
+>   				 "    %s.slon_quote_brute(PGN.nspname) || '.' || "
+> ***************
+> *** 3408,3412 ****
+>   		if (strtol(seql_seqid, NULL, 10) != 0)
+>   		{
+> ! 			slon_mkquery(&query1,
+>   						 "select \"pg_catalog\".setval('%q', '%s'); ",
+>   						 seq_fqname, seql_last_value);
+> --- 3413,3417 ----
+>   		if (strtol(seql_seqid, NULL, 10) != 0)
+>   		{
+> ! 			(void) slon_mkquery(&query1,
+>   						 "select \"pg_catalog\".setval('%q', '%s'); ",
+>   						 seq_fqname, seql_last_value);
+> ***************
+> *** 3476,3480 ****
+>   		 * and all
+>   		 */
+> ! 		slon_mkquery(&query1,
+>   					 "select max(ev_seqno) as ssy_seqno "
+>   					 "from %s.sl_event "
+> --- 3481,3485 ----
+>   		 * and all
+>   		 */
+> ! 		(void) slon_mkquery(&query1,
+>   					 "select max(ev_seqno) as ssy_seqno "
+>   					 "from %s.sl_event "
+> ***************
+> *** 3527,3531 ****
+>   					 node->no_id);
+>
+> ! 			slon_mkquery(&query1,
+>   						 "select log_actionseq "
+>   						 "from %s.sl_log_1 where log_origin = %d "
+> --- 3532,3536 ----
+>   					 node->no_id);
+>
+> ! 			(void) slon_mkquery(&query1,
+>   						 "select log_actionseq "
+>   						 "from %s.sl_log_1 where log_origin = %d "
+> ***************
+> *** 3541,3545 ****
+>   			 * sequence list to all actions after that.
+>   			 */
+> ! 			slon_mkquery(&query1,
+>   						 "select ev_seqno, ev_minxid, ev_maxxid, ev_xip "
+>   						 "from %s.sl_event "
+> --- 3546,3550 ----
+>   			 * sequence list to all actions after that.
+>   			 */
+> ! 			(void) slon_mkquery(&query1,
+>   						 "select ev_seqno, ev_minxid, ev_maxxid, ev_xip "
+>   						 "from %s.sl_event "
+> ***************
+> *** 3583,3587 ****
+>   			ssy_xip = PQgetvalue(res1, 0, 3);
+>
+> ! 			slon_mkquery(&query2,
+>   						 "log_xid >= '%s' or (log_xid >= '%s'",
+>   						 ssy_maxxid, ssy_minxid);
+> --- 3588,3592 ----
+>   			ssy_xip = PQgetvalue(res1, 0, 3);
+>
+> ! 			(void) slon_mkquery(&query2,
+>   						 "log_xid >= '%s' or (log_xid >= '%s'",
+>   						 ssy_maxxid, ssy_minxid);
+> ***************
+> *** 3595,3599 ****
+>   					 node->no_id, ssy_seqno);
+>
+> ! 			slon_mkquery(&query1,
+>   						 "select log_actionseq "
+>   						 "from %s.sl_log_1 where log_origin = %d and %s "
+> --- 3600,3604 ----
+>   					 node->no_id, ssy_seqno);
+>
+> ! 			(void) slon_mkquery(&query1,
+>   						 "select log_actionseq "
+>   						 "from %s.sl_log_1 where log_origin = %d and %s "
+> ***************
+> *** 3649,3653 ****
+>   		 * setsync from him.
+>   		 */
+> ! 		slon_mkquery(&query1,
+>   					 "select ssy_seqno, ssy_minxid, ssy_maxxid, "
+>   					 "    ssy_xip, ssy_action_list "
+> --- 3654,3658 ----
+>   		 * setsync from him.
+>   		 */
+> ! 		(void) slon_mkquery(&query1,
+>   					 "select ssy_seqno, ssy_minxid, ssy_maxxid, "
+>   					 "    ssy_xip, ssy_action_list "
+> ***************
+> *** 3697,3701 ****
+>   	 * Create our own initial setsync entry
+>   	 */
+> ! 	slon_mkquery(&query1,
+>   		     "delete from %s.sl_setsync where ssy_setid = %d;"
+>   		     "insert into %s.sl_setsync "
+> --- 3702,3706 ----
+>   	 * Create our own initial setsync entry
+>   	 */
+> ! 	(void) slon_mkquery(&query1,
+>   		     "delete from %s.sl_setsync where ssy_setid = %d;"
+>   		     "insert into %s.sl_setsync "
+> ***************
+> *** 3722,3726 ****
+>   	if (archive_dir)
+>   	{
+> ! 		slon_mkquery(&lsquery,
+>   			     "insert into %s.sl_setsync_offline (ssy_setid, ssy_seqno) "
+>   			     "values ('%d', '%s');",
+> --- 3727,3731 ----
+>   	if (archive_dir)
+>   	{
+> ! 		(void) slon_mkquery(&lsquery,
+>   			     "insert into %s.sl_setsync_offline (ssy_setid, ssy_seqno) "
+>   			     "values ('%d', '%s');",
+> ***************
+> *** 3769,3773 ****
+>   	 * database connection.
+>   	 */
+> ! 	slon_mkquery(&query1, "rollback transaction");
+>   	if (query_execute(node, pro_dbconn, &query1) < 0)
+>   	{
+> --- 3774,3778 ----
+>   	 * database connection.
+>   	 */
+> ! 	(void) slon_mkquery(&query1, "rollback transaction");
+>   	if (query_execute(node, pro_dbconn, &query1) < 0)
+>   	{
+> ***************
+> *** 3902,3906 ****
+>   			 * Listen on the special relation telling our node relationship
+>   			 */
+> ! 			slon_mkquery(&query,
+>   						 "select %s.registerNodeConnection(%d); ",
+>   						 rtcfg_namespace, rtcfg_nodeid);
+> --- 3907,3911 ----
+>   			 * Listen on the special relation telling our node relationship
+>   			 */
+> ! 			(void) slon_mkquery(&query,
+>   						 "select %s.registerNodeConnection(%d); ",
+>   						 rtcfg_namespace, rtcfg_nodeid);
+> ***************
+> *** 3973,3977 ****
+>
+>   	if (strlen(event->ev_xip) != 0)
+> ! 		slon_mkquery(&new_qual,
+>   					 "(log_xid < '%s' and "
+>   					 "%s.xxid_lt_snapshot(log_xid, '%s:%s:%q'))",
+> --- 3978,3982 ----
+>
+>   	if (strlen(event->ev_xip) != 0)
+> ! 		(void) slon_mkquery(&new_qual,
+>   					 "(log_xid < '%s' and "
+>   					 "%s.xxid_lt_snapshot(log_xid, '%s:%s:%q'))",
+> ***************
+> *** 3980,3984 ****
+>   					 event->ev_minxid_c, event->ev_maxxid_c, event->ev_xip);
+>   	else
+> ! 		slon_mkquery(&new_qual,
+>   					 "(log_xid < '%s')",
+>   					 event->ev_maxxid_c);
+> --- 3985,3989 ----
+>   					 event->ev_minxid_c, event->ev_maxxid_c, event->ev_xip);
+>   	else
+> ! 		(void) slon_mkquery(&new_qual,
+>   					 "(log_xid < '%s')",
+>   					 event->ev_maxxid_c);
+> ***************
+> *** 3996,4000 ****
+>   		provider_qual = &(provider->helper_qualification);
+>   		dstring_reset(provider_qual);
+> ! 		slon_mkquery(provider_qual,
+>   					 "where log_origin = %d and ( ",
+>   					 node->no_id);
+> --- 4001,4005 ----
+>   		provider_qual = &(provider->helper_qualification);
+>   		dstring_reset(provider_qual);
+> ! 		(void) slon_mkquery(provider_qual,
+>   					 "where log_origin = %d and ( ",
+>   					 node->no_id);
+> ***************
+> *** 4004,4008 ****
+>   		 * synced better than this SYNC already.
+>   		 */
+> ! 		slon_mkquery(&query,
+>   					 "select SSY.ssy_setid, SSY.ssy_seqno, "
+>   					 "    SSY.ssy_minxid, SSY.ssy_maxxid, SSY.ssy_xip, "
+> --- 4009,4013 ----
+>   		 * synced better than this SYNC already.
+>   		 */
+> ! 		(void) slon_mkquery(&query,
+>   					 "select SSY.ssy_setid, SSY.ssy_seqno, "
+>   					 "    SSY.ssy_minxid, SSY.ssy_maxxid, SSY.ssy_xip, "
+> ***************
+> *** 4054,4058 ****
+>   			 * Select the tables in that set ...
+>   			 */
+> ! 			slon_mkquery(&query,
+>   						 "select T.tab_id, T.tab_set, "
+>   				 "    %s.slon_quote_brute(PGN.nspname) || '.' || "
+> --- 4059,4063 ----
+>   			 * Select the tables in that set ...
+>   			 */
+> ! 			(void) slon_mkquery(&query,
+>   						 "select T.tab_id, T.tab_set, "
+>   				 "    %s.slon_quote_brute(PGN.nspname) || '.' || "
+> ***************
+> *** 4262,4266 ****
+>   	 * Get the current sl_log_status
+>   	 */
+> ! 	slon_mkquery(&query, "select last_value from %s.sl_log_status",
+>   			rtcfg_namespace);
+>   	res1 = PQexec(local_dbconn, dstring_data(&query));
+> --- 4267,4271 ----
+>   	 * Get the current sl_log_status
+>   	 */
+> ! 	(void) slon_mkquery(&query, "select last_value from %s.sl_log_status",
+>   			rtcfg_namespace);
+>   	res1 = PQexec(local_dbconn, dstring_data(&query));
+> ***************
+> *** 4526,4530 ****
+>   		int			tupno1;
+>
+> ! 		slon_mkquery(&query,
+>   					 "select SL.seql_seqid, SL.seql_last_value "
+>   					 "	from %s.sl_seqlog SL, "
+> --- 4531,4535 ----
+>   		int			tupno1;
+>
+> ! 		(void) slon_mkquery(&query,
+>   					 "select SL.seql_seqid, SL.seql_last_value "
+>   					 "	from %s.sl_seqlog SL, "
+> ***************
+> *** 4562,4566 ****
+>   			char	   *seql_last_value = PQgetvalue(res1, tupno1, 1);
+>
+> ! 			slon_mkquery(&query,
+>   						 "select %s.sequenceSetValue(%s,%d,'%s','%s'); ",
+>   						 rtcfg_namespace,
+> --- 4567,4571 ----
+>   			char	   *seql_last_value = PQgetvalue(res1, tupno1, 1);
+>
+> ! 			(void) slon_mkquery(&query,
+>   						 "select %s.sequenceSetValue(%s,%d,'%s','%s'); ",
+>   						 rtcfg_namespace,
+> ***************
+> *** 4580,4584 ****
+>   			if (archive_dir)
+>   			{
+> ! 				slon_mkquery(&lsquery,
+>   							 "select %s.sequenceSetValue_offline(%s,'%s');\n",
+>   							 rtcfg_namespace,
+> --- 4585,4589 ----
+>   			if (archive_dir)
+>   			{
+> ! 				(void) slon_mkquery(&lsquery,
+>   							 "select %s.sequenceSetValue_offline(%s,'%s');\n",
+>   							 rtcfg_namespace,
+> ***************
+> *** 4596,4600 ****
+>   	 * we've just replicated ...
+>   	 */
+> ! 	slon_mkquery(&query,
+>   				 "update %s.sl_setsync set "
+>   			   "    ssy_seqno = '%s', ssy_minxid = '%s', ssy_maxxid = '%s', "
+> --- 4601,4605 ----
+>   	 * we've just replicated ...
+>   	 */
+> ! 	(void) slon_mkquery(&query,
+>   				 "update %s.sl_setsync set "
+>   			   "    ssy_seqno = '%s', ssy_minxid = '%s', ssy_maxxid = '%s', "
+> ***************
+> *** 4756,4760 ****
+>   			 * Start a transaction
+>   			 */
+> ! 			slon_mkquery(&query, "start transaction; "
+>   						 "set enable_seqscan = off; "
+>   						 "set enable_indexscan = on; ");
+> --- 4761,4765 ----
+>   			 * Start a transaction
+>   			 */
+> ! 			(void) slon_mkquery(&query, "start transaction; "
+>   						 "set enable_seqscan = off; "
+>   						 "set enable_indexscan = on; ");
+> ***************
+> *** 4768,4772 ****
+>   			 * Get the current sl_log_status value
+>   			 */
+> ! 			slon_mkquery(&query, "select last_value from %s.sl_log_status",
+>   						rtcfg_namespace);
+>   			res3 = PQexec(dbconn, dstring_data(&query));
+> --- 4773,4777 ----
+>   			 * Get the current sl_log_status value
+>   			 */
+> ! 			(void) slon_mkquery(&query, "select last_value from %s.sl_log_status",
+>   						rtcfg_namespace);
+>   			res3 = PQexec(dbconn, dstring_data(&query));
+> ***************
+> *** 4808,4812 ****
+>   			{
+>   				case 0:
+> ! 					slon_mkquery(&query,
+>   						 "declare LOG cursor for select "
+>   						 "    log_origin, log_xid, log_tableid, "
+> --- 4813,4817 ----
+>   			{
+>   				case 0:
+> ! 					(void) slon_mkquery(&query,
+>   						 "declare LOG cursor for select "
+>   						 "    log_origin, log_xid, log_tableid, "
+> ***************
+> *** 4823,4827 ****
+>
+>   				case 1:
+> ! 					slon_mkquery(&query,
+>   						 "declare LOG cursor for select "
+>   						 "    log_origin, log_xid, log_tableid, "
+> --- 4828,4832 ----
+>
+>   				case 1:
+> ! 					(void) slon_mkquery(&query,
+>   						 "declare LOG cursor for select "
+>   						 "    log_origin, log_xid, log_tableid, "
+> ***************
+> *** 4839,4843 ****
+>   				case 2:
+>   				case 3:
+> ! 					slon_mkquery(&query,
+>   						 "declare LOG cursor for select * from ("
+>   						 "  select log_origin, log_xid, log_tableid, "
+> --- 4844,4848 ----
+>   				case 2:
+>   				case 3:
+> ! 					(void) slon_mkquery(&query,
+>   						 "declare LOG cursor for select * from ("
+>   						 "  select log_origin, log_xid, log_tableid, "
+> ***************
+> *** 4885,4889 ****
+>   			}
+>
+> ! 			slon_mkquery(&query, "fetch %d from LOG; ",
+>   						 SLON_DATA_FETCH_SIZE * SLON_COMMANDS_PER_LINE);
+>   			data_line_alloc = 0;
+> --- 4890,4894 ----
+>   			}
+>
+> ! 			(void) slon_mkquery(&query, "fetch %d from LOG; ",
+>   						 SLON_DATA_FETCH_SIZE * SLON_COMMANDS_PER_LINE);
+>   			data_line_alloc = 0;
+> ***************
+> *** 5082,5086 ****
+>   					if (log_cmdsize >= sync_max_rowsize)
+>   					{
+> ! 						slon_mkquery(&query2,
+>   							     "select log_cmddata "
+>   							     "from %s.sl_log_1 "
+> --- 5087,5091 ----
+>   					if (log_cmdsize >= sync_max_rowsize)
+>   					{
+> ! 						(void) slon_mkquery(&query2,
+>   							     "select log_cmddata "
+>   							     "from %s.sl_log_1 "
+> ***************
+> *** 5267,5274 ****
+>   		 * Close the cursor and rollback the transaction.
+>   		 */
+> ! 		slon_mkquery(&query, "close LOG; ");
+>   		if (query_execute(node, dbconn, &query) < 0)
+>   			errors++;
+> ! 		slon_mkquery(&query, "rollback transaction; "
+>   					 "set enable_seqscan = default; "
+>   					 "set enable_indexscan = default; ");
+> --- 5272,5279 ----
+>   		 * Close the cursor and rollback the transaction.
+>   		 */
+> ! 		(void) slon_mkquery(&query, "close LOG; ");
+>   		if (query_execute(node, dbconn, &query) < 0)
+>   			errors++;
+> ! 		(void) slon_mkquery(&query, "rollback transaction; "
+>   					 "set enable_seqscan = default; "
+>   					 "set enable_indexscan = default; ");
+> ***************
+> *** 5647,5651 ****
+>   	first_subquery = 1;
+>   	state = START_STATE;
+> ! 	slon_mkquery(action_subquery, " ");
+>
+>   	slon_log(SLON_DEBUG4, "compress_actionseq(list,subquery) Action list:
+> %s\n", ssy_actionlist); --- 5652,5656 ----
+>   	first_subquery = 1;
+>   	state = START_STATE;
+> ! 	(void) slon_mkquery(action_subquery, " ");
+>
+>   	slon_log(SLON_DEBUG4, "compress_actionseq(list,subquery) Action list:
+> %s\n", ssy_actionlist);
+>
+> Index: slon.h
+> ===================================================================
+> RCS file: /home/cvsd/slony1/slony1-engine/src/slon/slon.h,v
+> retrieving revision 1.61
+> retrieving revision 1.62
+> diff -C2 -d -r1.61 -r1.62
+> *** slon.h	27 Oct 2006 20:10:57 -0000	1.61
+> --- slon.h	18 Apr 2007 22:19:07 -0000	1.62
+> ***************
+> *** 362,366 ****
+>   	if (slon_watchdog_pid >= 0) { \
+>   		slon_log(SLON_DEBUG2, "slon_abort() from pid=%d\n", slon_pid); \
+> ! 		kill(slon_watchdog_pid, SIGTERM); \
+>   		slon_watchdog_pid = -1; \
+>   	} \
+> --- 362,366 ----
+>   	if (slon_watchdog_pid >= 0) { \
+>   		slon_log(SLON_DEBUG2, "slon_abort() from pid=%d\n", slon_pid); \
+> ! 		(void) kill(slon_watchdog_pid, SIGTERM);			\
+>   		slon_watchdog_pid = -1; \
+>   	} \
+> ***************
+> *** 373,377 ****
+>   	if (slon_watchdog_pid >= 0) { \
+>   		slon_log(SLON_DEBUG2, "slon_restart() from pid=%d\n", slon_pid); \
+> ! 		kill(slon_watchdog_pid, SIGHUP); \
+>   		slon_watchdog_pid = -1; \
+>   	} \
+> --- 373,377 ----
+>   	if (slon_watchdog_pid >= 0) { \
+>   		slon_log(SLON_DEBUG2, "slon_restart() from pid=%d\n", slon_pid); \
+> ! 		(void) kill(slon_watchdog_pid, SIGHUP);			\
+>   		slon_watchdog_pid = -1; \
+>   	} \
+> ***************
+> *** 384,388 ****
+>   	if (slon_watchdog_pid >= 0) { \
+>   		slon_log(SLON_DEBUG2, "slon_retry() from pid=%d\n", slon_pid); \
+> ! 		kill(slon_watchdog_pid, SIGUSR1); \
+>   		slon_watchdog_pid = -1; \
+>   	} \
+> --- 384,388 ----
+>   	if (slon_watchdog_pid >= 0) { \
+>   		slon_log(SLON_DEBUG2, "slon_retry() from pid=%d\n", slon_pid); \
+> ! 		(void) kill(slon_watchdog_pid, SIGUSR1);			\
+>   		slon_watchdog_pid = -1; \
+>   	} \
+>
+> Index: snmp_thread.c
+> ===================================================================
+> RCS file: /home/cvsd/slony1/slony1-engine/src/slon/snmp_thread.c,v
+> retrieving revision 1.4
+> retrieving revision 1.5
+> diff -C2 -d -r1.4 -r1.5
+> *** snmp_thread.c	27 Oct 2006 20:10:57 -0000	1.4
+> --- snmp_thread.c	18 Apr 2007 22:19:07 -0000	1.5
+> ***************
+> *** 18,22 ****
+>   init_nstAgentSubagentObject(void)
+>   {
+> ! 	static oid	nstAgentSubagentObject_oid[] =
+>   	{1, 3, 6, 1, 4, 1, 20366, 32, 2, 3, 32, 1};
+>
+> --- 18,22 ----
+>   init_nstAgentSubagentObject(void)
+>   {
+> ! 	static oid nstAgentSubagentObject_oid[] =
+>   	{1, 3, 6, 1, 4, 1, 20366, 32, 2, 3, 32, 1};
+>
+>
+> Index: confoptions.h
+> ===================================================================
+> RCS file: /home/cvsd/slony1/slony1-engine/src/slon/confoptions.h,v
+> retrieving revision 1.33
+> retrieving revision 1.34
+> diff -C2 -d -r1.33 -r1.34
+> *** confoptions.h	6 Feb 2007 21:04:27 -0000	1.33
+> --- confoptions.h	18 Apr 2007 22:19:07 -0000	1.34
+> ***************
+> *** 1,2 ****
+> --- 1,3 ----
+> + /* $Id$ */
+>   #ifndef _CONFOPTIONS_H_
+>   #define _CONFOPTIONS_H_
+>
+> Index: slon.c
+> ===================================================================
+> RCS file: /home/cvsd/slony1/slony1-engine/src/slon/slon.c,v
+> retrieving revision 1.70
+> retrieving revision 1.71
+> diff -C2 -d -r1.70 -r1.71
+> *** slon.c	13 Dec 2006 14:37:18 -0000	1.70
+> --- slon.c	18 Apr 2007 22:19:07 -0000	1.71
+> ***************
+> *** 47,51 ****
+>   #define		SLON_WATCHDOG_RETRY			2
+>   #define		SLON_WATCHDOG_SHUTDOWN		3
+> ! int			watchdog_status = SLON_WATCHDOG_NORMAL;
+>   #endif
+>   int			sched_wakeuppipe[2];
+> --- 47,51 ----
+>   #define		SLON_WATCHDOG_RETRY			2
+>   #define		SLON_WATCHDOG_SHUTDOWN		3
+> ! static int			watchdog_status = SLON_WATCHDOG_NORMAL;
+>   #endif
+>   int			sched_wakeuppipe[2];
+> ***************
+> *** 80,84 ****
+>   char	   *pid_file;
+>   char	   *archive_dir = NULL;
+> ! int			child_status;
+>
+>
+> --- 80,84 ----
+>   char	   *pid_file;
+>   char	   *archive_dir = NULL;
+> ! static int			child_status;
+>
+>
+>
+> Index: cleanup_thread.c
+> ===================================================================
+> RCS file: /home/cvsd/slony1/slony1-engine/src/slon/cleanup_thread.c,v
+> retrieving revision 1.35
+> retrieving revision 1.36
+> diff -C2 -d -r1.35 -r1.36
+> *** cleanup_thread.c	6 Dec 2006 09:36:16 -0000	1.35
+> --- cleanup_thread.c	18 Apr 2007 22:19:07 -0000	1.36
+> ***************
+> *** 36,40 ****
+>
+>   /* The list of tables that need to be vacuumed by Slony-I */
+> ! static char *table_list[] = {"%s.sl_event",
+>   	"%s.sl_confirm",
+>   	"%s.sl_setsync",
+> --- 36,42 ----
+>
+>   /* The list of tables that need to be vacuumed by Slony-I */
+> ! /* @-nullassign @*/
+> ! static char *table_list[] = {
+> ! 	"%s.sl_event",
+>   	"%s.sl_confirm",
+>   	"%s.sl_setsync",
+> ***************
+> *** 44,50 ****
+>   	"pg_catalog.pg_listener",
+>   	"pg_catalog.pg_statistic",
+> ! 	NULL
+>   };
+> !
+>
+>   static char tstring[255];		/* string used to store table names for the
+> --- 46,52 ----
+>   	"pg_catalog.pg_listener",
+>   	"pg_catalog.pg_statistic",
+> ! 	NULL
+>   };
+> !  /* @end@ */
+>
+>   static char tstring[255];		/* string used to store table names for the
+> ***************
+> *** 58,64 ****
+> --- 60,68 ----
+>    * ----------
+>    */
+> + /* @ -paramuse @ */
+>   void *
+>   cleanupThread_main(void *dummy)
+>   {
+> + /* @ +paramuse @ */
+>   	SlonConn   *conn;
+>   	SlonDString query1;
+> ***************
+> *** 95,99 ****
+>   	{
+>   #ifndef WIN32
+> ! 		kill(getpid(), SIGTERM);
+>   		pthread_exit(NULL);
+>   #else
+> --- 99,103 ----
+>   	{
+>   #ifndef WIN32
+> ! 		(void)	kill(getpid(), SIGTERM);
+>   		pthread_exit(NULL);
+>   #else
+> ***************
+> *** 102,107 ****
+>   		/* slon_retry(); */
+>   	}
+>   	dbconn = conn->dbconn;
+> -
+>   	/*
+>   	 * Build the query string for calling the cleanupEvent() stored
+> procedure --- 106,111 ----
+>   		/* slon_retry(); */
+>   	}
+> +
+>   	dbconn = conn->dbconn;
+>   	/*
+>   	 * Build the query string for calling the cleanupEvent() stored
+> procedure
+>
+> Index: confoptions.c
+> ===================================================================
+> RCS file: /home/cvsd/slony1/slony1-engine/src/slon/confoptions.c,v
+> retrieving revision 1.21
+> retrieving revision 1.22
+> diff -C2 -d -r1.21 -r1.22
+> *** confoptions.c	2 Feb 2007 20:24:16 -0000	1.21
+> --- confoptions.c	18 Apr 2007 22:19:07 -0000	1.22
+> ***************
+> *** 101,105 ****
+>   	num_conf_variables = num_vars;
+>   	size_conf_variables = size_vars;
+> ! 	qsort((void *)conf_variables, num_conf_variables, sizeof(struct
+> config_generic *), conf_var_compare); }
+>
+> --- 101,105 ----
+>   	num_conf_variables = num_vars;
+>   	size_conf_variables = size_vars;
+> ! 	qsort((void *)conf_variables, (size_t) num_conf_variables, sizeof(struct
+> config_generic *), conf_var_compare); }
+>
+> ***************
+> *** 205,209 ****
+>   parse_bool(const char *value, bool * result)
+>   {
+> ! 	size_t		len = strlen(value);
+>
+>   	if (strncasecmp(value, "true", len) == 0)
+> --- 205,209 ----
+>   parse_bool(const char *value, bool * result)
+>   {
+> ! 	int		len = (int)  strlen(value);
+>
+>   	if (strncasecmp(value, "true", len) == 0)
+> ***************
+> *** 326,330 ****
+>   		bsearch((void *)&key,
+>   				(void *)conf_variables,
+> ! 				num_conf_variables,
+>   				sizeof(struct config_generic *),
+>   				conf_var_compare);
+> --- 326,330 ----
+>   		bsearch((void *)&key,
+>   				(void *)conf_variables,
+> ! 				(size_t) num_conf_variables,
+>   				sizeof(struct config_generic *),
+>   				conf_var_compare);
+> ***************
+> *** 367,371 ****
+>   			chb += 'a' - 'A';
+>   		if (cha != chb)
+> ! 			return cha - chb;
+>   	}
+>   	if (*namea)
+> --- 367,371 ----
+>   			chb += 'a' - 'A';
+>   		if (cha != chb)
+> ! 			return (int) (cha - chb);
+>   	}
+>   	if (*namea)
+> ***************
+> *** 394,398 ****
+>
+>   				return (void *)conf->variable;
+> ! 				break;
+>   			}
+>   		case SLON_C_INT:
+> --- 394,398 ----
+>
+>   				return (void *)conf->variable;
+> ! 				/* break; */
+>   			}
+>   		case SLON_C_INT:
+> ***************
+> *** 401,405 ****
+>
+>   				return (void *)conf->variable;
+> ! 				break;
+>   			}
+>   		case SLON_C_REAL:
+> --- 401,405 ----
+>
+>   				return (void *)conf->variable;
+> ! 				/* break; */
+>   			}
+>   		case SLON_C_REAL:
+> ***************
+> *** 408,412 ****
+>
+>   				return (void *)conf->variable;
+> ! 				break;
+>   			}
+>   		case SLON_C_STRING:
+> --- 408,412 ----
+>
+>   				return (void *)conf->variable;
+> ! 				/* break; */
+>   			}
+>   		case SLON_C_STRING:
+> ***************
+> *** 415,419 ****
+>
+>   				return (void *)*conf->variable;
+> ! 				break;
+>   			}
+>   	}
+> --- 415,419 ----
+>
+>   				return (void *)*conf->variable;
+> ! 				/* break; */
+>   			}
+>   	}
+> ***************
+> *** 496,499 ****
+> --- 496,500 ----
+>   						return false;
+>   					}
+> + 					/* @ -realcompare @ */
+>   					if (newval < conf->min || newval > conf->max)
+>   					{
+> ***************
+> *** 502,505 ****
+> --- 503,507 ----
+>   						return false;
+>   					}
+> + 					/* @ +realcompare @ */
+>   				}
+>   				else
+>
+> _______________________________________________
+> Slony1-commit mailing list
+> Slony1-commit@lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-commit
+
+-- 
+Darcy Buskermolen
+Command Prompt, Inc.
+Sales/Support: +1.503.667.4564 || 24x7/Emergency: +1.800.492.2240
+PostgreSQL solutions since 1997
+http://www.commandprompt.com/
+From mailings at oopsware.de  Tue Apr 24 04:21:21 2007
+From: mailings at oopsware.de (Bernd Helmle)
+Date: Tue Apr 24 04:17:59 2007
+Subject: [Slony1-hackers] Anon CVS broken again?
+Message-ID: <84E8EE8A7E4E88B93F43D074@imhotep.credativ.de>
+
+Tried to do a checkout for -HEAD this morning and got this:
+
+
+cvs checkout: Updating slony1-engine/tests/testlogship
+cvs checkout: failed to create lock directory for 
+`/slony1/slony1-engine/tests/testlogship' 
+(/slony1/slony1-engine/tests/testlogship/#cvs.lock): Permission denied
+cvs checkout: failed to obtain dir lock in repository 
+`/slony1/slony1-engine/tests/testlogship'
+cvs [checkout aborted]: read lock failed - giving up
+
+Looks like a permission error again, someone with shell access able to fix 
+that?
+
+-- 
+  Thanks
+
+                    Bernd
+From wmoran at collaborativefusion.com  Tue Apr 24 10:45:30 2007
+From: wmoran at collaborativefusion.com (Bill Moran)
+Date: Tue Apr 24 10:45:43 2007
+Subject: [Slony1-hackers] How to reliably detect the status of a node from a
+ client application
+Message-ID: <20070424134530.61727855.wmoran@collaborativefusion.com>
+
+
+We've been doing some work with our application to make it Slony-aware.
+Specifically, we want the application to detect when a switchover is
+occurring and behave in a rational manner.  The goal here is the illusion
+of zero downtime, so we want the application to detect that a switchover
+is occurring and "stall" until it is complete.
+
+As best I can tell from experiments, during switchover there is a period
+where, for all intents and purposes, all the nodes are slaves and there
+are no masters.  Once this is accomplished, the triggers are reorganize
+on the new master and updates can proceed again.
+
+Works for me.  The part that's throwing me is the error returned.  In
+src/backend/slony1_funcs.c the following statement appears:
+elog(ERROR,
+         "Slony-I: Table %s is replicated and cannot be "
+         "modified on a subscriber node",
+         NameStr(tg->tg_relation->rd_rel->relname));
+
+My concern is that on the client end, this results in the SQLSTATE
+returned as the default XX000, which is more or less "general failure"
+(according to the docs, it's "INTERNAL ERROR")
+
+This forces us to parse the returned message to determine whether the
+problem was the result of talking to a Slony system that is replicated
+or some other (totally unrelated) problem.  Parsing error messages makes
+me queasy ;)
+
+Looking at the valid SQLSTATEs:
+http://www.postgresql.org/docs/8.1/interactive/errcodes-appendix.html
+there's obviously not one for "This is a read-only Slony replica", but
+2F002 (MODIFYING SQL DATA NOT PERMITTED) seems more POLA than a generic
+error.
+
+I recommend the following to replace the above code snippet:
+ereport(ERROR,
+        (errcode(MODIFYING_SQL_DATA_NOT_PERMITTED),
+	 errmsg("Slony-I: Table %s is replicated and cannot be "
+                "modified on a subscriber node",
+                NameStr(tg->tg_relation->rd_rel->relname)));
+
+I think this is a general improvement no matter what.
+
+However, it doesn't _totally_ solve my particular problem.  Since other
+(not uncommon) conditions can return that SQLSTATE, I'm still reduced
+to parsing the error message text.
+
+So, I'm suggesting the above change.  But I'm also fishing for ideas on
+how to more deterministically communicate Slony's state to client
+applications.
+
+Ideas?
+
+-- 
+Bill Moran
+Collaborative Fusion Inc.
+http://people.collaborativefusion.com/~wmoran/
+
+wmoran@collaborativefusion.com
+Phone: 412-422-3463x4023
+From dpage at postgresql.org  Wed Apr 25 11:19:34 2007
+From: dpage at postgresql.org (Dave Page)
+Date: Wed Apr 25 11:19:44 2007
+Subject: [Slony1-hackers] PostgreSQL 8.3 compatibility
+Message-ID: <462F9BB6.8030505@postgresql.org>
+
+I've been looking at compatibility with 8.3 prior to building a demo of 
+the new style windows installer for PostgreSQL that we're planning. I 
+see that CVS head has an update to use VARATT_SIZEP_DEPRECATED instead 
+of VARATT_SIZEP, however this change is obsolete already following 
+Greg's recent work minimising the on disk size of various datatypes.
+
+Before I spend any time on this, is anyone else working on 8.3 
+compatibility?
+
+I'd also like to back port this to 1.2.x so we can release a build with 
+PostgreSQL 8.3. Any objections?
+
+Regards, Dave.
+From darcyb at commandprompt.com  Wed Apr 25 11:34:50 2007
+From: darcyb at commandprompt.com (Darcy Buskermolen)
+Date: Wed Apr 25 11:35:06 2007
+Subject: [Slony1-hackers] PostgreSQL 8.3 compatibility
+In-Reply-To: <462F9BB6.8030505@postgresql.org>
+References: <462F9BB6.8030505@postgresql.org>
+Message-ID: <200704251134.50469.darcyb@commandprompt.com>
+
+On April 25, 2007 11:19 am, Dave Page wrote:
+> I've been looking at compatibility with 8.3 prior to building a demo of
+> the new style windows installer for PostgreSQL that we're planning. I
+> see that CVS head has an update to use VARATT_SIZEP_DEPRECATED instead
+> of VARATT_SIZEP, however this change is obsolete already following
+> Greg's recent work minimising the on disk size of various datatypes.
+>
+> Before I spend any time on this, is anyone else working on 8.3
+> compatibility?
+
+I'm not doing any current work, nor do i know of anybody else who is.
+
+>
+> I'd also like to back port this to 1.2.x so we can release a build with
+> PostgreSQL 8.3. Any objections?
+
+Well lets see the work commited to -HEAD first, and if it's not too obtrusive 
+then back patching to 1.2 may be applicable.
+
+
+
+>
+> Regards, Dave.
+> _______________________________________________
+> Slony1-hackers mailing list
+> Slony1-hackers@lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-hackers
+
+-- 
+Darcy Buskermolen
+Command Prompt, Inc.
++1.503.667.4564 X 102
+http://www.commandprompt.com/
+PostgreSQL solutions since 1997
+From cbbrowne at ca.afilias.info  Wed Apr 25 13:47:29 2007
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Wed Apr 25 13:47:36 2007
+Subject: [Slony1-hackers] PostgreSQL 8.3 compatibility
+In-Reply-To: <200704251134.50469.darcyb@commandprompt.com>
+References: <462F9BB6.8030505@postgresql.org>
+	<200704251134.50469.darcyb@commandprompt.com>
+Message-ID: <462FBE61.1000403@ca.afilias.info>
+
+Darcy Buskermolen wrote:
+> On April 25, 2007 11:19 am, Dave Page wrote:
+>   
+>> I've been looking at compatibility with 8.3 prior to building a demo of
+>> the new style windows installer for PostgreSQL that we're planning. I
+>> see that CVS head has an update to use VARATT_SIZEP_DEPRECATED instead
+>> of VARATT_SIZEP, however this change is obsolete already following
+>> Greg's recent work minimising the on disk size of various datatypes.
+>>
+>> Before I spend any time on this, is anyone else working on 8.3
+>> compatibility?
+>>     
+>
+> I'm not doing any current work, nor do i know of anybody else who is.
+>
+>   
+Jan has some pretty big changes in mind, in view of 8.3 having the
+ability to shut off triggers/rules without needing to hack on pg_catalog.
+
+Jan needs to [pester, pester] start publishing the ideas on that. 
+There's a "greater vision" there (and he needs to make the argument
+about this) that we should see about having "Slony-I 2.0" be a cleaner,
+gentler version of Slony-I that would work only on PG 8.3 (and above). 
+Maintaining an upgrade path would mandate that Slony-I 1.2.x be
+compatible with PG 8.3, of course.
+
+Note that I have been doing some work on removing 7.3-isms, removing
+TABLE ADD KEY, and doing other code cleanup on CVS HEAD with a view to
+simplifying the code base somewhat in preparation for that.
+>> I'd also like to back port this to 1.2.x so we can release a build with
+>> PostgreSQL 8.3. Any objections?
+>>     
+>
+> Well lets see the work commited to -HEAD first, and if it's not too obtrusive 
+> then back patching to 1.2 may be applicable.
+>
+>   
+Yes, that seems like a good idea.
+
+Some Windows-related changes came in from Hiroshi Saito in March; I have
+applied some of it, but found some of it wouldn't apply cleanly against
+CVS HEAD.  If we can get some combination of Dave and Hiroshi (probably
+both) added to the committers list, then that should allow them to more
+cleanly address this.
+From dpage at postgresql.org  Thu Apr 26 01:35:04 2007
+From: dpage at postgresql.org (Dave Page)
+Date: Thu Apr 26 01:35:25 2007
+Subject: [Slony1-hackers] PostgreSQL 8.3 compatibility
+In-Reply-To: <462FBE61.1000403@ca.afilias.info>
+References: <462F9BB6.8030505@postgresql.org>	<200704251134.50469.darcyb@commandprompt.com>
+	<462FBE61.1000403@ca.afilias.info>
+Message-ID: <46306438.7030104@postgresql.org>
+
+Christopher Browne wrote:
+> Jan has some pretty big changes in mind, in view of 8.3 having the
+> ability to shut off triggers/rules without needing to hack on pg_catalog.
+> 
+> Jan needs to [pester, pester] start publishing the ideas on that. 
+> There's a "greater vision" there (and he needs to make the argument
+> about this) that we should see about having "Slony-I 2.0" be a cleaner,
+> gentler version of Slony-I that would work only on PG 8.3 (and above). 
+> Maintaining an upgrade path would mandate that Slony-I 1.2.x be
+> compatible with PG 8.3, of course.
+
+Yup.
+
+> Note that I have been doing some work on removing 7.3-isms, removing
+> TABLE ADD KEY, and doing other code cleanup on CVS HEAD with a view to
+> simplifying the code base somewhat in preparation for that.
+>>> I'd also like to back port this to 1.2.x so we can release a build with
+>>> PostgreSQL 8.3. Any objections?
+>>>     
+>> Well lets see the work commited to -HEAD first, and if it's not too obtrusive 
+>> then back patching to 1.2 may be applicable.
+>>
+>>   
+> Yes, that seems like a good idea.
+
+OK - I'll have a word with Greg when he gets here this morning and see
+what he advises to replace the old macros.
+
+> Some Windows-related changes came in from Hiroshi Saito in March; I have
+> applied some of it, but found some of it wouldn't apply cleanly against
+> CVS HEAD.  If we can get some combination of Dave and Hiroshi (probably
+> both) added to the committers list, then that should allow them to more
+> cleanly address this.
+
+Yeah, I knew he was working on MSVC builds but didn't get a look at what
+he's been doing yet (if I'm honest, I only just got round to subscribing
+to the new lists :-( ). My commit access is in the process of being
+reinstated as you know so we should be able to sort the Windows stuff
+between us again.
+
+Cheers, Dave.

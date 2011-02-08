@@ -1,0 +1,366 @@
+From guillaume at lelarge.info  Sat Jan  2 06:43:37 2010
+From: guillaume at lelarge.info (Guillaume Lelarge)
+Date: Sat, 02 Jan 2010 15:43:37 +0100
+Subject: [Slony1-hackers] storenode Function
+Message-ID: <4B3F5B99.9070201@lelarge.info>
+
+Hi,
+
+It seems to me that the storenode function only takes two parameters in
+2.0, despite what the manual says. Am I wrong? or do we need a patch for
+the manual? I can work on that if you want.
+
+Regards.
+
+
+-- 
+Guillaume.
+ http://www.postgresqlfr.org
+ http://dalibo.com
+
+From uweber at astaro.com  Thu Jan 14 08:41:16 2010
+From: uweber at astaro.com (Ulrich Weber)
+Date: Thu, 14 Jan 2010 17:41:16 +0100
+Subject: [Slony1-hackers] Slon Memory Leak
+Message-ID: <4B4F492C.9000704@astaro.com>
+
+-----BEGIN PGP SIGNED MESSAGE-----
+Hash: SHA1
+
+Hi all,
+
+Slony-1 1.2.20 seems to leak memory.
+
+After running slon with valgrind I found some
+missing dstring_free() and PQclear calls.
+
+Two notes to the attached patch:
+
+ a) remote_listen.c, remoteListenThread_main()
+ query1 is used twice here. Cleanup was missing and
+ there are multiple returns here, so I decided to free dstring
+ after first usage and create it again for second usage...
+
+ b) remote_worker.c, sync_helper()
+ Moved PQclear(res2) directly after last usage.
+
+
+However slon is still leaking with this patch
+and I can't find any other issues with valgrind.
+
+Any ideas, where to search or how to debug further?
+
+I added debug messages to DLLIST_ADD_TAIL, DLLIST_ADD_HEAD
+and DLLIST_REMOVE. But the leaking seems not to occur here.
+Also upgrading libc to current version 2.11 didn't help...
+PostgreSQL version is 8.3.7
+
+
+Memory overview:
+
+ 09 Jan 15:43
+postgres  4791  0.0  0.1   2036   696 ?        S    Jan08   0:00  \_
+slon cluster dbname=db1
+postgres  4857  0.0  0.2  52816  1504 ?        Sl   Jan08   0:14  |  
+\_ slon cluster dbname=db1
+postgres  4792  0.0  0.1   2040   700 ?        S    Jan08   0:00  \_
+slon cluster dbname=db2
+postgres  4859  0.0  0.2  52700  1508 ?        Sl   Jan08   0:12     
+\_ slon cluster dbname=db2
+
+ 10 Jan 13:11
+postgres  4791  0.0  0.1   2036   696 ?        S    Jan08   0:00  \_
+slon cluster dbname=db1
+postgres  4857  0.0  0.3  52816  1888 ?        Sl   Jan08   0:28  |  
+\_ slon cluster dbname=db1
+postgres  4792  0.0  0.1   2040   700 ?        S    Jan08   0:00  \_
+slon cluster dbname=db2
+postgres  4859  0.0  0.3  52700  1824 ?        Sl   Jan08   0:24     
+\_ slon cluster dbname=db2
+
+ 11 Jan 10:27
+postgres  4791  0.0  0.1   2036   696 ?        S    Jan08   0:00  \_
+slon cluster dbname=db1
+postgres  4857  0.0  0.4  52816  2264 ?        Sl   Jan08   0:42  |  
+\_ slon cluster dbname=db1
+postgres  4792  0.0  0.1   2040   700 ?        S    Jan08   0:00  \_
+slon cluster dbname=db2
+postgres  4859  0.0  0.4  52700  2128 ?        Sl   Jan08   0:35     
+\_ slon cluster dbname=db2
+
+So slon seems to leak around 300kb each day...
+
+Best regards
+Ulrich
+
+- --
+Ulrich Weber | uweber at astaro.com | Software Engineer
+Astaro AG | www.astaro.de | Phone +49-721-25516-0 | Fax ?200
+An der RaumFabrik 33a | 76227 Karlsruhe | Germany
+
+-----BEGIN PGP SIGNATURE-----
+Version: GnuPG v1.4.9 (GNU/Linux)
+Comment: Using GnuPG with Mozilla - http://enigmail.mozdev.org
+
+iEYEARECAAYFAktPSSwACgkQ22t2oTuElzrEGwCfcrkO9FOH2i6Gr2oVQpijj+o4
+EXIAnRIKJuw2Y+G7p1eO0uQ6RnSA2+Tk
+=P6lg
+-----END PGP SIGNATURE-----
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: Add-missing-dstring_free-and-PQclear.patch
+Type: text/x-patch
+Size: 0 bytes
+Desc: not available
+Url : http://lists.slony.info/pipermail/slony1-hackers/attachments/20100114/09172e41/attachment.bin 
+
+From uweber at astaro.com  Thu Jan  7 05:06:14 2010
+From: uweber at astaro.com (Ulrich Weber)
+Date: Thu, 7 Jan 2010 14:06:14 +0100
+Subject: [PATCH] Add missing dstring_free and PQclear
+Message-ID: <mailman.1.1263487284.4961.slony1-hackers@lists.slony.info>
+
+http://bugs.slony.info/bugzilla/show_bug.cgi?id=52
+
+Signed-off-by: Ulrich Weber <uweber at astaro.com>
+---
+ src/slon/remote_listen.c |    7 +++++++
+ src/slon/remote_worker.c |    5 ++++-
+ 2 files changed, 11 insertions(+), 1 deletions(-)
+
+diff --git a/src/slon/remote_listen.c b/src/slon/remote_listen.c
+index 6dc466e..58e461b 100644
+--- a/src/slon/remote_listen.c
++++ b/src/slon/remote_listen.c
+@@ -266,6 +266,7 @@ remoteListenThread_main(void *cdata)
+ 					 "remoteListenThread_%d: \"%s\" - %s",
+ 					 node->no_id,
+ 					 dstring_data(&query1), PQresultErrorMessage(res));
++				dstring_free(&query1);
+ 				PQclear(res);
+ 				slon_disconnectdb(conn);
+ 				free(conn_conninfo);
+@@ -278,6 +279,8 @@ remoteListenThread_main(void *cdata)
+ 
+ 				continue;
+ 			}
++			dstring_free(&query1);
++			PQclear(res);
+ 			rc = db_getLocalNodeId(dbconn);
+ 			if (rc != node->no_id)
+ 			{
+@@ -340,6 +343,7 @@ remoteListenThread_main(void *cdata)
+ 			continue;
+ 		}
+ 		if (oldpstate != poll_state) { /* Switched states... */
++			dstring_init(&query1);
+ 			switch (poll_state) {
+ 			case SLON_POLLSTATE_POLL:
+ 				slon_log(SLON_DEBUG2, 
+@@ -366,6 +370,7 @@ remoteListenThread_main(void *cdata)
+ 					 "remoteListenThread_%d: \"%s\" - %s",
+ 					 node->no_id,
+ 					 dstring_data(&query1), PQresultErrorMessage(res));
++				dstring_free(&query1);
+ 				PQclear(res);
+ 				slon_disconnectdb(conn);
+ 				free(conn_conninfo);
+@@ -373,6 +378,8 @@ remoteListenThread_main(void *cdata)
+ 				conn_conninfo = NULL;
+ 				continue;
+ 			}
++			dstring_free(&query1);
++			PQclear(res);
+ 		}
+ 
+ 		/*
+diff --git a/src/slon/remote_worker.c b/src/slon/remote_worker.c
+index b34d432..75e19d2 100644
+--- a/src/slon/remote_worker.c
++++ b/src/slon/remote_worker.c
+@@ -1389,6 +1389,7 @@ remoteWorkerThread_main(void *cdata)
+ 						}
+ 						rstat = PQresultStatus(res);
+ 						slon_log (SLON_CONFIG, "DDL success - %s\n", PQresStatus(rstat));
++						PQclear(res);
+ 					}
+ 					slon_log(SLON_INFO, "completed DDL script - run ddlScript_complete_int()\n");
+ 					slon_mkquery(&query1, "select %s.ddlScript_complete_int(%d, %d); ", 
+@@ -1484,6 +1485,7 @@ remoteWorkerThread_main(void *cdata)
+ 	slon_disconnectdb(local_conn);
+ 	dstring_free(&query1);
+ 	dstring_free(&query2);
++	dstring_free(&lsquery);
+ 	free(wd->tab_fqname);
+ 	free(wd->tab_forward);
+ #ifdef SLON_MEMDEBUG
+@@ -4916,6 +4918,7 @@ sync_helper(void *cdata)
+ 		if (provider->helper_status == SLON_WG_EXIT)
+ 		{
+ 			dstring_free(&query);
++			dstring_free(&query2);
+ 			pthread_mutex_unlock(&(provider->helper_lock));
+ 			pthread_exit(NULL);
+ 		}
+@@ -5307,6 +5310,7 @@ sync_helper(void *cdata)
+ 
+ 						log_cmddata = PQgetvalue(res2, 0, 0);
+ 						largemem = log_cmdsize;
++						PQclear(res2);
+ 					}
+ 
+ 					/*
+@@ -5392,7 +5396,6 @@ sync_helper(void *cdata)
+ 					 */
+ 					if (largemem > 0)
+ 					{
+-						PQclear(res2);
+ 						pthread_mutex_lock(&(wd->workdata_lock));
+ 						wd->workdata_largemem += largemem;
+ 						if (wd->workdata_largemem >= sync_max_largemem)
+-- 
+1.6.3.3
+
+
+--------------000002070101010706020608--
+
+From cbbrowne at ca.afilias.info  Thu Jan 14 12:32:34 2010
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Thu, 14 Jan 2010 15:32:34 -0500
+Subject: [Slony1-hackers] storenode Function
+In-Reply-To: <4B3F5B99.9070201@lelarge.info>
+References: <4B3F5B99.9070201@lelarge.info>
+Message-ID: <4B4F7F62.3070609@ca.afilias.info>
+
+Guillaume Lelarge wrote:
+> Hi,
+>
+> It seems to me that the storenode function only takes two parameters in
+> 2.0, despite what the manual says. Am I wrong? or do we need a patch for
+> the manual? I can work on that if you want.
+>
+> Regards.
+>
+>
+>   
+The manual bit gets populated by dumping data from the schema.  
+Apparently I haven't done that in some time :-(, and should regenerate 
+that portion of the docs.
+
+It won't be happening today, alas :-(.
+
+From JanWieck at Yahoo.com  Mon Jan 18 05:59:46 2010
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Mon, 18 Jan 2010 08:59:46 -0500
+Subject: [Slony1-hackers] Slon Memory Leak
+In-Reply-To: <4B4F492C.9000704@astaro.com>
+References: <4B4F492C.9000704@astaro.com>
+Message-ID: <4B546952.5090203@Yahoo.com>
+
+On 1/14/2010 11:41 AM, Ulrich Weber wrote:
+> -----BEGIN PGP SIGNED MESSAGE-----
+> Hash: SHA1
+> 
+> Hi all,
+> 
+> Slony-1 1.2.20 seems to leak memory.
+> 
+> After running slon with valgrind I found some
+> missing dstring_free() and PQclear calls.
+
+I will look at them either today or tomorrow.
+
+Thank you
+
+
+Jan
+
+> 
+> Two notes to the attached patch:
+> 
+>  a) remote_listen.c, remoteListenThread_main()
+>  query1 is used twice here. Cleanup was missing and
+>  there are multiple returns here, so I decided to free dstring
+>  after first usage and create it again for second usage...
+> 
+>  b) remote_worker.c, sync_helper()
+>  Moved PQclear(res2) directly after last usage.
+> 
+> 
+> However slon is still leaking with this patch
+> and I can't find any other issues with valgrind.
+> 
+> Any ideas, where to search or how to debug further?
+> 
+> I added debug messages to DLLIST_ADD_TAIL, DLLIST_ADD_HEAD
+> and DLLIST_REMOVE. But the leaking seems not to occur here.
+> Also upgrading libc to current version 2.11 didn't help...
+> PostgreSQL version is 8.3.7
+> 
+> 
+> Memory overview:
+> 
+>  09 Jan 15:43
+> postgres  4791  0.0  0.1   2036   696 ?        S    Jan08   0:00  \_
+> slon cluster dbname=db1
+> postgres  4857  0.0  0.2  52816  1504 ?        Sl   Jan08   0:14  |  
+> \_ slon cluster dbname=db1
+> postgres  4792  0.0  0.1   2040   700 ?        S    Jan08   0:00  \_
+> slon cluster dbname=db2
+> postgres  4859  0.0  0.2  52700  1508 ?        Sl   Jan08   0:12     
+> \_ slon cluster dbname=db2
+> 
+>  10 Jan 13:11
+> postgres  4791  0.0  0.1   2036   696 ?        S    Jan08   0:00  \_
+> slon cluster dbname=db1
+> postgres  4857  0.0  0.3  52816  1888 ?        Sl   Jan08   0:28  |  
+> \_ slon cluster dbname=db1
+> postgres  4792  0.0  0.1   2040   700 ?        S    Jan08   0:00  \_
+> slon cluster dbname=db2
+> postgres  4859  0.0  0.3  52700  1824 ?        Sl   Jan08   0:24     
+> \_ slon cluster dbname=db2
+> 
+>  11 Jan 10:27
+> postgres  4791  0.0  0.1   2036   696 ?        S    Jan08   0:00  \_
+> slon cluster dbname=db1
+> postgres  4857  0.0  0.4  52816  2264 ?        Sl   Jan08   0:42  |  
+> \_ slon cluster dbname=db1
+> postgres  4792  0.0  0.1   2040   700 ?        S    Jan08   0:00  \_
+> slon cluster dbname=db2
+> postgres  4859  0.0  0.4  52700  2128 ?        Sl   Jan08   0:35     
+> \_ slon cluster dbname=db2
+> 
+> So slon seems to leak around 300kb each day...
+> 
+> Best regards
+> Ulrich
+> 
+> - --
+> Ulrich Weber | uweber at astaro.com | Software Engineer
+> Astaro AG | www.astaro.de | Phone +49-721-25516-0 | Fax ?200
+> An der RaumFabrik 33a | 76227 Karlsruhe | Germany
+> 
+> -----BEGIN PGP SIGNATURE-----
+> Version: GnuPG v1.4.9 (GNU/Linux)
+> Comment: Using GnuPG with Mozilla - http://enigmail.mozdev.org
+> 
+> iEYEARECAAYFAktPSSwACgkQ22t2oTuElzrEGwCfcrkO9FOH2i6Gr2oVQpijj+o4
+> EXIAnRIKJuw2Y+G7p1eO0uQ6RnSA2+Tk
+> =P6lg
+> -----END PGP SIGNATURE-----
+> 
+> 
+> 
+> ------------------------------------------------------------------------
+> 
+> _______________________________________________
+> Slony1-hackers mailing list
+> Slony1-hackers at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-hackers
+
+
+-- 
+Anyone who trades liberty for security deserves neither
+liberty nor security. -- Benjamin Franklin
+

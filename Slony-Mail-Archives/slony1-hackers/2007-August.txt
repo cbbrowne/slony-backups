@@ -1,0 +1,275 @@
+From darcy at dbitech.ca  Wed Aug 15 13:00:09 2007
+From: darcy at dbitech.ca (Darcy Buskermolen)
+Date: Wed Aug 15 13:03:09 2007
+Subject: [Slony1-hackers] Re: [HACKERS] XID wraparound and busy databases
+In-Reply-To: <7058.1187196592@sss.pgh.pa.us>
+References: <200708151601.l7FG1dU14511@momjian.us>
+	<46C3278A.1050809@enterprisedb.com> <7058.1187196592@sss.pgh.pa.us>
+Message-ID: <200708151300.09696.darcy@dbitech.ca>
+
+On Wednesday 15 August 2007 09:49:52 Tom Lane wrote:
+> Heikki Linnakangas <heikki@enterprisedb.com> writes:
+> > Maybe we can do something to reduce the xid consumption? For example,
+> > reuse xids for read-only queries.
+>
+> Hmm, that's an idea.
+>
+> More simply, just keep the current transaction open (resetting
+> everything but the XID) if we have made no changes by the time we're
+> told to commit or rollback ... which is something we track already,
+> so as not to waste cycles on useless commit XLOG records.
+
+Jan and myself were discussing something like this as it would relate to a 
+subscribe process for slony.
+
+Jan care to summerize your thoughts on this?
+
+
+>
+> You'd want some upper limit on transaction lifetime, so as to avoid the
+> "long lived transactions hurt VACUUM" problem, but even reusing a single
+> xact for a few seconds would pretty much eliminate this issue, I bet.
+> It's hard to see how anyone could be doing 6K xacts/sec unless most are
+> read-only.
+>
+> 			regards, tom lane
+>
+> ---------------------------(end of broadcast)---------------------------
+> TIP 5: don't forget to increase your free space map settings
+From JanWieck at Yahoo.com  Mon Aug 20 07:18:52 2007
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Mon Aug 20 07:19:06 2007
+Subject: [Slony1-hackers] Re: [HACKERS] XID wraparound and busy databases
+In-Reply-To: <200708151300.09696.darcy@dbitech.ca>
+References: <200708151601.l7FG1dU14511@momjian.us>	<46C3278A.1050809@enterprisedb.com>
+	<7058.1187196592@sss.pgh.pa.us>
+	<200708151300.09696.darcy@dbitech.ca>
+Message-ID: <46C9A2CC.8000600@Yahoo.com>
+
+On 8/15/2007 4:00 PM, Darcy Buskermolen wrote:
+> On Wednesday 15 August 2007 09:49:52 Tom Lane wrote:
+>> Heikki Linnakangas <heikki@enterprisedb.com> writes:
+>> > Maybe we can do something to reduce the xid consumption? For example,
+>> > reuse xids for read-only queries.
+>>
+>> Hmm, that's an idea.
+>>
+>> More simply, just keep the current transaction open (resetting
+>> everything but the XID) if we have made no changes by the time we're
+>> told to commit or rollback ... which is something we track already,
+>> so as not to waste cycles on useless commit XLOG records.
+> 
+> Jan and myself were discussing something like this as it would relate to a 
+> subscribe process for slony.
+> 
+> Jan care to summerize your thoughts on this?
+
+That was a different issue, where the catch up got stuck because the 
+index scan over sl_log_* got stuck on the minxid of the copy_set and 
+returned ever growing sets to be filtered through the snapshot logic. 
+This has since been resolved by changing the log selecting query.
+
+The idea to reuse readonly XID's is interesting. Like vacuum, Slony 
+would suffer from long running transactions though, so I would urge to 
+make sure Tom's suggestion is followed. Which isn't as easy as it sounds 
+since the decision to keep the transaction open is done right before the 
+backend would wait for the next query. Since there is no guarantee it 
+ever does, this feature would need a timeout mechanism or it would lead 
+to idle transactions where the client didn't even ask for one.
+
+
+Jan
+
+-- 
+#======================================================================#
+# It's easier to get forgiveness for being wrong than for being right. #
+# Let's break this rule - forgive me.                                  #
+#================================================== JanWieck@Yahoo.com #
+From hsn at sendmail.cz  Wed Aug 22 17:32:14 2007
+From: hsn at sendmail.cz (Radim Kolar SF.NET)
+Date: Wed Aug 22 17:32:28 2007
+Subject: [Slony1-hackers] optimizing slony1 wan performance
+Message-ID: <20070823003214.GA855@sanatana.dharma>
+
+small changes to slony can improve
+performance a lot during replicating over wan high-latency link.
+
+1. fetch more than 100 lines at once becase fetching over WAN is slow
+  its easy to compute average line size and then fetch for example +- 1MB
+  of log lines. 
+
+2. Can pgsql use gzip compression for data transfers?
+
+not related to wan but
+3. consider to use prepared statements for updating subscribed tables
+From hsn at sendmail.cz  Thu Aug 23 01:07:13 2007
+From: hsn at sendmail.cz (Radim Kolar SF.NET)
+Date: Thu Aug 23 01:07:34 2007
+Subject: [Slony1-hackers] optimizing slony1 wan performance
+In-Reply-To: <20070823003214.GA855@sanatana.dharma>
+References: <20070823003214.GA855@sanatana.dharma>
+Message-ID: <20070823080713.GA8999@sanatana.dharma>
+
+> 1. fetch more than 100 lines at once becase fetching over WAN is slow
+>   its easy to compute average line size and then fetch for example +- 1MB
+>   of log lines. 
+drop this idea. right way is to use COPY [query] TO STDOUT instead of fetching
+from cursor. slony can autodetect pgsql version and switch to copy if supported.
+
+With my current setup i cant replicated more than ~ 21k changed lines/minute
+over WAN due to RTT with default 100 lines fetches. increasing to 1k removed my
+problem.
+From cbbrowne at ca.afilias.info  Thu Aug 23 06:56:01 2007
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Thu Aug 23 06:56:11 2007
+Subject: [Slony1-hackers] optimizing slony1 wan performance
+In-Reply-To: <20070823003214.GA855@sanatana.dharma> (Radim Kolar's message of
+	"Thu, 23 Aug 2007 02:32:14 +0200")
+References: <20070823003214.GA855@sanatana.dharma>
+Message-ID: <60mywi4aoe.fsf@dba2.int.libertyrms.com>
+
+"Radim Kolar SF.NET" <hsn@sendmail.cz> writes:
+> small changes to slony can improve
+> performance a lot during replicating over wan high-latency link.
+>
+> 1. fetch more than 100 lines at once becase fetching over WAN is slow
+>   its easy to compute average line size and then fetch for example +- 1MB
+>   of log lines. 
+
+I don't think this will be material; the improvement is primarily in
+going from 1 to 100; the improvement from going to (say) 1000 is
+small, in comparison.  And I think 1.2 improved this in the logic that
+deals with large tuples...
+
+> 2. Can pgsql use gzip compression for data transfers?
+
+Not as such; you could, however, set up pg_hba.conf on relevant nodes
+to prefer SSL connections, and that will do compression.  You could
+also set up an SSH tunnel, but that's more complex than configuring
+SSL usage...
+
+> not related to wan but
+> 3. consider to use prepared statements for updating subscribed tables
+
+The "better" answer would involve trying to do "peephole optimization"
+on the query stream so as to group together related updates.  That
+idea has been shot down pretty vigorously, at least for now.  Prepared
+statements would add nearly as much complexity as "peephole
+optimization," but without as much probable benefit.
+
+(I'm saying "trust me" here; note that there have been discussion
+threads where I proposed peephole optimization which were pretty
+soundly thrashed as adding complexity for possibly little value...)
+-- 
+output = ("cbbrowne" "@" "linuxdatabases.info")
+http://linuxfinances.info/info/x.html
+Never take life seriously. Nobody gets out alive anyway. 
+From mailings at oopsware.de  Thu Aug 23 07:06:35 2007
+From: mailings at oopsware.de (Bernd Helmle)
+Date: Thu Aug 23 07:06:47 2007
+Subject: [Slony1-hackers] CVS file permissions on configure script
+Message-ID: <B1B0BF1B8A38C341EAE9BD51@imhotep.credativ.de>
+
+Looks like CVS has  some problems with file permissions again. A fresh 
+checkout on HEAD gives a configure script which is missing its executable 
+bit:
+
+-rw-r--r--  1 bernd bernd 374704 2006-10-31 23:09 configure
+
+-- 
+  Thanks
+
+                    Bernd
+From JanWieck at Yahoo.com  Thu Aug 30 07:38:00 2007
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Thu Aug 30 07:38:13 2007
+Subject: [Slony1-hackers] optimizing slony1 wan performance
+In-Reply-To: <20070823003214.GA855@sanatana.dharma>
+References: <20070823003214.GA855@sanatana.dharma>
+Message-ID: <46D6D648.70702@Yahoo.com>
+
+On 8/22/2007 8:32 PM, Radim Kolar SF.NET wrote:
+> small changes to slony can improve
+> performance a lot during replicating over wan high-latency link.
+> 
+> 1. fetch more than 100 lines at once becase fetching over WAN is slow
+>   its easy to compute average line size and then fetch for example +- 1MB
+>   of log lines. 
+> 
+> 2. Can pgsql use gzip compression for data transfers?
+
+I made good experiences with compressed ssh port forwarding.
+
+> not related to wan but
+> 3. consider to use prepared statements for updating subscribed tables
+
+The problem with prepared statements is that any given log entry might 
+touch different columns in the table. So for a table with 8 columns 
+there are 255 different possible prepared statements to keep around. In 
+reality, an application might show a certain pattern of 4-10 different 
+updates per table, but keeping a cache and detecting which statement to 
+use when isn't as easy to implement as it is to say "use prepared 
+statements".
+
+An idea I had for a future "thing" is to feed the replication log via 
+COPY into the replica and have a trigger on that log table interpret it 
+and do all the table modifications.
+
+
+Jan
+
+-- 
+#======================================================================#
+# It's easier to get forgiveness for being wrong than for being right. #
+# Let's break this rule - forgive me.                                  #
+#================================================== JanWieck@Yahoo.com #
+From darcyb at commandprompt.com  Thu Aug 30 08:14:23 2007
+From: darcyb at commandprompt.com (Darcy Buskermolen)
+Date: Thu Aug 30 08:14:45 2007
+Subject: [Slony1-hackers] optimizing slony1 wan performance
+In-Reply-To: <46D6D648.70702@Yahoo.com>
+References: <20070823003214.GA855@sanatana.dharma> <46D6D648.70702@Yahoo.com>
+Message-ID: <200708300814.23758.darcyb@commandprompt.com>
+
+On August 30, 2007 07:38 am, Jan Wieck wrote:
+> On 8/22/2007 8:32 PM, Radim Kolar SF.NET wrote:
+> > small changes to slony can improve
+> > performance a lot during replicating over wan high-latency link.
+> >
+> > 1. fetch more than 100 lines at once becase fetching over WAN is slow
+> >   its easy to compute average line size and then fetch for example +- 1MB
+> >   of log lines.
+> >
+> > 2. Can pgsql use gzip compression for data transfers?
+>
+> I made good experiences with compressed ssh port forwarding.
+>
+> > not related to wan but
+> > 3. consider to use prepared statements for updating subscribed tables
+>
+> The problem with prepared statements is that any given log entry might
+> touch different columns in the table. So for a table with 8 columns
+> there are 255 different possible prepared statements to keep around. In
+> reality, an application might show a certain pattern of 4-10 different
+> updates per table, but keeping a cache and detecting which statement to
+> use when isn't as easy to implement as it is to say "use prepared
+> statements".
+>
+> An idea I had for a future "thing" is to feed the replication log via
+> COPY into the replica and have a trigger on that log table interpret it
+> and do all the table modifications.
+
+With the ability to do COPY from a query output, this should be fairly trivial 
+to implement.
+
+
+>
+>
+> Jan
+
+-- 
+Darcy Buskermolen
+Command Prompt, Inc.
++1.503.667.4564 X 102
+http://www.commandprompt.com/
+PostgreSQL solutions since 1997

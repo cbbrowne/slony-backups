@@ -1,0 +1,638 @@
+From ssinger at ca.afilias.info  Mon Nov  1 08:00:41 2010
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Mon, 01 Nov 2010 11:00:41 -0400
+Subject: [Slony1-hackers] Abnormal <event pending> in sl_path just after
+ configure one slave.
+In-Reply-To: <AANLkTik4E2whAyieL+z9ysf=RoeSrOK_dWtXobG6iqXm@mail.gmail.com>
+References: <AANLkTimwsJ8TN1Jkm5yk+RKAuCspab3jgceX+PMs+mUs@mail.gmail.com>	<4CC9BB54.9010807@ca.afilias.info>	<AANLkTimnjH5XqCX6wyAgQCcL5P51ESYsybocrNKf-TjG@mail.gmail.com>	<AANLkTin-fLZDnnOZBmRUfsZxuRf1caxoaON2oS2sZVdU@mail.gmail.com>	<4CCABCCB.4080103@ca.afilias.info>	<AANLkTimk0Qxs6UGaB+mtsO1fnKNPDH5NZXuJb5aAG+K2@mail.gmail.com>	<4CCADCBC.9030401@ca.afilias.info>	<AANLkTimqzbG+-vCnotUueJ8tfv_1kygca-5MkZJP2LA3@mail.gmail.com>	<4CCB2E6D.9020705@ca.afilias.info>	<AANLkTikmOBbCW6A2aZ84C_c4+Gfu=9V3TO+DqOr94zbX@mail.gmail.com>
+	<AANLkTik4E2whAyieL+z9ysf=RoeSrOK_dWtXobG6iqXm@mail.gmail.com>
+Message-ID: <4CCED619.4090004@ca.afilias.info>
+
+On 10-11-01 12:53 AM, Jason Chen wrote:
+> Hi Steve,
+>
+> After detail check log/core dump and sl_event table, I have figured out
+> the root cause which is the time change issue.
+>
+> During the master node configuration, time has changed after configure
+> slon service. I am configuring VM machine in a ESX host which time is
+> earlier 7 hours than NTP server which VM machine is using after
+> configuration. This will cause slon sched thread continuously check and
+> wait for 7 hours. The simple workaround here is to restart slon service
+> to refresh the time in slon sched thread.
+>
+> This might bring a new requirement on slony. Do we have any kind of
+> mechanism to handle time change other than restart slon service?
+> Consider one scenario, after slon service configured successfully and
+> there have many SYNC events generated, then user configures a new
+> external NTP server which might has several days before the current
+> time. This will cause all previous un-confirmed SYNC events cannot be
+> synced until time has caught up.
+>
+> Could you share your insight on this potential issue?
+
+The slony manual recommends that your slon nodes be synchronized with 
+NTP.  If the VM has issues getting the correct time from the VM host 
+then you might be better running NTP on the VM host.
+
+If your going to be time-traveling your servers then you should restart 
+slon in between.
+
+
+
+>
+> Thanks,
+> Jason
+>
+
+From yunfeng82 at gmail.com  Mon Nov  1 08:43:56 2010
+From: yunfeng82 at gmail.com (Jason Chen)
+Date: Mon, 1 Nov 2010 23:43:56 +0800
+Subject: [Slony1-hackers] Abnormal <event pending> in sl_path just after
+ configure one slave.
+In-Reply-To: <4CCED619.4090004@ca.afilias.info>
+References: <AANLkTimwsJ8TN1Jkm5yk+RKAuCspab3jgceX+PMs+mUs@mail.gmail.com>
+	<4CC9BB54.9010807@ca.afilias.info>
+	<AANLkTimnjH5XqCX6wyAgQCcL5P51ESYsybocrNKf-TjG@mail.gmail.com>
+	<AANLkTin-fLZDnnOZBmRUfsZxuRf1caxoaON2oS2sZVdU@mail.gmail.com>
+	<4CCABCCB.4080103@ca.afilias.info>
+	<AANLkTimk0Qxs6UGaB+mtsO1fnKNPDH5NZXuJb5aAG+K2@mail.gmail.com>
+	<4CCADCBC.9030401@ca.afilias.info>
+	<AANLkTimqzbG+-vCnotUueJ8tfv_1kygca-5MkZJP2LA3@mail.gmail.com>
+	<4CCB2E6D.9020705@ca.afilias.info>
+	<AANLkTikmOBbCW6A2aZ84C_c4+Gfu=9V3TO+DqOr94zbX@mail.gmail.com>
+	<AANLkTik4E2whAyieL+z9ysf=RoeSrOK_dWtXobG6iqXm@mail.gmail.com>
+	<4CCED619.4090004@ca.afilias.info>
+Message-ID: <AANLkTimFQL8O19qJZry62TGfqXzkEqtZxQAbjqj+t3z+@mail.gmail.com>
+
+Thanks, Steve. So looks like the only solution is we have to restart slon
+service when NTP causes time shift. However, if some events are generated
+with the timestamp in the future, after slon service restart, will these
+events be handled or still need to wait until that time since the events
+timestamp don't changes?
+
+
+On Mon, Nov 1, 2010 at 11:00 PM, Steve Singer <ssinger at ca.afilias.info>wrote:
+
+> On 10-11-01 12:53 AM, Jason Chen wrote:
+>
+>> Hi Steve,
+>>
+>> After detail check log/core dump and sl_event table, I have figured out
+>> the root cause which is the time change issue.
+>>
+>> During the master node configuration, time has changed after configure
+>> slon service. I am configuring VM machine in a ESX host which time is
+>> earlier 7 hours than NTP server which VM machine is using after
+>> configuration. This will cause slon sched thread continuously check and
+>> wait for 7 hours. The simple workaround here is to restart slon service
+>> to refresh the time in slon sched thread.
+>>
+>> This might bring a new requirement on slony. Do we have any kind of
+>> mechanism to handle time change other than restart slon service?
+>> Consider one scenario, after slon service configured successfully and
+>> there have many SYNC events generated, then user configures a new
+>> external NTP server which might has several days before the current
+>> time. This will cause all previous un-confirmed SYNC events cannot be
+>> synced until time has caught up.
+>>
+>> Could you share your insight on this potential issue?
+>>
+>
+> The slony manual recommends that your slon nodes be synchronized with NTP.
+>  If the VM has issues getting the correct time from the VM host then you
+> might be better running NTP on the VM host.
+>
+> If your going to be time-traveling your servers then you should restart
+> slon in between.
+>
+>
+>
+>
+>> Thanks,
+>> Jason
+>>
+>>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-hackers/attachments/20101101/b10a3a4c/attachment.htm 
+
+From yunfeng82 at gmail.com  Mon Nov  1 20:36:35 2010
+From: yunfeng82 at gmail.com (Jason Chen)
+Date: Tue, 2 Nov 2010 11:36:35 +0800
+Subject: [Slony1-hackers] About slony 2.0.5 release notes.
+Message-ID: <AANLkTimL-n6hbA+jF24dNsJQ8M4Ag22yo0pN4upnqw7v@mail.gmail.com>
+
+Hi,
+
+I saw we have fixed more than 24 issues in 2.0.5 from 2.0.4 and earlier
+versions. However, I cannot find out the fix detail summary of 2.0.5 release
+notes. Could you please show me a pointer to this information on slony
+website? Thanks a lot!
+
+Best regards,
+Jason
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-hackers/attachments/20101102/38659b45/attachment.htm 
+
+From ssinger at ca.afilias.info  Tue Nov  2 05:14:37 2010
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Tue, 02 Nov 2010 08:14:37 -0400
+Subject: [Slony1-hackers] About slony 2.0.5 release notes.
+In-Reply-To: <AANLkTimL-n6hbA+jF24dNsJQ8M4Ag22yo0pN4upnqw7v@mail.gmail.com>
+References: <AANLkTimL-n6hbA+jF24dNsJQ8M4Ag22yo0pN4upnqw7v@mail.gmail.com>
+Message-ID: <4CD000AD.9050908@ca.afilias.info>
+
+On 10-11-01 11:36 PM, Jason Chen wrote:
+> Hi,
+>
+> I saw we have fixed more than 24 issues in 2.0.5 from 2.0.4 and earlier
+> versions. However, I cannot find out the fix detail summary of 2.0.5
+> release notes. Could you please show me a pointer to this information on
+> slony website? Thanks a lot!
+>
+
+The RELEASE notes in the tar file have details.
+
+http://git.postgresql.org/gitweb?p=slony1-engine.git;a=blob;f=RELEASE;h=dddad14be485baa109c0908919749d660d7f2b1e;hb=3d84bcfea3a5aec104f69e6888f8ae345caa8076
+
+
+
+
+> Best regards,
+> Jason
+>
+>
+>
+> _______________________________________________
+> Slony1-hackers mailing list
+> Slony1-hackers at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-hackers
+
+
+From JanWieck at Yahoo.com  Tue Nov  9 07:03:59 2010
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Tue, 09 Nov 2010 10:03:59 -0500
+Subject: [Slony1-hackers] Abnormal <event pending> in sl_path just after
+ configure one slave.
+In-Reply-To: <AANLkTimFQL8O19qJZry62TGfqXzkEqtZxQAbjqj+t3z+@mail.gmail.com>
+References: <AANLkTimwsJ8TN1Jkm5yk+RKAuCspab3jgceX+PMs+mUs@mail.gmail.com>	<4CC9BB54.9010807@ca.afilias.info>	<AANLkTimnjH5XqCX6wyAgQCcL5P51ESYsybocrNKf-TjG@mail.gmail.com>	<AANLkTin-fLZDnnOZBmRUfsZxuRf1caxoaON2oS2sZVdU@mail.gmail.com>	<4CCABCCB.4080103@ca.afilias.info>	<AANLkTimk0Qxs6UGaB+mtsO1fnKNPDH5NZXuJb5aAG+K2@mail.gmail.com>	<4CCADCBC.9030401@ca.afilias.info>	<AANLkTimqzbG+-vCnotUueJ8tfv_1kygca-5MkZJP2LA3@mail.gmail.com>	<4CCB2E6D.9020705@ca.afilias.info>	<AANLkTikmOBbCW6A2aZ84C_c4+Gfu=9V3TO+DqOr94zbX@mail.gmail.com>	<AANLkTik4E2whAyieL+z9ysf=RoeSrOK_dWtXobG6iqXm@mail.gmail.com>	<4CCED619.4090004@ca.afilias.info>
+	<AANLkTimFQL8O19qJZry62TGfqXzkEqtZxQAbjqj+t3z+@mail.gmail.com>
+Message-ID: <4CD962DF.5040503@Yahoo.com>
+
+On 11/1/2010 11:43 AM, Jason Chen wrote:
+> Thanks, Steve. So looks like the only solution is we have to restart
+> slon service when NTP causes time shift. However, if some events are
+> generated with the timestamp in the future, after slon service restart,
+> will these events be handled or still need to wait until that time since
+> the events timestamp don't changes?
+
+Note that on Windows NTP cannot skew the clock and is forced to act via 
+step adjustment. Under normal conditions, this should only set the clock 
+forward/backward by a second or so. Jumping suddenly 7 hours is far from 
+normal.
+
+Aside from that, slony doesn't use any of the timestamps in its tables 
+for replication purposes. They are purely for outside monitoring. After 
+restarting your slon processes replication will work just fine.
+
+
+Jan
+
+
+>
+>
+> On Mon, Nov 1, 2010 at 11:00 PM, Steve Singer <ssinger at ca.afilias.info
+> <mailto:ssinger at ca.afilias.info>> wrote:
+>
+>     On 10-11-01 12:53 AM, Jason Chen wrote:
+>
+>         Hi Steve,
+>
+>         After detail check log/core dump and sl_event table, I have
+>         figured out
+>         the root cause which is the time change issue.
+>
+>         During the master node configuration, time has changed after
+>         configure
+>         slon service. I am configuring VM machine in a ESX host which
+>         time is
+>         earlier 7 hours than NTP server which VM machine is using after
+>         configuration. This will cause slon sched thread continuously
+>         check and
+>         wait for 7 hours. The simple workaround here is to restart slon
+>         service
+>         to refresh the time in slon sched thread.
+>
+>         This might bring a new requirement on slony. Do we have any kind of
+>         mechanism to handle time change other than restart slon service?
+>         Consider one scenario, after slon service configured
+>         successfully and
+>         there have many SYNC events generated, then user configures a new
+>         external NTP server which might has several days before the current
+>         time. This will cause all previous un-confirmed SYNC events
+>         cannot be
+>         synced until time has caught up.
+>
+>         Could you share your insight on this potential issue?
+>
+>
+>     The slony manual recommends that your slon nodes be synchronized
+>     with NTP.  If the VM has issues getting the correct time from the VM
+>     host then you might be better running NTP on the VM host.
+>
+>     If your going to be time-traveling your servers then you should
+>     restart slon in between.
+>
+>
+>
+>
+>         Thanks,
+>         Jason
+>
+>
+>
+>
+> _______________________________________________
+> Slony1-hackers mailing list
+> Slony1-hackers at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-hackers
+
+
+-- 
+Anyone who trades liberty for security deserves neither
+liberty nor security. -- Benjamin Franklin
+
+From yunfeng82 at gmail.com  Wed Nov 10 06:16:29 2010
+From: yunfeng82 at gmail.com (Jason Chen)
+Date: Wed, 10 Nov 2010 22:16:29 +0800
+Subject: [Slony1-hackers] Abnormal <event pending> in sl_path just after
+ configure one slave.
+In-Reply-To: <4CD962DF.5040503@Yahoo.com>
+References: <AANLkTimwsJ8TN1Jkm5yk+RKAuCspab3jgceX+PMs+mUs@mail.gmail.com>
+	<4CC9BB54.9010807@ca.afilias.info>
+	<AANLkTimnjH5XqCX6wyAgQCcL5P51ESYsybocrNKf-TjG@mail.gmail.com>
+	<AANLkTin-fLZDnnOZBmRUfsZxuRf1caxoaON2oS2sZVdU@mail.gmail.com>
+	<4CCABCCB.4080103@ca.afilias.info>
+	<AANLkTimk0Qxs6UGaB+mtsO1fnKNPDH5NZXuJb5aAG+K2@mail.gmail.com>
+	<4CCADCBC.9030401@ca.afilias.info>
+	<AANLkTimqzbG+-vCnotUueJ8tfv_1kygca-5MkZJP2LA3@mail.gmail.com>
+	<4CCB2E6D.9020705@ca.afilias.info>
+	<AANLkTikmOBbCW6A2aZ84C_c4+Gfu=9V3TO+DqOr94zbX@mail.gmail.com>
+	<AANLkTik4E2whAyieL+z9ysf=RoeSrOK_dWtXobG6iqXm@mail.gmail.com>
+	<4CCED619.4090004@ca.afilias.info>
+	<AANLkTimFQL8O19qJZry62TGfqXzkEqtZxQAbjqj+t3z+@mail.gmail.com>
+	<4CD962DF.5040503@Yahoo.com>
+Message-ID: <AANLkTi=CnPvqiQxkywmFLpCxwW5ZuEviOexGpsJHvUxr@mail.gmail.com>
+
+Hi Jan,
+
+Thanks for your response. In my use case with Linux platform, the time will
+shift a large interval according to the NTP protocol design. After first
+time sync, the following sync would be relatively small and we can ignore in
+slony.
+
+I think the issue is not in slony tables for replication but in slon
+schedule thread itself during waiting and checking. The schedule thread will
+not response to any event if there has a big time shift backward.
+
+In above case, if there has any time monitor mechanism to check there has a
+big time change, then notify schedule thread to refresh its memory cache.
+Restart slon process also work in this case but might not that graceful.
+
+Thanks,
+Jason
+
+
+On Tue, Nov 9, 2010 at 11:03 PM, Jan Wieck <JanWieck at yahoo.com> wrote:
+
+> On 11/1/2010 11:43 AM, Jason Chen wrote:
+>
+>> Thanks, Steve. So looks like the only solution is we have to restart
+>> slon service when NTP causes time shift. However, if some events are
+>> generated with the timestamp in the future, after slon service restart,
+>> will these events be handled or still need to wait until that time since
+>> the events timestamp don't changes?
+>>
+>
+> Note that on Windows NTP cannot skew the clock and is forced to act via
+> step adjustment. Under normal conditions, this should only set the clock
+> forward/backward by a second or so. Jumping suddenly 7 hours is far from
+> normal.
+>
+> Aside from that, slony doesn't use any of the timestamps in its tables for
+> replication purposes. They are purely for outside monitoring. After
+> restarting your slon processes replication will work just fine.
+>
+>
+> Jan
+>
+>
+>
+>>
+>> On Mon, Nov 1, 2010 at 11:00 PM, Steve Singer <ssinger at ca.afilias.info
+>> <mailto:ssinger at ca.afilias.info>> wrote:
+>>
+>>    On 10-11-01 12:53 AM, Jason Chen wrote:
+>>
+>>        Hi Steve,
+>>
+>>        After detail check log/core dump and sl_event table, I have
+>>        figured out
+>>        the root cause which is the time change issue.
+>>
+>>        During the master node configuration, time has changed after
+>>        configure
+>>        slon service. I am configuring VM machine in a ESX host which
+>>        time is
+>>        earlier 7 hours than NTP server which VM machine is using after
+>>        configuration. This will cause slon sched thread continuously
+>>        check and
+>>        wait for 7 hours. The simple workaround here is to restart slon
+>>        service
+>>        to refresh the time in slon sched thread.
+>>
+>>        This might bring a new requirement on slony. Do we have any kind of
+>>        mechanism to handle time change other than restart slon service?
+>>        Consider one scenario, after slon service configured
+>>        successfully and
+>>        there have many SYNC events generated, then user configures a new
+>>        external NTP server which might has several days before the current
+>>        time. This will cause all previous un-confirmed SYNC events
+>>        cannot be
+>>        synced until time has caught up.
+>>
+>>        Could you share your insight on this potential issue?
+>>
+>>
+>>    The slony manual recommends that your slon nodes be synchronized
+>>    with NTP.  If the VM has issues getting the correct time from the VM
+>>    host then you might be better running NTP on the VM host.
+>>
+>>    If your going to be time-traveling your servers then you should
+>>    restart slon in between.
+>>
+>>
+>>
+>>
+>>        Thanks,
+>>        Jason
+>>
+>>
+>>
+>>
+>> _______________________________________________
+>> Slony1-hackers mailing list
+>> Slony1-hackers at lists.slony.info
+>> http://lists.slony.info/mailman/listinfo/slony1-hackers
+>>
+>
+>
+> --
+> Anyone who trades liberty for security deserves neither
+> liberty nor security. -- Benjamin Franklin
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-hackers/attachments/20101110/daae02a6/attachment.htm 
+
+From devrim at gunduz.org  Thu Nov 18 03:06:42 2010
+From: devrim at gunduz.org (Devrim =?ISO-8859-1?Q?G=DCND=DCZ?=)
+Date: Thu, 18 Nov 2010 13:06:42 +0200
+Subject: [Slony1-hackers] 2.0.5 build issue on RHEL 5
+Message-ID: <1290078402.7107.23.camel@hp-laptop02.gunduz.org>
+
+
+I cannot build 2.0.5 on RHEL5, since it complains about an old flex
+(which is nonsense, since this is the official tarball):
+
+gcc -O2 -g -pipe -Wall -Wp,-D_FORTIFY_SOURCE=2 -fexceptions -fstack-protector --param=ssp-buffer-size=4 -m32 -march=i386 -mtune=generic -fasynchronous-unwind-tables -I/usr/include/et -I/usr/include -Wall -Wmissing-prototypes -Wmissing-declarations -I../.. -DPGSHARE="\"/usr/share/pgsql/\""  -I/usr/include/ -I/usr/include/pgsql/server/ -I/usr/include/ -I/usr/include/pgsql/server/ -I/usr/include/ -I/usr/include/pgsql/server/  -I/usr/include/et -I/usr/include -c -o ipcutil.o ipcutil.c
+bison -y -d  parser.y
+mv -f y.tab.c parser.c
+Missing flex scan.l scan.c
+gcc -O2 -g -pipe -Wall -Wp,-D_FORTIFY_SOURCE=2 -fexceptions -fstack-protector --param=ssp-buffer-size=4 -m32 -march=i386 -mtune=generic -fasynchronous-unwind-tables -I/usr/include/et -I/usr/include -Wall -Wmissing-prototypes -Wmissing-declarations -I../.. -DPGSHARE="\"/usr/share/pgsql/\""  -I/usr/include/ -I/usr/include/pgsql/server/ -I/usr/include/ -I/usr/include/pgsql/server/ -I/usr/include/ -I/usr/include/pgsql/server/  -I/usr/include/et -I/usr/include -c -o parser.o parser.c
+gcc -O2 -g -pipe -Wall -Wp,-D_FORTIFY_SOURCE=2 -fexceptions -fstack-protector --param=ssp-buffer-size=4 -m32 -march=i386 -mtune=generic -fasynchronous-unwind-tables -I/usr/include/et -I/usr/include -Wall -Wmissing-prototypes -Wmissing-declarations -I../.. -DPGSHARE="\"/usr/share/pgsql/\""  -I/usr/include/ -I/usr/include/pgsql/server/ -I/usr/include/ -I/usr/include/pgsql/server/ -I/usr/include/ -I/usr/include/pgsql/server/  -I/usr/include/et -I/usr/include -c -o scan.o scan.c
+gcc: scan.c: No such file or directory
+gcc: no input files
+make[3]: *** [scan.o] Error 1
+
+What changed since 2.0.4 in here, and what I can do to fix it?
+
+Regards,
+-- 
+Devrim G?ND?Z
+PostgreSQL Dan??man?/Consultant, Red Hat Certified Engineer
+PostgreSQL RPM Repository: http://yum.pgrpms.org
+Community: devrim~PostgreSQL.org, devrim.gunduz~linux.org.tr
+http://www.gunduz.org  Twitter: http://twitter.com/devrimgunduz
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: not available
+Type: application/pgp-signature
+Size: 198 bytes
+Desc: This is a digitally signed message part
+Url : http://lists.slony.info/pipermail/slony1-hackers/attachments/20101118/11056276/attachment.pgp 
+
+From ssinger at ca.afilias.info  Thu Nov 18 06:01:55 2010
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Thu, 18 Nov 2010 09:01:55 -0500
+Subject: [Slony1-hackers] 2.0.5 build issue on RHEL 5
+In-Reply-To: <1290078402.7107.23.camel@hp-laptop02.gunduz.org>
+References: <1290078402.7107.23.camel@hp-laptop02.gunduz.org>
+Message-ID: <4CE531D3.8070902@ca.afilias.info>
+
+On 10-11-18 06:06 AM, Devrim G?ND?Z wrote:
+>
+> I cannot build 2.0.5 on RHEL5, since it complains about an old flex
+> (which is nonsense, since this is the official tarball):
+>
+> gcc -O2 -g -pipe -Wall -Wp,-D_FORTIFY_SOURCE=2 -fexceptions -fstack-protector --param=ssp-buffer-size=4 -m32 -march=i386 -mtune=generic -fasynchronous-unwind-tables -I/usr/include/et -I/usr/include -Wall -Wmissing-prototypes -Wmissing-declarations -I../.. -DPGSHARE="\"/usr/share/pgsql/\""  -I/usr/include/ -I/usr/include/pgsql/server/ -I/usr/include/ -I/usr/include/pgsql/server/ -I/usr/include/ -I/usr/include/pgsql/server/  -I/usr/include/et -I/usr/include -c -o ipcutil.o ipcutil.c
+> bison -y -d  parser.y
+> mv -f y.tab.c parser.c
+> Missing flex scan.l scan.c
+> gcc -O2 -g -pipe -Wall -Wp,-D_FORTIFY_SOURCE=2 -fexceptions -fstack-protector --param=ssp-buffer-size=4 -m32 -march=i386 -mtune=generic -fasynchronous-unwind-tables -I/usr/include/et -I/usr/include -Wall -Wmissing-prototypes -Wmissing-declarations -I../.. -DPGSHARE="\"/usr/share/pgsql/\""  -I/usr/include/ -I/usr/include/pgsql/server/ -I/usr/include/ -I/usr/include/pgsql/server/ -I/usr/include/ -I/usr/include/pgsql/server/  -I/usr/include/et -I/usr/include -c -o parser.o parser.c
+> gcc -O2 -g -pipe -Wall -Wp,-D_FORTIFY_SOURCE=2 -fexceptions -fstack-protector --param=ssp-buffer-size=4 -m32 -march=i386 -mtune=generic -fasynchronous-unwind-tables -I/usr/include/et -I/usr/include -Wall -Wmissing-prototypes -Wmissing-declarations -I../.. -DPGSHARE="\"/usr/share/pgsql/\""  -I/usr/include/ -I/usr/include/pgsql/server/ -I/usr/include/ -I/usr/include/pgsql/server/ -I/usr/include/ -I/usr/include/pgsql/server/  -I/usr/include/et -I/usr/include -c -o scan.o scan.c
+> gcc: scan.c: No such file or directory
+> gcc: no input files
+> make[3]: *** [scan.o] Error 1
+>
+> What changed since 2.0.4 in here, and what I can do to fix it?
+>
+> Regards,
+>
+
+The tar for 2.0.5 is missing the generated files.
+
+See the discussion at http://bugs.slony.info/bugzilla/show_bug.cgi?id=164
+
+You can either instal flex+bison or I've attached the missing files to 
+that bug.
+
+
+>
+>
+> _______________________________________________
+> Slony1-hackers mailing list
+> Slony1-hackers at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-hackers
+
+
+From ssinger at ca.afilias.info  Thu Nov 18 09:03:48 2010
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Thu, 18 Nov 2010 12:03:48 -0500
+Subject: [Slony1-hackers] [Slony1-commit] slony1-www Slony 3 Feature
+	Ideas.mm.html
+In-Reply-To: <20101118165421.63FA6290BD7@main.slony.info>
+References: <20101118165421.63FA6290BD7@main.slony.info>
+Message-ID: <4CE55C74.5000403@ca.afilias.info>
+
+On 10-11-18 11:54 AM, Chris Browne wrote:
+> Update of /home/cvsd/slony1/slony1-www
+> In directory main.slony.info:/tmp/cvs-serv31657
+>
+> Added Files:
+> 	Slony 3 Feature Ideas.mm.html
+> Log Message:
+> New ideas - per Chris's FreeMind ideas list
+
+
+Would it be better to have that link to a wiki page, ie 
+http://wiki.postgresql.org/wiki/Slony_Roadmap  (or a better named wiki 
+page)? (I say yes)
+
+The number of people who can edit pages on the website is very small.
+
+As we discuss these ideas on the mailing lists I'd like to do things 
+like add links to the discussion threads, and some ideas might get 
+rejected (or implemented).  Maintenance of a wiki page is far easier 
+than the slony website.
+
+
+From devrim at gunduz.org  Fri Nov 19 00:56:54 2010
+From: devrim at gunduz.org (Devrim =?ISO-8859-1?Q?G=DCND=DCZ?=)
+Date: Fri, 19 Nov 2010 10:56:54 +0200
+Subject: [Slony1-hackers] 2.0.5 build issue on RHEL 5
+In-Reply-To: <4CE531D3.8070902@ca.afilias.info>
+References: <1290078402.7107.23.camel@hp-laptop02.gunduz.org>
+	<4CE531D3.8070902@ca.afilias.info>
+Message-ID: <1290157014.7107.69.camel@hp-laptop02.gunduz.org>
+
+On Thu, 2010-11-18 at 09:01 -0500, Steve Singer wrote:
+> The tar for 2.0.5 is missing the generated files.
+
+So why didn't we release 2.0.6 immediately?
+
+> See the discussion at
+> http://bugs.slony.info/bugzilla/show_bug.cgi?id=164
+
+Yeah I kust remembered it.
+
+> You can either instal flex+bison
+
+It won't work, since the flex version is 2.5.4 in RHEL5.
+
+>  or I've attached the missing files to  that bug. 
+
+It is too much work for packaging...
+
+Still, I believe we need to release 2.0.6 (or 2.0.5.1, whatever...) to
+get rid of this issue.
+
+Regards,
+-- 
+Devrim G?ND?Z
+PostgreSQL Dan??man?/Consultant, Red Hat Certified Engineer
+PostgreSQL RPM Repository: http://yum.pgrpms.org
+Community: devrim~PostgreSQL.org, devrim.gunduz~linux.org.tr
+http://www.gunduz.org  Twitter: http://twitter.com/devrimgunduz
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: not available
+Type: application/pgp-signature
+Size: 198 bytes
+Desc: This is a digitally signed message part
+Url : http://lists.slony.info/pipermail/slony1-hackers/attachments/20101119/a280c64d/attachment.pgp 
+
+From ssinger at ca.afilias.info  Fri Nov 19 06:55:03 2010
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Fri, 19 Nov 2010 09:55:03 -0500
+Subject: [Slony1-hackers] 2.0.5 build issue on RHEL 5
+In-Reply-To: <1290157014.7107.69.camel@hp-laptop02.gunduz.org>
+References: <1290078402.7107.23.camel@hp-laptop02.gunduz.org>	
+	<4CE531D3.8070902@ca.afilias.info>
+	<1290157014.7107.69.camel@hp-laptop02.gunduz.org>
+Message-ID: <4CE68FC7.7000509@ca.afilias.info>
+
+On 10-11-19 03:56 AM, Devrim G?ND?Z wrote:
+> On Thu, 2010-11-18 at 09:01 -0500, Steve Singer wrote:
+>> The tar for 2.0.5 is missing the generated files.
+>
+> So why didn't we release 2.0.6 immediately?
+>
+
+Everyone who mentioned the issue seemed happy with installing flex. No 
+one asked until now.
+
+>> See the discussion at
+>> http://bugs.slony.info/bugzilla/show_bug.cgi?id=164
+>
+> Yeah I kust remembered it.
+>
+>> You can either instal flex+bison
+>
+> It won't work, since the flex version is 2.5.4 in RHEL5.
+>
+>>   or I've attached the missing files to  that bug.
+>
+> It is too much work for packaging...
+>
+> Still, I believe we need to release 2.0.6 (or 2.0.5.1, whatever...) to
+> get rid of this issue.
+>
+
+I will try to package a 2.0.6 release candidate today.
+
+
+> Regards,
+
+
+From devrim at gunduz.org  Fri Nov 19 10:11:52 2010
+From: devrim at gunduz.org (Devrim =?ISO-8859-1?Q?G=DCND=DCZ?=)
+Date: Fri, 19 Nov 2010 20:11:52 +0200
+Subject: [Slony1-hackers] 2.0.5 build issue on RHEL 5
+In-Reply-To: <4CE68FC7.7000509@ca.afilias.info>
+References: <1290078402.7107.23.camel@hp-laptop02.gunduz.org>
+	<4CE531D3.8070902@ca.afilias.info>
+	<1290157014.7107.69.camel@hp-laptop02.gunduz.org>
+	<4CE68FC7.7000509@ca.afilias.info>
+Message-ID: <1290190312.5475.0.camel@hp-laptop02.gunduz.org>
+
+On Fri, 2010-11-19 at 09:55 -0500, Steve Singer wrote:
+> > So why didn't we release 2.0.6 immediately?
+> >
+> Everyone who mentioned the issue seemed happy with installing flex. No
+> one asked until now. 
+
+I'd ask if I were not at PgWest and if I was not busy with 9.0 RPMs
+already :-)
+
+> I will try to package a 2.0.6 release candidate today.
+
+Thanks!
+
+Regards,
+-- 
+Devrim G?ND?Z
+PostgreSQL Dan??man?/Consultant, Red Hat Certified Engineer
+PostgreSQL RPM Repository: http://yum.pgrpms.org
+Community: devrim~PostgreSQL.org, devrim.gunduz~linux.org.tr
+http://www.gunduz.org  Twitter: http://twitter.com/devrimgunduz
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: not available
+Type: application/pgp-signature
+Size: 198 bytes
+Desc: This is a digitally signed message part
+Url : http://lists.slony.info/pipermail/slony1-hackers/attachments/20101119/df0931c9/attachment.pgp 
+

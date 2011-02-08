@@ -1,0 +1,190 @@
+From slony1-bugs at lists.slony.info  Mon May 18 02:35:05 2009
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Mon May 18 02:35:07 2009
+Subject: [Slony1-bugs] [Bug 92] New: Events and Confirmations are not
+	propagating
+Message-ID: <bug-92-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=92
+
+           Summary: Events and Confirmations are not propagating
+           Product: Slony-I
+           Version: devel
+          Platform: PC
+        OS/Version: Linux
+            Status: NEW
+          Severity: critical
+          Priority: high
+         Component: slon
+        AssignedTo: slony1-bugs@lists.slony.info
+        ReportedBy: cyril.scetbon@free.fr
+                CC: slony1-bugs@lists.slony.info
+   Estimated Hours: 0.0
+
+
+I use test_slony_state and see some informations like :
+
+Check of event info
+---------------------------------------------------
+Problem : Events not propagating to node 2
+Problem : Events not propagating to node 4
+Problem : Events not propagating to node 3
+
+Check of sl_confirm aging
+---------------------------------------------------
+Confirmations not propagating from 2 to 1
+Confirmations not propagating from 2 to 3
+Confirmations not propagating from 2 to 4
+Confirmations not propagating from 3 to 1
+Confirmations not propagating from 3 to 2
+Confirmations not propagating from 3 to 4
+Confirmations not propagating from 4 to 1
+Confirmations not propagating from 4 to 2
+Confirmations not propagating from 4 to 3
+
+You can see the results on one of my databases :
+
+- for Confirmations
+
+select con_origin, con_received, min(con_seqno) as minseq, max(con_seqno) as
+maxseq, date_trunc('minutes', min(now()-con_timestamp)) as age1,
+date_trunc('minutes', max(now()-con_timestamp)) as age2, min(now() -
+con_timestamp) > '00:30:00' as tooold from _pns_slony_voila_archi_0.sl_confirm
+group by con_origin, con_received order by con_origin, con_received;
+con_origin | con_received | minseq  | maxseq  |   age1   |   age2   | tooold
+------------+--------------+---------+---------+----------+----------+--------
+       101 |          102 | 4464029 | 4464792 | 00:00:00 | 00:16:00 | f
+       101 |          103 | 4464027 | 4464792 | 00:00:00 | 00:16:00 | f
+       101 |          104 | 4464024 | 4464792 | 00:00:00 | 00:16:00 | f
+       102 |          101 |      29 |      29 | 03:39:00 | 03:39:00 | t
+       102 |          103 |      29 |      29 | 03:39:00 | 03:39:00 | t
+       102 |          104 |      29 |      29 | 03:39:00 | 03:39:00 | t
+       103 |          101 |      62 |      62 | 03:39:00 | 03:39:00 | t
+       103 |          102 |      62 |      62 | 03:39:00 | 03:39:00 | t
+       103 |          104 |      62 |      62 | 03:39:00 | 03:39:00 | t
+       104 |          101 |      57 |      57 | 03:39:00 | 03:39:00 | t
+       104 |          102 |      57 |      57 | 03:39:00 | 03:39:00 | t
+       104 |          103 |      57 |      57 | 03:39:00 | 03:39:00 | t
+
+- for Events
+
+select ev_origin, min(ev_seqno), max(ev_seqno),
+        date_trunc('minutes', min(now() - ev_timestamp)),
+        date_trunc('minutes', max(now() - ev_timestamp)),
+        min(now() - ev_timestamp) > '00:30:00' as agehi
+    from _pns_slony_voila_archi_0.sl_event group by ev_origin;
+ev_origin |   min   |   max   | date_trunc | date_trunc | agehi
+-----------+---------+---------+------------+------------+-------
+      103 |      62 |      62 | 03:49:00   | 03:49:00   | t
+      104 |      57 |      57 | 03:49:00   | 03:49:00   | t
+      102 |      29 |      29 | 03:49:00   | 03:49:00   | t
+      101 | 4464493 | 4465346 | 00:00:00   | 00:14:00   | f
+
+If I restart every slons processes new events are generated on these nodes but
+still not correctly propagated. However the last event on each node seems to be
+propagated thanks to the restart stage (see below)
+
+After the restart I have something like :
+
+select ev_origin, min(ev_seqno), max(ev_seqno),
+       date_trunc('minutes', min(now() - ev_timestamp)),
+       date_trunc('minutes', max(now() - ev_timestamp)),
+       min(now() - ev_timestamp) > '00:30:00' as agehi
+   from _pns_slony_voila_archi_0.sl_event group by ev_origin;
+ev_origin |   min   |   max   | date_trunc | date_trunc | agehi
+-----------+---------+---------+------------+------------+-------
+      103 |      65 |      66 | 00:01:00   | 00:47:00   | f
+      104 |      60 |      61 | 00:01:00   | 00:47:00   | f
+      102 |      33 |      34 | 00:01:00   | 00:47:00   | f
+      101 | 4541581 | 4542350 | 00:00:00   | 00:13:00   | f
+(4 rows)
+
+So, another event is generated (for example, 66 from node 103)
+
+log extract :
+2009-04-28 15:51:53 CEST DEBUG2 remoteWorkerThread_102: SYNC 33 processing
+2009-04-28 15:51:53 CEST DEBUG1 remoteWorkerThread_102: no sets need syncing
+for this event
+2009-04-28 15:51:53 CEST DEBUG2 remoteListenThread_104: queue event 102,33 SYNC
+2009-04-28 15:51:53 CEST DEBUG2 remoteWorker_event: event 102,33 ignored -
+duplicate
+2009-04-28 15:51:53 CEST DEBUG2 remoteListenThread_104: queue event 104,60 SYNC
+2009-04-28 15:51:53 CEST DEBUG2 remoteWorker_event: event 104,60 ignored -
+duplicate
+2009-04-28 15:51:53 CEST DEBUG2 remoteWorkerThread_104: SYNC 60 processing
+2009-04-28 15:51:53 CEST DEBUG1 remoteWorkerThread_104: no sets need syncing
+for this event
+2009-04-28 15:51:53 CEST DEBUG2 remoteWorkerThread_103: SYNC 65 processing
+2009-04-28 15:51:53 CEST DEBUG1 remoteWorkerThread_103: no sets need syncing
+for this event
+
+after a few minutes I have :
+
+select ev_origin, min(ev_seqno), max(ev_seqno),
+       date_trunc('minutes', min(now() - ev_timestamp)),
+       date_trunc('minutes', max(now() - ev_timestamp)),
+       min(now() - ev_timestamp) > '00:30:00' as agehi
+   from _pns_slony_voila_archi_0.sl_event group by ev_origin;
+ev_origin |   min   |   max   | date_trunc | date_trunc | agehi
+-----------+---------+---------+------------+------------+-------
+      103 |      66 |      66 | 00:12:00   | 00:12:00   | f
+      104 |      61 |      61 | 00:12:00   | 00:12:00   | f
+      102 |      34 |      34 | 00:12:00   | 00:12:00   | f
+      101 | 4542310 | 4543008 | 00:00:00   | 00:11:00   | f
+
+log extract :
+2009-04-28 16:37:49 CEST DEBUG2 remoteWorkerThread_103: SYNC 66 processing
+2009-04-28 16:37:49 CEST DEBUG1 remoteWorkerThread_103: no sets need syncing
+for this event
+2009-04-28 16:37:49 CEST DEBUG2 remoteWorkerThread_104: SYNC 61 processing
+2009-04-28 16:37:49 CEST DEBUG1 remoteWorkerThread_104: no sets need syncing
+for this event
+2009-04-28 16:37:53 CEST DEBUG2 remoteWorkerThread_102: SYNC 34 processing
+2009-04-28 16:37:53 CEST DEBUG1 remoteWorkerThread_102: no sets need syncing
+for this event
+
+Precedent events (65,60 and 33) have been cleared, and a new one per node has
+been generated. But, the error continues and after 30 minutes I have :
+
+select ev_origin, min(ev_seqno), max(ev_seqno),
+       date_trunc('minutes', min(now() - ev_timestamp)),
+       date_trunc('minutes', max(now() - ev_timestamp)),
+       min(now() - ev_timestamp) > '00:30:00' as agehi
+   from _pns_slony_voila_archi_0.sl_event group by ev_origin;
+ev_origin |   min   |   max   | date_trunc | date_trunc | agehi
+-----------+---------+---------+------------+------------+-------
+      103 |      66 |      66 | 00:41:00   | 00:41:00   | t
+      104 |      61 |      61 | 00:41:00   | 00:41:00   | t
+      102 |      34 |      34 | 00:41:00   | 00:41:00   | t
+      101 | 4543634 | 4544715 | 00:00:00   | 00:18:00   | f
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Fri May 29 04:36:37 2009
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Fri May 29 04:36:39 2009
+Subject: [Slony1-bugs] [Bug 92] Events and Confirmations are not propagating
+In-Reply-To: <bug-92-4@http.www.slony.info/bugzilla/>
+Message-ID: <20090529113637.2AC71290361@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=92
+
+
+
+
+
+--- Comment #1 from Jean-Armel Luce <jaluce06@gmail.com>  2009-05-29 04:36:36 ---
+I have the same error messages in my servers.
+
+Does anybody know how I could correct this problem ?
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.

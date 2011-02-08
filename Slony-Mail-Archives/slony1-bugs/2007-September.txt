@@ -1,0 +1,1093 @@
+From jeff at frostconsultingllc.com  Wed Sep 26 08:25:28 2007
+From: jeff at frostconsultingllc.com (Jeff Frost)
+Date: Wed Sep 26 08:25:33 2007
+Subject: [Slony1-bugs] Slony 1.2.10: Deadlock on slave during execute script
+Message-ID: <Pine.LNX.4.64.0709260815230.4701@discord.home.frostconsultingllc.com>
+
+For extra background on this bug, see the thread here:
+http://lists.slony.info/pipermail/slony1-general/2007-September/006687.html
+
+This is on Slony1-1.2.10, PostgreSQL-8.1.9:
+
+I've run into a situation on a client cluster composed of a master and 2 slave 
+nodes where a deadlock on one of the slaves happens quite regularly during any 
+EXECUTE SCRIT commands.  It seems if slony loses the deadlock, some of the 
+tables are left in a not altered for replication state and this breaks 
+replication.
+
+This is the latest SQL that caused the problem (note there is not a COMMIT in
+the sql):
+
+--------
+CREATE TABLE orders.amazon_items
+(
+    id serial NOT NULL,
+    order_id integer NOT NULL,
+    item_id integer NOT NULL,
+    amazon_item_id character varying(14) NOT NULL,
+    CONSTRAINT amazon_items_pkey PRIMARY KEY (id),
+    CONSTRAINT amazon_items_order_id_fkey FOREIGN KEY (order_id)
+        REFERENCES orders.orders (id) MATCH SIMPLE
+        ON UPDATE NO ACTION ON DELETE NO ACTION,
+    CONSTRAINT amazon_items_item_id_fkey FOREIGN KEY (item_id)
+        REFERENCES orders.items (id) MATCH SIMPLE
+        ON UPDATE NO ACTION ON DELETE NO ACTION
+)
+WITH OIDS;
+ALTER TABLE orders.amazon_items OWNER TO thenerds;
+--------
+
+It was called by the following slonik script:
+
+--------
+#!/usr/bin/slonik
+include </nerds/preamble.slonik>;
+
+          EXECUTE SCRIPT (
+                  SET ID = 1,
+                  FILENAME = '/nerds/thenerds.sql',
+                  EVENT NODE = 1
+          );
+--------
+
+and caused the following deadlock to occur:
+
+15:27:54 sql1 slon[12252]: [39-1] 2007-09-18 15:27:54 EDT ERROR
+remoteWorkerThread_1: "select "_nerdcluster".ddlScript
+_complete_int(1, -1); " PGRES_FATAL_ERROR
+Sep 18 15:27:54 sql1 slon[12252]: [39-2]  ERROR:  deadlock detected
+Sep 18 15:27:54 sql1 slon[12252]: [39-3] DETAIL:  Process 12263 waits for
+AccessExclusiveLock on relation 121589880 of databas
+e 121589046; blocked by process 12096.
+Sep 18 15:27:54 sql1 slon[12252]: [39-4] Process 12096 waits for
+AccessShareLock on relation 121589817 of database 121589046;
+blocked by process 12263.
+
+Which then left some of the tables on that slave in a bad state breaking
+replication:
+
+2007-09-18 15:56:06 EDT ERROR  remoteWorkerThread_1: "select
+"_nerdcluster".ddlScript_prepare_int(1, -1); " PGRES_FATAL_ERROR ERROR:
+Slony-I: alterTableRestore(): Table "public"."carts" is not in altered state
+CONTEXT:  SQL statement "SELECT  "_nerdcluster".alterTableRestore( $1 )"
+PL/pgSQL function "ddlscript_prepare_int" line 46 at perform
+
+Note that it's just an AccessShareLock that's killing us.  Looks like that's
+caused by a select query which does searches.  Our application does not
+produce any extraneous locking, it simply does SELECTS on that server.
+
+Interestingly, before we started using the slave for queries, the deadlocks 
+would happen on the master when doing DDL changes, but this never caused the 
+tables on the master to get into a bad state.  You could just re-run your 
+EXECUTE SCRIPT and it would usually work fine the second time.
+
+-- 
+Jeff Frost, Owner 	<jeff@frostconsultingllc.com>
+Frost Consulting, LLC 	http://www.frostconsultingllc.com/
+Phone: 650-780-7908	FAX: 650-649-1954
+From cbbrowne at ca.afilias.info  Wed Sep 26 09:34:23 2007
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Wed Sep 26 09:34:30 2007
+Subject: [Slony1-bugs] Slony 1.2.10: Deadlock on slave during execute
+	script
+In-Reply-To: <Pine.LNX.4.64.0709260815230.4701@discord.home.frostconsultingllc.com>
+	(Jeff Frost's message of "Wed, 26 Sep 2007 08:25:28 -0700 (PDT)")
+References: <Pine.LNX.4.64.0709260815230.4701@discord.home.frostconsultingllc.com>
+Message-ID: <608x6tper4.fsf@dba2.int.libertyrms.com>
+
+Jeff Frost <jeff@frostconsultingllc.com> writes:
+> For extra background on this bug, see the thread here:
+> http://lists.slony.info/pipermail/slony1-general/2007-September/006687.html
+>
+> This is on Slony1-1.2.10, PostgreSQL-8.1.9:
+>
+> I've run into a situation on a client cluster composed of a master and
+> 2 slave nodes where a deadlock on one of the slaves happens quite
+> regularly during any EXECUTE SCRIT commands.  It seems if slony loses
+> the deadlock, some of the tables are left in a not altered for
+> replication state and this breaks replication.
+
+I'm going to set up (heh) a test case, let's call it
+"testdeadlockddl", which will try to "tickle" this problem.
+
+The approach:
+
+- I'll start by creating a set that is replicated, and where some data
+  is flowing thru.
+
+- I'll set up some queries against the replica in order to try to
+  encourage deadlocks.
+
+- Then an "EXECUTE SCRIPT" will try adding a new table.  As a side effect,
+  it will implicitly require locks on all the replicated tables.
+
+I don't see that there are other particular details to this, right?
+-- 
+let name="cbbrowne" and tld="cbbrowne.com" in name ^ "@" ^ tld;;
+http://www3.sympatico.ca/cbbrowne/linuxxian.html
+A  student,  in hopes  of  understanding  the  Lambda-nature, came  to
+Greenblatt.  As they spoke a  Multics system hacker walked by.  "Is it
+true", asked the  student, "that PL-1 has many of  the same data types
+as  Lisp?"   Almost before  the  student  had  finished his  question,
+Greenblatt shouted, "FOO!", and hit the student with a stick.
+From jeff at frostconsultingllc.com  Wed Sep 26 09:37:37 2007
+From: jeff at frostconsultingllc.com (Jeff Frost)
+Date: Wed Sep 26 09:37:44 2007
+Subject: [Slony1-bugs] Slony 1.2.10: Deadlock on slave during execute
+	script
+In-Reply-To: <608x6tper4.fsf@dba2.int.libertyrms.com>
+References: <Pine.LNX.4.64.0709260815230.4701@discord.home.frostconsultingllc.com>
+	<608x6tper4.fsf@dba2.int.libertyrms.com>
+Message-ID: <Pine.LNX.4.64.0709260935380.20452@discord.home.frostconsultingllc.com>
+
+On Wed, 26 Sep 2007, Christopher Browne wrote:
+
+> Jeff Frost <jeff@frostconsultingllc.com> writes:
+>> For extra background on this bug, see the thread here:
+>> http://lists.slony.info/pipermail/slony1-general/2007-September/006687.html
+>>
+>> This is on Slony1-1.2.10, PostgreSQL-8.1.9:
+>>
+>> I've run into a situation on a client cluster composed of a master and
+>> 2 slave nodes where a deadlock on one of the slaves happens quite
+>> regularly during any EXECUTE SCRIT commands.  It seems if slony loses
+>> the deadlock, some of the tables are left in a not altered for
+>> replication state and this breaks replication.
+>
+> I'm going to set up (heh) a test case, let's call it
+> "testdeadlockddl", which will try to "tickle" this problem.
+>
+> The approach:
+>
+> - I'll start by creating a set that is replicated, and where some data
+>  is flowing thru.
+>
+> - I'll set up some queries against the replica in order to try to
+>  encourage deadlocks.
+>
+> - Then an "EXECUTE SCRIPT" will try adding a new table.  As a side effect,
+>  it will implicitly require locks on all the replicated tables.
+>
+> I don't see that there are other particular details to this, right?
+
+You seem to be right on the money with my experience, Christopher.  Perhaps if 
+your slave is inside a VM making it a little less performant would be more 
+likley to cause the deadlock and show the problem?  I mention this because our 
+slave is not as performant as the master and so it deadlocks more often during 
+execute scripts than the master did when the master shoulders the entire load.
+
+-- 
+Jeff Frost, Owner 	<jeff@frostconsultingllc.com>
+Frost Consulting, LLC 	http://www.frostconsultingllc.com/
+Phone: 650-780-7908	FAX: 650-649-1954
+From cbbrowne at ca.afilias.info  Wed Sep 26 15:23:53 2007
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Wed Sep 26 15:24:05 2007
+Subject: [Slony1-bugs] Slony 1.2.10: Deadlock on slave during execute
+	script
+In-Reply-To: <Pine.LNX.4.64.0709260935380.20452@discord.home.frostconsultingllc.com>
+References: <Pine.LNX.4.64.0709260815230.4701@discord.home.frostconsultingllc.com>
+	<608x6tper4.fsf@dba2.int.libertyrms.com>
+	<Pine.LNX.4.64.0709260935380.20452@discord.home.frostconsultingllc.com>
+Message-ID: <46FADBF9.9090908@ca.afilias.info>
+
+Jeff Frost wrote:
+> On Wed, 26 Sep 2007, Christopher Browne wrote:
+>
+>> Jeff Frost <jeff@frostconsultingllc.com> writes:
+>>> For extra background on this bug, see the thread here:
+>>> http://lists.slony.info/pipermail/slony1-general/2007-September/006687.html 
+>>>
+>>>
+>>> This is on Slony1-1.2.10, PostgreSQL-8.1.9:
+>>>
+>>> I've run into a situation on a client cluster composed of a master and
+>>> 2 slave nodes where a deadlock on one of the slaves happens quite
+>>> regularly during any EXECUTE SCRIT commands.  It seems if slony loses
+>>> the deadlock, some of the tables are left in a not altered for
+>>> replication state and this breaks replication.
+>>
+>> I'm going to set up (heh) a test case, let's call it
+>> "testdeadlockddl", which will try to "tickle" this problem.
+>>
+>> The approach:
+>>
+>> - I'll start by creating a set that is replicated, and where some data
+>>  is flowing thru.
+>>
+>> - I'll set up some queries against the replica in order to try to
+>>  encourage deadlocks.
+>>
+>> - Then an "EXECUTE SCRIPT" will try adding a new table.  As a side 
+>> effect,
+>>  it will implicitly require locks on all the replicated tables.
+>>
+>> I don't see that there are other particular details to this, right?
+>
+> You seem to be right on the money with my experience, Christopher.  
+> Perhaps if your slave is inside a VM making it a little less 
+> performant would be more likley to cause the deadlock and show the 
+> problem?  I mention this because our slave is not as performant as the 
+> master and so it deadlocks more often during execute scripts than the 
+> master did when the master shoulders the entire load.
+>
+I have a test added in; it hasn't yet tickled any deadlocks, so I think 
+I'm not yet seeing the pattern of queries that you are using.
+
+I'll fight further with this tomorrow; if it's at all possible for you 
+to show a pattern of queries (not involving Slony-I necessarily at all) 
+that causes the deadlock to emerge, that would be helpful.
+
+This is NOT about system load - deadlocks can emerge under pretty simple 
+conditions, and the simpler the condition we can come up with, the 
+better.  A good test case for this won't involve variations of load - it 
+should be able to remain pretty simple.
+From jeff at frostconsultingllc.com  Wed Sep 26 15:41:52 2007
+From: jeff at frostconsultingllc.com (Jeff Frost)
+Date: Wed Sep 26 15:42:05 2007
+Subject: [Slony1-bugs] Slony 1.2.10: Deadlock on slave during execute
+	script
+In-Reply-To: <46FADBF9.9090908@ca.afilias.info>
+References: <Pine.LNX.4.64.0709260815230.4701@discord.home.frostconsultingllc.com>
+	<608x6tper4.fsf@dba2.int.libertyrms.com>
+	<Pine.LNX.4.64.0709260935380.20452@discord.home.frostconsultingllc.com>
+	<46FADBF9.9090908@ca.afilias.info>
+Message-ID: <Pine.LNX.4.64.0709261533590.4701@discord.home.frostconsultingllc.com>
+
+On Wed, 26 Sep 2007, Christopher Browne wrote:
+
+> Jeff Frost wrote:
+>> On Wed, 26 Sep 2007, Christopher Browne wrote:
+>> 
+>>> Jeff Frost <jeff@frostconsultingllc.com> writes:
+>>>> For extra background on this bug, see the thread here:
+>>>> http://lists.slony.info/pipermail/slony1-general/2007-September/006687.html 
+>>>> 
+>>>> This is on Slony1-1.2.10, PostgreSQL-8.1.9:
+>>>> 
+>>>> I've run into a situation on a client cluster composed of a master and
+>>>> 2 slave nodes where a deadlock on one of the slaves happens quite
+>>>> regularly during any EXECUTE SCRIT commands.  It seems if slony loses
+>>>> the deadlock, some of the tables are left in a not altered for
+>>>> replication state and this breaks replication.
+>>> 
+>>> I'm going to set up (heh) a test case, let's call it
+>>> "testdeadlockddl", which will try to "tickle" this problem.
+>>> 
+>>> The approach:
+>>> 
+>>> - I'll start by creating a set that is replicated, and where some data
+>>>  is flowing thru.
+>>> 
+>>> - I'll set up some queries against the replica in order to try to
+>>>  encourage deadlocks.
+>>> 
+>>> - Then an "EXECUTE SCRIPT" will try adding a new table.  As a side effect,
+>>>  it will implicitly require locks on all the replicated tables.
+>>> 
+>>> I don't see that there are other particular details to this, right?
+>> 
+>> You seem to be right on the money with my experience, Christopher.  Perhaps 
+>> if your slave is inside a VM making it a little less performant would be 
+>> more likley to cause the deadlock and show the problem?  I mention this 
+>> because our slave is not as performant as the master and so it deadlocks 
+>> more often during execute scripts than the master did when the master 
+>> shoulders the entire load.
+>> 
+> I have a test added in; it hasn't yet tickled any deadlocks, so I think I'm 
+> not yet seeing the pattern of queries that you are using.
+>
+> I'll fight further with this tomorrow; if it's at all possible for you to 
+> show a pattern of queries (not involving Slony-I necessarily at all) that 
+> causes the deadlock to emerge, that would be helpful.
+>
+> This is NOT about system load - deadlocks can emerge under pretty simple 
+> conditions, and the simpler the condition we can come up with, the better.  A 
+> good test case for this won't involve variations of load - it should be able 
+> to remain pretty simple.
+
+The queries that we're seeing trigger it are SELECT queries with lots of 
+INTERSECTs like this ugly one:
+
+    SELECT m.name as manf
+         , p.mfgno_stripped as mfgno
+         , p.onhand
+         , p.price
+         , p.sdescr
+         , pi.img
+         , pm.categoryid
+      INTO TEMP TABLE searchc8f9d43421c4d72570b9bb9288ff3c10
+      FROM products p
+      JOIN man m
+        ON (p.man_id        = m.id)
+      LEFT JOIN product_images pi
+        ON (
+             p.mfgno_stripped = pi.mfgno_stripped
+         AND p.man_id         = pi.man_id
+           )
+      LEFT JOIN category.product_map pm
+        ON (
+             p.mfgno_stripped = pm.mfgno_stripped
+         AND p.man_id         = pm.manid
+           )
+     WHERE (
+             (upper(p.mfgno_stripped) LIKE '%ACER%')
+         OR (upper(m.name) LIKE '%ACER%')
+         OR (upper(p.sdescr) LIKE '%ACER%')
+           )
+INTERSECT
+    SELECT m.name as manf
+         , p.mfgno_stripped as mfgno
+         , p.onhand
+         , p.price
+         , p.sdescr
+         , pi.img
+         , pm.categoryid
+      FROM products p
+      JOIN man m
+        ON (p.man_id        = m.id)
+      LEFT JOIN product_images pi
+        ON (
+             p.mfgno_stripped = pi.mfgno_stripped
+         AND p.man_id         = pi.man_id
+           )
+      LEFT JOIN category.product_map pm
+        ON (
+             p.mfgno_stripped = pm.mfgno_stripped
+         AND p.man_id         = pm.manid
+           )
+     WHERE (
+             (upper(p.mfgno_stripped) LIKE '%NOTEBOOK%')
+         OR (upper(m.name) LIKE '%NOTEBOOK%')
+         OR (upper(p.sdescr) LIKE '%NOTEBOOK%')
+           )
+INTERSECT
+    SELECT m.name as manf
+         , p.mfgno_stripped as mfgno
+         , p.onhand
+         , p.price
+         , p.sdescr
+         , pi.img
+         , pm.categoryid
+      FROM products p
+      JOIN man m
+        ON (p.man_id        = m.id)
+      LEFT JOIN product_images pi
+        ON (
+             p.mfgno_stripped = pi.mfgno_stripped
+         AND p.man_id         = pi.man_id
+           )
+      LEFT JOIN category.product_map pm
+        ON (
+             p.mfgno_stripped = pm.mfgno_stripped
+         AND p.man_id         = pm.manid
+           )
+     WHERE (
+             (upper(p.mfgno_stripped) LIKE '%1GB%')
+         OR (upper(m.name) LIKE '%1GB%')
+         OR (upper(p.sdescr) LIKE '%1GB%')
+           )
+INTERSECT
+    SELECT m.name as manf
+         , p.mfgno_stripped as mfgno
+         , p.onhand
+         , p.price
+         , p.sdescr
+         , pi.img
+         , pm.categoryid
+      FROM products p
+      JOIN man m
+        ON (p.man_id        = m.id)
+      LEFT JOIN product_images pi
+        ON (
+             p.mfgno_stripped = pi.mfgno_stripped
+         AND p.man_id         = pi.man_id
+           )
+      LEFT JOIN category.product_map pm
+        ON (
+             p.mfgno_stripped = pm.mfgno_stripped
+         AND p.man_id         = pm.manid
+           )
+     WHERE (
+             (upper(p.mfgno_stripped) LIKE '%120GB%')
+         OR (upper(m.name) LIKE '%120GB%')
+         OR (upper(p.sdescr) LIKE '%120GB%')
+           );
+
+Note that these queries are old and will be replaced with some tsearch2 
+functionality as soon as it makes its way through testing.
+
+I think the deadlocks aren't load related but speed related.  That is, if the 
+acquiring of all the locks by the execute script takes longer on a slower 
+machine, the window of opportunity for one of these selects to cause a 
+deadlock seems greater, no?  They do seem to happen on the slower machine more 
+regularly than the faster one.
+
+-- 
+Jeff Frost, Owner 	<jeff@frostconsultingllc.com>
+Frost Consulting, LLC 	http://www.frostconsultingllc.com/
+Phone: 650-780-7908	FAX: 650-649-1954
+From cbbrowne at ca.afilias.info  Thu Sep 27 15:51:04 2007
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Thu Sep 27 15:51:16 2007
+Subject: [Slony1-bugs] Slony 1.2.10: Deadlock on slave during execute
+	script
+In-Reply-To: <Pine.LNX.4.64.0709260815230.4701@discord.home.frostconsultingllc.com>
+References: <Pine.LNX.4.64.0709260815230.4701@discord.home.frostconsultingllc.com>
+Message-ID: <46FC33D8.5040405@ca.afilias.info>
+
+Jeff Frost wrote:
+> For extra background on this bug, see the thread here:
+> http://lists.slony.info/pipermail/slony1-general/2007-September/006687.html 
+>
+>
+> This is on Slony1-1.2.10, PostgreSQL-8.1.9:
+>
+> I've run into a situation on a client cluster composed of a master and 
+> 2 slave nodes where a deadlock on one of the slaves happens quite 
+> regularly during any EXECUTE SCRIT commands.  It seems if slony loses 
+> the deadlock, some of the tables are left in a not altered for 
+> replication state and this breaks replication.
+I am now mighty confused as to how this could happen.
+
+I headed down a pretty void rabbit trail, trying to duplicate the 
+condition by trying to induce a deadlock.
+
+I had not much luck trying to do that; the tendancy was for deadlocks to 
+occur against the queries with the lower locking levels.
+
+So I decided to instrument a slon and try to induce it to get into the 
+described "no longer altered for replication" state. 
+
+I added a nice "exit(-1);" at exactly the point at which you found the 
+induction of the deadlock.  The slon fell over at the end of processing 
+the DDL script, as expected.
+
+And when it fell over, the transaction was (implicitly) rolled back, so 
+that the condition of the subscriber was recovered to consistency.
+
+2007-09-27 20:21:16 UTC DEBUG2 remoteWorkerThread_1: Received event 1,30 
+DDL_SCRIPT
+2007-09-27 20:21:16 UTC INFO   Checking local node id
+2007-09-27 20:21:16 UTC INFO   Found local node id
+2007-09-27 20:21:16 UTC DEBUG4 version for "dbname=slonyregress2" is 80300
+2007-09-27 20:21:16 UTC DEBUG4 remoteWorkerThread_3: update provider 
+configuration
+2007-09-27 20:21:16 UTC CONFIG remoteWorkerThread_1: DDL request with 10 
+statements
+2007-09-27 20:21:16 UTC CONFIG remoteWorkerThread_1: DDL Statement 0: 
+[create sequence ncolseq;]
+2007-09-27 20:21:16 UTC DEBUG4 version for "dbname=slonyregress3 
+host=localhost user=cbbrowne port=5834" is 80300
+2007-09-27 20:21:16 UTC DEBUG4 version for "dbname=slonyregress2" is 80300
+2007-09-27 20:21:16 UTC DEBUG4 version for "dbname=slonyregress2" is 80300
+2007-09-27 20:21:16 UTC CONFIG DDL success - PGRES_COMMAND_OK
+2007-09-27 20:21:16 UTC CONFIG remoteWorkerThread_1: DDL Statement 1: [
+alter table table4 add column newcol timestamptz;]
+2007-09-27 20:21:16 UTC CONFIG DDL success - PGRES_COMMAND_OK
+2007-09-27 20:21:16 UTC CONFIG remoteWorkerThread_1: DDL Statement 2: [
+alter table table4 alter column newcol set default now();]
+2007-09-27 20:21:16 UTC CONFIG DDL success - PGRES_COMMAND_OK
+2007-09-27 20:21:16 UTC CONFIG remoteWorkerThread_1: DDL Statement 3: [
+alter table table4 rename column id1 to col1;]
+2007-09-27 20:21:16 UTC CONFIG DDL success - PGRES_COMMAND_OK
+2007-09-27 20:21:16 UTC CONFIG remoteWorkerThread_1: DDL Statement 4: [
+alter table table4 rename column id2 to col2;]
+2007-09-27 20:21:16 UTC CONFIG DDL success - PGRES_COMMAND_OK
+2007-09-27 20:21:16 UTC CONFIG remoteWorkerThread_1: DDL Statement 5: [
+
+ALTER TABLE billing_discount ADD column "use_term" character(1);]
+2007-09-27 20:21:16 UTC CONFIG DDL success - PGRES_COMMAND_OK
+2007-09-27 20:21:16 UTC CONFIG remoteWorkerThread_1: DDL Statement 6: [
+ALTER TABLE billing_discount ALTER column use_term set default 'n';]
+2007-09-27 20:21:16 UTC CONFIG DDL success - PGRES_COMMAND_OK
+2007-09-27 20:21:16 UTC CONFIG remoteWorkerThread_1: DDL Statement 7: [
+ALTER TABLE billing_discount add constraint use_term_cons check 
+(use_term in ('y','n'));]
+2007-09-27 20:21:16 UTC CONFIG DDL success - PGRES_COMMAND_OK
+2007-09-27 20:21:16 UTC CONFIG remoteWorkerThread_1: DDL Statement 8: [
+
+alter table table1 rename column id to col1;]
+2007-09-27 20:21:16 UTC CONFIG DDL success - PGRES_COMMAND_OK
+2007-09-27 20:21:16 UTC CONFIG remoteWorkerThread_1: DDL Statement 9: []
+2007-09-27 20:21:16 UTC CONFIG DDL success - PGRES_EMPTY_QUERY
+2007-09-27 20:21:16 UTC DEBUG2 slon: child terminated status: 65280; 
+pid: 24126, current worker pid: 24126
+2007-09-27 20:21:16 UTC DEBUG1 slon: restart of worker in 10 seconds
+2007-09-27 20:21:20 UTC DEBUG1 slon: shutdown requested
+2007-09-27 20:21:20 UTC DEBUG2 slon: notify worker process to shutdown
+2007-09-27 20:21:20 UTC DEBUG1 slon: done
+2007-09-27 20:21:20 UTC DEBUG2 slon: exit(0)
+
+So, for instance, statement #6 was going to alter table billing_discount 
+to add a CHECK constraint:
+
+As we can see, that constraint isn't there.
+
+slonyregress2@[local]:5834=# \d billing_discount
+                                           Table "public.billing_discount"
+       Column        |           Type           
+|                             Modifiers                             
+---------------------+--------------------------+--------------------------------------------------------------------
+ discount_code       | character(2)             | not null
+ billing_object_type | character varying(10)    | not null
+ billing_action_type | character varying(10)    | not null
+ discount_amount     | numeric(7,2)             | not null
+ start_date          | timestamp with time zone | not null
+ end_date            | timestamp with time zone | not null
+ billing_discount_id | integer                  | not null default 
+nextval(('billing_discount_seq'::text)::regclass)
+ registrar_id        | integer                  |
+ tld_id              | integer                  |
+ zone_id             | integer                  |
+Indexes:
+    "billing_discount_pkey" PRIMARY KEY, btree (billing_discount_id)
+Triggers:
+    _slony_regress1_denyaccess_5 BEFORE INSERT OR DELETE OR UPDATE ON 
+billing_discount FOR EACH ROW EXECUTE PROCEDURE 
+_slony_regress1.denyaccess('_slony_regress1')
+
+slonyregress2@[local]:5834=#
+
+This heads me back to the "wait, that's impossible!" expectation that I 
+started with.
+
+When the ERROR message was submitted to the slon log, that means that 
+the transaction rolls back, and everything recovers to where it was.
+
+That's what I see happen here; I can't quite fathom why that's not 
+happening there.
+From jeff at frostconsultingllc.com  Thu Sep 27 15:56:41 2007
+From: jeff at frostconsultingllc.com (Jeff Frost)
+Date: Thu Sep 27 15:56:53 2007
+Subject: [Slony1-bugs] Slony 1.2.10: Deadlock on slave during execute
+	script
+In-Reply-To: <46FC33D8.5040405@ca.afilias.info>
+References: <Pine.LNX.4.64.0709260815230.4701@discord.home.frostconsultingllc.com>
+	<46FC33D8.5040405@ca.afilias.info>
+Message-ID: <Pine.LNX.4.64.0709271554570.4701@discord.home.frostconsultingllc.com>
+
+On Thu, 27 Sep 2007, Christopher Browne wrote:
+
+> Jeff Frost wrote:
+>> For extra background on this bug, see the thread here:
+>> http://lists.slony.info/pipermail/slony1-general/2007-September/006687.html 
+>> 
+>> This is on Slony1-1.2.10, PostgreSQL-8.1.9:
+>> 
+>> I've run into a situation on a client cluster composed of a master and 2 
+>> slave nodes where a deadlock on one of the slaves happens quite regularly 
+>> during any EXECUTE SCRIT commands.  It seems if slony loses the deadlock, 
+>> some of the tables are left in a not altered for replication state and this 
+>> breaks replication.
+> I am now mighty confused as to how this could happen.
+>
+> I headed down a pretty void rabbit trail, trying to duplicate the condition 
+> by trying to induce a deadlock.
+>
+> I had not much luck trying to do that; the tendancy was for deadlocks to 
+> occur against the queries with the lower locking levels.
+>
+> So I decided to instrument a slon and try to induce it to get into the 
+> described "no longer altered for replication" state. 
+> I added a nice "exit(-1);" at exactly the point at which you found the 
+> induction of the deadlock.  The slon fell over at the end of processing the 
+> DDL script, as expected.
+>
+> And when it fell over, the transaction was (implicitly) rolled back, so that 
+> the condition of the subscriber was recovered to consistency.
+>
+> 2007-09-27 20:21:16 UTC DEBUG2 remoteWorkerThread_1: Received event 1,30 
+> DDL_SCRIPT
+> 2007-09-27 20:21:16 UTC INFO   Checking local node id
+> 2007-09-27 20:21:16 UTC INFO   Found local node id
+> 2007-09-27 20:21:16 UTC DEBUG4 version for "dbname=slonyregress2" is 80300
+> 2007-09-27 20:21:16 UTC DEBUG4 remoteWorkerThread_3: update provider 
+> configuration
+> 2007-09-27 20:21:16 UTC CONFIG remoteWorkerThread_1: DDL request with 10 
+> statements
+> 2007-09-27 20:21:16 UTC CONFIG remoteWorkerThread_1: DDL Statement 0: [create 
+> sequence ncolseq;]
+> 2007-09-27 20:21:16 UTC DEBUG4 version for "dbname=slonyregress3 
+> host=localhost user=cbbrowne port=5834" is 80300
+> 2007-09-27 20:21:16 UTC DEBUG4 version for "dbname=slonyregress2" is 80300
+> 2007-09-27 20:21:16 UTC DEBUG4 version for "dbname=slonyregress2" is 80300
+> 2007-09-27 20:21:16 UTC CONFIG DDL success - PGRES_COMMAND_OK
+> 2007-09-27 20:21:16 UTC CONFIG remoteWorkerThread_1: DDL Statement 1: [
+> alter table table4 add column newcol timestamptz;]
+> 2007-09-27 20:21:16 UTC CONFIG DDL success - PGRES_COMMAND_OK
+> 2007-09-27 20:21:16 UTC CONFIG remoteWorkerThread_1: DDL Statement 2: [
+> alter table table4 alter column newcol set default now();]
+> 2007-09-27 20:21:16 UTC CONFIG DDL success - PGRES_COMMAND_OK
+> 2007-09-27 20:21:16 UTC CONFIG remoteWorkerThread_1: DDL Statement 3: [
+> alter table table4 rename column id1 to col1;]
+> 2007-09-27 20:21:16 UTC CONFIG DDL success - PGRES_COMMAND_OK
+> 2007-09-27 20:21:16 UTC CONFIG remoteWorkerThread_1: DDL Statement 4: [
+> alter table table4 rename column id2 to col2;]
+> 2007-09-27 20:21:16 UTC CONFIG DDL success - PGRES_COMMAND_OK
+> 2007-09-27 20:21:16 UTC CONFIG remoteWorkerThread_1: DDL Statement 5: [
+>
+> ALTER TABLE billing_discount ADD column "use_term" character(1);]
+> 2007-09-27 20:21:16 UTC CONFIG DDL success - PGRES_COMMAND_OK
+> 2007-09-27 20:21:16 UTC CONFIG remoteWorkerThread_1: DDL Statement 6: [
+> ALTER TABLE billing_discount ALTER column use_term set default 'n';]
+> 2007-09-27 20:21:16 UTC CONFIG DDL success - PGRES_COMMAND_OK
+> 2007-09-27 20:21:16 UTC CONFIG remoteWorkerThread_1: DDL Statement 7: [
+> ALTER TABLE billing_discount add constraint use_term_cons check (use_term in 
+> ('y','n'));]
+> 2007-09-27 20:21:16 UTC CONFIG DDL success - PGRES_COMMAND_OK
+> 2007-09-27 20:21:16 UTC CONFIG remoteWorkerThread_1: DDL Statement 8: [
+>
+> alter table table1 rename column id to col1;]
+> 2007-09-27 20:21:16 UTC CONFIG DDL success - PGRES_COMMAND_OK
+> 2007-09-27 20:21:16 UTC CONFIG remoteWorkerThread_1: DDL Statement 9: []
+> 2007-09-27 20:21:16 UTC CONFIG DDL success - PGRES_EMPTY_QUERY
+> 2007-09-27 20:21:16 UTC DEBUG2 slon: child terminated status: 65280; pid: 
+> 24126, current worker pid: 24126
+> 2007-09-27 20:21:16 UTC DEBUG1 slon: restart of worker in 10 seconds
+> 2007-09-27 20:21:20 UTC DEBUG1 slon: shutdown requested
+> 2007-09-27 20:21:20 UTC DEBUG2 slon: notify worker process to shutdown
+> 2007-09-27 20:21:20 UTC DEBUG1 slon: done
+> 2007-09-27 20:21:20 UTC DEBUG2 slon: exit(0)
+>
+> So, for instance, statement #6 was going to alter table billing_discount to 
+> add a CHECK constraint:
+>
+> As we can see, that constraint isn't there.
+>
+> slonyregress2@[local]:5834=# \d billing_discount
+>                                          Table "public.billing_discount"
+>      Column        |           Type           | 
+> Modifiers 
+> ---------------------+--------------------------+--------------------------------------------------------------------
+> discount_code       | character(2)             | not null
+> billing_object_type | character varying(10)    | not null
+> billing_action_type | character varying(10)    | not null
+> discount_amount     | numeric(7,2)             | not null
+> start_date          | timestamp with time zone | not null
+> end_date            | timestamp with time zone | not null
+> billing_discount_id | integer                  | not null default 
+> nextval(('billing_discount_seq'::text)::regclass)
+> registrar_id        | integer                  |
+> tld_id              | integer                  |
+> zone_id             | integer                  |
+> Indexes:
+>   "billing_discount_pkey" PRIMARY KEY, btree (billing_discount_id)
+> Triggers:
+>   _slony_regress1_denyaccess_5 BEFORE INSERT OR DELETE OR UPDATE ON 
+> billing_discount FOR EACH ROW EXECUTE PROCEDURE 
+> _slony_regress1.denyaccess('_slony_regress1')
+>
+> slonyregress2@[local]:5834=#
+>
+> This heads me back to the "wait, that's impossible!" expectation that I 
+> started with.
+>
+> When the ERROR message was submitted to the slon log, that means that the 
+> transaction rolls back, and everything recovers to where it was.
+>
+> That's what I see happen here; I can't quite fathom why that's not happening 
+> there.
+
+I guess it's fun to be unique. :-)
+
+And your introduction of the failure modes was on the slave and not the 
+master, correct?  Were you testing with 1.2.11 and not 1.2.10?  Could I 
+possibly be misinterpreting the log messages?
+
+BTW, thanks for looking into this.
+
+-- 
+Jeff Frost, Owner 	<jeff@frostconsultingllc.com>
+Frost Consulting, LLC 	http://www.frostconsultingllc.com/
+Phone: 650-780-7908	FAX: 650-649-1954
+From jeff at frostconsultingllc.com  Thu Sep 27 16:21:43 2007
+From: jeff at frostconsultingllc.com (Jeff Frost)
+Date: Thu Sep 27 16:21:57 2007
+Subject: [Slony1-bugs] Slony 1.2.10: Deadlock on slave during execute
+	script
+In-Reply-To: <Pine.LNX.4.64.0709271554570.4701@discord.home.frostconsultingllc.com>
+References: <Pine.LNX.4.64.0709260815230.4701@discord.home.frostconsultingllc.com>
+	<46FC33D8.5040405@ca.afilias.info>
+	<Pine.LNX.4.64.0709271554570.4701@discord.home.frostconsultingllc.com>
+Message-ID: <Pine.LNX.4.64.0709271621050.399@glacier.frostconsultingllc.com>
+
+On Thu, 27 Sep 2007, Jeff Frost wrote:
+
+>> ALTER TABLE billing_discount ADD column "use_term" character(1);]
+>> 2007-09-27 20:21:16 UTC CONFIG DDL success - PGRES_COMMAND_OK
+>> 2007-09-27 20:21:16 UTC CONFIG remoteWorkerThread_1: DDL Statement 6: [
+>> ALTER TABLE billing_discount ALTER column use_term set default 'n';]
+>> 2007-09-27 20:21:16 UTC CONFIG DDL success - PGRES_COMMAND_OK
+>> 2007-09-27 20:21:16 UTC CONFIG remoteWorkerThread_1: DDL Statement 7: [
+>> ALTER TABLE billing_discount add constraint use_term_cons check (use_term 
+>> in ('y','n'));]
+>> 2007-09-27 20:21:16 UTC CONFIG DDL success - PGRES_COMMAND_OK
+>> 2007-09-27 20:21:16 UTC CONFIG remoteWorkerThread_1: DDL Statement 8: [
+>> 
+>> alter table table1 rename column id to col1;]
+>> 2007-09-27 20:21:16 UTC CONFIG DDL success - PGRES_COMMAND_OK
+>> 2007-09-27 20:21:16 UTC CONFIG remoteWorkerThread_1: DDL Statement 9: []
+>> 2007-09-27 20:21:16 UTC CONFIG DDL success - PGRES_EMPTY_QUERY
+>> 2007-09-27 20:21:16 UTC DEBUG2 slon: child terminated status: 65280; pid: 
+>> 24126, current worker pid: 24126
+>> 2007-09-27 20:21:16 UTC DEBUG1 slon: restart of worker in 10 seconds
+>> 2007-09-27 20:21:20 UTC DEBUG1 slon: shutdown requested
+>> 2007-09-27 20:21:20 UTC DEBUG2 slon: notify worker process to shutdown
+>> 2007-09-27 20:21:20 UTC DEBUG1 slon: done
+>> 2007-09-27 20:21:20 UTC DEBUG2 slon: exit(0)
+>> 
+>> So, for instance, statement #6 was going to alter table billing_discount to 
+>> add a CHECK constraint:
+>> 
+>> As we can see, that constraint isn't there.
+>> 
+>> slonyregress2@[local]:5834=# \d billing_discount
+>>                                          Table "public.billing_discount"
+>>      Column        |           Type           | Modifiers 
+>> ---------------------+--------------------------+--------------------------------------------------------------------
+>> discount_code       | character(2)             | not null
+>> billing_object_type | character varying(10)    | not null
+>> billing_action_type | character varying(10)    | not null
+>> discount_amount     | numeric(7,2)             | not null
+>> start_date          | timestamp with time zone | not null
+>> end_date            | timestamp with time zone | not null
+>> billing_discount_id | integer                  | not null default 
+>> nextval(('billing_discount_seq'::text)::regclass)
+>> registrar_id        | integer                  |
+>> tld_id              | integer                  |
+>> zone_id             | integer                  |
+>> Indexes:
+>>   "billing_discount_pkey" PRIMARY KEY, btree (billing_discount_id)
+>> Triggers:
+>>   _slony_regress1_denyaccess_5 BEFORE INSERT OR DELETE OR UPDATE ON 
+>> billing_discount FOR EACH ROW EXECUTE PROCEDURE 
+>> _slony_regress1.denyaccess('_slony_regress1')
+>> 
+>> slonyregress2@[local]:5834=#
+>> 
+>> This heads me back to the "wait, that's impossible!" expectation that I 
+>> started with.
+>> 
+>> When the ERROR message was submitted to the slon log, that means that the 
+>> transaction rolls back, and everything recovers to where it was.
+>> 
+>> That's what I see happen here; I can't quite fathom why that's not 
+>> happening there.
+>
+> I guess it's fun to be unique. :-)
+>
+> And your introduction of the failure modes was on the slave and not the 
+> master, correct?  Were you testing with 1.2.11 and not 1.2.10?  Could I 
+> possibly be misinterpreting the log messages?
+>
+> BTW, thanks for looking into this.
+
+And more importantly, how can I get you more useful data points?
+
+-- 
+Jeff Frost, Owner 	<jeff@frostconsultingllc.com>
+Frost Consulting, LLC 	http://www.frostconsultingllc.com/
+Phone: 650-780-7908	FAX: 650-649-1954
+From stephane.schildknecht at postgresqlfr.org  Fri Sep 28 07:20:25 2007
+From: stephane.schildknecht at postgresqlfr.org (=?ISO-8859-1?Q?St=E9phane_Schildknecht?=)
+Date: Fri Sep 28 07:20:42 2007
+Subject: [Slony1-bugs] Slony 1.2.10: Deadlock on slave during execute
+	script
+In-Reply-To: <Pine.LNX.4.64.0709271554570.4701@discord.home.frostconsultingllc.com>
+References: <Pine.LNX.4.64.0709260815230.4701@discord.home.frostconsultingllc.com>	<46FC33D8.5040405@ca.afilias.info>
+	<Pine.LNX.4.64.0709271554570.4701@discord.home.frostconsultingllc.com>
+Message-ID: <46FD0DA9.7050807@postgresqlfr.org>
+
+Jeff Frost a ?crit :
+> On Thu, 27 Sep 2007, Christopher Browne wrote:
+>
+>> Jeff Frost wrote:
+>>> For extra background on this bug, see the thread here:
+>>> http://lists.slony.info/pipermail/slony1-general/2007-September/006687.html
+>>>
+>>> This is on Slony1-1.2.10, PostgreSQL-8.1.9:
+>>>
+>>> I've run into a situation on a client cluster composed of a master
+>>> and 2 slave nodes where a deadlock on one of the slaves happens
+>>> quite regularly during any EXECUTE SCRIT commands.  It seems if
+>>> slony loses the deadlock, some of the tables are left in a not
+>>> altered for replication state and this breaks replication.
+>> I am now mighty confused as to how this could happen.
+>>
+>> I headed down a pretty void rabbit trail, trying to duplicate the
+>> condition by trying to induce a deadlock.
+>>
+>> I had not much luck trying to do that; the tendancy was for deadlocks
+>> to occur against the queries with the lower locking levels.
+>>
+>> So I decided to instrument a slon and try to induce it to get into
+>> the described "no longer altered for replication" state. I added a
+>> nice "exit(-1);" at exactly the point at which you found the
+>> induction of the deadlock.  The slon fell over at the end of
+>> processing the DDL script, as expected.
+>>
+>> And when it fell over, the transaction was (implicitly) rolled back,
+>> so that the condition of the subscriber was recovered to consistency.
+>>
+>> 2007-09-27 20:21:16 UTC DEBUG2 remoteWorkerThread_1: Received event
+>> 1,30 DDL_SCRIPT
+>> 2007-09-27 20:21:16 UTC INFO   Checking local node id
+>> 2007-09-27 20:21:16 UTC INFO   Found local node id
+>> 2007-09-27 20:21:16 UTC DEBUG4 version for "dbname=slonyregress2" is
+>> 80300
+>> 2007-09-27 20:21:16 UTC DEBUG4 remoteWorkerThread_3: update provider
+>> configuration
+>> 2007-09-27 20:21:16 UTC CONFIG remoteWorkerThread_1: DDL request with
+>> 10 statements
+>> 2007-09-27 20:21:16 UTC CONFIG remoteWorkerThread_1: DDL Statement 0:
+>> [create sequence ncolseq;]
+>> 2007-09-27 20:21:16 UTC DEBUG4 version for "dbname=slonyregress3
+>> host=localhost user=cbbrowne port=5834" is 80300
+>> 2007-09-27 20:21:16 UTC DEBUG4 version for "dbname=slonyregress2" is
+>> 80300
+>> 2007-09-27 20:21:16 UTC DEBUG4 version for "dbname=slonyregress2" is
+>> 80300
+>> 2007-09-27 20:21:16 UTC CONFIG DDL success - PGRES_COMMAND_OK
+>> 2007-09-27 20:21:16 UTC CONFIG remoteWorkerThread_1: DDL Statement 1: [
+>> alter table table4 add column newcol timestamptz;]
+>> 2007-09-27 20:21:16 UTC CONFIG DDL success - PGRES_COMMAND_OK
+>> 2007-09-27 20:21:16 UTC CONFIG remoteWorkerThread_1: DDL Statement 2: [
+>> alter table table4 alter column newcol set default now();]
+>> 2007-09-27 20:21:16 UTC CONFIG DDL success - PGRES_COMMAND_OK
+>> 2007-09-27 20:21:16 UTC CONFIG remoteWorkerThread_1: DDL Statement 3: [
+>> alter table table4 rename column id1 to col1;]
+>> 2007-09-27 20:21:16 UTC CONFIG DDL success - PGRES_COMMAND_OK
+>> 2007-09-27 20:21:16 UTC CONFIG remoteWorkerThread_1: DDL Statement 4: [
+>> alter table table4 rename column id2 to col2;]
+>> 2007-09-27 20:21:16 UTC CONFIG DDL success - PGRES_COMMAND_OK
+>> 2007-09-27 20:21:16 UTC CONFIG remoteWorkerThread_1: DDL Statement 5: [
+>>
+>> ALTER TABLE billing_discount ADD column "use_term" character(1);]
+>> 2007-09-27 20:21:16 UTC CONFIG DDL success - PGRES_COMMAND_OK
+>> 2007-09-27 20:21:16 UTC CONFIG remoteWorkerThread_1: DDL Statement 6: [
+>> ALTER TABLE billing_discount ALTER column use_term set default 'n';]
+>> 2007-09-27 20:21:16 UTC CONFIG DDL success - PGRES_COMMAND_OK
+>> 2007-09-27 20:21:16 UTC CONFIG remoteWorkerThread_1: DDL Statement 7: [
+>> ALTER TABLE billing_discount add constraint use_term_cons check
+>> (use_term in ('y','n'));]
+>> 2007-09-27 20:21:16 UTC CONFIG DDL success - PGRES_COMMAND_OK
+>> 2007-09-27 20:21:16 UTC CONFIG remoteWorkerThread_1: DDL Statement 8: [
+>>
+>> alter table table1 rename column id to col1;]
+>> 2007-09-27 20:21:16 UTC CONFIG DDL success - PGRES_COMMAND_OK
+>> 2007-09-27 20:21:16 UTC CONFIG remoteWorkerThread_1: DDL Statement 9: []
+>> 2007-09-27 20:21:16 UTC CONFIG DDL success - PGRES_EMPTY_QUERY
+>> 2007-09-27 20:21:16 UTC DEBUG2 slon: child terminated status: 65280;
+>> pid: 24126, current worker pid: 24126
+>> 2007-09-27 20:21:16 UTC DEBUG1 slon: restart of worker in 10 seconds
+>> 2007-09-27 20:21:20 UTC DEBUG1 slon: shutdown requested
+>> 2007-09-27 20:21:20 UTC DEBUG2 slon: notify worker process to shutdown
+>> 2007-09-27 20:21:20 UTC DEBUG1 slon: done
+>> 2007-09-27 20:21:20 UTC DEBUG2 slon: exit(0)
+>>
+>> So, for instance, statement #6 was going to alter table
+>> billing_discount to add a CHECK constraint:
+>>
+>> As we can see, that constraint isn't there.
+>>
+>> slonyregress2@[local]:5834=# \d billing_discount
+>>                                          Table "public.billing_discount"
+>>      Column        |           Type           | Modifiers
+>> ---------------------+--------------------------+--------------------------------------------------------------------
+>>
+>> discount_code       | character(2)             | not null
+>> billing_object_type | character varying(10)    | not null
+>> billing_action_type | character varying(10)    | not null
+>> discount_amount     | numeric(7,2)             | not null
+>> start_date          | timestamp with time zone | not null
+>> end_date            | timestamp with time zone | not null
+>> billing_discount_id | integer                  | not null default
+>> nextval(('billing_discount_seq'::text)::regclass)
+>> registrar_id        | integer                  |
+>> tld_id              | integer                  |
+>> zone_id             | integer                  |
+>> Indexes:
+>>   "billing_discount_pkey" PRIMARY KEY, btree (billing_discount_id)
+>> Triggers:
+>>   _slony_regress1_denyaccess_5 BEFORE INSERT OR DELETE OR UPDATE ON
+>> billing_discount FOR EACH ROW EXECUTE PROCEDURE
+>> _slony_regress1.denyaccess('_slony_regress1')
+>>
+>> slonyregress2@[local]:5834=#
+>>
+>> This heads me back to the "wait, that's impossible!" expectation that
+>> I started with.
+>>
+>> When the ERROR message was submitted to the slon log, that means that
+>> the transaction rolls back, and everything recovers to where it was.
+>>
+>> That's what I see happen here; I can't quite fathom why that's not
+>> happening there.
+>
+> I guess it's fun to be unique. :-)
+>
+> And your introduction of the failure modes was on the slave and not
+> the master, correct?  Were you testing with 1.2.11 and not 1.2.10? 
+> Could I possibly be misinterpreting the log messages?
+>
+> BTW, thanks for looking into this.
+>
+I personaly get these conditions with slony 1.2.10, PG 8.2.3 or 8.2.4
+and a pgpool for web clients to connect to the slave.
+
+Slony does not connect through pgpool, and pgpool is not installed on
+the master.
+
+Regards,
+
+SAS
+From cbbrowne at ca.afilias.info  Fri Sep 28 08:14:51 2007
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Fri Sep 28 08:14:56 2007
+Subject: [Slony1-bugs] Slony 1.2.10: Deadlock on slave during execute
+	script
+In-Reply-To: <Pine.LNX.4.64.0709261533590.4701@discord.home.frostconsultingllc.com>
+	(Jeff Frost's message of "Wed, 26 Sep 2007 15:41:52 -0700 (PDT)")
+References: <Pine.LNX.4.64.0709260815230.4701@discord.home.frostconsultingllc.com>
+	<608x6tper4.fsf@dba2.int.libertyrms.com>
+	<Pine.LNX.4.64.0709260935380.20452@discord.home.frostconsultingllc.com>
+	<46FADBF9.9090908@ca.afilias.info>
+	<Pine.LNX.4.64.0709261533590.4701@discord.home.frostconsultingllc.com>
+Message-ID: <60ve9uom8k.fsf@dba2.int.libertyrms.com>
+
+Jeff Frost <jeff@frostconsultingllc.com> writes:
+> I think the deadlocks aren't load related but speed related.  That is,
+> if the acquiring of all the locks by the execute script takes longer
+> on a slower machine, the window of opportunity for one of these
+> selects to cause a deadlock seems greater, no?  They do seem to happen
+> on the slower machine more regularly than the faster one.
+
+Oh, dear.  I found the problem.
+
+<http://lists.slony.info/pipermail/slony1-commit/2007-April/001677.html>
+
+This patch (which I applied, so I'm the guilty one) drew the DDL
+processing into a function (rather than it being inline, in the event
+loop).
+
+Unfortunately, that code did not apply the "begin; set transaction
+isolation mode serializable;" that is in the main loop, which explains
+why you could get a "partial application" of updates.
+
+I'm going to shift the code *BACK* to the main loop, where it
+belonged.
+
+It's rather surprising to me that you could get into a deadlock at the
+particular point that you did; in thinking that part through, I
+realized that at the point int he code where it tries "restoring
+replication", the slon connection must already hold exclusive locks on
+ALL of the replicated tables.
+
+If you could check as to what relation it was reporting it deadlocked
+on (e.g. - "select * from pg_class where oid = [relation number that
+was in the log];"), that would be somewhat interesting to know.  If it
+was a Slony-I-created table, and you have reinitialized replication,
+then you won't be able to find out :-(.
+
+I would expect to find it somewhat surprising which relation this was.
+-- 
+select 'cbbrowne' || '@' || 'linuxfinances.info';
+http://linuxfinances.info/info/rdbms.html
+One good turn gets most of the blankets. 
+From cbbrowne at ca.afilias.info  Fri Sep 28 14:30:06 2007
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Fri Sep 28 14:30:17 2007
+Subject: [Slony1-bugs] Slony 1.2.10: Deadlock on slave during execute
+	script
+In-Reply-To: <Pine.LNX.4.64.0709261533590.4701@discord.home.frostconsultingllc.com>
+	(Jeff Frost's message of "Wed, 26 Sep 2007 15:41:52 -0700 (PDT)")
+References: <Pine.LNX.4.64.0709260815230.4701@discord.home.frostconsultingllc.com>
+	<608x6tper4.fsf@dba2.int.libertyrms.com>
+	<Pine.LNX.4.64.0709260935380.20452@discord.home.frostconsultingllc.com>
+	<46FADBF9.9090908@ca.afilias.info>
+	<Pine.LNX.4.64.0709261533590.4701@discord.home.frostconsultingllc.com>
+Message-ID: <60r6kio4v5.fsf@dba2.int.libertyrms.com>
+
+Jeff Frost <jeff@frostconsultingllc.com> writes:
+> I think the deadlocks aren't load related but speed related.  That is,
+> if the acquiring of all the locks by the execute script takes longer
+> on a slower machine, the window of opportunity for one of these
+> selects to cause a deadlock seems greater, no?  They do seem to happen
+> on the slower machine more regularly than the faster one.
+
+The problem had nothing to do with deadlocks, per se, but rather with
+the fact that a refactoring of the code *broke* things by taking out a
+leading "begin;" statement.
+
+It should present no *fundamental* problem if the node hits a
+deadlock; if the deadlock affects the "EXECUTE SCRIPT" event, then the
+worst that should happen is that the work gets rolled back, and ten
+seconds later, the node retries, hopefully with greater success.
+
+The fix for this has been committed to the 1.2 branch (never was a
+problem in 2.0), so that we should have this addressed RSN.
+-- 
+output = ("cbbrowne" "@" "linuxfinances.info")
+http://linuxdatabases.info/info/nonrdbms.html
+"High-level languages are a pretty good indicator that all else is
+seldom equal." - Tim Bradshaw, comp.lang.lisp
+From JanWieck at Yahoo.com  Sat Sep 29 04:30:34 2007
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Sat Sep 29 04:31:06 2007
+Subject: [Slony1-bugs] Slony 1.2.10: Deadlock on slave during execute
+	script
+In-Reply-To: <60r6kio4v5.fsf@dba2.int.libertyrms.com>
+References: <Pine.LNX.4.64.0709260815230.4701@discord.home.frostconsultingllc.com>	<608x6tper4.fsf@dba2.int.libertyrms.com>	<Pine.LNX.4.64.0709260935380.20452@discord.home.frostconsultingllc.com>	<46FADBF9.9090908@ca.afilias.info>	<Pine.LNX.4.64.0709261533590.4701@discord.home.frostconsultingllc.com>
+	<60r6kio4v5.fsf@dba2.int.libertyrms.com>
+Message-ID: <46FE375A.2020806@Yahoo.com>
+
+On 9/28/2007 5:30 PM, Christopher Browne wrote:
+> Jeff Frost <jeff@frostconsultingllc.com> writes:
+>> I think the deadlocks aren't load related but speed related.  That is,
+>> if the acquiring of all the locks by the execute script takes longer
+>> on a slower machine, the window of opportunity for one of these
+>> selects to cause a deadlock seems greater, no?  They do seem to happen
+>> on the slower machine more regularly than the faster one.
+> 
+> The problem had nothing to do with deadlocks, per se, but rather with
+> the fact that a refactoring of the code *broke* things by taking out a
+> leading "begin;" statement.
+> 
+> It should present no *fundamental* problem if the node hits a
+> deadlock; if the deadlock affects the "EXECUTE SCRIPT" event, then the
+> worst that should happen is that the work gets rolled back, and ten
+> seconds later, the node retries, hopefully with greater success.
+> 
+> The fix for this has been committed to the 1.2 branch (never was a
+> problem in 2.0), so that we should have this addressed RSN.
+
+Just as a side remark, a deadlock is caused (in a simple case) by two 
+sessions trying to lock two objects in opposite order (one can create 
+more complex cases, but for the sake of this discussion the 2x2 case is 
+sufficient).
+
+It doesn't matter that the client transaction is only doing SELECT at 
+all, since the lock the DDL script requires is an access exclusive one, 
+and that is in conflict with even a share lock.
+
+I thought that we at least would guarantee that the tables are locked by 
+slony in the order of their ID in sl_table, but a quick glance over the 
+code didn't confirm that. So it is indeed unpredictable if and when the 
+locking order will be compatible with the access pattern of the 
+concurrent application.
+
+This locking order problem will be history in version 2.0, since it does 
+not do an alterTableForReplication() and alterTableRestore() any more 
+but uses the new session_replication_role feature in 8.3. So in 2.0, the 
+only tables that are locked are the ones actually touched by the DDL 
+script itself and in exactly the order they are used in there.
+
+
+Jan
+
+-- 
+#======================================================================#
+# It's easier to get forgiveness for being wrong than for being right. #
+# Let's break this rule - forgive me.                                  #
+#================================================== JanWieck@Yahoo.com #

@@ -1,0 +1,674 @@
+From singh.gurjeet at gmail.com  Thu Jul 10 04:14:02 2008
+From: singh.gurjeet at gmail.com (Gurjeet Singh)
+Date: Thu Jul 10 04:14:34 2008
+Subject: [Slony1-hackers] A possible bug in Slony test_slony_state-dbi.pl
+Message-ID: <65937bea0807100414k7f4b0833r486e1113d6a2f50c@mail.gmail.com>
+
+Hi All,
+
+    I am no expert in either Slony or Perl, but it seems to me that the perl
+script should be connecting to each node in turn and then executing the
+test_node script; but it is not. The script performs only one connection
+throughout it's lifetime, and that is to the $initialDSN. The docs at
+http://www.slony.info/documentation/monitoring.html say:
+
+<snip>
+The script then rummages through sl_path to find all of the nodes in the
+cluster, and the DSNs to allow it to, in turn, connect to each of them.
+</snip>
+
+Is it possible that I am using an old version of the scripts? I took the
+script from:
+
+http://main.slony.info/viewcvs/viewvc.cgi/slony1-engine/tools/test_slony_st=
+ate-dbi.pl?revision=3D1.5&content-type=3Dtext%2Fplain
+
+  and the $Id $ tag says:
+
+# $Id: test_slony_state-dbi.pl,v 1.5 2007/01/02 19:34:11 cbbrowne Exp $
+
+
+    Here's a patch to fix the test_node function, if you consider this to be
+a bug:
+
+<patch>
+
+*** test_slony_state-dbi.pl     2008-07-08 21:43:37.000000000 +0000
+--- test_slony_state-dbi.pl.my  2008-07-10 11:05:09.000000000 +0000
+***************
+*** 75,80 ****
+--- 75,82 ----
+
+    print "\nTests for node $node - DSN =3D
+$dsn\n=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D\n";
+
++   $dbh =3D DBI->connect($dsn) or die "Unable to connect: $DBI::errstr\n";
++
+    my $listener_query =3D "select relpages, reltuples from
+pg_catalog.pg_class where relname =3D 'pg_listener';";
+    my $res =3D $dbh->prepare($listener_query);
+    $res->execute();
+
+</patch>
+
+Best regards,
+
+-- =
+
+gurjeet[.singh]@EnterpriseDB.com
+singh.gurjeet@{ gmail | hotmail | indiatimes | yahoo }.com
+
+EnterpriseDB http://www.enterprisedb.com
+
+Mail sent from my BlackLaptop device
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-hackers/attachments/20080710/=
+d98c238b/attachment.htm
+From singh.gurjeet at gmail.com  Thu Jul 10 04:32:59 2008
+From: singh.gurjeet at gmail.com (Gurjeet Singh)
+Date: Thu Jul 10 04:33:31 2008
+Subject: [Slony1-hackers] Re: A possible bug in Slony test_slony_state-dbi.pl
+In-Reply-To: <65937bea0807100414k7f4b0833r486e1113d6a2f50c@mail.gmail.com>
+References: <65937bea0807100414k7f4b0833r486e1113d6a2f50c@mail.gmail.com>
+Message-ID: <65937bea0807100432t44c62e99v45dd3e2fee75b9cc@mail.gmail.com>
+
+Forgot the fix to the dsn string. I am not sure if we should be replacing
+the spaces in the dsn string with a semicolon, so I'll leave that decision
+upto the hackers.
+
+*** test_slony_state-dbi.pl     2008-07-10 11:13:48.000000000 +0000
+--- test_slony_state-dbi.pl.my  2008-07-10 11:32:26.000000000 +0000
+***************
+*** 73,80 ****
+--- 73,84 ----
+  sub test_node {
+    my ($node, $dsn) =3D @_;
+
++   $dsn =3D "dbi:Pg:$dsn";
++
+    print "\nTests for node $node - DSN =3D
+$dsn\n=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D\n";
+
++   $dbh =3D DBI->connect($dsn) or die "Unable to connect: $DBI::errstr\n";
++
+    my $listener_query =3D "select relpages, reltuples from
+pg_catalog.pg_class where relname =3D 'pg_listener';";
+    my $res =3D $dbh->prepare($listener_query);
+    $res->execute();
+
+
+On Thu, Jul 10, 2008 at 7:14 AM, Gurjeet Singh <singh.gurjeet@gmail.com>
+wrote:
+
+> Hi All,
+>
+>     I am no expert in either Slony or Perl, but it seems to me that the
+> perl script should be connecting to each node in turn and then executing =
+the
+> test_node script; but it is not. The script performs only one connection
+> throughout it's lifetime, and that is to the $initialDSN. The docs at
+> http://www.slony.info/documentation/monitoring.html say:
+>
+> <snip>
+> The script then rummages through sl_path to find all of the nodes in the
+> cluster, and the DSNs to allow it to, in turn, connect to each of them.
+> </snip>
+>
+> Is it possible that I am using an old version of the scripts? I took the
+> script from:
+>
+>
+> http://main.slony.info/viewcvs/viewvc.cgi/slony1-engine/tools/test_slony_=
+state-dbi.pl?revision=3D1.5&content-type=3Dtext%2Fplain
+>
+>   and the $Id $ tag says:
+>
+> # $Id: test_slony_state-dbi.pl,v 1.5 2007/01/02 19:34:11 cbbrowne Exp $
+>
+>
+>     Here's a patch to fix the test_node function, if you consider this to
+> be a bug:
+>
+> <patch>
+>
+> *** test_slony_state-dbi.pl     2008-07-08 21:43:37.000000000 +0000
+> --- test_slony_state-dbi.pl.my  2008-07-10 11:05:09.000000000 +0000
+> ***************
+> *** 75,80 ****
+> --- 75,82 ----
+>
+>     print "\nTests for node $node - DSN =3D
+> $dsn\n=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D\n";
+>
+> +   $dbh =3D DBI->connect($dsn) or die "Unable to connect: $DBI::errstr\n=
+";
+> +
+>     my $listener_query =3D "select relpages, reltuples from
+> pg_catalog.pg_class where relname =3D 'pg_listener';";
+>     my $res =3D $dbh->prepare($listener_query);
+>     $res->execute();
+>
+> </patch>
+>
+> Best regards,
+>
+> --
+> gurjeet[.singh]@EnterpriseDB.com
+> singh.gurjeet@{ gmail | hotmail | indiatimes | yahoo }.com
+>
+> EnterpriseDB http://www.enterprisedb.com
+>
+> Mail sent from my BlackLaptop device
+
+
+
+
+-- =
+
+gurjeet[.singh]@EnterpriseDB.com
+singh.gurjeet@{ gmail | hotmail | indiatimes | yahoo }.com
+
+EnterpriseDB http://www.enterprisedb.com
+
+Mail sent from my BlackLaptop device
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-hackers/attachments/20080710/=
+29fec7a9/attachment.htm
+From singh.gurjeet at gmail.com  Thu Jul 10 21:28:51 2008
+From: singh.gurjeet at gmail.com (Gurjeet Singh)
+Date: Thu Jul 10 21:29:13 2008
+Subject: [Slony1-hackers] Re: A possible bug in Slony test_slony_state-dbi.pl
+In-Reply-To: <65937bea0807100432t44c62e99v45dd3e2fee75b9cc@mail.gmail.com>
+References: <65937bea0807100414k7f4b0833r486e1113d6a2f50c@mail.gmail.com>
+	<65937bea0807100432t44c62e99v45dd3e2fee75b9cc@mail.gmail.com>
+Message-ID: <65937bea0807102128u1481d4ecm501a5086d30d6664@mail.gmail.com>
+
+A newer version. Instead of dying upon connection failure, it registers a
+problem so that the problem can be reported at the end.
+
+A note for the archive readers: I noticed that every 'equal to' sign is
+being shown as 'equal to3D'in the archives, so if you are trying to pick up
+this patch from archives, do proper search/replce before applying this
+patch.
+
+<patch>
+*** test_slony_state-dbi.pl     2008-07-10 11:13:48.000000000 +0000
+--- test_slony_state-dbi.pl.my  2008-07-10 14:56:01.000000000 +0000
+***************
+*** 73,80 ****
+--- 73,85 ----
+  sub test_node {
+    my ($node, $dsn) =3D @_;
+
++   $dsn =3D "dbi:Pg:$dsn";
++
+    print "\nTests for node $node - DSN =3D
+$dsn\n=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D\n";
+
++   $dbh =3D DBI->connect($dsn) or add_problem ($node, "Could not connect.",
++                qq{Could not connect to node $node using DSN: $dsn}) and
+return;
++
+    my $listener_query =3D "select relpages, reltuples from
+pg_catalog.pg_class where relname =3D 'pg_listener';";
+    my $res =3D $dbh->prepare($listener_query);
+    $res->execute();
+</patch>
+
+Best regards,
+On Thu, Jul 10, 2008 at 7:32 AM, Gurjeet Singh <singh.gurjeet@gmail.com>
+wrote:
+
+> Forgot the fix to the dsn string. I am not sure if we should be replacing
+> the spaces in the dsn string with a semicolon, so I'll leave that decision
+> upto the hackers.
+>
+> *** test_slony_state-dbi.pl     2008-07-10 11:13:48.000000000 +0000
+> --- test_slony_state-dbi.pl.my  2008-07-10 11:32:26.000000000 +0000
+> ***************
+> *** 73,80 ****
+> --- 73,84 ----
+>   sub test_node {
+>     my ($node, $dsn) =3D @_;
+>
+> +   $dsn =3D "dbi:Pg:$dsn";
+> +
+>     print "\nTests for node $node - DSN =3D
+> $dsn\n=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D\n";
+>
+> +   $dbh =3D DBI->connect($dsn) or die "Unable to connect: $DBI::errstr\n=
+";
+> +
+>     my $listener_query =3D "select relpages, reltuples from
+> pg_catalog.pg_class where relname =3D 'pg_listener';";
+>     my $res =3D $dbh->prepare($listener_query);
+>     $res->execute();
+>
+>
+> On Thu, Jul 10, 2008 at 7:14 AM, Gurjeet Singh <singh.gurjeet@gmail.com>
+> wrote:
+>
+>> Hi All,
+>>
+>>     I am no expert in either Slony or Perl, but it seems to me that the
+>> perl script should be connecting to each node in turn and then executing=
+ the
+>> test_node script; but it is not. The script performs only one connection
+>> throughout it's lifetime, and that is to the $initialDSN. The docs at
+>> http://www.slony.info/documentation/monitoring.html say:
+>>
+>> <snip>
+>> The script then rummages through sl_path to find all of the nodes in the
+>> cluster, and the DSNs to allow it to, in turn, connect to each of them.
+>> </snip>
+>>
+>> Is it possible that I am using an old version of the scripts? I took the
+>> script from:
+>>
+>>
+>> http://main.slony.info/viewcvs/viewvc.cgi/slony1-engine/tools/test_slony=
+_state-dbi.pl?revision=3D1.5&content-type=3Dtext%2Fplain
+>>
+>>   and the $Id $ tag says:
+>>
+>> # $Id: test_slony_state-dbi.pl,v 1.5 2007/01/02 19:34:11 cbbrowne Exp $
+>>
+>>
+>>     Here's a patch to fix the test_node function, if you consider this to
+>> be a bug:
+>>
+>> <patch>
+>>
+>> *** test_slony_state-dbi.pl     2008-07-08 21:43:37.000000000 +0000
+>> --- test_slony_state-dbi.pl.my  2008-07-10 11:05:09.000000000 +0000
+>> ***************
+>> *** 75,80 ****
+>> --- 75,82 ----
+>>
+>>     print "\nTests for node $node - DSN =3D
+>> $dsn\n=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D\n";
+>>
+>> +   $dbh =3D DBI->connect($dsn) or die "Unable to connect: $DBI::errstr\=
+n";
+>> +
+>>     my $listener_query =3D "select relpages, reltuples from
+>> pg_catalog.pg_class where relname =3D 'pg_listener';";
+>>     my $res =3D $dbh->prepare($listener_query);
+>>     $res->execute();
+>>
+>> </patch>
+>>
+>> Best regards,
+>>
+>> --
+>> gurjeet[.singh]@EnterpriseDB.com
+>> singh.gurjeet@{ gmail | hotmail | indiatimes | yahoo }.com
+>>
+>> EnterpriseDB http://www.enterprisedb.com
+>>
+>> Mail sent from my BlackLaptop device
+>
+>
+>
+>
+> --
+> gurjeet[.singh]@EnterpriseDB.com
+> singh.gurjeet@{ gmail | hotmail | indiatimes | yahoo }.com
+>
+> EnterpriseDB http://www.enterprisedb.com
+>
+> Mail sent from my BlackLaptop device
+>
+
+
+
+-- =
+
+gurjeet[.singh]@EnterpriseDB.com
+singh.gurjeet@{ gmail | hotmail | indiatimes | yahoo }.com
+
+EnterpriseDB      http://www.enterprisedb.com
+
+Mail sent from my BlackLaptop device
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-hackers/attachments/20080711/=
+33a93f6c/attachment.htm
+From cbbrowne at ca.afilias.info  Tue Jul 15 15:40:44 2008
+From: cbbrowne at ca.afilias.info (chris)
+Date: Tue Jul 15 15:40:59 2008
+Subject: [Slony1-hackers] Re: [Slony1-bugs] Re: A possible bug in Slony
+	test_slony_state-dbi.pl
+In-Reply-To: <65937bea0807102128u1481d4ecm501a5086d30d6664@mail.gmail.com>
+	(Gurjeet Singh's message of "Fri, 11 Jul 2008 00:28:51 -0400")
+References: <65937bea0807100414k7f4b0833r486e1113d6a2f50c@mail.gmail.com>
+	<65937bea0807100432t44c62e99v45dd3e2fee75b9cc@mail.gmail.com>
+	<65937bea0807102128u1481d4ecm501a5086d30d6664@mail.gmail.com>
+Message-ID: <871w1uzs7n.fsf@dba2.int.libertyrms.com>
+
+"Gurjeet Singh" <singh.gurjeet@gmail.com> writes:
+> A newer version. Instead of dying upon connection failure, it
+> registers a problem so that the problem can be reported at the end.
+
+Better still!
+
+Thanks, I'll be committing this momentarily.
+-- 
+select 'cbbrowne' || '@' || 'linuxfinances.info';
+http://cbbrowne.com/info/lsf.html
+Rules  of the  Evil Overlord  #145. "My  dungeon cell  decor  will not
+feature exposed pipes.  While they add to the  gloomy atmosphere, they
+are good  conductors of vibrations and  a lot of  prisoners know Morse
+code." <http://www.eviloverlord.com/>
+From singh.gurjeet at gmail.com  Fri Jul 25 01:48:06 2008
+From: singh.gurjeet at gmail.com (Gurjeet Singh)
+Date: Fri Jul 25 01:48:36 2008
+Subject: [Slony1-hackers] CREATE SET hung waiting
+Message-ID: <65937bea0807250148w64dcf051sb264b6c6d52b35cb@mail.gmail.com>
+
+Hi All,
+
+    The docs for CREATE SET say 'No application-visible locking should take
+place'. But we saw that it was hung, and noticed that there was a VACUUM
+running on master node. We waited for quite a while, and after we killed
+that VACUUM, the CREATE SET moved forward.
+
+    PG is 8.1.11, and Slony is 1.2.14, if that helps.
+
+Best regards,
+-- =
+
+gurjeet[.singh]@EnterpriseDB.com
+singh.gurjeet@{ gmail | hotmail | indiatimes | yahoo }.com
+
+EnterpriseDB http://www.enterprisedb.com
+
+Mail sent from my BlackLaptop device
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-hackers/attachments/20080725/=
+31430ae1/attachment.htm
+From cbbrowne at ca.afilias.info  Fri Jul 25 14:54:49 2008
+From: cbbrowne at ca.afilias.info (chris)
+Date: Fri Jul 25 14:55:04 2008
+Subject: [Slony1-hackers] CREATE SET hung waiting
+In-Reply-To: <65937bea0807250148w64dcf051sb264b6c6d52b35cb@mail.gmail.com>
+	(Gurjeet Singh's message of "Fri, 25 Jul 2008 14:18:06 +0530")
+References: <65937bea0807250148w64dcf051sb264b6c6d52b35cb@mail.gmail.com>
+Message-ID: <87k5f9sk7q.fsf@dba2.int.libertyrms.com>
+
+"Gurjeet Singh" <singh.gurjeet@gmail.com> writes:
+> 								     Hi All,
+>   ??? The docs for CREATE SET say 'No application-visible locking should take place'. But we saw that it was hung, and noticed that there was a
+> 	   VACUUM running on master node. We waited for quite a while, and after we killed that VACUUM, the CREATE SET moved forward.
+> 					      ??? PG is 8.1.11, and Slony is 1.2.14, if that helps.
+
+The only thing that CREATE SET does, initially, that involves locking
+of *anything* is that it takes out a lock out on sl_config_lock, a
+table internal to Slony-I.
+
+The only way for that to lock things that are application-visible is
+if you have some application that's vacuuming *everything*, and which
+therefore takes out a lock on sl_config_lock that prevents it from
+being granted to the CREATE SET request.
+
+The locking that is done should indeed not be visible to applications.
+It only became visible because you had a VACUUM that was working on
+the Slony-I schema.
+
+I'm trying to think of what more to say, in the documentation; nothing
+is really coming to me.  I don't think that the documentation is
+misleading.
+-- 
+select 'cbbrowne' || '@' || 'linuxfinances.info';
+http://cbbrowne.com/info/lsf.html
+Rules  of the  Evil Overlord  #145. "My  dungeon cell  decor  will not
+feature exposed pipes.  While they add to the  gloomy atmosphere, they
+are good  conductors of vibrations and  a lot of  prisoners know Morse
+code." <http://www.eviloverlord.com/>
+From singh.gurjeet at gmail.com  Sat Jul 26 07:55:15 2008
+From: singh.gurjeet at gmail.com (Gurjeet Singh)
+Date: Sat Jul 26 07:55:22 2008
+Subject: [Slony1-hackers] CREATE SET hung waiting
+In-Reply-To: <87k5f9sk7q.fsf@dba2.int.libertyrms.com>
+References: <65937bea0807250148w64dcf051sb264b6c6d52b35cb@mail.gmail.com>
+	<87k5f9sk7q.fsf@dba2.int.libertyrms.com>
+Message-ID: <65937bea0807260755o6ee05e48lab541dd28a694880@mail.gmail.com>
+
+On Sat, Jul 26, 2008 at 3:24 AM, chris <cbbrowne@ca.afilias.info> wrote:
+
+> "Gurjeet Singh" <singh.gurjeet@gmail.com> writes:
+> >                                                                    Hi
+> All,
+> >       The docs for CREATE SET say 'No application-visible locking should
+> take place'. But we saw that it was hung, and noticed that there was a
+> >          VACUUM running on master node. We waited for quite a while, and
+> after we killed that VACUUM, the CREATE SET moved forward.
+> >                                                 PG is 8.1.11, and Slony
+> is 1.2.14, if that helps.
+>
+> The only thing that CREATE SET does, initially, that involves locking
+> of *anything* is that it takes out a lock out on sl_config_lock, a
+> table internal to Slony-I.
+>
+> The only way for that to lock things that are application-visible is
+> if you have some application that's vacuuming *everything*, and which
+> therefore takes out a lock on sl_config_lock that prevents it from
+> being granted to the CREATE SET request.
+>
+> The locking that is done should indeed not be visible to applications.
+> It only became visible because you had a VACUUM that was working on
+> the Slony-I schema.
+>
+> I'm trying to think of what more to say, in the documentation; nothing
+> is really coming to me.  I don't think that the documentation is
+> misleading.
+>
+
+I was not implying that docs are insufficient in any way; just trying to get
+attention to a problem I faced in production environment. Maybe it's only an
+issue with the old 8.1.11!
+
+One more little thingy, I prefer to call the product simply Slony, rather
+than Slony-I. I'd love to call it Slony-I, but only if Slony-II was any
+nearer than 'beyond' the horizon; I don't see Slony-II progressing, and even
+if it does get implemented, it'd be radically different technology than the
+current implementation. So, lets spare all of us some (mild-) pain by making
+'Slony' the official name; at least like PostgreSQL has accepted Postgres as
+an alternate correct name.
+
+On topic, the VACUUM i saw running was on one table, which was a user table,
+not a Slony table. We do not have DB wide vacuuming policy (yet) (I'll
+re-confirm if you wish), so I don't think it was a DB-wide vacuum; and even
+if it was, IMHO vacuum takes locks on one table at a time.
+
+
+Best regards and kudos to a great product,
+-- =
+
+gurjeet[.singh]@EnterpriseDB.com
+singh.gurjeet@{ gmail | hotmail | indiatimes | yahoo }.com
+
+EnterpriseDB http://www.enterprisedb.com
+
+Mail sent from my BlackLaptop device
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-hackers/attachments/20080726/=
+0cca2395/attachment.htm
+From singh.gurjeet at gmail.com  Mon Jul 28 16:42:19 2008
+From: singh.gurjeet at gmail.com (Gurjeet Singh)
+Date: Mon Jul 28 16:42:35 2008
+Subject: [Slony1-hackers] A minor bug-fix left-out in version 1.5
+Message-ID: <65937bea0807281642i23032dd0nc9d7fd412e59a17c@mail.gmail.com>
+
+I notice that version 1.5 of the test_slony_state-dbi.pl script fixed a
+problem where the diagnosis messages would not show which node the
+long-running transactions were running. But the 'add_problem()' function
+call of that code still has the first parameter as $origin, which I think is
+a copy-paste error from previous blocks of 'while' loops. This causes the
+emails sent out to be confusing as to which node the problem is being
+reported for!
+
+Here's a patch that fixes it. It also fixes another annoying this I have to
+edit out every time I download this script to make it excutable; it removes
+the # -*- perl -*- comment from the first line.
+
+<patch>
+*** test_slony_state-dbi.pl     2008-07-28 23:26:51.000000000 +0000
+--- test_slony_state-dbi.pl.fixed       2008-07-28 23:32:12.000000000 +0000
+***************
+*** 1,4 ****
+! #!/usr/bin/perl   # -*- perl -*-
+  # $Id: test_slony_state-dbi.pl,v 1.6 2008/07/15 22:41:59 cbbrowne Exp $
+  # Christopher Browne
+  # Copyright 2005
+--- 1,4 ----
+! #!/usr/bin/perl
+  # $Id: test_slony_state-dbi.pl,v 1.6 2008/07/15 22:41:59 cbbrowne Exp $
+  # Christopher Browne
+  # Copyright 2005
+***************
+*** 282,288 ****
+    while (my @row =3D $res->fetchrow_array) {
+      my ($db, $pid, $user, $age, $query) =3D @row;
+      printf "%15s %15d %15s %12s %20s\n", $db, $pid, $user, $age, $query;
+!       add_problem($origin, "Old Transactions Kept Open",
+                  qq{Old Transaction still running with age $age >
+$ELDERLY_TXN
+
+  Query: $query
+--- 282,288 ----
+    while (my @row =3D $res->fetchrow_array) {
+      my ($db, $pid, $user, $age, $query) =3D @row;
+      printf "%15s %15d %15s %12s %20s\n", $db, $pid, $user, $age, $query;
+!       add_problem($node, "Old Transactions Kept Open",
+                  qq{Old Transaction still running with age $age >
+$ELDERLY_TXN
+
+  Query: $query
+</patch>
+
+
+Best regards,
+-- =
+
+gurjeet[.singh]@EnterpriseDB.com
+singh.gurjeet@{ gmail | hotmail | indiatimes | yahoo }.com
+
+EnterpriseDB http://www.enterprisedb.com
+
+Mail sent from my BlackLaptop device
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-hackers/attachments/20080729/=
+956b6657/attachment.htm
+From jerome at jfg-networks.net  Wed Jul 16 13:33:24 2008
+From: jerome at jfg-networks.net (=?ISO-8859-1?Q?J=E9r=F4me_Jouanin?=)
+Date: Thu Sep 25 08:30:53 2008
+Subject: [Slony1-hackers] How to manually add column on big tables ?
+Message-ID: <210e1e060807161333t3f3d404ai2c309ab4ab634ace@mail.gmail.com>
+
+Hi,
+I have a classical (but beautiful) school case to submit to the community.
+We have a slony1 (1.2.13) replication between 10 PGnodes (8.3).
+For performance reasons, we have to add columns in our biggest tables
+(approximatively 10 millions of rows).
+On the finest hardware of these nodes, it takes a few hours.
+Because of production constraints, the challenge is to minimize the time of
+this operation, not to use slony's execute_script command, which first alter
+the master and then replicates the schema change to the others nodes.
+So we planned to alter the table manually on each nodes in parallel by :
+
+   1. down write access
+   2. down slony
+   3. then in a same transaction :
+   1. save the sequence of a column (select nextval)
+      2. altertablerestore(tab_id) to deactivate slony triggers, restore
+      tables in initial state and permit the ddl change onto the replicated
+      databases
+      3. create the new table table_new by select into (+ alter table alter
+      column set not null)
+      4. drop original table
+      5. alter table table_new rename to table
+      6. alter table table inherit
+      7. create column's sequence
+      8. alter table add constraint & index
+      9. create table's trigger
+      10. reinject sequence (select setval)
+      11. update manually sl_table and sl_sequence with the new oid of the
+      recreated objects
+      12. altertableforreplication(tab_id) to replicate the table
+   4. VACUUM ANALYZE table
+
+In a dev environnement, datas after schema change are replicated with no
+error, so it appears to run successfully.
+But I ask for your knowledge : if anyone experienced altertablerestore /
+altertableforreplication manually in similar conditions, does this plan
+appears to be correct ?
+
+Many thanx for your interest
+
+J=E9r=F4me Jouanin
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-hackers/attachments/20080716/=
+a04e1800/attachment-0001.htm
+From rafael.domiciano at gmail.com  Fri Jul 25 12:19:04 2008
+From: rafael.domiciano at gmail.com (Rafael Domiciano)
+Date: Thu Sep 25 08:30:53 2008
+Subject: [Slony1-hackers] Re: [Slony1-general] CREATE SET hung waiting
+In-Reply-To: <65937bea0807250148w64dcf051sb264b6c6d52b35cb@mail.gmail.com>
+References: <65937bea0807250148w64dcf051sb264b6c6d52b35cb@mail.gmail.com>
+Message-ID: <3a0028490807251218o4fe019fel507d8b31f4be33c@mail.gmail.com>
+
+I have similar problem some time ago, and my whole base stayed innoperated.
+Too bad.
+Vacuum isn't good when Slony is initing for the first time (create set,
+subscribe set and so on).
+The only solution that I find is to do the sets slowly, one by one. Then the
+Slony does the work great.
+
+Regards,
+
+Rafael Domiciano
+
+2008/7/25 Gurjeet Singh <singh.gurjeet@gmail.com>
+
+> Hi All,
+>
+>     The docs for CREATE SET say 'No application-visible locking should ta=
+ke
+> place'. But we saw that it was hung, and noticed that there was a VACUUM
+> running on master node. We waited for quite a while, and after we killed
+> that VACUUM, the CREATE SET moved forward.
+>
+>     PG is 8.1.11, and Slony is 1.2.14, if that helps.
+>
+> Best regards,
+> --
+> gurjeet[.singh]@EnterpriseDB.com
+> singh.gurjeet@{ gmail | hotmail | indiatimes | yahoo }.com
+>
+> EnterpriseDB http://www.enterprisedb.com
+>
+> Mail sent from my BlackLaptop device
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general@lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+>
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-hackers/attachments/20080725/=
+a51e7a18/attachment-0001.htm

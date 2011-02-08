@@ -1,0 +1,1077 @@
+From ssinger at ca.afilias.info  Wed Feb  2 08:42:24 2011
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Wed, 02 Feb 2011 11:42:24 -0500
+Subject: [Slony1-hackers] automatic WAIT FOR proposal
+In-Reply-To: <4D126DED.4090001@ca.afilias.info>
+References: <4D0236DD.1080509@ca.afilias.info>	<87y67xz42f.fsf@cbbrowne.afilias-int.info>	<4D121D2C.5020009@ca.afilias.info>
+	<4D126DED.4090001@ca.afilias.info>
+Message-ID: <4D498970.3090508@ca.afilias.info>
+
+On 10-12-22 04:30 PM, Steve Singer wrote:
+
+
+Since I haven't had much response on this maybe a plain language example 
+would be useful.
+
+Consider a cluster with paths where node 1 is a provider+origin to all 
+other nodes
+
+4--1----2
+|   \  /
+|--- 3
+
+EXECUTE SCRIPT( FILE=file1.sql, EVENT NODE=1);
+wait for event(origin=1, confirmed=2, wait on=1);
+EXECUTE SCRIPT(file=file2.sql, EVENT NODE=2);
+
+Take node 3.  Does node 3 perform the SQL in file1.sql first or 
+file2.sql first?  Today this is non-deterministic either could win.
+
+The two solutions I see are
+a) Require all nodes to be caught up before going to the next event 
+node.  As discussed this seems somewhat limiting
+b) Make slon wait for the event with origin=1 to be applied on node 3 
+before applying the event from node 2 (because the event from node 1 had 
+already been processed on node 2 by the time the node 2 event was 
+generated).
+
+b) is what I am proposing to implement here.
+
+I can create this type of race condition  with other event types as well 
+it isn't specific to execute script.
+
+
+
+
+
+
+
+
+> On 10-12-22 10:45 AM, Steve Singer wrote:
+>> On 10-12-10 04:54 PM, Christopher Browne wrote:
+>
+>>
+>> I will write a design proposal that explores what things might look like
+>> if we went that route.
+>>
+>
+> First I will define some notation.
+>
+> Let an event with sequence number s originating at node n be known as
+> E(n,s)  (ie 1,1234)
+>
+> An event E(n,s) has been confirmed by node a if the function
+> C(a,E(n,s)) returns true.
+>
+> If a direct path exists between two nodes a,b then the function P(a,b)
+> returns true.  Note P(a,b) != P(b,a)
+>
+> I will now define a function that returns the events from other nodes
+> confirmed on node a when E(a,s) is generated.
+>
+> Visible(a,E(a,s) = [E(1,s1),E(2,s2)....E(z,sz)]
+>
+> For example:  If  when event 1,100 was generated on node 1 node 1 had
+> sl_confirm entires indicating that it has confirmed events 2,5 3,10 and
+> 4,50.
+> Visible(1,E(1,100)) = [E(1,100), E(2,5), E(3,10), E(4,50) ]
+>
+> The order in which a set of events  leading up to an Event E(n,s) is
+> processed on a node can be expressed as an ordered list returned by the
+> Order(a,n,s) function:  Order(3,2,2)= E(1,1), E(2,1),E(1,2),E(3,1),E(2,2)
+>
+> This means that on node 3, the events leading up to processing of event
+> E(2,2) were  E(2,1) then E(1,2) then E(3,1).
+>
+> A race condition is said to exists when ever the system allows two
+> different orderings for  Order(a,n,s) that produce a different resulting
+> action.
+>
+> Two different orderings leading to an event being processed might not
+> lead to a race condition if their are no dependencies between the events
+> that were processed in a different order.
+>
+> Two events conflict  Conflict(E(n1,s1),E(n2,s2))=TRUE
+> If a different result is produced by
+> Order(n3,E(n1,s1)=E(n2,s2),E(n1,s1) compared with
+> Order(n3,E(n2,s2)=E(n1,s1),E(n2,s2)
+>
+> Whether two events conflict  is dependent on the event type and the
+> arguments to those events.
+>
+>
+> Proposition P1:  If an event E(1,1) followed by an event E(1,1+x) is
+> submitted to node 1 by slonik then  these two events will not cause a
+> race condition with each other.
+>
+> Proof:
+> The createEvent() function obtains an exclusive lock on sl_event and
+> gets the next sequence number for the event id.  Because the exclusive
+> lock on sl_event is held until the transaction is committed it is
+> impossible for a row to be visible in sl_event with a higher sequence
+> number than another row that will be committed later.  (assumes all
+> events get generated while holding the lock on sl_event).
+>
+> This means that on the event node  E(1,1+x) will always happen after
+> E(1,1).   It also means that if a remote node sees E(1,1+x) in the
+> sl_event table then it will also see (or have already processed) E(1,1)
+> because E(1,1) would have committed before and we don't delete sl_event
+> rows that have not been processed.    Therefore as long as the remote
+> nodes process the events from a particular node in event id order (which
+> they do) then the remote node will always process E(1,1) before it
+> processes E(1,1+x).
+>
+>
+> Proposition 2:
+>
+> If an Event (n1,s1) is only applied on node n3 when
+> Visible(n1,E(n1,s1)) CONTAINED IN Order(n3,E(n1,s1))
+> then no race condition is possible.
+>
+> Counter Proof:
+> Consider the following sequence of events:
+> E(1,2) : Visible(1,2)=>E(2,1) E(3,1)
+> E(2,2):  Visible(2,2)=>E(1,1) E(3,1)
+>
+> gives
+> Order(1,E(2,2)=>  E(1,2), E(2,2)
+> Order(2,E(1,2)=>  E(2,2), E(1,2)
+>
+> At node three E(2,2) might get applied before or after E(1,2).
+>
+> The second part of the counter proof is to show that there exist event
+> types that can be generated on nodes 1,2 such that
+> Conflict(E(1,2),E(2,2)=TRUE.
+>
+>
+> create set(id=1,origin=1);  #E(1,2)
+> create set(id=1,origin=2); #E(2,2)
+>
+>
+> The behavior on node 3 is clearly differ based on which command arrives
+> at node 3 first. Furthermore node 1 and node 2 will be left
+> in different states as well.
+>
+> Proposition 3:
+> If an event E(n1,s1) is not applied on node n3 until all events in
+> Visible(n1,E(n1,s1) have all been confirmed on n3 then no event E(n2,s1)
+> exists that produces a race condition on n3 unless the conflict existed
+> on the event nodes n1 and n2.
+>
+> Proof:
+> Assume Visible(1,E(1,1)) does not include an event E(2,1) such that
+> there exists a race condition at node 3.
+>
+> This means that
+> Order(3,E(1,1)==>  E(2,1),E(1,1) produces different result than
+> Order(3,E(1,1)===>  E(1,1),E(2,1)
+> this means that Conflict(E(1,1), E(2,1))=TRUE
+> and that conflict would exist on node 1 and node 2.
+> If E(2,1) had reached node 1 before E(1,1) was created then E(2,1) would
+> be part of Visible(1,E(1,1)) and would always be confirmed on node 3
+> before E(2,1) gets applied the assumptions in the proposition.
+>
+> If E(1,1) had reached node 2 before E(2,1) was generated then
+> Visible(2,E(2,1)) would include E(1,1) and E(1,1) would always get
+> applied on node 3 before E(2,1) because of the assumptions we made in
+> our proposition.
+>
+>
+> This means that if IF  a) we can somehow avoid race conditions at the
+> event nodes AND  b) implement the rule "apply all events that were
+> visible on the event origin before applying the event" then we can
+> eliminate race conditions.
+>
+> i) I feel (a) needs to be handled by slonik and can be handled by slonik
+> waiting for the next event node to be caught up to previous event nodes
+> before submitting an event to it (discussed in a previous email on this
+> thread, though I have not formally tried to prove this
+>
+> ii) can be implemented by adding a new column to sl_event that stores an
+> array of event tuples - which consist of the highest events from each
+> node confirmed on the node at the time sl_event is generated.  The a
+> remoteWorker won't apply an event to its local node until the
+> pre-conditions have been met.
+>
+> Questions:  What is the performance impact of getting the highest
+> confirmed event id values? This is unknown - but will probably involve
+> querying sl_event and/or sl_confirm.
+>
+> Is it possible for an event to be included  in Visible(1,E(1,1)) that
+> might never make it to a node n3 that is trying to process E(1,1)?
+> I think no.  Every event  E(x,y) that is in Visible(1,E(1,1)) is in the
+> sl_event table on node 1 by virtue of it having been confirmed on node 1
+> but not confirmed elsewhere.  If slon always pulls events (no matter
+> what the event origin) into node 3 from the node 1 sl_event table then
+> it will include E(x,y).  Even if node 3 isn't directly talking to node
+> 1, any sl_event table in the cluster that contains E(1,1) would also
+> contain E(x,y) by virtue of that event being on node 1 at the time.
+>
+>
+> I feel this produces a solution to wait for where slonik only needs to
+> wait to make sure the next event node has received all events so far.
+>
+> This does NOT deal with race conditions that can be created by multiple
+> concurrent slonik scripts using different event nodes but I might be
+> able to solve this with an sl_sloniklock type of table.
+>
+> Issues relating to TRY blocks are still somewhat outstanding - as
+> discussed in the other email.
+>
+>
+> _______________________________________________
+> Slony1-hackers mailing list
+> Slony1-hackers at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-hackers
+
+
+From JanWieck at Yahoo.com  Thu Feb  3 06:44:38 2011
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Thu, 03 Feb 2011 09:44:38 -0500
+Subject: [Slony1-hackers] automatic WAIT FOR proposal
+In-Reply-To: <4D498970.3090508@ca.afilias.info>
+References: <4D0236DD.1080509@ca.afilias.info>	<87y67xz42f.fsf@cbbrowne.afilias-int.info>	<4D121D2C.5020009@ca.afilias.info>	<4D126DED.4090001@ca.afilias.info>
+	<4D498970.3090508@ca.afilias.info>
+Message-ID: <4D4ABF56.7090609@Yahoo.com>
+
+On 2/2/2011 11:42 AM, Steve Singer wrote:
+> On 10-12-22 04:30 PM, Steve Singer wrote:
+>
+>
+> Since I haven't had much response on this maybe a plain language example
+> would be useful.
+>
+> Consider a cluster with paths where node 1 is a provider+origin to all
+> other nodes
+>
+> 4--1----2
+> |   \  /
+> |--- 3
+>
+> EXECUTE SCRIPT( FILE=file1.sql, EVENT NODE=1);
+> wait for event(origin=1, confirmed=2, wait on=1);
+> EXECUTE SCRIPT(file=file2.sql, EVENT NODE=2);
+>
+> Take node 3.  Does node 3 perform the SQL in file1.sql first or
+> file2.sql first?  Today this is non-deterministic either could win.
+>
+> The two solutions I see are
+> a) Require all nodes to be caught up before going to the next event
+> node.  As discussed this seems somewhat limiting
+> b) Make slon wait for the event with origin=1 to be applied on node 3
+> before applying the event from node 2 (because the event from node 1 had
+> already been processed on node 2 by the time the node 2 event was
+> generated).
+>
+> b) is what I am proposing to implement here.
+>
+> I can create this type of race condition  with other event types as well
+> it isn't specific to execute script.
+
+What you are basically asking for is a guaranteed total order in which 
+events from multiple nodes are processed. Very much like the total order 
+guarantees provided by group communication systems.
+
+While the example above seems to be possible, I don't know why someone 
+would actually attempt such. If node 1 is the origin of everything, it 
+doesn't even make sense to use node 2 as the event node unless node 2 
+also is the ONLY node to execute it.
+
+The design of EXECUTE SCRIPT expects the event node to be the origin of 
+the objects modified, so that the SQL statements inside the script are 
+executed at the same data SYNC point on all nodes. Since it is 
+impractical to perform sanity checks against the script to ensure that 
+the user is actually doing that, all we can and should do is to make 
+this requirement clearer in the documentation.
+
+
+Jan
+
+-- 
+Anyone who trades liberty for security deserves neither
+liberty nor security. -- Benjamin Franklin
+
+From ssinger at ca.afilias.info  Thu Feb  3 07:19:39 2011
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Thu, 03 Feb 2011 10:19:39 -0500
+Subject: [Slony1-hackers] automatic WAIT FOR proposal
+In-Reply-To: <4D4ABF56.7090609@Yahoo.com>
+References: <4D0236DD.1080509@ca.afilias.info>	<87y67xz42f.fsf@cbbrowne.afilias-int.info>	<4D121D2C.5020009@ca.afilias.info>	<4D126DED.4090001@ca.afilias.info>
+	<4D498970.3090508@ca.afilias.info> <4D4ABF56.7090609@Yahoo.com>
+Message-ID: <4D4AC78B.1040207@ca.afilias.info>
+
+On 11-02-03 09:44 AM, Jan Wieck wrote:
+> On 2/2/2011 11:42 AM, Steve Singer wrote:
+>> On 10-12-22 04:30 PM, Steve Singer wrote:
+>>
+>>
+>> Since I haven't had much response on this maybe a plain language example
+>> would be useful.
+>>
+>> Consider a cluster with paths where node 1 is a provider+origin to all
+>> other nodes
+>>
+>> 4--1----2
+>> | \ /
+>> |--- 3
+>>
+>> EXECUTE SCRIPT( FILE=file1.sql, EVENT NODE=1);
+>> wait for event(origin=1, confirmed=2, wait on=1);
+>> EXECUTE SCRIPT(file=file2.sql, EVENT NODE=2);
+>>
+>> Take node 3. Does node 3 perform the SQL in file1.sql first or
+>> file2.sql first? Today this is non-deterministic either could win.
+>>
+>> The two solutions I see are
+>> a) Require all nodes to be caught up before going to the next event
+>> node. As discussed this seems somewhat limiting
+>> b) Make slon wait for the event with origin=1 to be applied on node 3
+>> before applying the event from node 2 (because the event from node 1 had
+>> already been processed on node 2 by the time the node 2 event was
+>> generated).
+>>
+>> b) is what I am proposing to implement here.
+>>
+>> I can create this type of race condition with other event types as well
+>> it isn't specific to execute script.
+>
+> What you are basically asking for is a guaranteed total order in which
+> events from multiple nodes are processed. Very much like the total order
+> guarantees provided by group communication systems.
+
+I'm not going as far as a total order over all events just an ordering 
+over that deals with events that have already been processed by the 
+event origin.
+
+For example if
+
+remote events are processed
+
+node 1:               node 2:
+2,1233		      1,1233
+
+(node 1 has seen 2,1233 and node 2 has seen 1,1233)
+
+then they each do a sync generating events
+1,1234                2,1234
+
+
+In the scheme I propose node 3 can either process events in this order
+
+
+1,1233
+2,1233
+1,1234
+2,1234
+
+OR
+1,1233
+2,1233
+2,1234
+1,1234
+
+ie I am not requiring any ordering constraints between the two events 
+1,1234 and 2,1234 other than they must come after 1,1233 and 2,1233.
+
+
+What i describe requires no additional communications between nodes over 
+what we are already doing.
+
+
+The issue I describe isn't specific to two execute scripts.
+
+For example I have a 3 node cluster with two sets (set 1 origin is node 
+1, set 2 origin is node 2).
+
+subscribe set(set id=1,provider=1,receiver=2)
+subscribe set(set id=2,provider=2,receiver=1)
+wait for event(origin=1,confirmed=2,wait on=1)
+wait for event(origin=2,confirmed=1,wait on=2)
+subscribe set(set id=1,origin=1,receiver=3)
+subscribe set(set id=2,origin=2,receiver=3)
+#
+# subscribing to set 3 takes a LONG time
+# because it is in a remote data centre
+#
+# while it is subscribing I discover
+# I need to make an emergency schema change
+# via EXECUTE SCRIPT such that I can't wait
+# for node 3 to finish subscribing before
+# making the change on node 1 and 2.
+
+If i use node 1 or node 2 as the event node it might get applied on node 
+3 before the set from the other node finishes.
+
+---------
+
+Here is an example that doesn't involve execute script. (assume the same 
+cluster config as in my last example)
+
+
+create set(id=1, origin=1)
+set add table(set id=1, origin=1, fully qualified table='public.foo');
+#commands execute, dba notices a mistake
+drop set(set id=1,event node=1);
+wait for event(origin=1,confirmed=3,wait on=1);
+create set(id=2, origin=2)
+set add table(set id=2,origin=3);
+set add table(set id=2, origin=2, fully qualified table='public.foo');
+
+Node 3 might process the add table from node 2 BEFORE it proceses the 
+drop set from node 1.  The above example probably happens in the real 
+world quite a bit, a dba creates a set then notices they are hosting it 
+on the wrong node and wants to fix things.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+>
+> While the example above seems to be possible, I don't know why someone
+> would actually attempt such. If node 1 is the origin of everything, it
+> doesn't even make sense to use node 2 as the event node unless node 2
+> also is the ONLY node to execute it.
+>
+> The design of EXECUTE SCRIPT expects the event node to be the origin of
+> the objects modified, so that the SQL statements inside the script are
+> executed at the same data SYNC point on all nodes. Since it is
+> impractical to perform sanity checks against the script to ensure that
+> the user is actually doing that, all we can and should do is to make
+> this requirement clearer in the documentation.
+>
+>
+> Jan
+>
+
+
+From JanWieck at Yahoo.com  Thu Feb  3 08:15:39 2011
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Thu, 03 Feb 2011 11:15:39 -0500
+Subject: [Slony1-hackers] automatic WAIT FOR proposal
+In-Reply-To: <4D4AC78B.1040207@ca.afilias.info>
+References: <4D0236DD.1080509@ca.afilias.info>	<87y67xz42f.fsf@cbbrowne.afilias-int.info>	<4D121D2C.5020009@ca.afilias.info>	<4D126DED.4090001@ca.afilias.info>
+	<4D498970.3090508@ca.afilias.info> <4D4ABF56.7090609@Yahoo.com>
+	<4D4AC78B.1040207@ca.afilias.info>
+Message-ID: <4D4AD4AB.1090903@Yahoo.com>
+
+On 2/3/2011 10:19 AM, Steve Singer wrote:
+> On 11-02-03 09:44 AM, Jan Wieck wrote:
+>>  On 2/2/2011 11:42 AM, Steve Singer wrote:
+>>>  On 10-12-22 04:30 PM, Steve Singer wrote:
+>>>
+>>>
+>>>  Since I haven't had much response on this maybe a plain language example
+>>>  would be useful.
+>>>
+>>>  Consider a cluster with paths where node 1 is a provider+origin to all
+>>>  other nodes
+>>>
+>>>  4--1----2
+>>>  | \ /
+>>>  |--- 3
+>>>
+>>>  EXECUTE SCRIPT( FILE=file1.sql, EVENT NODE=1);
+>>>  wait for event(origin=1, confirmed=2, wait on=1);
+>>>  EXECUTE SCRIPT(file=file2.sql, EVENT NODE=2);
+>>>
+>>>  Take node 3. Does node 3 perform the SQL in file1.sql first or
+>>>  file2.sql first? Today this is non-deterministic either could win.
+>>>
+>>>  The two solutions I see are
+>>>  a) Require all nodes to be caught up before going to the next event
+>>>  node. As discussed this seems somewhat limiting
+>>>  b) Make slon wait for the event with origin=1 to be applied on node 3
+>>>  before applying the event from node 2 (because the event from node 1 had
+>>>  already been processed on node 2 by the time the node 2 event was
+>>>  generated).
+>>>
+>>>  b) is what I am proposing to implement here.
+>>>
+>>>  I can create this type of race condition with other event types as well
+>>>  it isn't specific to execute script.
+>>
+>>  What you are basically asking for is a guaranteed total order in which
+>>  events from multiple nodes are processed. Very much like the total order
+>>  guarantees provided by group communication systems.
+>
+> I'm not going as far as a total order over all events just an ordering
+> over that deals with events that have already been processed by the
+> event origin.
+>
+> For example if
+>
+> remote events are processed
+>
+> node 1:               node 2:
+> 2,1233		      1,1233
+>
+> (node 1 has seen 2,1233 and node 2 has seen 1,1233)
+>
+> then they each do a sync generating events
+> 1,1234                2,1234
+>
+>
+> In the scheme I propose node 3 can either process events in this order
+>
+>
+> 1,1233
+> 2,1233
+> 1,1234
+> 2,1234
+>
+> OR
+> 1,1233
+> 2,1233
+> 2,1234
+> 1,1234
+>
+> ie I am not requiring any ordering constraints between the two events
+> 1,1234 and 2,1234 other than they must come after 1,1233 and 2,1233.
+>
+>
+> What i describe requires no additional communications between nodes over
+> what we are already doing.
+>
+>
+> The issue I describe isn't specific to two execute scripts.
+>
+> For example I have a 3 node cluster with two sets (set 1 origin is node
+> 1, set 2 origin is node 2).
+>
+> subscribe set(set id=1,provider=1,receiver=2)
+> subscribe set(set id=2,provider=2,receiver=1)
+> wait for event(origin=1,confirmed=2,wait on=1)
+> wait for event(origin=2,confirmed=1,wait on=2)
+> subscribe set(set id=1,origin=1,receiver=3)
+> subscribe set(set id=2,origin=2,receiver=3)
+> #
+> # subscribing to set 3 takes a LONG time
+> # because it is in a remote data centre
+> #
+> # while it is subscribing I discover
+> # I need to make an emergency schema change
+> # via EXECUTE SCRIPT such that I can't wait
+> # for node 3 to finish subscribing before
+> # making the change on node 1 and 2.
+>
+> If i use node 1 or node 2 as the event node it might get applied on node
+> 3 before the set from the other node finishes.
+
+Again, if using the event node where the affected objects originate, 
+there will be no conflict and the order in which the things are applied 
+doesn't matter.
+
+>
+> ---------
+>
+> Here is an example that doesn't involve execute script. (assume the same
+> cluster config as in my last example)
+>
+>
+> create set(id=1, origin=1)
+> set add table(set id=1, origin=1, fully qualified table='public.foo');
+> #commands execute, dba notices a mistake
+> drop set(set id=1,event node=1);
+> wait for event(origin=1,confirmed=3,wait on=1);
+> create set(id=2, origin=2)
+> set add table(set id=2,origin=3);
+
+I don't think this should be possible because set add table makes only 
+sense on the set origin.
+
+> set add table(set id=2, origin=2, fully qualified table='public.foo');
+>
+> Node 3 might process the add table from node 2 BEFORE it proceses the
+> drop set from node 1.  The above example probably happens in the real
+> world quite a bit, a dba creates a set then notices they are hosting it
+> on the wrong node and wants to fix things.
+
+set add table is not an event. The time when a node learns which tables 
+belong to a set is when it processes the enable subscription. Node 3 in 
+this case did know that there was a set 1 on node 1, but not what tables 
+are in it. Again, the order of execution is irrelevant.
+
+
+Jan
+
+-- 
+Anyone who trades liberty for security deserves neither
+liberty nor security. -- Benjamin Franklin
+
+From ssinger at ca.afilias.info  Fri Feb  4 08:02:31 2011
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Fri, 04 Feb 2011 11:02:31 -0500
+Subject: [Slony1-hackers] automatic WAIT FOR proposal
+In-Reply-To: <4D4AD4AB.1090903@Yahoo.com>
+References: <4D0236DD.1080509@ca.afilias.info>	<87y67xz42f.fsf@cbbrowne.afilias-int.info>	<4D121D2C.5020009@ca.afilias.info>	<4D126DED.4090001@ca.afilias.info>
+	<4D498970.3090508@ca.afilias.info> <4D4ABF56.7090609@Yahoo.com>
+	<4D4AC78B.1040207@ca.afilias.info> <4D4AD4AB.1090903@Yahoo.com>
+Message-ID: <4D4C2317.80802@ca.afilias.info>
+
+On 11-02-03 11:15 AM, Jan Wieck wrote:
+
+>> subscribe set(set id=1,provider=1,receiver=2)
+>> subscribe set(set id=2,provider=2,receiver=1)
+>> wait for event(origin=1,confirmed=2,wait on=1)
+>> wait for event(origin=2,confirmed=1,wait on=2)
+>> subscribe set(set id=1,origin=1,receiver=3)
+>> subscribe set(set id=2,origin=2,receiver=3)
+>> #
+>> # subscribing to set 3 takes a LONG time
+>> # because it is in a remote data centre
+>> #
+>> # while it is subscribing I discover
+>> # I need to make an emergency schema change
+>> # via EXECUTE SCRIPT such that I can't wait
+>> # for node 3 to finish subscribing before
+>> # making the change on node 1 and 2.
+>>
+>> If i use node 1 or node 2 as the event node it might get applied on node
+>> 3 before the set from the other node finishes.
+>
+> Again, if using the event node where the affected objects originate,
+> there will be no conflict and the order in which the things are applied
+> doesn't matter.
+
+the node which objects originate on? I have two sets.
+
+My EXECUTE SCRIPT might be selecting from tables in both sets and 
+inserting into a local non-replicated table.  I can ensure consistency 
+by taking an application outage and making sure nodes 1+2 are up to date 
+with other.  This still doesn't ensure that node 3 applies it in the 
+right order.
+>>
+>> create set(id=1, origin=1)
+>> set add table(set id=1, origin=1, fully qualified table='public.foo');
+>> #commands execute, dba notices a mistake
+>> drop set(set id=1,event node=1);
+>> wait for event(origin=1,confirmed=3,wait on=1);
+>> create set(id=2, origin=2)
+>> set add table(set id=2,origin=3);
+>
+> I don't think this should be possible because set add table makes only
+> sense on the set origin.
+
+I hadn't realized that set add table only does something on the 
+subscribe set.
+
+I then modify my example to:
+
+create set(id=1, origin=1)
+set add table(set id=1, origin=1, fully qualified table='public.foo');
+subscribe set(set id=1, provider=1,receiver=2);
+# I would wait for the subscription to finish
+# but it doesn't fix anything, it just makes the
+# race condition less likely
+drop set(set id=1,event node=1);
+wait for event(origin=1,confirmed=3,wait on=1);
+create set(id=2, origin=3)
+set add table(set id=2,origin=3);
+subscribe set(set id=2, provider=3,receiver=2)
+
+The subscribe set for set id=2 might be processed on node 3 before the 
+drop set for set 1 is processed from node 1.
+
+Also consider the case where the second 'create set' is recreating a set 
+with id=1 but using node 3 as the origin.
+
+
+I have added a disorder based test case to my github repo at 
+https://github.com/ssinger/slony1-engine/commit/dbed2a39062975366b1a2e7294a80a4e1b3f388b 
+that demonstrates this.
+
+The slon on node 3 will report:
+  ESTFATAL  storeSubscribe: set 2 not found
+
+and loop for ever.
+
+
+
+
+
+
+
+>
+> Jan
+>
+
+
+From ssinger at ca.afilias.info  Fri Feb  4 08:24:36 2011
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Fri, 04 Feb 2011 11:24:36 -0500
+Subject: [Slony1-hackers] automatic WAIT FOR proposal
+In-Reply-To: <4D4C2317.80802@ca.afilias.info>
+References: <4D0236DD.1080509@ca.afilias.info>	<87y67xz42f.fsf@cbbrowne.afilias-int.info>	<4D121D2C.5020009@ca.afilias.info>	<4D126DED.4090001@ca.afilias.info>	<4D498970.3090508@ca.afilias.info>
+	<4D4ABF56.7090609@Yahoo.com>	<4D4AC78B.1040207@ca.afilias.info>
+	<4D4AD4AB.1090903@Yahoo.com> <4D4C2317.80802@ca.afilias.info>
+Message-ID: <4D4C2844.7070308@ca.afilias.info>
+
+On 11-02-04 11:02 AM, Steve Singer wrote:
+> On 11-02-03 11:15 AM, Jan Wieck wrote:
+>
+>>> subscribe set(set id=1,provider=1,receiver=2)
+>>> subscribe set(set id=2,provider=2,receiver=1)
+>>> wait for event(origin=1,confirmed=2,wait on=1)
+>>> wait for event(origin=2,confirmed=1,wait on=2)
+>>> subscribe set(set id=1,origin=1,receiver=3)
+>>> subscribe set(set id=2,origin=2,receiver=3)
+>>> #
+>>> # subscribing to set 3 takes a LONG time
+>>> # because it is in a remote data centre
+>>> #
+>>> # while it is subscribing I discover
+>>> # I need to make an emergency schema change
+>>> # via EXECUTE SCRIPT such that I can't wait
+>>> # for node 3 to finish subscribing before
+>>> # making the change on node 1 and 2.
+>>>
+>>> If i use node 1 or node 2 as the event node it might get applied on node
+>>> 3 before the set from the other node finishes.
+>>
+>> Again, if using the event node where the affected objects originate,
+>> there will be no conflict and the order in which the things are applied
+>> doesn't matter.
+>
+> the node which objects originate on? I have two sets.
+>
+> My EXECUTE SCRIPT might be selecting from tables in both sets and
+> inserting into a local non-replicated table.  I can ensure consistency
+> by taking an application outage and making sure nodes 1+2 are up to date
+> with other.  This still doesn't ensure that node 3 applies it in the
+> right order.
+>>>
+>>> create set(id=1, origin=1)
+>>> set add table(set id=1, origin=1, fully qualified table='public.foo');
+>>> #commands execute, dba notices a mistake
+>>> drop set(set id=1,event node=1);
+>>> wait for event(origin=1,confirmed=3,wait on=1);
+>>> create set(id=2, origin=2)
+>>> set add table(set id=2,origin=3);
+>>
+>> I don't think this should be possible because set add table makes only
+>> sense on the set origin.
+>
+> I hadn't realized that set add table only does something on the
+> subscribe set.
+>
+> I then modify my example to:
+>
+> create set(id=1, origin=1)
+> set add table(set id=1, origin=1, fully qualified table='public.foo');
+> subscribe set(set id=1, provider=1,receiver=2);
+> # I would wait for the subscription to finish
+> # but it doesn't fix anything, it just makes the
+> # race condition less likely
+> drop set(set id=1,event node=1);
+> wait for event(origin=1,confirmed=3,wait on=1);
+> create set(id=2, origin=3)
+> set add table(set id=2,origin=3);
+> subscribe set(set id=2, provider=3,receiver=2)
+>
+> The subscribe set for set id=2 might be processed on node 3 before the
+> drop set for set 1 is processed from node 1.
+>
+> Also consider the case where the second 'create set' is recreating a set
+> with id=1 but using node 3 as the origin.
+>
+>
+> I have added a disorder based test case to my github repo at
+> https://github.com/ssinger/slony1-engine/commit/dbed2a39062975366b1a2e7294a80a4e1b3f388b
+> that demonstrates this.
+
+Make that at least commit 
+https://github.com/ssinger/slony1-engine/commit/fb2c2e325999015b104a3405557141e914ce196f
+
+currently living on the clustertest branch
+
+
+>
+> The slon on node 3 will report:
+>    ESTFATAL  storeSubscribe: set 2 not found
+>
+> and loop for ever.
+>
+>
+>
+>
+>
+>
+>
+>>
+>> Jan
+>>
+>
+> _______________________________________________
+> Slony1-hackers mailing list
+> Slony1-hackers at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-hackers
+
+
+From JanWieck at Yahoo.com  Mon Feb  7 12:00:50 2011
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Mon, 07 Feb 2011 15:00:50 -0500
+Subject: [Slony1-hackers] Multi node failover draft
+Message-ID: <4D504F72.7000705@Yahoo.com>
+
+Problem
+
+The current steps necessary to perform failover in a Slony replication 
+cluster where multiple nodes have failed are complicated. Even a single 
+node failover with multiple surviving subscribers can lead to unexpected 
+failures and broken configurations. Many DBA's do not have the detail 
+knowledge about Slony-I internals that is needed to write slonik scripts 
+that do the necessary waiting between critical steps in the failover 
+procedure.
+
+
+Proposal summary
+
+To solve this problem we will develop a slonik failover command that 
+receives all the information about which nodes have failed and which 
+sets should be taken over by which backup node at once. This command 
+will perform sanity checks on the remaining nodes, then execute all the 
+necessary steps including waiting for event propagation to get to a new, 
+working cluster shape to the point, where the failed nodes are dropped 
+from the configuration of the remaining cluster.
+
+
+Command syntax
+
+The new FAILOVER CLUSTER command will specify the list of failed nodes. 
+This command is a string of space separated node-ID numbers. Following 
+this are the actions to be taken for every set that originates on one of 
+the failed nodes. There are two possible actions:
+
+    * Specify a backup node that will be the new origin. This backup
+      node must be a forwarding subscriber of the set and one of the
+      surviving nodes.
+
+    * Abandon the set. This can happen when there is not a single
+      forwarding subscriber of the set left.
+
+
+Stage 1 - Requirements and sanity checks
+
+For the FAILOVER CLUSTER command it is necessary that the remaining 
+nodes have a sufficient path network.
+
+    * For every surviving set, the surviving subscribers must have a path
+      to either the new origin (backup node), or another surviving
+      forwarder for that set.
+
+    * Nodes that are currently not subscribed to any set at all must have
+      paths that somehow allow a functional listen network to be
+      generated.
+
+    * The slonik script that performs the FAILOVER CLUSTER command must
+      specify admin conninfo's for all remaining nodes, since slonik will
+      need to connect to all of them.
+
+
+Stage 2 - Disabling slon processes
+
+In order for slonik to perform failover procedures without concurrently 
+running slon processes interfering with it via event processing, we need 
+a way to tell the local nodes slon process to not startup normally but 
+to stop and retry before spawning off all the worker threads. This 
+should be a column inside the sl_node table, possibly the existing 
+no_active column, which seems unused. Stage 2 sets this flag on all 
+surviving nodes and restarts the slon processes via NOTIFY.
+
+
+Stage 3 - Disabling paths to failed nodes.
+
+Failures are not necessarily caused by DB server problems, but are often 
+the result of network problems.
+
+In any failover case, we must not only assume that the failed nodes are 
+no longer reachable. It is actually best practice to forcibly make 
+failed nodes unreachable by network management means. Slony cannot 
+prevent any outside applications from still accessing those "failed" 
+nodes. But we can make sure that the surviving nodes, as defined by the 
+FAILOVER CLUSTER command, will not receive any more events from those 
+nodes that may possibly interfere with the failover procedures. We 
+accomplish this by updating all sl_path entries to/from any of the 
+failed nodes on all remaining nodes to something, that does not 
+represent a valid conninfo string. This way, the remaining nodes will no 
+longer be able to connect and thus, no longer receive any events 
+(outstanding or newly created).
+
+
+Stage 4 - Remove abandoned sets from the configuration
+
+All sets that have been specified to be abandoned will be removed from 
+the configuration of all surviving nodes. Slonik will analyze after 
+doing this which was the highest advanced surviving node that was 
+subscribed to the set in order to inform the administrator which node 
+has the most advanced data.
+
+
+Stage 5 - Reshaping the cluster
+
+This is the most complicated step in the failover procedure. Consider 
+the following cluster configuration:
+
+      A ----- C ----- D
+      |       |
+      |       |
+      B      /
+      |     /
+      |    /
+      E --/
+
+Node A is origin to set 1 with subscribers B, C, D and E
+Node C is origin to set 2 with subscribers A, B, D and E
+Node E receives both sets via node B
+
+Failure case is that nodes A and B fail and C is the designated backup 
+node for set 1.
+
+Although node E has a path to node C, which could have been created 
+after the failure prior to executing FAILOVER CLUSTER, it will not use 
+it to listen for events from node C. Its subscription for set 2, 
+originating from node C, uses node B as data provider. This causes node 
+E to listen for events from node C via B, which now is a disabled path.
+
+Stage 5.1 - Determining the temporary origins
+
+Per set, slonik will find which is the highest advanced forwarding 
+subscriber. It will make that node the temporary origin of the set. In 
+the above example, this can either be node C or E. If there are multiple 
+nodes qualifying for this definition, the designated backup node is 
+chosen. There only will be a temporary origin in this test case if node 
+E is the most advanced. In that case, there will be as per today a 
+FAILOVER_SET event, faked to originate from node A injected into node E, 
+followed by a MOVE_SET event to transfer the ownership to node C. If 
+node C, the designated backup node, is higher advanced, only a 
+FAILOVER_SET originating from A will be injected into node C without a 
+following MOVE_SET.
+
+Note that at this point, the slon processes are still disabled so none 
+of the events are propagating yet.
+
+
+Stage 5.2 - Reshaping subscriptions.
+
+Per set slonik will
+
+    * resubscribe every subscriber of that set to the (temporary) origin
+
+    * resubscribe every subscriber of that set, which does not have a
+      direct path to the (temporary) origin, to an already resubscribed
+      forwarder. This is an iterative process. It is possible that slonik
+      finds a non-forwarding subscriber, that is higher advanced than the
+      temporary origin or backup node. This nodes subscription must
+      forcibly be dropped with a WARNING, because it has processed changes
+      the other nodes don't have but for which the sl_log entries have
+      been lost in the failure.
+
+Stage 5.3 - Sanitizing sl_event
+
+It is possible that there have been SUBSCRIBE_SET events outstanding 
+when the failure occured. Further more, the data provider for that event 
+may be one of the failed nodes. Since the slon processes are stopped at 
+this time, the new subscriber will not be able to perform the 
+subscription at all, so these events must be purged from sl_event on all 
+nodes and WARNING messages given.
+
+
+Stage 6 - Enable slon processes and wait
+
+The slon processes will now start processing all the outstanding events 
+that were generated or still queued up until all the faked FAILOVER_SET 
+events have been confirmed by all other remaining nodes. This may take 
+some time in case there were other subscriptions in progress when the 
+failure happened. Those subscriptions had been interrupted when we 
+disabled the slon processes in stage 2 and just have been restarted.
+
+
+Stage 7 - Sanity check and drop failed nodes
+
+After having waited for stage 6 to complete, none of the surviving nodes 
+should list any of the failed nodes as the origin of any set and all 
+events originating from one of the failed nodes should be confirmed by 
+all surviving nodes. If those conditions are met, it is safe to initiate 
+DROP NODE events for all failed nodes.
+
+
+Examining more failure scenarios
+
+Case 2 - 5 node cluster with 2 sets.
+
+      A ----- C ----- E
+      |       |
+      |       |
+      B       D
+
+Node A is origin of set 1, subscribed to nodes B, C, D and E.
+Node B is origin of set 2, subscribed to nodes A, C, D and E.
+
+Failure case is nodes A and B fail, node C is designated backup for set 
+1, node D is designated backup for set 2.
+
+    * The remaining cluster has a sufficient path network to pass stage 1
+    * Stage 2 cannot fail by definition
+    * Stage 3 cannot fail by definition
+    * Stage 4 is irrelevant for this example
+    * Stage 5 will decide that C is the new origin of set 1 via
+      FAILOVER_SET and that node C will be the temporary origin for set 2
+      via FAILOVER_SET followed by an immediate MOVE_SET to D.
+      All subscriptions for E and D will point to C as data provider.
+    * Stage 6 will wait until both FAILOVER_SET and the MOVE_SET event
+      from stage 5 have been confirmed by C, D and E.
+    * Stage 7 should pass its sanity checks and drop nodes A and B.
+
+
+Case 3 - 5 node cluster with 3 sets.
+
+      A ----- C ----- E
+      |       |
+      |       |
+      B ----- D
+
+Node A is origin of set 1, subscribed to nodes B, C, D and E. Node D 
+uses node C as data provider.
+Node B is origin of set 2, subscribed to nodes A and C. Node D is 
+currently subscribing to set 2 using the origin node B as provider.
+Node B is origin of set 3, subscribed to node A only.
+
+Failure case is nodes A and B fail, node C is designated backup for set 
+1 and 2.
+
+    * The remaining cluster has a sufficient path network to pass stage 1
+    * Stage 2 cannot fail by definition
+    * Stage 3 cannot fail by definition
+    * Stage 4 will remove set 3 from sl_set on all nodes.
+    * Stage 5 will decide that C is the new origin of sets 1 and 2 via
+      FAILOVER_SET. Subscriptions for set 1 will point to node C.
+      It is well possible that the SUBSCRIBE_SET event for node D
+      subscribing set 2 from B is interrupted by the failover, but since
+      it causes very little work, had already been processed and confirmed
+      by nodes C and E. Stage 5.3 will delete these events from sl_event
+      on nodes C and E. The event would fail when D receives it from E
+      because it cannot connect to the data provider B.
+    * Stage 6 will wait until both FAILOVER_SET events from stage 5 have
+      been confirmed by C, D and E.
+    * Stage 7 should pass its sanity checks and drop nodes A and B.
+
+
+Comments?
+Jan
+
+-- 
+Anyone who trades liberty for security deserves neither
+liberty nor security. -- Benjamin Franklin
+

@@ -1,0 +1,532 @@
+From Jorgen.Austvik at Sun.COM  Mon May 26 03:26:03 2008
+From: Jorgen.Austvik at Sun.COM (Jorgen Austvik - Sun Norway)
+Date: Mon May 26 03:26:49 2008
+Subject: [Slony1-hackers] support_funcs.sh _check_pid()
+Message-ID: <483A903B.7030709@sun.com>
+
+Hi,
+
+I get problems running Slony-I tests with some automated users on =
+
+Solaris, and have traced the problem down to _check_pid() in =
+
+support_funcs.sh, which tries to parse ps(1) output.
+
+There are just too many ps'es available on Solaris, and they even give =
+
+different output. (So the root problem is really Solaris, but I think I =
+
+have found a way to simplify Slony-I too.)
+-----------8<----------------8<----------------8<----------------8<-----
+[jaustvik@host:~] /bin/ps ; /usr/bin/ps ; /usr/ucb/ps
+    PID TTY         TIME CMD
+15048 pts/29      0:00 ps
+14690 pts/29      0:00 bash
+    PID TTY         TIME CMD
+15049 pts/29      0:00 ps
+14690 pts/29      0:00 bash
+    PID TT       S  TIME COMMAND
+  14529          Z  0:00
+   5888 pts/2    S  0:00 [ sdt_shell ]
+   5889 pts/2    S  0:00 [ bash ]
+   5908 pts/2    S  0:00 /bin/ksh /usr/dt/config/Xsession2.jds
+   5910 pts/2    S  0:00 /usr/bin/gnome-session
+   5933 pts/2    S  0:00 /usr/lib/esd -nobeeps
+<snip>
+-----------8<----------------8<----------------8<----------------8<-----
+
+Attached is a patch that tries to fix the problem on Solaris in a =
+
+slightly more robust manner.
+
+However, I think it can maybe be done in a better way. _check_pid() is =
+
+called from three places in run_test.sh, in a pattern where a process is =
+
+started, the script waits for a second, and then we check if the process =
+
+is still alive. I think a better way to check this is to use kill:
+
+http://www.opengroup.org/onlinepubs/009695399/functions/kill.html
+-----------8<----------------8<----------------8<----------------8<-----
+If sig is 0 (the null signal), error checking is performed but no signal =
+
+is actually sent. The null signal can be used to check the validity of pid.
+-----------8<----------------8<----------------8<----------------8<-----
+
+Example:
+-----------8<----------------8<----------------8<----------------8<-----
+[jaustvik@host:/] ps
+    PID TTY         TIME CMD
+15061 pts/28      0:00 ps
+14549 pts/28      0:00 bash
+[jaustvik@host:/] kill -0 14549
+[jaustvik@host:/] echo $?
+0
+[jaustvik@host:/] kill -0 1454988
+bash: kill: (1454988) - No such process
+[jaustvik@host:/] echo $?
+1
+-----------8<----------------8<----------------8<----------------8<-----
+
+The drawback with this approach is that we do not check that the process =
+
+has the correct name - but I think the risk of a pid being reused in 1 =
+
+second is very little.
+
+I can write and test such a patch on Solaris (x86, SPARC) and Linux (Red =
+
+Hat), it if is of interest.
+
+-J
+-- =
+
+
+J=F8rgen Austvik, Software Engineering - QA
+Sun Microsystems Database Technology Group
+
+http://blogs.sun.com/austvik/, http://www.austvik.net
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: support_functions.sh.patch
+Type: text/x-patch
+Size: 1297 bytes
+Desc: not available
+Url : http://lists.slony.info/pipermail/slony1-hackers/attachments/20080526=
+/07572212/support_functions.sh.bin
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: jorgen_austvik.vcf
+Type: text/x-vcard
+Size: 390 bytes
+Desc: not available
+Url : http://lists.slony.info/pipermail/slony1-hackers/attachments/20080526=
+/07572212/jorgen_austvik.vcf
+From cbbrowne at ca.afilias.info  Wed May 28 08:36:43 2008
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Wed May 28 08:36:52 2008
+Subject: [Slony1-hackers] Correctly checking to see if there is a live
+	slon...
+Message-ID: <60y75ucues.fsf@dba2.int.libertyrms.com>
+
+I am looking at the Slony-I CVS HEAD code with a view to eliminating
+the "abusive" uses of LISTEN/NOTIFY infrastructure, as that will be
+changing in 8.4.
+
+In slonik.c, the function slonik_failed_node() uses a direct lookup on
+pg_listener in order to see if there is a "live" slon.
+
+It uses the query:
+   select listenerpid from pg_catalog.pg_listener 
+   where relname = '_[Cluster]_Restart';
+
+I don't see another _direct_ way to get at PIDs.  The closest that I
+can see is to replace this query with something like:
+
+   select nl_backendpid from sl_nodelock 
+    where nl_nodeid = @NAMESPACE@.getLocalNodeId(''_@CLUSTERNAME@'') and
+    exists (select * from pg_stat_activity where procpid = nl_backendpid);
+
+That *does* plug in perfectly nicely. 
+
+Unfortunately, pg_stat_activity pulls the PIDs from the stats
+collector, so that there is a delay in changes being reported.  (And I
+have seen situations where the stats collector got "blown," in which
+case, this wouldn't report anything even *nearly* correct.)
+
+Is there some more direct way to get at PIDs?  A search of
+pg_attribute and pg_proc for '%pid%' doesn't show up anything.
+-- 
+let name="cbbrowne" and tld="linuxdatabases.info" in name ^ "@" ^ tld;;
+http://cbbrowne.com/info/slony.html
+You know  how most packages say  "Open here". What is  the protocol if
+the package says, "Open somewhere else"?
+From cbbrowne at ca.afilias.info  Wed May 28 08:51:00 2008
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Wed May 28 08:51:08 2008
+Subject: [Slony1-hackers] Correctly checking to see if there is a live
+	slon...
+In-Reply-To: <60y75ucues.fsf@dba2.int.libertyrms.com> (Christopher Browne's
+	message of "Wed, 28 May 2008 11:36:43 -0400")
+References: <60y75ucues.fsf@dba2.int.libertyrms.com>
+Message-ID: <60tzgictqz.fsf@dba2.int.libertyrms.com>
+
+Christopher Browne <cbbrowne@ca.afilias.info> writes:
+> Unfortunately, pg_stat_activity pulls the PIDs from the stats
+> collector, so that there is a delay in changes being reported.  (And I
+> have seen situations where the stats collector got "blown," in which
+> case, this wouldn't report anything even *nearly* correct.)
+
+Actually, forget the concern: pg_stat_activity *is* good enough, for
+this purpose.
+
+The *OTHER* reference to pg_listener is a little bit later in the same
+function, and it takes place in the context of the following sort of
+loop:
+
+  
+  for each node
+     get the PID of the slon
+
+  [we run failednode() against each of the nodes...]
+
+  while not done
+    for each node
+       make sure the slon PID has changed from the one found the first time
+
+[Subtext to all of this: If the slon was "dead" during any of that,
+then having _no_ PID behaves rather like NULL, where NULL <> NULL, and
+the loop can terminate successfully.]
+
+It is fine for these queries to be done based on statistical records
+in pg_stat_activity, as there are the following possibilities:
+
+  1.  If the stats are up to date, then all is well.
+
+  2.  If the stats are falling behind, then we may loop extra times in
+      the "while not done" portion of the logic, which is OK.
+
+  3.  If the stats collector is broken altogether, then this will loop
+      perpetually, until the user does something to (say) restart the
+      offending database, which would certainly rectify the situation.
+
+In any case, using the stats collector provides *consistent* results
+for all of these scenarios, so it is perfectly fine to use the
+previously-suggested query joining pg_nodelock with pg_stat_activity.
+
+I think I'm inclined to add logic to the loop (that isn't there now)
+to report at least *something* back if it's encountering problems.
+I'm thinking that after 10 iterations, it should start reporting which
+nodes it is failing to see restarted.
+-- 
+(reverse (concatenate 'string "moc.enworbbc" "@" "enworbbc"))
+http://www3.sympatico.ca/cbbrowne/rdbms.html
+Twice five syllables
+Plus seven can't say much but
+That's haiku for you. 
+From JanWieck at Yahoo.com  Wed May 28 08:55:08 2008
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Wed May 28 08:55:29 2008
+Subject: [Slony1-hackers] Correctly checking to see if there is a live
+	slon...
+In-Reply-To: <60tzgictqz.fsf@dba2.int.libertyrms.com>
+References: <60y75ucues.fsf@dba2.int.libertyrms.com>
+	<60tzgictqz.fsf@dba2.int.libertyrms.com>
+Message-ID: <483D805C.3080106@Yahoo.com>
+
+On 5/28/2008 11:51 AM, Christopher Browne wrote:
+> Christopher Browne <cbbrowne@ca.afilias.info> writes:
+>> Unfortunately, pg_stat_activity pulls the PIDs from the stats
+>> collector, so that there is a delay in changes being reported.  (And I
+>> have seen situations where the stats collector got "blown," in which
+>> case, this wouldn't report anything even *nearly* correct.)
+> 
+> Actually, forget the concern: pg_stat_activity *is* good enough, for
+> this purpose.
+
+Unless someone has deactivated stat collection altogether.
+
+
+Jan
+
+
+> 
+> The *OTHER* reference to pg_listener is a little bit later in the same
+> function, and it takes place in the context of the following sort of
+> loop:
+> 
+>   
+>   for each node
+>      get the PID of the slon
+> 
+>   [we run failednode() against each of the nodes...]
+> 
+>   while not done
+>     for each node
+>        make sure the slon PID has changed from the one found the first time
+> 
+> [Subtext to all of this: If the slon was "dead" during any of that,
+> then having _no_ PID behaves rather like NULL, where NULL <> NULL, and
+> the loop can terminate successfully.]
+> 
+> It is fine for these queries to be done based on statistical records
+> in pg_stat_activity, as there are the following possibilities:
+> 
+>   1.  If the stats are up to date, then all is well.
+> 
+>   2.  If the stats are falling behind, then we may loop extra times in
+>       the "while not done" portion of the logic, which is OK.
+> 
+>   3.  If the stats collector is broken altogether, then this will loop
+>       perpetually, until the user does something to (say) restart the
+>       offending database, which would certainly rectify the situation.
+> 
+> In any case, using the stats collector provides *consistent* results
+> for all of these scenarios, so it is perfectly fine to use the
+> previously-suggested query joining pg_nodelock with pg_stat_activity.
+> 
+> I think I'm inclined to add logic to the loop (that isn't there now)
+> to report at least *something* back if it's encountering problems.
+> I'm thinking that after 10 iterations, it should start reporting which
+> nodes it is failing to see restarted.
+
+
+-- 
+Anyone who trades liberty for security deserves neither
+liberty nor security. -- Benjamin Franklin
+
+From simon at 2ndquadrant.com  Wed May 28 08:59:16 2008
+From: simon at 2ndquadrant.com (Simon Riggs)
+Date: Wed May 28 08:57:14 2008
+Subject: [Slony1-hackers] Correctly checking to see if there is a live
+	slon...
+In-Reply-To: <60y75ucues.fsf@dba2.int.libertyrms.com>
+References: <60y75ucues.fsf@dba2.int.libertyrms.com>
+Message-ID: <1211990356.4489.557.camel@ebony.site>
+
+
+On Wed, 2008-05-28 at 11:36 -0400, Christopher Browne wrote:
+> I am looking at the Slony-I CVS HEAD code with a view to eliminating
+> the "abusive" uses of LISTEN/NOTIFY infrastructure, as that will be
+> changing in 8.4.
+> 
+> In slonik.c, the function slonik_failed_node() uses a direct lookup on
+> pg_listener in order to see if there is a "live" slon.
+> 
+> It uses the query:
+>    select listenerpid from pg_catalog.pg_listener 
+>    where relname = '_[Cluster]_Restart';
+> 
+> I don't see another _direct_ way to get at PIDs.  The closest that I
+> can see is to replace this query with something like:
+> 
+>    select nl_backendpid from sl_nodelock 
+>     where nl_nodeid = @NAMESPACE@.getLocalNodeId(''_@CLUSTERNAME@'') and
+>     exists (select * from pg_stat_activity where procpid = nl_backendpid);
+> 
+> That *does* plug in perfectly nicely. 
+> 
+> Unfortunately, pg_stat_activity pulls the PIDs from the stats
+> collector, so that there is a delay in changes being reported.  (And I
+> have seen situations where the stats collector got "blown," in which
+> case, this wouldn't report anything even *nearly* correct.)
+> 
+> Is there some more direct way to get at PIDs?  A search of
+> pg_attribute and pg_proc for '%pid%' doesn't show up anything.
+
+Seems like the best way is to encapsulate this. Work out the API you
+would like, then we can take that to pgsql-hackers. Once we agree the
+API we can write a function to do that for 8.3 and below and put the
+function into Postgres backend for 8.4 and later. That way any further
+changes to LISTEN/NOTIFY will be able to change that also, so you are
+future-proofed around the changes.
+
+-- 
+ Simon Riggs           www.2ndQuadrant.com
+ PostgreSQL Training, Services and Support
+
+From JanWieck at Yahoo.com  Wed May 28 09:02:08 2008
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Wed May 28 09:02:21 2008
+Subject: [Slony1-hackers] Correctly checking to see if there is a live
+	slon...
+In-Reply-To: <1211990356.4489.557.camel@ebony.site>
+References: <60y75ucues.fsf@dba2.int.libertyrms.com>
+	<1211990356.4489.557.camel@ebony.site>
+Message-ID: <483D8200.4030804@Yahoo.com>
+
+On 5/28/2008 11:59 AM, Simon Riggs wrote:
+> On Wed, 2008-05-28 at 11:36 -0400, Christopher Browne wrote:
+>> I am looking at the Slony-I CVS HEAD code with a view to eliminating
+>> the "abusive" uses of LISTEN/NOTIFY infrastructure, as that will be
+>> changing in 8.4.
+>> 
+>> In slonik.c, the function slonik_failed_node() uses a direct lookup on
+>> pg_listener in order to see if there is a "live" slon.
+>> 
+>> It uses the query:
+>>    select listenerpid from pg_catalog.pg_listener 
+>>    where relname = '_[Cluster]_Restart';
+>> 
+>> I don't see another _direct_ way to get at PIDs.  The closest that I
+>> can see is to replace this query with something like:
+>> 
+>>    select nl_backendpid from sl_nodelock 
+>>     where nl_nodeid = @NAMESPACE@.getLocalNodeId(''_@CLUSTERNAME@'') and
+>>     exists (select * from pg_stat_activity where procpid = nl_backendpid);
+>> 
+>> That *does* plug in perfectly nicely. 
+>> 
+>> Unfortunately, pg_stat_activity pulls the PIDs from the stats
+>> collector, so that there is a delay in changes being reported.  (And I
+>> have seen situations where the stats collector got "blown," in which
+>> case, this wouldn't report anything even *nearly* correct.)
+>> 
+>> Is there some more direct way to get at PIDs?  A search of
+>> pg_attribute and pg_proc for '%pid%' doesn't show up anything.
+> 
+> Seems like the best way is to encapsulate this. Work out the API you
+> would like, then we can take that to pgsql-hackers. Once we agree the
+> API we can write a function to do that for 8.3 and below and put the
+> function into Postgres backend for 8.4 and later. That way any further
+> changes to LISTEN/NOTIFY will be able to change that also, so you are
+> future-proofed around the changes.
+
+If all we need is a function that can determine if a backend is alive, 
+we do have _Slony_I_killBackend(pid, signame) which at this point does 
+support the two signals NULL and TERM. Sending a backend a NULL signal 
+just reports if a process with that pid exists or not.
+
+
+Jan
+
+-- 
+Anyone who trades liberty for security deserves neither
+liberty nor security. -- Benjamin Franklin
+
+From cbbrowne at ca.afilias.info  Wed May 28 09:15:55 2008
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Wed May 28 09:16:04 2008
+Subject: [Slony1-hackers] Correctly checking to see if there is a live
+	slon...
+In-Reply-To: <1211990356.4489.557.camel@ebony.site> (Simon Riggs's message of
+	"Wed, 28 May 2008 16:59:16 +0100")
+References: <60y75ucues.fsf@dba2.int.libertyrms.com>
+	<1211990356.4489.557.camel@ebony.site>
+Message-ID: <60mymacslg.fsf@dba2.int.libertyrms.com>
+
+Simon Riggs <simon@2ndquadrant.com> writes:
+>> Is there some more direct way to get at PIDs?  A search of
+>> pg_attribute and pg_proc for '%pid%' doesn't show up anything.
+>
+> Seems like the best way is to encapsulate this. Work out the API you
+> would like, then we can take that to pgsql-hackers. Once we agree the
+> API we can write a function to do that for 8.3 and below and put the
+> function into Postgres backend for 8.4 and later. That way any further
+> changes to LISTEN/NOTIFY will be able to change that also, so you are
+> future-proofed around the changes.
+
+Notice that this usage isn't really even relevant to LISTEN/NOTIFY;
+the point of the check really hasn't anything to do with that
+particular infrastructure; what we want to check is whether or not a
+particular backend process has gotten replaced.
+
+That really hasn't got anything to do with the LISTEN/NOTIFY
+"infrastructure;" it was merely convenient, in the old implementation,
+that we could be certain that when a slon restarted that there would
+be a new PID recorded in pg_catalog.pg_listener.
+
+The patch below makes use of the already existant statistics collector
+data, and, as previously observed, since the two usages (the read of
+relevant PIDs, in the first portion, and the later search for slons
+that haven't been restarted) are congruent, there is no particular
+need for a new API.
+
+That being said, if we had a way to get a direct list of all of the
+"live" PIDs, that would be nice; it seems like a useful thing to have.
+
+At any rate, the patch below "cleanses" out the 'evil' exposure of
+LISTEN/NOTIFY internals that will be going away in 8.4.
+
+There are two further references to pg_listener:
+
+chris@dba2:~/Slony-I/CMD/slony1-HEAD> grep pg_listen src/*/*.{c,h,sql}
+src/slon/cleanup_thread.c:	 * cluster will run into conflicts due to trying to vacuum pg_listener
+src/backend/slony1_funcs.sql:	prec.relname := ''pg_listener'';
+
+  1.  In a comment, which doesn't particularly need to go away :-)
+
+  2.  In the list of tables that are vacuumed.  I can add a test
+      to the code that verifies that the table actually exists, and
+      that makes this benign in 8.4.  
+
+      Or perhaps our usage of LISTEN/NOTIFY is now so small that it is
+      unimportant to clean it up.
+
+Note, here are all of the places where listen/notify are still being used:  
+
+chris@dba2:~/Slony-I/CMD/slony1-HEAD> grep Restart src/*/*.{c,h,sql}
+src/slon/local_listen.c:	sprintf(restart_notify, "_%s_Restart", rtcfg_cluster_name);
+src/slon/local_listen.c:		     "listen \"_%s_Restart\"; ",
+src/slon/local_listen.c:						 "notify \"_%s_Restart\";",
+src/slon/remote_worker.c:								 "notify \"_%s_Restart\"; ",
+src/slon/remote_worker.c:									 "notify \"_%s_Restart\"; ",
+src/slon/remote_worker.c:						 "notify \"_%s_Restart\"; ",
+src/slon/sync_thread.c:			 * Restart the timeout on a sync.
+src/slonik/slonik.c:				 "notify \"_%s_Restart\"; ",
+src/backend/slony1_funcs.sql:	notify "_@CLUSTERNAME@_Restart";
+src/backend/slony1_funcs.sql:	notify "_@CLUSTERNAME@_Restart";
+
+I don't see a big problem with continuing to use LISTEN/NOTIFY for
+this.
+
+Index: src/slonik/slonik.c
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/src/slonik/slonik.c,v
+retrieving revision 1.89
+diff -c -u -r1.89 slonik.c
+--- src/slonik/slonik.c	26 May 2008 18:48:51 -0000	1.89
++++ src/slonik/slonik.c	28 May 2008 15:56:20 -0000
+@@ -2464,8 +2464,12 @@
+ 
+ 		slon_mkquery(&query,
+ 					 "lock table \"_%s\".sl_config_lock; "
+-					 "select listenerpid from \"pg_catalog\".pg_listener "
+-					 "    where relname = '_%s_Restart'; ",
++					 "select nl_backendpid from \"_%s\".sl_nodelock "
++					 "    where nl_nodeid = \"_%s\".getLocalNodeId('_%s') and "
++					 "       exists (select 1 from pg_catalog.pg_stat_activity "
++					 "                 where procpid = nl_backendpid);"
++					 stmt->hdr.script->clustername,
++					 stmt->hdr.script->clustername,
+ 					 stmt->hdr.script->clustername,
+ 					 stmt->hdr.script->clustername);
+ 		res3 = db_exec_select((SlonikStmt *) stmt, nodeinfo[i].adminfo, &query);
+@@ -2591,7 +2595,7 @@
+ 	}
+ 
+ 	/*
+-	 * Wait until all slon replication engines that where running have
++	 * Wait until all slon replication engines that were running have
+ 	 * restarted.
+ 	 */
+ 	n = 0;
+@@ -2608,9 +2612,8 @@
+ 			}
+ 
+ 			slon_mkquery(&query,
+-						 "select listenerpid from \"pg_catalog\".pg_listener "
+-						 "    where relname = '_%s_Restart' "
+-						 "    and listenerpid <> %d; ",
++						 "select nl_backendpid from \"_%s\".sl_nodelock "
++						 "    where nl_backendpid <> %d; ",
+ 						 stmt->hdr.script->clustername,
+ 						 nodeinfo[i].slon_pid);
+ 			res1 = db_exec_select((SlonikStmt *) stmt, nodeinfo[i].adminfo, &query);
+
+-- 
+"cbbrowne","@","linuxdatabases.info"
+http://linuxfinances.info/info/advocacy.html
+:FATAL ERROR -- ERROR IN USER
+From tgl at sss.pgh.pa.us  Wed May 28 09:18:47 2008
+From: tgl at sss.pgh.pa.us (Tom Lane)
+Date: Wed May 28 09:19:16 2008
+Subject: [Slony1-hackers] Correctly checking to see if there is a live
+	slon... 
+In-Reply-To: <60y75ucues.fsf@dba2.int.libertyrms.com> 
+References: <60y75ucues.fsf@dba2.int.libertyrms.com>
+Message-ID: <369.1211991527@sss.pgh.pa.us>
+
+Christopher Browne <cbbrowne@ca.afilias.info> writes:
+> Unfortunately, pg_stat_activity pulls the PIDs from the stats
+> collector, so that there is a delay in changes being reported.  (And I
+> have seen situations where the stats collector got "blown," in which
+> case, this wouldn't report anything even *nearly* correct.)
+
+You are working from obsolete assumptions.  In 8.3 and up,
+pg_stat_activity is synchronous and does not depend on the stats
+collector at all.  You can't turn it off either (at least, not
+with respect to whether a process exists or not).
+
+			regards, tom lane

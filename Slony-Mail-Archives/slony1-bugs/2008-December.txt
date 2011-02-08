@@ -1,0 +1,1243 @@
+From slony1-bugs at lists.slony.info  Mon Dec  1 07:04:32 2008
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Mon Dec  1 07:04:34 2008
+Subject: [Slony1-bugs] [Bug 65] New: Usage of configure-replication.sh
+	script mistake
+Message-ID: <bug-65-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=65
+
+           Summary: Usage of configure-replication.sh script mistake
+           Product: Slony-I
+           Version: 1.2
+          Platform: All
+               URL: http://www.slony.info/documentation/adminscripts.html
+        OS/Version: Linux
+            Status: NEW
+          Severity: trivial
+          Priority: medium
+         Component: docs
+        AssignedTo: slony1-bugs@lists.slony.info
+        ReportedBy: payart+slony@benchmark.fr
+                CC: slony1-bugs@lists.slony.info
+   Estimated Hours: 0.1
+
+
+In chapter "19.6.3. Resulting slonik scripts" of current Slony documentation
+(1.2.13), it says :
+
+create_set.slonik
+This is the first script to run; it sets up the requested nodes...
+
+Instead of :
+
+create_nodes.slonik
+This is the first script to run; it sets up the requested nodes...
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Mon Dec  8 13:11:57 2008
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Mon Dec  8 13:11:59 2008
+Subject: [Slony1-bugs] [Bug 66] New: make rpm
+Message-ID: <bug-66-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=66
+
+           Summary: make rpm
+           Product: Slony-I
+           Version: devel
+          Platform: PC
+        OS/Version: Windows
+            Status: NEW
+          Severity: normal
+          Priority: medium
+         Component: rpm
+        AssignedTo: slony1-bugs@lists.slony.info
+        ReportedBy: andrewoconnell@lineone.net
+                CC: devrim@commandprompt.com
+   Estimated Hours: 0.0
+
+
+Hi,
+
+On the new 2.0.0 version of slony, the "make rpm" command doesn't work
+
+Traced this to the rpmbuild spec file that references a .tar.gz archive NOT a
+.tar.bz2 archive. 
+
+When this was corrected all was well and "make rpm" worked like a dream.
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Mon Dec  8 13:25:29 2008
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Mon Dec  8 13:25:30 2008
+Subject: [Slony1-bugs] [Bug 66] make rpm
+In-Reply-To: <bug-66-4@http.www.slony.info/bugzilla/>
+Message-ID: <20081208212529.5BCF7290175@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=66
+
+
+Devrim GUNDUZ <devrim@commandprompt.com> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         Resolution|                            |FIXED
+             Status|NEW                         |RESOLVED
+
+
+
+
+--- Comment #1 from Devrim GUNDUZ <devrim@commandprompt.com>  2008-12-08 13:25:29 ---
+Thanks for the report. Fixed in CVS. The fix will appear in next Slony-I 2.0
+release.
+
+Regards, Devrim
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are the assignee for the bug.
+From aburacze at gmail.com  Fri Dec 12 02:07:52 2008
+From: aburacze at gmail.com (Adam Buraczewski)
+Date: Fri Dec 12 02:08:23 2008
+Subject: [Slony1-bugs] Array overrun in logtrigger() (Slony-I 2.0.0)
+Message-ID: <6b7c4e7c0812120207y7b219820vc2c88f7f4862820e@mail.gmail.com>
+
+Dear All,
+
+I think I found an array overrun bug in _Slony_I_logTrigger() function
+(file: src/backend/slony1_funcs.c). The problematic array is "attkind"
+trigger parameter, which is a zero-terminated string containing
+letters 'k' and 'v'. These letters determine if the given table column
+is a key or an ordinary value. In Slony-I 1.x this string had the
+length equal to the number of the columns of the table. However,
+starting from Slony-I 2.0.0, this string is trimmed and the trailing
+'v' letters are removed. Here is the code from
+determineAttkindUnique(text, name) function (file:
+src/backend/slony1_funcs.sql, line 4807):
+
+	-- Strip off trailing v characters as they are not needed by the logtrigger
+	v_attkind :=3D pg_catalog.rtrim(v_attkind, 'v');
+
+As a result, the "attkind" parameter passed to the
+_Slony_I_logTrigger() trigger function is usually shorter than the
+number of colunms of the table, but this fact is not taken into
+account in the function code. Here is an example (slony1_funcs.c, line
+688, but the same is in the loop beginning in line 758):
+
+	for (i =3D 0, attkind_idx =3D -1; i < tg->tg_relation->rd_att->natts; i++)
+	{
+		if (tupdesc->attrs[i]->attisdropped)
+			continue;
+		attkind_idx++;
+		if (attkind[attkind_idx] !=3D 'k')
+			continue;
+		/* The rest of the loop... */
+	}
+
+These loops iterate over all non-dropped columns of the table and
+increment attkind_idx. Since the attkind can be shorter than the
+number of columns, the attkind[attkind_idx] expression can read bytes
+behind the end of the array. These bytes could have any random value,
+including 0x6B (the ASCII code of 'k'), which could lead to random
+treatment of an ordinary column as a key column (in fact, we observed
+that in our test environment and that's why I investigated the issue).
+
+I attached a small patch against slony1_funcs.c which checks for the 0
+byte at the end of the attkind string and stops the iteration. This
+patch also adds some error checking in the loop beginning in line 648.
+Of course the problem can be removed by not trimming the string in the
+determineAttkindUnique(text, name) function, but I think that the end
+of a zero-terminated string should be checked in any case.
+
+Regards,
+
+-- =
+
+Adam Buraczewski
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: slony1_funcs.c.diff.gz
+Type: application/x-gzip
+Size: 459 bytes
+Desc: not available
+Url : http://lists.slony.info/pipermail/slony1-bugs/attachments/20081212/59=
+e81ffd/slony1_funcs.c.diff.bin
+From slony1-bugs at lists.slony.info  Sun Dec 14 02:10:39 2008
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Sun Dec 14 02:10:41 2008
+Subject: [Slony1-bugs] [Bug 67] New: Array overrun in logtrigger()
+Message-ID: <bug-67-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=67
+
+           Summary: Array overrun in logtrigger()
+           Product: Slony-I
+           Version: devel
+          Platform: All
+        OS/Version: All
+            Status: NEW
+          Severity: normal
+          Priority: medium
+         Component: trigger SPI
+        AssignedTo: slony1-bugs@lists.slony.info
+        ReportedBy: aburacze@gmail.com
+                CC: slony1-bugs@lists.slony.info
+   Estimated Hours: 0.0
+
+
+Created an attachment (id=24)
+ --> (http://www.slony.info/bugzilla/attachment.cgi?id=24)
+A simple patch to detect the end of attkind string.
+
+I submitted this bug to slony1-bugs, but found Bugzilla and thought it should
+be placed here.
+
+I think I found an array overrun bug in _Slony_I_logTrigger() function
+(file: src/backend/slony1_funcs.c). The problematic array is "attkind"
+trigger parameter, which is a zero-terminated string containing
+letters 'k' and 'v'. These letters determine if the given table column
+is a key or an ordinary value. In Slony-I 1.x this string had the
+length equal to the number of the columns of the table. However,
+starting from Slony-I 2.0.0, this string is trimmed and the trailing
+'v' letters are removed. Here is the code from
+determineAttkindUnique(text, name) function (file:
+src/backend/slony1_funcs.sql, line 4807):
+
+   -- Strip off trailing v characters as they are not needed by the logtrigger
+   v_attkind := pg_catalog.rtrim(v_attkind, 'v');
+
+As a result, the "attkind" parameter passed to the
+_Slony_I_logTrigger() trigger function is usually shorter than the
+number of colunms of the table, but this fact is not taken into
+account in the function code. Here is an example (slony1_funcs.c, line
+688, but the same is in the loop beginning in line 758):
+
+       for (i = 0, attkind_idx = -1; i < tg->tg_relation->rd_att->natts; i++)
+       {
+               if (tupdesc->attrs[i]->attisdropped)
+                       continue;
+               attkind_idx++;
+               if (attkind[attkind_idx] != 'k')
+                       continue;
+               /* The rest of the loop... */
+       }
+
+These loops iterate over all non-dropped columns of the table and
+increment attkind_idx. Since the attkind can be shorter than the
+number of columns, the attkind[attkind_idx] expression can read bytes
+behind the end of the array. These bytes could have any random value,
+including 0x6B (the ASCII code of 'k'), which could lead to random
+treatment of an ordinary column as a key column (in fact, we observed
+that in our test environment and that's why I investigated the issue).
+
+I attached a small patch against slony1_funcs.c which checks for the 0
+byte at the end of the attkind string and stops the iteration. This
+patch also adds some error checking in the loop beginning in line 648.
+Of course the problem can be removed by not trimming the string in the
+determineAttkindUnique(text, name) function, but I think that the end
+of a zero-terminated string should be checked in any case.
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Mon Dec 15 01:38:40 2008
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Mon Dec 15 01:38:42 2008
+Subject: [Slony1-bugs] [Bug 67] Array overrun in logtrigger()
+In-Reply-To: <bug-67-4@http.www.slony.info/bugzilla/>
+Message-ID: <20081215093840.2E573290041@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=67
+
+
+Adam Buraczewski <aburacze@gmail.com> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+     Attachment #24|slony1_funcs.c.diff.gz      |slony1_funcs.c.diff
+           filename|                            |
+
+
+
+
+--- Comment #1 from Adam Buraczewski <aburacze@gmail.com>  2008-12-15 01:38:39 ---
+(From update of attachment 24)
+*** slony1_funcs.c.orig 2008-09-24 21:54:09.000000000 +0200
+--- slony1_funcs.c      2008-12-12 10:56:10.000000000 +0100
+***************
+*** 649,658 ****
+--- 649,661 ----
+                        {
+                                if (tupdesc->attrs[i]->attisdropped)
+                                        continue;
+
+                                attkind_idx++;
++                               if (!attkind[attkind_idx])
++                                       elog(ERROR, "Slony-I: no key columns
+found in logTrigger() attkind parameter");
++ 
+                                if (attkind[attkind_idx] == 'k')
+                                        break;
+                        }
+                        col_ident = (char *)
+slon_quote_identifier(SPI_fname(tupdesc, i + 1));
+                        col_value = slon_quote_literal(SPI_getvalue(old_row,
+tupdesc, i + 1));
+***************
+*** 692,701 ****
+--- 695,706 ----
+                         */
+                        if (tupdesc->attrs[i]->attisdropped)
+                                continue;
+
+                        attkind_idx++;
++                       if (!attkind[attkind_idx])
++                               break;
+                        if (attkind[attkind_idx] != 'k')
+                                continue;
+                        col_ident = (char *)
+slon_quote_identifier(SPI_fname(tupdesc, i + 1));
+                        col_value = slon_quote_literal(SPI_getvalue(old_row,
+tupdesc, i + 1));
+                        if (col_value == NULL)
+***************
+*** 759,768 ****
+--- 764,775 ----
+                {
+                        if (tupdesc->attrs[i]->attisdropped)
+                                continue;
+
+                        attkind_idx++;
++                       if (!attkind[attkind_idx])
++                               break;
+                        if (attkind[attkind_idx] != 'k')
+                                continue;
+                        col_ident = (char *)
+slon_quote_identifier(SPI_fname(tupdesc, i + 1));
+                        col_value = slon_quote_literal(SPI_getvalue(old_row,
+tupdesc, i + 1));
+                        if (col_value == NULL)
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Mon Dec 15 14:38:04 2008
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Mon Dec 15 14:38:06 2008
+Subject: [Slony1-bugs] [Bug 67] Array overrun in logtrigger()
+In-Reply-To: <bug-67-4@http.www.slony.info/bugzilla/>
+Message-ID: <20081215223804.E375F2900A3@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=67
+
+
+Christopher Browne <cbbrowne@ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+             Status|NEW                         |ASSIGNED
+
+
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Mon Dec 15 14:40:07 2008
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Mon Dec 15 14:40:09 2008
+Subject: [Slony1-bugs] [Bug 67] Array overrun in logtrigger()
+In-Reply-To: <bug-67-4@http.www.slony.info/bugzilla/>
+Message-ID: <20081215224007.F0BD3290163@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=67
+
+
+
+
+
+--- Comment #2 from Christopher Browne <cbbrowne@ca.afilias.info>  2008-12-15 14:40:08 ---
+Adam, I'd like to augment one of the regression tests to validate this fix.
+
+I'm thinking of having the initial table creation add and drop a number of
+columns on one of the tables so as to have a bunch of columns that "aren't
+really there" anymore.
+
+Does that seem likely to suffice?
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Mon Dec 15 14:59:20 2008
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Mon Dec 15 14:59:21 2008
+Subject: [Slony1-bugs] [Bug 67] Array overrun in logtrigger()
+In-Reply-To: <bug-67-4@http.www.slony.info/bugzilla/>
+Message-ID: <20081215225920.5B26F290184@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=67
+
+
+
+
+
+--- Comment #3 from Christopher Browne <cbbrowne@ca.afilias.info>  2008-12-15 14:59:20 ---
+Created an attachment (id=25)
+ --> (http://www.slony.info/bugzilla/attachment.cgi?id=25)
+Modification to test1 to try to exercise attkind bug
+
+The above test *tries* to exercise the bug, by repeatedly adding and dropping
+columns on table5.
+
+It doesn't succeed at exposing the wrong behaviour.
+
+Adam, can you suggest anything else about your pattern of alterations that
+would induce the problem?
+
+I will be more than pleased to fix the bug, but I'd be *really* happy if we
+have a test that can reliably induce the condition that exposes the problem, as
+that means we can be *really* confident that it is dealt with.
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Mon Dec 15 15:22:27 2008
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Mon Dec 15 15:22:30 2008
+Subject: [Slony1-bugs] [Bug 64] Syslog error levels do NOT cascade
+In-Reply-To: <bug-64-4@http.www.slony.info/bugzilla/>
+Message-ID: <20081215232227.C5E26290184@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=64
+
+
+Christopher Browne <cbbrowne@ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         Resolution|                            |FIXED
+             Status|NEW                         |RESOLVED
+
+
+
+
+--- Comment #1 from Christopher Browne <cbbrowne@ca.afilias.info>  2008-12-15 15:22:27 ---
+Applied...
+
+This makes a couple of macros up earlier in the file irrelevant, so I removed
+them, too.
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Mon Dec 15 15:28:14 2008
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Mon Dec 15 15:28:15 2008
+Subject: [Slony1-bugs] [Bug 65] Usage of configure-replication.sh script
+	mistake
+In-Reply-To: <bug-65-4@http.www.slony.info/bugzilla/>
+Message-ID: <20081215232814.824BD290191@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=65
+
+
+Christopher Browne <cbbrowne@ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         Resolution|                            |FIXED
+    Remaining Hours|0.1                         |0.0
+             Status|NEW                         |RESOLVED
+
+
+
+
+--- Comment #1 from Christopher Browne <cbbrowne@ca.afilias.info>  2008-12-15 15:28:14 ---
+Fixed in HEAD & 2.0.
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Mon Dec 15 16:20:42 2008
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Mon Dec 15 16:20:44 2008
+Subject: [Slony1-bugs] [Bug 67] Array overrun in logtrigger()
+In-Reply-To: <bug-67-4@http.www.slony.info/bugzilla/>
+Message-ID: <20081216002042.88EE929015B@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=67
+
+
+
+
+
+--- Comment #4 from Adam Buraczewski <aburacze@gmail.com>  2008-12-15 16:20:42 ---
+Hi Christopher,
+
+Thanks a lot for taking the problem up.
+
+(In reply to comment #3)
+> The above test *tries* to exercise the bug, by repeatedly adding and dropping
+> columns on table5.
+> 
+> It doesn't succeed at exposing the wrong behaviour.
+
+In the meantime, could you please have a look at the bug #18 in the Bugzilla?
+It looks the patch attached there tried already to cope with the problem, but
+somehow has not been applied, although the idea of trimming the attkind string
+was accepted and is used in Slony-I 2.0.0. This patch looks almost exactly as
+the one I attached to bug #67 (I swear I have not seen bug #18 before ;)
+
+> Adam, can you suggest anything else about your pattern of alterations that
+> would induce the problem?
+
+Well, I will think about it tomorrow (it's 1am in my time zone). The problem is
+that to expose this bug there should be some "garbage" containing letter 'k'
+immediately after the byte 0 ending the string. This would cause to check if
+the column is null and raise an error if it is ("old key column is NULL on
+UPDATE/DELETE") -- in our test environment it happened randomly. I am thinking
+about modifying the pg_trigger.tgargs column to achieve this, but I am afraid
+it will not work. As I said before, I will check it tomorrow.
+
+> I will be more than pleased to fix the bug, but I'd be *really* happy if we
+> have a test that can reliably induce the condition that exposes the problem, as
+> that means we can be *really* confident that it is dealt with.
+
+I second the idea.
+
+Regards,
+Adam Buraczewski
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Tue Dec 16 07:53:34 2008
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Tue Dec 16 07:53:36 2008
+Subject: [Slony1-bugs] [Bug 68] New: MAKE RPM  doesn't work (slony 2.0.0)
+Message-ID: <bug-68-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=68
+
+           Summary: MAKE RPM  doesn't work (slony 2.0.0)
+           Product: Slony-I
+           Version: devel
+          Platform: PC
+        OS/Version: Windows
+            Status: NEW
+          Severity: major
+          Priority: high
+         Component: rpm
+        AssignedTo: slony1-bugs@lists.slony.info
+        ReportedBy: andrewoconnell@lineone.net
+                CC: devrim@commandprompt.com
+   Estimated Hours: 0.0
+
+
+Hi, the rpm build process doesn't work properly, I can kinda see what's wrong
+(I think) but have don't know how to fix it :
+
+I'm running on a centos 5 box, the same thing happens on my Centos 4 box as
+well..
+
+
+I submitted anther bug due to the spec file attacking the wrong tar file
+earlier this month :)
+
+
+At the end of ./configure --with-pgconfigdir=/usr/bin/pg_config && make rpm
+
+I get
+
+Processing files: slony1-2.0.0-1_PG8.3.0
+Executing(%doc): /bin/sh -e /var/tmp/rpm-tmp.59017
++ umask 022
++ cd /usr/src/redhat/BUILD
++ cd slony1-2.0.0
++ DOCDIR=/var/tmp/slony1-2.0.0-1_PG8.3.0-root-root/usr/share/doc/slony1-2.0.0
++ export DOCDIR
++ rm -rf /var/tmp/slony1-2.0.0-1_PG8.3.0-root-root/usr/share/doc/slony1-2.0.0
++ /bin/mkdir -p
+/var/tmp/slony1-2.0.0-1_PG8.3.0-root-root/usr/share/doc/slony1-2.0.0
++ cp -pr COPYRIGHT UPGRADING HISTORY-1.1 INSTALL SAMPLE RELEASE-2.0
+/var/tmp/slony1-2.0.0-1_PG8.3.0-root-root/usr/share/doc/slony1-2.0.0
++ exit 0
+Provides: config(slony1) = 2.0.0-1_PG8.3.0 slony1_funcs.so
+Requires(rpmlib): rpmlib(CompressedFileNames) <= 3.0.4-1
+rpmlib(PayloadFilesHavePrefix) <= 4.0-1
+Requires: /bin/bash /bin/sh /etc/slon_tools.conf /usr/bin/perl /usr/bin/sh
+/usr/lib/pgsql/slon-tools.pm config(slony1) = 2.0.0-1_PG8.3.0 libc.so.6
+libc.so.6(GLIBC_2.0) libc.so.6(GLIBC_2.1) libc.so.6(GLIBC_2.1.2)
+libc.so.6(GLIBC_2.1.3) libc.so.6(GLIBC_2.2) libc.so.6(GLIBC_2.3)
+libc.so.6(GLIBC_2.3.3) libc.so.6(GLIBC_2.3.4) libc.so.6(GLIBC_2.4) libpq.so.5
+libpthread.so.0 libpthread.so.0(GLIBC_2.0) libpthread.so.0(GLIBC_2.1)
+libpthread.so.0(GLIBC_2.3.2) perl(@@PGLIBDIR@@::slon-tools) perl(DBI)
+perl(File::Temp) perl(Getopt::Long) perl(strict) postgresql-server = 8.3.0
+rtld(GNU_HASH)
+Checking for unpackaged file(s): /usr/lib/rpm/check-files
+/var/tmp/slony1-2.0.0-1_PG8.3.0-root-root
+Wrote: /usr/src/redhat/SRPMS/slony1-2.0.0-1_PG8.3.0.src.rpm
+Wrote: /usr/src/redhat/RPMS/i386/slony1-2.0.0-1_PG8.3.0.i386.rpm
+Executing(%clean): /bin/sh -e /var/tmp/rpm-tmp.55567
++ umask 022
++ cd /usr/src/redhat/BUILD
++ cd slony1-2.0.0
++ rm -rf /var/tmp/slony1-2.0.0-1_PG8.3.0-root-root
++ exit 0
+
+
+
+I try 
+
+rpm -Uhv /usr/src/redhat/RPMS/i386/slony1-2.0.0-1_PG8.3.0.i386.rpm
+error: Failed dependencies:
+        /usr/bin/sh is needed by slony1-2.0.0-1_PG8.3.0.i386
+        perl(@@PGLIBDIR@@::slon-tools) is needed by slony1-2.0.0-1_PG8.3.0.i386
+
+
+
+I think that the /usr/bin/sh  dependency is not needed as you have two sh
+checks at the start
+
+I have no idea what's up with perl(@@PGLIBDIR@@::slon-tools !!!!
+
+Can anyone shed any more light on this as I'd really rather use RPMs than make
+install 
+
+
+Thanks,
+
+Andrew
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Tue Dec 16 09:16:52 2008
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Tue Dec 16 09:16:53 2008
+Subject: [Slony1-bugs] [Bug 68] MAKE RPM  doesn't work (slony 2.0.0)
+In-Reply-To: <bug-68-4@http.www.slony.info/bugzilla/>
+Message-ID: <20081216171652.02C15290113@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=68
+
+
+Devrim GUNDUZ <devrim@commandprompt.com> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+             Status|NEW                         |ASSIGNED
+
+
+
+
+--- Comment #1 from Devrim GUNDUZ <devrim@commandprompt.com>  2008-12-16 09:16:51 ---
+I'm aware of the problem, and comitted a patch to rpm repository to fix the
+first error. I'll let you know when I fix the issue completely. 
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Tue Dec 16 09:23:49 2008
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Tue Dec 16 09:23:50 2008
+Subject: [Slony1-bugs] [Bug 68] MAKE RPM  doesn't work (slony 2.0.0)
+In-Reply-To: <bug-68-4@http.www.slony.info/bugzilla/>
+Message-ID: <20081216172349.59629290113@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=68
+
+
+
+
+
+--- Comment #2 from Andrew O'Connell <andrewoconnell@lineone.net>  2008-12-16 09:23:49 ---
+
+Let me know if I can help at all... I couldn't see how I changed that.
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are the assignee for the bug.
+From scetbon at echo.fr  Wed Dec 17 02:14:14 2008
+From: scetbon at echo.fr (Cyril SCETBON)
+Date: Thu Dec 18 08:41:17 2008
+Subject: [Slony1-bugs] Bug in get_pid function in slon-tools.pm
+Message-ID: <4948D0F6.9070906@echo.fr>
+
+Hi,
+
+If someone uses 2 slon daemons on a same box with different clusternames
+but one of the clusternames is contained in the other it makes the
+get_pid function fail.
+
+For example :
+
+cluster 1 = my_cluster_X
+cluster 2 = my_cluster_X_2
+
+the get_pid does not work if you try to start the slon for cluster 1 if
+the one for cluster 2 is already started.
+
+Below is a patch that fix it :
+
+diff -Nur slony1-1.2.15/tools/altperl/slon-tools.pm
+slony1-1.2.15.new/tools/altperl/slon-tools.pm
+--- slony1-1.2.15/tools/altperl/slon-tools.pm    2007-03-21
+16:11:34.000000000 +0100
++++ slony1-1.2.15.new/tools/altperl/slon-tools.pm    2008-12-16
+15:17:45.000000000 +0100
+@@ -117,7 +117,7 @@
+   my $tpid;
+   my ($dbname, $dbport, $dbhost) = ($DBNAME[$nodenum], $PORT[$nodenum],
+$HOST[$nodenum]);
+   #  print "Searching for PID for $dbname on port $dbport\n";
+-  my $command =  ps_args() . "| egrep \"[s]lon .*$CLUSTER_NAME\" |
+egrep \"host=$dbhost dbname=$dbname.*port=$dbport\" | sort -n | awk
+'{print \$2}'";
++  my $command =  ps_args() . "| egrep \"[s]lon .*$CLUSTER_NAME \" |
+egrep \"host=$dbhost dbname=$dbname.*port=$dbport\" | sort -n | awk
+'{print \$2}'";
+   #print "Command:\n$command\n";
+   open(PSOUT, "$command|");
+   while ($tpid = <PSOUT>) {
+
+-- 
+Cyril SCETBON
+
+From cbbrowne at ca.afilias.info  Thu Dec 18 09:54:58 2008
+From: cbbrowne at ca.afilias.info (cbbrowne)
+Date: Thu Dec 18 09:55:10 2008
+Subject: [Slony1-bugs] Bug in get_pid function in slon-tools.pm
+In-Reply-To: <4948D0F6.9070906@echo.fr>
+References: <4948D0F6.9070906@echo.fr>
+Message-ID: <494A8E72.9010602@ca.afilias.info>
+
+Cyril SCETBON wrote:
+> Hi,
+>
+> If someone uses 2 slon daemons on a same box with different clusternames
+> but one of the clusternames is contained in the other it makes the
+> get_pid function fail.
+>
+Committed to 1.2, 2.0, HEAD.
+
+Thanks!
+
+-- 
+"cbbrowne","@","ca.afilias.info"
+<http://dba2.int.libertyrms.com/>
+Christopher Browne
+(416) 673-4124 (land)
+
+From slony1-bugs at lists.slony.info  Thu Dec 18 13:20:03 2008
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Thu Dec 18 13:20:05 2008
+Subject: [Slony1-bugs] [Bug 69] New: Upgrade from 1.2 to 2.0 didn't work...
+Message-ID: <bug-69-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=69
+
+           Summary: Upgrade from 1.2 to 2.0 didn't work...
+           Product: Slony-I
+           Version: devel
+          Platform: PC
+               URL: http://lists.slony.info/pipermail/slony1-general/2008-
+                    December/009079.html
+        OS/Version: Linux
+            Status: NEW
+          Severity: critical
+          Priority: medium
+         Component: core scripts
+        AssignedTo: slony1-bugs@lists.slony.info
+        ReportedBy: cbbrowne@ca.afilias.info
+                CC: slony1-bugs@lists.slony.info
+   Estimated Hours: 0.0
+
+
+I'm trying to upgrade from slony 1.2 branch to 2.0 branch.
+
+configure, make and make install went fine.
+
+I then tried to execute the update functions part, but got an error message.
+
+And the message I get :
+<stdin>:10: loading of file /usr/share/postgresql/8.3/slony1_funcs.sql:
+PGRES_FATAL_ERROR ERREUR:  le type ?? _test2.vactables ?? n'existe pas
+ERREUR:  le type ?? _test2.vactables ?? n'existe pas
+<stdin>:15: Mise ? jour sch?mas Slony : KO
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Thu Dec 18 13:20:25 2008
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Thu Dec 18 13:20:26 2008
+Subject: [Slony1-bugs] [Bug 69] Upgrade from 1.2 to 2.0 didn't work...
+In-Reply-To: <bug-69-4@http.www.slony.info/bugzilla/>
+Message-ID: <20081218212025.A0BC429015D@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=69
+
+
+Christopher Browne <cbbrowne@ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+             Status|NEW                         |ASSIGNED
+
+
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Thu Dec 18 13:25:14 2008
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Thu Dec 18 13:25:16 2008
+Subject: [Slony1-bugs] [Bug 69] Upgrade from 1.2 to 2.0 didn't work...
+In-Reply-To: <bug-69-4@http.www.slony.info/bugzilla/>
+Message-ID: <20081218212514.105A4290113@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=69
+
+
+salman <salmanb@quietcaresystems.com> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+                 CC|                            |salmanb@quietcaresystems.com
+
+
+
+
+--- Comment #1 from salman <salmanb@quietcaresystems.com>  2008-12-18 13:25:14 ---
+http://lists.slony.info/pipermail/slony1-general/2008-November/009016.html
+
+Would like to add this here in case it's related.
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Thu Dec 18 13:25:18 2008
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Thu Dec 18 13:25:19 2008
+Subject: [Slony1-bugs] [Bug 69] Upgrade from 1.2 to 2.0 didn't work...
+In-Reply-To: <bug-69-4@http.www.slony.info/bugzilla/>
+Message-ID: <20081218212518.6633029026A@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=69
+
+
+
+
+
+--- Comment #2 from Christopher Browne <cbbrowne@ca.afilias.info>  2008-12-18 13:25:18 ---
+Created an attachment (id=26)
+ --> (http://www.slony.info/bugzilla/attachment.cgi?id=26)
+Patch that creates the vactables type while slony1_funcs.sql is loading
+
+The problem is that one of the new functions expects the type, "vactables", to
+exist.
+
+The "upgrade functions" function has code that *would* create it, but that
+function is not run until *after* the whole slony1_functions.sql file has been
+loaded, and that is way too late.
+
+The attached patch creates, runs, and drops, a temporary function that adds the
+type should it be missing.
+
+I have run this through regression test #1 on the HEAD branch, which includes a
+run of slonik "UPDATE FUNCTIONS."
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Thu Dec 18 13:27:58 2008
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Thu Dec 18 13:28:00 2008
+Subject: [Slony1-bugs] [Bug 69] Upgrade from 1.2 to 2.0 didn't work...
+In-Reply-To: <bug-69-4@http.www.slony.info/bugzilla/>
+Message-ID: <20081218212758.9851C290191@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=69
+
+
+Christopher Browne <cbbrowne@ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         Resolution|                            |FIXED
+             Status|ASSIGNED                    |RESOLVED
+
+
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Fri Dec 19 03:55:23 2008
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Fri Dec 19 03:55:26 2008
+Subject: [Slony1-bugs] [Bug 69] Upgrade from 1.2 to 2.0 didn't work...
+In-Reply-To: <bug-69-4@http.www.slony.info/bugzilla/>
+Message-ID: <20081219115523.EFDE4290191@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=69
+
+
+St?phane Schildknecht <stephane.schildknecht@postgresqlfr.org> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+                 CC|                            |stephane.schildknecht@postgr
+                   |                            |esqlfr.org
+         Resolution|FIXED                       |
+             Status|RESOLVED                    |REOPENED
+
+
+
+
+--- Comment #3 from St?phane Schildknecht <stephane.schildknecht@postgresqlfr.org>  2008-12-19 03:55:23 ---
+Hi, 
+
+I'm afraid that patch is not enough.
+
+In fact, it does repair the vactable creation, but, when upgrading, a few other
+things mess up.
+
+I did not succed in finishing upgrade, but here are some errors I get :
+
+ERROR  remoteListenThread_2: "select ev_origin, ev_seqno, ev_timestamp,       
+ev_snapshot,"pg_catalog".txid_snapshot_xmin(ev_snapshot),       
+"pg_catalog".txid_snapshot_xmax(ev_snapshot),        ev_type, ev_data1,
+ev_data2,        ev_data3, ev_data4,        ev_data5, ev_data6,       
+ev_data7, ev_data8 from "_test2".sl_event e where (e.ev_origin = '2' and
+e.ev_seqno > '18') or (e.ev_origin = '1' and e.ev_seqno > '40') order by
+e.ev_origin, e.ev_seqno limit 40" 
+- ERROR:  column "ev_snapshot" does not exist LINE 1: select ev_origin,
+ev_seqno, ev_timestamp,        ev_snapshot... 
+
+I'm reading the code, yet, to find every new column, and columns which type has
+changed from xxid to bigint.
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Fri Dec 19 06:06:38 2008
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Fri Dec 19 06:06:41 2008
+Subject: [Slony1-bugs] [Bug 69] Upgrade from 1.2 to 2.0 didn't work...
+In-Reply-To: <bug-69-4@http.www.slony.info/bugzilla/>
+Message-ID: <20081219140638.AECBD2900A3@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=69
+
+
+
+
+
+--- Comment #4 from St?phane Schildknecht <stephane.schildknecht@postgresqlfr.org>  2008-12-19 06:06:38 ---
+These tables are modified :
+
+sl_event : 
+ev_minxid, ev_maxid, ev_xip are supressed
+ev_snapshot is added
+
+sl_set_sync :
+ssy_minxid, ssy_maxid, ssy_xip are supressed
+ssy_snapshot is added
+
+sl_node :
+no_spool is supressed
+
+sl_set :
+type of set_locked changes from xxid to bigint
+
+sl_trigger :
+whole table is dropped
+
+sl_log_1/sl_log_2 :
+log_xid is renamed to log_txid, type changing from xxid to bigint
+
+Sequence sl_rowid is dropped.
+
+Now, questions are : 
+How could we process to purge old data from these tables in order to apply
+these changes ?
+Or, is it a way to transform xxid into txid (either for snapshot or for logs) ?
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Fri Dec 19 13:11:40 2008
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Fri Dec 19 13:11:41 2008
+Subject: [Slony1-bugs] [Bug 69] Upgrade from 1.2 to 2.0 didn't work...
+In-Reply-To: <bug-69-4@http.www.slony.info/bugzilla/>
+Message-ID: <20081219211140.0893E290175@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=69
+
+
+Christopher Browne <cbbrowne@ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         AssignedTo|slony1-bugs@lists.slony.info|cbbrowne@ca.afilias.info
+           Priority|medium                      |high
+           Severity|critical                    |major
+             Status|REOPENED                    |NEW
+
+
+
+
+--- Comment #5 from Christopher Browne <cbbrowne@ca.afilias.info>  2008-12-19 13:11:39 ---
+That's a VERY good set of observations.
+
+I had a chat with Jan about this, and we see there needing to be a very
+specific "upgrade to 2.0" process that will probably not use slonik.
+
+Updating the xxid values into the txid_snapshot type looks to be more than
+problematic; I expect that in order to do THAT, we would have to create a set
+of xxid-to-txid_snapshot functions, in C, and that feels like just a HORRIBLE
+idea.  We moved to txid_snapshot in order to *eliminate* C-based stored
+procedures, and this would perpetuate having such a procedure.
+
+What we're contemplating is an "Upgrade Tool" that upgrades the whole cluster
+in "one fell swoop."  It would do the following:
+
+1.  Lock all the sets.
+
+2.  Wait for those events to propagate.
+
+Once that has taken place, we can do the xxid-to-snapshot alterations, and
+essentially do the same thing that is done at subscription time, namely to set
+up sl_set_sync with a fresh SYNC ID.
+
+Thus, we effectively need to reset replication.
+
+It would be really nice to be able to make this process one that could be
+rolled back, but I suspect we can't do that too readily.  I think the upgrade
+tool will need to do some of its work via running slonik, with the result that
+it will have closed some transactions before we get things done.
+
+Thus, the SHORT answer, for now, is that there is not a functioning way to get
+from 1.2 to 2.0 without redoing subscriptions for the subscribers.  Your best
+bet, right now, is to drop 1.2 replication and create 2.0 replication.
+
+I'll probably poke at this a bit over the holidays.
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From scetbon at echo.fr  Tue Dec 23 07:43:57 2008
+From: scetbon at echo.fr (Cyril SCETBON)
+Date: Tue Dec 23 08:10:16 2008
+Subject: [Slony1-bugs] slony_show_configuration but no show_configuration.pl
+Message-ID: <4951073D.8000809@echo.fr>
+
+Hi,
+
+In slony_show_configuration.pl it says that the usage is to use 
+show_configuration but this file does not exist in 2.0.
+
+In 1.2.15 it's the same but there are slony_show_configuration.pl and 
+show_configuration.pl, while in 2.0 there is only 
+slony_show_configuration.pl file
+
+2.0 :
+
+ls -1 tools/altperl/*show*
+tools/altperl/slony_show_configuration
+tools/altperl/slony_show_configuration.pl
+
+1.2.15 :
+
+ls -1 tools/altperl/*show*
+tools/altperl/show_configuration.pl
+tools/altperl/slony_show_configuration.pl
+
+why does the slony_* file exists ?
+-- 
+Cyril SCETBON **Happy Chrismukkah**
+From scetbon at echo.fr  Wed Dec 24 01:57:40 2008
+From: scetbon at echo.fr (Cyril SCETBON)
+Date: Wed Dec 24 03:58:43 2008
+Subject: [Slony1-bugs] Bugs in scripts of Slony1 2.0
+Message-ID: <49520794.2050709@echo.fr>
+
+Hi,
+
+
+If DEBUGLEVEL is not defined in slon_tools.conf, slon_start can't start 
+slon. DEBUGLEVEL should be initialised to 0 if it does not exist in the 
+configuration file.
+
+grep DEBUGLEVEL /usr/share/slony1/slon-tools.pm
+  my $cmd = "/usr/bin/slon -s $SYNC_CHECK_INTERVAL -d$DEBUGLEVEL 
+$CLUSTER_NAME '$dsn' ";
+
+The watchdog does not start cause there is a syntax error in the script :
+
+perl -c /usr/bin/slon_watchdog.old
+syntax error at /usr/bin/slon_watchdog.old line 47, near "open "
+/usr/bin/slon_watchdog.old had compilation errors.
+
+Here is a patch that just add a semicolon :
+
+--- /usr/bin/slon_watchdog.old  2008-12-24 10:51:34.000000000 +0100
++++ /usr/bin/slon_watchdog      2008-12-24 10:51:42.000000000 +0100
+@@ -43,7 +43,7 @@
+   $pid = get_pid($node);
+   if (!($pid)) {
+     my ($dsn, $dbname) = ($DSN[$nodenum], $DBNAME[$nodenum]);
+-    my ($logfile) = "$LOGDIR/slon-$dbname-$node.err"
++    my ($logfile) = "$LOGDIR/slon-$dbname-$node.err";
+     open (SLONLOG, ">>$logfile");
+     print SLONLOG "WATCHDOG: No Slon is running for node $node!\n";
+     print SLONLOG "WATCHDOG: You ought to check the postmaster and slon 
+for evidence of a crash!\n";
+
+Regards
+-- 
+Cyril SCETBON
+**Happy Chrismukkah**
+From scetbon at echo.fr  Wed Dec 24 06:30:57 2008
+From: scetbon at echo.fr (Cyril SCETBON)
+Date: Wed Dec 24 07:46:16 2008
+Subject: [Slony1-bugs] Bugs in scripts of Slony1 2.0
+In-Reply-To: <49520794.2050709@echo.fr>
+References: <49520794.2050709@echo.fr>
+Message-ID: <495247A1.1020508@echo.fr>
+
+It should be great too to add cleanupEvent configuration sample in 
+slon.conf-sample.gz
+
+Cyril SCETBON wrote:
+> Hi,
+>
+>
+> If DEBUGLEVEL is not defined in slon_tools.conf, slon_start can't 
+> start slon. DEBUGLEVEL should be initialised to 0 if it does not exist 
+> in the configuration file.
+>
+> grep DEBUGLEVEL /usr/share/slony1/slon-tools.pm
+>  my $cmd = "/usr/bin/slon -s $SYNC_CHECK_INTERVAL -d$DEBUGLEVEL 
+> $CLUSTER_NAME '$dsn' ";
+>
+> The watchdog does not start cause there is a syntax error in the script :
+>
+> perl -c /usr/bin/slon_watchdog.old
+> syntax error at /usr/bin/slon_watchdog.old line 47, near "open "
+> /usr/bin/slon_watchdog.old had compilation errors.
+>
+> Here is a patch that just add a semicolon :
+>
+> --- /usr/bin/slon_watchdog.old  2008-12-24 10:51:34.000000000 +0100
+> +++ /usr/bin/slon_watchdog      2008-12-24 10:51:42.000000000 +0100
+> @@ -43,7 +43,7 @@
+>   $pid = get_pid($node);
+>   if (!($pid)) {
+>     my ($dsn, $dbname) = ($DSN[$nodenum], $DBNAME[$nodenum]);
+> -    my ($logfile) = "$LOGDIR/slon-$dbname-$node.err"
+> +    my ($logfile) = "$LOGDIR/slon-$dbname-$node.err";
+>     open (SLONLOG, ">>$logfile");
+>     print SLONLOG "WATCHDOG: No Slon is running for node $node!\n";
+>     print SLONLOG "WATCHDOG: You ought to check the postmaster and 
+> slon for evidence of a crash!\n";
+>
+> Regards
+
+-- 
+Cyril SCETBON **Happy Chrismukkah**
+From slony1-bugs at lists.slony.info  Wed Dec 24 09:54:50 2008
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Wed Dec 24 09:54:52 2008
+Subject: [Slony1-bugs] [Bug 68] MAKE RPM  doesn't work (slony 2.0.0)
+In-Reply-To: <bug-68-4@http.www.slony.info/bugzilla/>
+Message-ID: <20081224175450.F33962901C4@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=68
+
+
+
+
+
+--- Comment #3 from Devrim GUNDUZ <devrim@commandprompt.com>  2008-12-24 09:54:50 ---
+I built RPMs on Fedora 10:
+
+http://yum.pgsqlrpms.org/8.3/fedora/fedora-10-i386/repoview/letter_s.group.html
+
+Here is the SRPM link:
+http://yum.pgsqlrpms.org/srpms/8.3/fedora/fedora-10-i386/repoview/slony1.html
+
+Please let me know if the SRPM works for you.
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are the assignee for the bug.

@@ -1,0 +1,1314 @@
+From jeff at frostconsultingllc.com  Mon Nov 12 13:11:12 2007
+From: jeff at frostconsultingllc.com (Jeff Frost)
+Date: Mon Nov 12 13:11:23 2007
+Subject: [Slony1-bugs] Slony 1.2.10: Deadlock on slave during execute
+	script
+In-Reply-To: <60r6kio4v5.fsf@dba2.int.libertyrms.com>
+References: <Pine.LNX.4.64.0709260815230.4701@discord.home.frostconsultingllc.com>
+	<608x6tper4.fsf@dba2.int.libertyrms.com>
+	<Pine.LNX.4.64.0709260935380.20452@discord.home.frostconsultingllc.com>
+	<46FADBF9.9090908@ca.afilias.info>
+	<Pine.LNX.4.64.0709261533590.4701@discord.home.frostconsultingllc.com>
+	<60r6kio4v5.fsf@dba2.int.libertyrms.com>
+Message-ID: <Pine.LNX.4.64.0711121309500.30192@discord.home.frostconsultingllc.com>
+
+On Fri, 28 Sep 2007, Christopher Browne wrote:
+
+> Jeff Frost <jeff@frostconsultingllc.com> writes:
+>> I think the deadlocks aren't load related but speed related.  That is,
+>> if the acquiring of all the locks by the execute script takes longer
+>> on a slower machine, the window of opportunity for one of these
+>> selects to cause a deadlock seems greater, no?  They do seem to happen
+>> on the slower machine more regularly than the faster one.
+>
+> The problem had nothing to do with deadlocks, per se, but rather with
+> the fact that a refactoring of the code *broke* things by taking out a
+> leading "begin;" statement.
+>
+> It should present no *fundamental* problem if the node hits a
+> deadlock; if the deadlock affects the "EXECUTE SCRIPT" event, then the
+> worst that should happen is that the work gets rolled back, and ten
+> seconds later, the node retries, hopefully with greater success.
+>
+> The fix for this has been committed to the 1.2 branch (never was a
+> problem in 2.0), so that we should have this addressed RSN.
+
+Will this fix be in 1.2.12?
+
+Also, can someone explain to me why this doesn't fix it:
+
+select _nerdcluster.altertableforreplication(tab_id) from
+  _cluster.sl_table where  tab_altered is false;
+
+When I run that, it seems to restore them all to their prior to slony state.
+
+But if I run:
+
+select _nerdcluster.altertableforreplication(1);
+
+it properly alters it for replication.
+
+
+
+-- 
+Jeff Frost, Owner 	<jeff@frostconsultingllc.com>
+Frost Consulting, LLC 	http://www.frostconsultingllc.com/
+Phone: 650-780-7908	FAX: 650-649-1954
+From jeff at frostconsultingllc.com  Mon Nov 12 13:18:33 2007
+From: jeff at frostconsultingllc.com (Jeff Frost)
+Date: Mon Nov 12 13:18:43 2007
+Subject: [Slony1-bugs] Slony 1.2.10: Deadlock on slave during execute
+	script
+In-Reply-To: <Pine.LNX.4.64.0711121309500.30192@discord.home.frostconsultingllc.com>
+References: <Pine.LNX.4.64.0709260815230.4701@discord.home.frostconsultingllc.com>
+	<608x6tper4.fsf@dba2.int.libertyrms.com>
+	<Pine.LNX.4.64.0709260935380.20452@discord.home.frostconsultingllc.com>
+	<46FADBF9.9090908@ca.afilias.info>
+	<Pine.LNX.4.64.0709261533590.4701@discord.home.frostconsultingllc.com>
+	<60r6kio4v5.fsf@dba2.int.libertyrms.com>
+	<Pine.LNX.4.64.0711121309500.30192@discord.home.frostconsultingllc.com>
+Message-ID: <Pine.LNX.4.64.0711121317310.30192@discord.home.frostconsultingllc.com>
+
+On Mon, 12 Nov 2007, Jeff Frost wrote:
+
+> On Fri, 28 Sep 2007, Christopher Browne wrote:
+>
+>> Jeff Frost <jeff@frostconsultingllc.com> writes:
+>>> I think the deadlocks aren't load related but speed related.  That is,
+>>> if the acquiring of all the locks by the execute script takes longer
+>>> on a slower machine, the window of opportunity for one of these
+>>> selects to cause a deadlock seems greater, no?  They do seem to happen
+>>> on the slower machine more regularly than the faster one.
+>> 
+>> The problem had nothing to do with deadlocks, per se, but rather with
+>> the fact that a refactoring of the code *broke* things by taking out a
+>> leading "begin;" statement.
+>> 
+>> It should present no *fundamental* problem if the node hits a
+>> deadlock; if the deadlock affects the "EXECUTE SCRIPT" event, then the
+>> worst that should happen is that the work gets rolled back, and ten
+>> seconds later, the node retries, hopefully with greater success.
+>> 
+>> The fix for this has been committed to the 1.2 branch (never was a
+>> problem in 2.0), so that we should have this addressed RSN.
+>
+> Will this fix be in 1.2.12?
+>
+> Also, can someone explain to me why this doesn't fix it:
+>
+> select _nerdcluster.altertableforreplication(tab_id) from
+> _cluster.sl_table where  tab_altered is false;
+>
+> When I run that, it seems to restore them all to their prior to slony state.
+>
+> But if I run:
+>
+> select _cluster.altertableforreplication(1);
+>
+> it properly alters it for replication.
+
+Oh, but after I select _cluster.altertableforreplication the last one, they 
+all get reset to false and restored. *scratches head*
+
+That's with slony1-1.2.10.
+
+-- 
+Jeff Frost, Owner 	<jeff@frostconsultingllc.com>
+Frost Consulting, LLC 	http://www.frostconsultingllc.com/
+Phone: 650-780-7908	FAX: 650-649-1954
+From jeff at frostconsultingllc.com  Mon Nov 12 18:13:19 2007
+From: jeff at frostconsultingllc.com (Jeff Frost)
+Date: Mon Nov 12 18:13:32 2007
+Subject: [Slony1-bugs] Slony 1.2.10: Deadlock on slave during execute
+	script
+In-Reply-To: <Pine.LNX.4.64.0711121309500.30192@discord.home.frostconsultingllc.com>
+References: <Pine.LNX.4.64.0709260815230.4701@discord.home.frostconsultingllc.com>
+	<608x6tper4.fsf@dba2.int.libertyrms.com>
+	<Pine.LNX.4.64.0709260935380.20452@discord.home.frostconsultingllc.com>
+	<46FADBF9.9090908@ca.afilias.info>
+	<Pine.LNX.4.64.0709261533590.4701@discord.home.frostconsultingllc.com>
+	<60r6kio4v5.fsf@dba2.int.libertyrms.com>
+	<Pine.LNX.4.64.0711121309500.30192@discord.home.frostconsultingllc.com>
+Message-ID: <Pine.LNX.4.64.0711121812420.30192@discord.home.frostconsultingllc.com>
+
+On Mon, 12 Nov 2007, Jeff Frost wrote:
+
+> On Fri, 28 Sep 2007, Christopher Browne wrote:
+>
+>> Jeff Frost <jeff@frostconsultingllc.com> writes:
+>>> I think the deadlocks aren't load related but speed related.  That is,
+>>> if the acquiring of all the locks by the execute script takes longer
+>>> on a slower machine, the window of opportunity for one of these
+>>> selects to cause a deadlock seems greater, no?  They do seem to happen
+>>> on the slower machine more regularly than the faster one.
+>> 
+>> The problem had nothing to do with deadlocks, per se, but rather with
+>> the fact that a refactoring of the code *broke* things by taking out a
+>> leading "begin;" statement.
+>> 
+>> It should present no *fundamental* problem if the node hits a
+>> deadlock; if the deadlock affects the "EXECUTE SCRIPT" event, then the
+>> worst that should happen is that the work gets rolled back, and ten
+>> seconds later, the node retries, hopefully with greater success.
+>> 
+>> The fix for this has been committed to the 1.2 branch (never was a
+>> problem in 2.0), so that we should have this addressed RSN.
+>
+> Will this fix be in 1.2.12?
+
+Answering my own question here.  From the 1.2.12 release notes:
+
+- Fixed a problem with "EXECUTE SCRIPT" (introduced in remote_worker.c
+   version 1.124.2.13) where moving the relevant code into a subroutine
+   at the end led to losing the "BEGIN; SET TRANSACTION ISOLATION LEVEL
+   SERIALIZABLE;" query that needs to be the first thing run...
+
+
+-- 
+Jeff Frost, Owner 	<jeff@frostconsultingllc.com>
+Frost Consulting, LLC 	http://www.frostconsultingllc.com/
+Phone: 650-780-7908	FAX: 650-649-1954
+From slony1-bugs at lists.slony.info  Tue Nov 13 07:53:00 2007
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Tue Nov 13 07:53:02 2007
+Subject: [Slony1-bugs] [Bug 8] New: SLON_DATA_FETCH_SIZE set too low
+Message-ID: <bug-8-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=8
+
+           Summary: SLON_DATA_FETCH_SIZE set too low
+           Product: Slony-I
+           Version: 1.2
+          Platform: All
+               URL: http://lists.slony.info/pipermail/slony1-general/2007-
+                    November/006931.html
+        OS/Version: All
+            Status: NEW
+          Severity: normal
+          Priority: medium
+         Component: slon
+        AssignedTo: slony1-bugs@lists.slony.info
+        ReportedBy: cbbrowne@ca.afilias.info
+                CC: slony1-bugs@lists.slony.info
+   Estimated Hours: 0.0
+
+
+slon.h defines SLON_DATA_FETCH_SIZE at 10; this seems too low for some
+high-update sites.
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Tue Nov 13 13:05:10 2007
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Tue Nov 13 13:05:12 2007
+Subject: [Slony1-bugs] [Bug 9] New: Revise documentation to indicate new
+	trigger handling
+Message-ID: <bug-9-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=9
+
+           Summary: Revise documentation to indicate new trigger handling
+           Product: Slony-I
+           Version: devel
+          Platform: All
+        OS/Version: All
+            Status: NEW
+          Severity: normal
+          Priority: medium
+         Component: docs
+        AssignedTo: slony1-bugs@lists.slony.info
+        ReportedBy: cbbrowne@ca.afilias.info
+                CC: slony1-bugs@lists.slony.info
+   Estimated Hours: 0.0
+
+
+In CVS HEAD, triggers now expect PostgreSQL 8.3 functionality where triggers
+are allowed to have modes so that they may be controlled as to whether or not
+the execute on replica nodes without requiring catalog hacking.
+
+Need to document this better.
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Tue Nov 13 13:07:02 2007
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Tue Nov 13 13:07:04 2007
+Subject: [Slony1-bugs] [Bug 10] New: Create a CANCEL SUBSCRIPTION command
+Message-ID: <bug-10-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=10
+
+           Summary: Create a CANCEL SUBSCRIPTION command
+           Product: Slony-I
+           Version: devel
+          Platform: All
+               URL: http://lists.slony.info/pipermail/slony1-hackers/2007-
+                    May/000011.html
+        OS/Version: All
+            Status: NEW
+          Severity: enhancement
+          Priority: medium
+         Component: slon
+        AssignedTo: slony1-bugs@lists.slony.info
+        ReportedBy: cbbrowne@ca.afilias.info
+                CC: slony1-bugs@lists.slony.info
+   Estimated Hours: 0.0
+
+
+This command will inject a CANCEL_SUBSCRIPTION event at event node #3
+which will cancel any SUBSCRIBE SET events for set #2 on node #4.
+
+1.  SUBSCRIBE SET event "hook"
+
+We would then add a "hook" at the beginning of the code that detects
+SUBSCRIBE SET events; this hook would search the provider node to see
+if it has any CANCEL_SUBSCRIPTION events for the set in question that
+are newer than the present SUBSCRIBE_SET event.  If that be the case,
+it would not bother performing anything further of the subscription.[1]
+
+There wind up being two possibilities:
+
+- Supposing the SUBSCRIBE SET wasn't yet in progress when the CANCEL
+  SUBSCRIPTION request came in, no (further) attempt would be made to
+  set up the subscription.  Perfect!  That's exactly what we asked for.
+
+- Alternatively, it is possible that the SUBSCRIBE SET request may
+  have already completed.  If the subscription was in progress at the
+  time that the CANCEL request came in, there isn't much of a way (short
+  of polling periodically inside the code that processes this) to force
+  cancellation.  One might force this by signalling the slon with
+  SIGTERM/SIGKILL; when it restarts, the re-attempt to process the event
+  would take us back to the first case...
+
+  ... But absent of that, the subscription may indeed complete.
+  We nonetheless need to eliminate the subscription as other nodes will
+  likely by this time have been informed of the elimination of this
+  subscription.  [2]
+
+  Thus, we need to perform the equivalent to "UNSUBSCRIBE SET" at that
+  point.
+
+2.  SYNC event "hook"
+
+We'll wind up needing a similar hook in SYNC to what's in SUBSCRIBE
+SET, I think, so that if there is an outstanding CANCEL_SUBSCRIPTION
+for the local node's subscription, we arrange to do the equivalent to
+"UNSUBSCRIBE SET".
+
+3.  CANCEL SUBSCRIPTION event
+
+On the node where the set is, this will either be a NO-OP, if the
+subscription is already cancelled, or this will do "UNSUBSCRIBE SET,"
+as with the earlier hooks on SUBSCRIBE SET and SYNC, if it is still
+active.
+
+On nodes other than the receiver node for the subscription, the CANCEL
+SUBSCRIPTION event would perform the equivalent to "UNSUBSCRIBE SET"
+to indicate the cancellation of the subscription.[3]
+
+Footnotes: 
+
+[1] Note that if someone accidentally submitted a whole series of
+SUBSCRIBE SET requests, it only takes ONE request to CANCEL
+SUBSCRIPTION to turn them all into NOOPs.
+
+[2] Note that we can't simply say "Oh, the subscription *DID* work,
+we'll keep that!" as the effect of CANCEL SUBSCRIPTION will have been
+to drop info about the subscription from other nodes.  We *must* kill
+off the subscription even though it might have worked.
+
+[3] Open question: Should the CANCEL SUBSCRIPTION event wait until its
+location in sequence to be processed on the other nodes (e.g.  - nodes
+other than the specified receiver), or should we have it invoked via
+the hook in SYNC?  I'm not certain...
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Tue Nov 13 13:08:12 2007
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Tue Nov 13 13:08:15 2007
+Subject: [Slony1-bugs] [Bug 11] New: duplicate_node.sh
+Message-ID: <bug-11-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=11
+
+           Summary: duplicate_node.sh
+           Product: Slony-I
+           Version: devel
+          Platform: All
+        OS/Version: All
+            Status: NEW
+          Severity: enhancement
+          Priority: medium
+         Component: other scripts
+        AssignedTo: slony1-bugs@lists.slony.info
+        ReportedBy: cbbrowne@ca.afilias.info
+                CC: slony1-bugs@lists.slony.info
+   Estimated Hours: 0.0
+
+
+Script to "duplicate node"; create a new node that looks just like an existing
+node, that is, with the same replication sets.
+
+Overview:
+   - Run slony1_extract_schema.sh against the origin node for the sets
+     subscribed to; this gives an SQL script.
+
+   - Generate slonik script to do:
+     * STORE NODE for new node
+     * STORE PATH to get the new node to communicate with the node it's
+       duplicating
+     * SUBSCRIBE SET for all the relevant sets
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Tue Nov 13 13:09:36 2007
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Tue Nov 13 13:09:38 2007
+Subject: [Slony1-bugs] [Bug 12] New: Add tests to test_slony_state scripts
+Message-ID: <bug-12-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=12
+
+           Summary: Add tests to test_slony_state scripts
+           Product: Slony-I
+           Version: devel
+          Platform: All
+        OS/Version: All
+            Status: NEW
+          Severity: enhancement
+          Priority: medium
+         Component: other scripts
+        AssignedTo: slony1-bugs@lists.slony.info
+        ReportedBy: cbbrowne@ca.afilias.info
+                CC: slony1-bugs@lists.slony.info
+   Estimated Hours: 0.0
+
+
+Add more tests (what???) to test_slony_state script(s).
+
+e.g. - add a warning if there exist tables with generated PK.
+
+Arguably, that isn't really a good thing to do; if there is a table with column
+generated via TABLE ADD KEY, then we have the undesirable result that there
+will be an error/warning reported every time test_slony_state is run.
+
+Perhaps there should be a second script that looks for "static" problems, so we
+can leave test_slony_state to look for "dynamic" problems.
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Tue Nov 13 13:11:24 2007
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Tue Nov 13 13:11:26 2007
+Subject: [Slony1-bugs] [Bug 13] New: Change Slony-I to use PGXS
+Message-ID: <bug-13-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=13
+
+           Summary: Change Slony-I to use PGXS
+           Product: Slony-I
+           Version: devel
+          Platform: All
+               URL: http://www.postgresql.org/docs/8.2/static/xfunc-c.html
+        OS/Version: All
+            Status: NEW
+          Severity: enhancement
+          Priority: medium
+         Component: core scripts
+        AssignedTo: slony1-bugs@lists.slony.info
+        ReportedBy: cbbrowne@ca.afilias.info
+                CC: slony1-bugs@lists.slony.info
+   Estimated Hours: 0.0
+
+
+We could potentially eliminate a number of dependencies if we changed to use
+PGXS.
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Tue Nov 13 13:13:31 2007
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Tue Nov 13 13:13:33 2007
+Subject: [Slony1-bugs] [Bug 14] New: Pull lexer from psql
+Message-ID: <bug-14-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=14
+
+           Summary: Pull lexer from psql
+           Product: Slony-I
+           Version: devel
+          Platform: All
+               URL: http://developer.postgresql.org/cvsweb.cgi/pgsql/src/bin
+                    /psql/psqlscan.l?rev=1.21;content-type=text%2Fx-cvsweb-
+                    markup
+        OS/Version: All
+            Status: NEW
+          Severity: enhancement
+          Priority: medium
+         Component: slon
+        AssignedTo: slony1-bugs@lists.slony.info
+        ReportedBy: cbbrowne@ca.afilias.info
+                CC: slony1-bugs@lists.slony.info
+   Estimated Hours: 0.0
+
+
+Consider pulling the lexer from psql
+
+http://developer.postgresql.org/cvsweb.cgi/pgsql/src/bin/psql/psqlscan.l?rev=1.21;content-type=text%2Fx-cvsweb-markup
+
+This would ensure that the language recognized by EXECUTE SCRIPT when it splits
+statements apart would be *CERTAIN* to be identical to what PostgreSQL
+supports.
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Thu Nov 22 14:10:21 2007
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Thu Nov 22 14:10:23 2007
+Subject: [Slony1-bugs] [Bug 15] New: Set up some form of constraint on
+ length of cluster name
+Message-ID: <bug-15-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=15
+
+           Summary: Set up some form of constraint on length of cluster name
+           Product: Slony-I
+           Version: devel
+          Platform: All
+               URL: http://lists.slony.info/pipermail/slony1-general/2007-
+                    November/006996.html
+        OS/Version: All
+            Status: ASSIGNED
+          Severity: minor
+          Priority: low
+         Component: slonik
+        AssignedTo: cbbrowne@ca.afilias.info
+        ReportedBy: cbbrowne@ca.afilias.info
+                CC: slony1-bugs@lists.slony.info
+   Estimated Hours: 4.0
+
+
+In the above problem report, it was discovered that the root of the problem was
+that the name of the cluster was so long that its inclusion in a generated
+index name blew out a 64 character maximum length.
+
+We should assess what the longest permissible cluster name is, and set up a
+constraint that rejects cluster names that are too long.
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+From slony1-bugs at lists.slony.info  Thu Nov 22 14:47:33 2007
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Thu Nov 22 14:47:34 2007
+Subject: [Slony1-bugs] [Bug 16] New: Change in function typenameTypeId() in
+ PG 8.3 to have 3 args
+Message-ID: <bug-16-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=16
+
+           Summary: Change in function typenameTypeId() in PG 8.3 to have 3
+                    args
+           Product: Slony-I
+           Version: 1.2
+          Platform: All
+               URL: http://lists.slony.info/pipermail/slony1-patches/2007-
+                    November/000033.html
+        OS/Version: All
+            Status: ASSIGNED
+          Severity: major
+          Priority: urgent
+         Component: trigger SPI
+        AssignedTo: cbbrowne@ca.afilias.info
+        ReportedBy: cbbrowne@ca.afilias.info
+                CC: slony1-bugs@lists.slony.info
+   Estimated Hours: 1.0
+
+
+The change of typenameTypeId() to have 3 args in PG 8.3 causes the build of C
+SPI functions to break.
+
+Dave Page provided a patch for this.
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+From slony1-bugs at lists.slony.info  Thu Nov 22 14:49:03 2007
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Thu Nov 22 14:49:04 2007
+Subject: [Slony1-bugs] [Bug 16] Change in function typenameTypeId() in PG
+ 8.3 to have 3 args
+In-Reply-To: <bug-16-4@http.www.slony.info/bugzilla/>
+Message-ID: <20071122224903.0E9FC290467@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=16
+
+
+Christopher Browne <cbbrowne@ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         Resolution|                            |FIXED
+    Remaining Hours|1.0                         |0.0
+             Status|ASSIGNED                    |RESOLVED
+       Hours Worked|                            |1
+
+
+
+
+--- Comment #1 from Christopher Browne <cbbrowne@ca.afilias.info>  2007-11-22 14:49:03 ---
+- Built PG 8.3 CVS HEAD
+
+- Validated that the compile of SPI functions breaks
+
+- Applied Patch (with light mods)
+
+- Added release note change
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+From slony1-bugs at lists.slony.info  Thu Nov 29 08:15:40 2007
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Thu Nov 29 08:15:41 2007
+Subject: [Slony1-bugs] [Bug 17] New: slony doesn't build with a 'virtual'
+ postgresql installation done with DESTDIR
+Message-ID: <bug-17-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=17
+
+           Summary: slony doesn't build with a 'virtual' postgresql
+                    installation done with DESTDIR
+           Product: Slony-I
+           Version: devel
+          Platform: PC
+               URL: http://lists.slony.info/pipermail/slony1-hackers/2007-
+                    November/000109.html
+        OS/Version: Linux
+            Status: NEW
+          Severity: minor
+          Priority: medium
+         Component: core scripts
+        AssignedTo: slony1-bugs@lists.slony.info
+        ReportedBy: cbbrowne@ca.afilias.info
+                CC: slony1-bugs@lists.slony.info
+   Estimated Hours: 0.0
+
+
+Created an attachment (id=1)
+ --> (http://www.slony.info/bugzilla/attachment.cgi?id=1)
+Patch to config/acx_libpq.m4
+
+I found it quite annoying today that slony doesn't build properly with
+
+./configure --prefix=/dba/special/dir <--some-other-foo-magic>
+make
+make install DESTDIR=/tmp/test/dir
+
+when building against a 'virtual' postgresql installation done with
+DESTDIR as well. This leads to a totally broken install directory
+layout, ending up with files scattered in different directories. The
+attached diff shows the most important changes i've done against
+config/acx_libpq.m4 to get that running, mostly because it doesn't
+allow overriding pgpkglibdir with an non-existing directory.
+
+There are some minor issues open, but i would like to hear opinions
+before continuing to prepare a general patch to make that work. It
+would be useful, since building PostgreSQL works quite well that way
+and i think it's a common task to build RPMs as well.
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Thu Nov 29 08:16:40 2007
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Thu Nov 29 08:16:42 2007
+Subject: [Slony1-bugs] [Bug 17] slony doesn't build with a 'virtual'
+ postgresql installation done with DESTDIR
+In-Reply-To: <bug-17-4@http.www.slony.info/bugzilla/>
+Message-ID: <20071129161640.34CDD290D76@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=17
+
+
+Christopher Browne <cbbrowne@ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+             Status|NEW                         |ASSIGNED
+
+
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Thu Nov 29 08:23:41 2007
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Thu Nov 29 08:23:42 2007
+Subject: [Slony1-bugs] [Bug 18] New: Patch to shorten "attkind" on
+	logtrigger functions
+Message-ID: <bug-18-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=18
+
+           Summary: Patch to shorten "attkind" on logtrigger functions
+           Product: Slony-I
+           Version: devel
+          Platform: All
+               URL: http://lists.slony.info/pipermail/slony1-general/2007-
+                    November/006988.html
+        OS/Version: All
+            Status: NEW
+          Severity: enhancement
+          Priority: low
+         Component: trigger SPI
+        AssignedTo: slony1-bugs@lists.slony.info
+        ReportedBy: cbbrowne@ca.afilias.info
+                CC: slony1-bugs@lists.slony.info
+   Estimated Hours: 0.0
+
+
+The following very quick patch (against 1.2.12) provides the following changes:
+- when scanning attributes looking for key columns (in UPDATEs and
+DELETEs), stop when we reach the end of the attkind string
+- when creating the triggers, final "v"s are stripped
+
+Result:
+- one can add columns (without defaults, constraints, etc.) to tables
+(destinations first, origin last) without changing the logtrigger and
+without using EXECUTE SCRIPT
+- as a bonus we save a few cycles in updates and deletes
+
+--- src/backend/slony1_funcs.c.orig Wed Nov 21 15:43:24 2007
++++ src/backend/slony1_funcs.c      Wed Nov 21 15:45:13 2007
+@@ -821,6 +821,8 @@
+                                continue;
+
+                        attkind_idx++;
++                       if (!attkind[attkind_idx])
++                               break;
+                        if (attkind[attkind_idx] != 'k')
+                                continue;
+                        col_ident = (char
+*)slon_quote_identifier(SPI_fname(tupdesc, i + 1));
+@@ -888,6 +890,8 @@
+                                continue;
+
+                        attkind_idx++;
++                       if (!attkind[attkind_idx])
++                               break;
+                        if (attkind[attkind_idx] != 'k')
+                                continue;
+                        col_ident = (char
+*)slon_quote_identifier(SPI_fname(tupdesc, i + 1));
+--- src/backend/slony1_funcs.sql.orig       Wed Nov 21 15:45:35 2007
++++ src/backend/slony1_funcs.sql    Wed Nov 21 15:53:11 2007
+@@ -5029,6 +5029,11 @@
+        end loop;
+
+        --
++       -- Strip final 'v's as these are not needed by the logtrigger
++       --
++       v_attkind := regexp_replace(v_attkind,''v*$'','''');
++
++       --
+        -- Return the resulting attkind
+        --
+        return v_attkind;
+
+-- 
+Jacques Caron <jc@oxado.com>
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Thu Nov 29 09:08:09 2007
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Thu Nov 29 09:08:11 2007
+Subject: [Slony1-bugs] [Bug 15] Set up some form of constraint on length of
+	cluster name
+In-Reply-To: <bug-15-4@http.www.slony.info/bugzilla/>
+Message-ID: <20071129170809.D3EC6290D89@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=15
+
+
+
+
+
+--- Comment #1 from Christopher Browne <cbbrowne@ca.afilias.info>  2007-11-29 09:08:09 ---
+- The index (where the problem was observed) is created thus:
+
+''create index "PartInd_@CLUSTERNAME@_sl_log_'' || v_log || ''-node-'' ||
+v_dummy.set_origin 
+
+Size is 23 characters of "string" + length of node number + length of cluster
+name.
+
+This seems to be the largest name that Slony-I generates that combines the
+cluster name into an object name.
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+From slony1-bugs at lists.slony.info  Thu Nov 29 09:33:02 2007
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Thu Nov 29 09:33:04 2007
+Subject: [Slony1-bugs] [Bug 16] Change in function typenameTypeId() in PG
+ 8.3 to have 3 args
+In-Reply-To: <bug-16-4@http.www.slony.info/bugzilla/>
+Message-ID: <20071129173302.324E7290D78@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=16
+
+
+Christopher Browne <cbbrowne@ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         Resolution|FIXED                       |
+             Status|RESOLVED                    |REOPENED
+
+
+
+
+--- Comment #2 from Christopher Browne <cbbrowne@ca.afilias.info>  2007-11-29 09:33:02 ---
+The patch to "configure" will go away the next time we run autoconf...
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+From slony1-bugs at lists.slony.info  Thu Nov 29 09:35:49 2007
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Thu Nov 29 09:35:51 2007
+Subject: [Slony1-bugs] [Bug 16] Change in function typenameTypeId() in PG
+ 8.3 to have 3 args
+In-Reply-To: <bug-16-4@http.www.slony.info/bugzilla/>
+Message-ID: <20071129173549.7C42E290D27@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=16
+
+
+Christopher Browne <cbbrowne@ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         Resolution|                            |FIXED
+             Status|REOPENED                    |RESOLVED
+
+
+
+
+--- Comment #3 from Christopher Browne <cbbrowne@ca.afilias.info>  2007-11-29 09:35:49 ---
+Oops - missed an M4 patch when applying this to HEAD, and thought I was missing
+changes to configure...
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+From slony1-bugs at lists.slony.info  Thu Nov 29 11:37:11 2007
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Thu Nov 29 11:37:12 2007
+Subject: [Slony1-bugs] [Bug 17] slony doesn't build with a 'virtual'
+ postgresql installation done with DESTDIR
+In-Reply-To: <bug-17-4@http.www.slony.info/bugzilla/>
+Message-ID: <20071129193711.11773290D78@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=17
+
+
+Christopher Browne <cbbrowne@ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+             Status|ASSIGNED                    |NEW
+         AssignedTo|slony1-bugs@lists.slony.info|mailings@oopsware.de
+
+
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Thu Nov 29 12:00:23 2007
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Thu Nov 29 12:00:25 2007
+Subject: [Slony1-bugs] [Bug 15] Set up some form of constraint on length of
+	cluster name
+In-Reply-To: <bug-15-4@http.www.slony.info/bugzilla/>
+Message-ID: <20071129200023.8DC5C290CA6@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=15
+
+
+
+
+
+--- Comment #2 from Christopher Browne <cbbrowne@ca.afilias.info>  2007-11-29 12:00:23 ---
+Created an attachment (id=2)
+ --> (http://www.slony.info/bugzilla/attachment.cgi?id=2)
+Patch that checks name lengths against PG max lengths
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+From slony1-bugs at lists.slony.info  Thu Nov 29 12:01:16 2007
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Thu Nov 29 12:01:19 2007
+Subject: [Slony1-bugs] [Bug 15] Set up some form of constraint on length of
+	cluster name
+In-Reply-To: <bug-15-4@http.www.slony.info/bugzilla/>
+Message-ID: <20071129200116.B782C290D26@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=15
+
+
+
+
+
+--- Comment #3 from Christopher Browne <cbbrowne@ca.afilias.info>  2007-11-29 12:01:16 ---
+Got a patch; when I attempt to create a cluster with a wacky-long cluster name,
+set initialization blows up as follows, with this reasonably explanatory error
+message:
+
+<stdin>:2: PGRES_FATAL_ERROR select
+"_slony_regress1_7890123456789012345678901234567890102345".storeSet_int(1, 1,
+'All test1 tables');  - ERROR:  Length of proposed index name [79] >
+max_identifier_length [63] - cluster name probably too long
+CONTEXT:  SQL statement "SELECT 
+"_slony_regress1_7890123456789012345678901234567890102345".addPartialLogIndices()"
+PL/pgSQL function "storeset_int" line 31 at PERFORM
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+From slony1-bugs at lists.slony.info  Thu Nov 29 13:29:29 2007
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Thu Nov 29 13:29:31 2007
+Subject: [Slony1-bugs] [Bug 15] Set up some form of constraint on length of
+	cluster name
+In-Reply-To: <bug-15-4@http.www.slony.info/bugzilla/>
+Message-ID: <20071129212929.D4B89290D56@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=15
+
+
+Christopher Browne <cbbrowne@ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         Resolution|                            |FIXED
+    Remaining Hours|4.0                         |0.0
+             Status|ASSIGNED                    |RESOLVED
+
+
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+From slony1-bugs at lists.slony.info  Thu Nov 29 13:30:01 2007
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Thu Nov 29 13:30:03 2007
+Subject: [Slony1-bugs] [Bug 15] Set up some form of constraint on length of
+	cluster name
+In-Reply-To: <bug-15-4@http.www.slony.info/bugzilla/>
+Message-ID: <20071129213001.8DEB4290D26@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=15
+
+
+Christopher Browne <cbbrowne@ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+       Hours Worked|                            |2
+
+
+
+
+--- Comment #4 from Christopher Browne <cbbrowne@ca.afilias.info>  2007-11-29 13:30:01 ---
+Committed change to CVS HEAD
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+From slony1-bugs at lists.slony.info  Thu Nov 29 13:50:49 2007
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Thu Nov 29 13:50:50 2007
+Subject: [Slony1-bugs] [Bug 19] New: fresh schema for a logshipped node -
+ keeping triggers out
+Message-ID: <bug-19-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=19
+
+           Summary: fresh schema for a logshipped node - keeping triggers
+                    out
+           Product: Slony-I
+           Version: devel
+          Platform: All
+               URL: http://lists.slony.info/pipermail/slony1-general/2007-
+                    October/006763.html
+        OS/Version: All
+            Status: NEW
+          Severity: normal
+          Priority: medium
+         Component: other scripts
+        AssignedTo: slony1-bugs@lists.slony.info
+        ReportedBy: cbbrowne@ca.afilias.info
+                CC: slony1-bugs@lists.slony.info
+   Estimated Hours: 0.0
+
+
+How is it that i'm supposed to get clean schema for a logshipped node?
+
+I've previously pg_dumped form the log shipped node's provider, which is itself
+a subscriber.  On some dbs, however, i've run into the 'pg_dump sanity check
+failed' issue when dumping from a subscriber, so I though i'd try
+slony1_extract_schema.sh.  This extracts schema fine from an origin, but won't
+work for a log shipped node (i.e the output of slony1_dump.sh won't apply)
+unless I manually drop all of the triggers and constraints that are present on
+the origin...
+
+-- JP Fletcher, Afilias Canada
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Thu Nov 29 13:52:29 2007
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Thu Nov 29 13:52:30 2007
+Subject: [Slony1-bugs] [Bug 19] fresh schema for a logshipped node - keeping
+	triggers out
+In-Reply-To: <bug-19-4@http.www.slony.info/bugzilla/>
+Message-ID: <20071129215229.57B3B290D26@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=19
+
+
+Christopher Browne <cbbrowne@ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+    Estimated Hours|0.0                         |4.0
+             Status|NEW                         |ASSIGNED
+
+
+
+
+--- Comment #1 from Christopher Browne <cbbrowne@ca.afilias.info>  2007-11-29 13:52:29 ---
+Intention: To provide a script that may be run against a fresh log shipping
+node (e.g. - with schema) to search out triggers on replicated tables and
+suggest that the Gentle User consider dropping them.
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Fri Nov 30 09:00:45 2007
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Fri Nov 30 09:00:46 2007
+Subject: [Slony1-bugs] [Bug 20] New: CANCEL SUBSCRIPTION, CANCEL TABLE
+Message-ID: <bug-20-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=20
+
+           Summary: CANCEL SUBSCRIPTION, CANCEL TABLE
+           Product: Slony-I
+           Version: devel
+          Platform: All
+               URL: http://lists.slony.info/pipermail/slony1-general/2007-
+                    November/007041.html
+        OS/Version: All
+            Status: NEW
+          Severity: enhancement
+          Priority: medium
+         Component: slonik
+        AssignedTo: slony1-bugs@lists.slony.info
+        ReportedBy: cbbrowne@ca.afilias.info
+                CC: slony1-bugs@lists.slony.info
+   Estimated Hours: 32.0
+          Deadline: 2008-03-01
+
+
+When problems come up with subscriptions, it would be attractive if we could
+submit a "CANCEL SUBSCRIPTION" and/or "CANCEL TABLE" request that would be of
+higher priority (as an event) and which could quickly cause the cluster to
+reject a subscription or table that has somehow proven troublesome.
+
+Issues are severalfold:
+
+1.  Need to have a way of treating some events with higher priority so that
+they take place earlier than their injected event number indicates.
+
+2.  New SLONIK commands such as CANCEL SUBSCRIPTION, CANCEL TABLE.
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Fri Nov 30 09:01:01 2007
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Fri Nov 30 09:01:03 2007
+Subject: [Slony1-bugs] [Bug 20] CANCEL SUBSCRIPTION, CANCEL TABLE
+In-Reply-To: <bug-20-4@http.www.slony.info/bugzilla/>
+Message-ID: <20071130170101.85A87290D8F@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=20
+
+
+Christopher Browne <cbbrowne@ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+             Status|NEW                         |ASSIGNED
+
+
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Fri Nov 30 14:35:05 2007
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Fri Nov 30 14:35:07 2007
+Subject: [Slony1-bugs] [Bug 21] New:
+ slon should report all configuration values in logs upon startup
+Message-ID: <bug-21-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=21
+
+           Summary: slon should report all configuration values in logs upon
+                    startup
+           Product: Slony-I
+           Version: devel
+          Platform: All
+        OS/Version: All
+            Status: NEW
+          Severity: enhancement
+          Priority: medium
+         Component: slon
+        AssignedTo: slony1-bugs@lists.slony.info
+        ReportedBy: cbbrowne@ca.afilias.info
+                CC: slony1-bugs@lists.slony.info
+   Estimated Hours: 8.0
+          Deadline: 2007-12-31
+
+
+It would be valuable to see all effective configuration values in the logs, at
+the time that the slon starts up.
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Fri Nov 30 14:43:22 2007
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Fri Nov 30 14:43:24 2007
+Subject: [Slony1-bugs] [Bug 21] slon should report all configuration values
+ in logs upon startup
+In-Reply-To: <bug-21-4@http.www.slony.info/bugzilla/>
+Message-ID: <20071130224322.16B66290D64@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=21
+
+
+Christopher Browne <cbbrowne@ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+             Status|NEW                         |ASSIGNED
+
+
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Fri Nov 30 20:51:06 2007
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Fri Nov 30 20:51:07 2007
+Subject: [Slony1-bugs] [Bug 22] New: Change in function typenameTypeId() in
+ PG 8.3 to have 3 args
+Message-ID: <bug-22-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=22
+
+           Summary: Change in function typenameTypeId() in PG 8.3 to have 3
+                    args
+           Product: Slony-I
+           Version: devel
+          Platform: All
+               URL: http://lists.slony.info/pipermail/slony1-patches/2007-
+                    November/000033.html
+        OS/Version: All
+            Status: NEW
+          Severity: major
+          Priority: urgent
+         Component: trigger SPI
+        AssignedTo: slony1-bugs@lists.slony.info
+        ReportedBy: ssinger_pg@sympatico.ca
+                CC: slony1-bugs@lists.slony.info
+        Depends on: 16
+   Estimated Hours: 0.0
+
+
+Created an attachment (id=3)
+ --> (http://www.slony.info/bugzilla/attachment.cgi?id=3)
+Patch against HEAD to use 3 argument typenameTypeId and remove support for
+older versions
+
++++ This bug was initially created as a clone of Bug #16 +++
+
+The change of typenameTypeId() to have 3 args in PG 8.3 causes the build of C
+SPI functions to break.
+
+Dave Page provided a patch for this.
+-------------
+This problem is in cvs HEAD as well, currently we can't compile cvs head
+against 8.3 (which it requires)
+
+Since HEAD requires at least 8.3 anyway it seems that we can do without the
+ifdef for the number of arguments to typenameTypeId
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Fri Nov 30 20:51:06 2007
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Fri Nov 30 20:51:07 2007
+Subject: [Slony1-bugs] [Bug 16] Change in function typenameTypeId() in PG
+ 8.3 to have 3 args
+In-Reply-To: <bug-16-4@http.www.slony.info/bugzilla/>
+Message-ID: <20071201045106.74284290CA6@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=16
+
+
+Steve <ssinger_pg@sympatico.ca> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+             Blocks|                            |22
+
+
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+From aitali.lahcen at gmail.com  Tue Nov 13 09:19:30 2007
+From: aitali.lahcen at gmail.com (Lahcen AIT ALI)
+Date: Thu Sep 25 08:15:22 2008
+Subject: [Slony1-bugs] installation problem
+Message-ID: <9686fa260711130919p3412a4d7hfaaf66195e5f35b@mail.gmail.com>
+
+hi,
+When I try to install slony with debian, by make, I get the following
+message,
+
+
+pg02:/home/projet_postgres/slony1-1.2.11# make
+
+make[1]: entrant dans le r=E9pertoire =AB /home/projet_postgres/slony1-1.2.=
+11/src
+=BBmake[2]: entrant dans le r=E9pertoire =AB
+/home/projet_postgres/slony1-1.2.11/src/xxid
+=BBgcc -g -O2 -Wall -Wmissing-prototypes -Wmissing-declarations -fpic -I../=
+..
+-I/usr/local/postgresql8.2.5/bis/include
+-I/usr/local/postgresql8.2.5/bis/include/server  -c -o xxid.o xxid.c
+xxid.c:27:25: error: operator '>' has no left operand
+xxid.c: In function '_Slony_I_xxid_snapshot_in':
+xxid.c:327: warning: implicit declaration of function 'SET_VARSIZE'
+make[2]: *** [xxid.o] Erreur 1
+make[2]: quittant le r=E9pertoire =AB /home/projet_postgres/slony1-1.2.11/s=
+rc/xxid
+=BB
+make[1]: *** [all] Erreur 2
+make[1]: quittant le r=E9pertoire =AB /home/projet_postgres/slony1-1.2.11/s=
+rc =BB
+make: *** [all] Erreur 2
+
+can you help me please ?
+thank you
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-bugs/attachments/20071113/abd=
+855cb/attachment-0001.htm

@@ -1,0 +1,5031 @@
+From oleg at mamontov.net  Mon Jun  1 02:07:59 2009
+From: oleg at mamontov.net (Oleg A. Mamontov)
+Date: Mon Jun  1 02:08:32 2009
+Subject: [Slony1-general] Slony bug and patch proposal
+Message-ID: <80E49997-66B4-4D6C-9A9F-CB46D8F99ED3@mamontov.net>
+
+Hello!
+
+I am using it on FreeBSD systems for moving PostgreSQL databases between
+servers with minimum downtime, all works fine.
+But when I try to setup permanent master-slave schema some problems  
+occured.
+Some times (accidentally) master system didn't generate sync events,  
+and shutting down
+slon on master systems had long time.
+After debugging session, i found cause of problem (there is two  
+problem, Slony and FreeBSD too).
+IMHO there is a logical mistake in slon/scheduler.c, in sched_mainloop  
+fdsets copied
+for select before checking connections for their timeouts. In timeout  
+case this
+descriptors will be removed with DLLIST_REMOVE and sched_remove_fdset,  
+but stayed in
+select descriptors bit vector.
+There is a race condition: scheduler and libpq client polls same file  
+descriptor and sometime
+scheduler select discover readable descriptor and lipbq poll blocks  
+for infinte time :(
+I tested this on FreeBSD 7.0, trouble repeated in ~60% runs.
+I attach a patch, please, take a look on this code, it seems right,  
+imho...
+
+Thank you, advance!
+
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: patch-scheduler
+Type: application/octet-stream
+Size: 1063 bytes
+Desc: not available
+Url : http://lists.slony.info/pipermail/slony1-general/attachments/20090601/7a651dc1/patch-scheduler.obj
+-------------- next part --------------
+
+
+-- 
+Cheers,
+Oleg A. Mamontov
+
+mailto:  oleg@mamontov.net
+
+icq uin: 79-521-617
+cell:    +7-903-798-1352
+
+-- 
+Cheers,
+Oleg A. Mamontov
+
+mailto:  oleg@mamontov.net
+
+icq uin: 79-521-617
+cell:    +7-903-798-1352
+
+From bnichols at ca.afilias.info  Mon Jun  1 07:47:28 2009
+From: bnichols at ca.afilias.info (Brad Nicholson)
+Date: Mon Jun  1 07:47:35 2009
+Subject: [Slony1-general] Initial replication of sequences is failing
+In-Reply-To: <20090530040848.GF13757@shinkuro.com>
+References: <393288.40720.qm@web53004.mail.re2.yahoo.com>
+	<20090530040848.GF13757@shinkuro.com>
+Message-ID: <1243867648.20786.51.camel@bnicholson-desktop>
+
+On Sat, 2009-05-30 at 00:08 -0400, Andrew Sullivan wrote:
+> On Fri, May 29, 2009 at 03:37:04PM -0700, Melvin Davidson wrote:
+> > >>  sequence ID 1 has already been assigned
+> > 
+> > There's your big clue! You probably have two sequences somewhere in
+> > the config with the same sequence ID. 
+> 
+> I agree this has to be the problem.
+> 
+> > sequences with the same ID as a table, I always start my sequences
+> > with an offset of 1000 from table ID's just to make tracking easier.
+> 
+> Gee, and then what do you do when you end up with 1000 tables, because
+> you have to do with table rotation due to huge success of your
+> incredible application?  Integers in int32 space are pretty much
+> free.  If you're trying to save yourself trouble this way, offset by
+> more than 1000 -- 10 000 or even 100 000 isn't a bad idea.
+> 
+> Note I'm not objecting on principled grounds that "you might need 
+> 10 000 tables" or anything.  This is just a prudential remark that an
+> offset of 1 000 is a little too close, in my experience.
+
+I wonder though if there will be a limiting factor in Slony itself
+though.  I recall that node numbers had some sort of artificial ceiling
+around 9000 or so, due to how they are used internally. 
+
+-- 
+Brad Nicholson  416-673-4106
+Database Administrator, Afilias Canada Corp.
+
+
+From greg at endpoint.com  Mon Jun  1 06:45:57 2009
+From: greg at endpoint.com (Greg Sabino Mullane)
+Date: Mon Jun  1 07:54:05 2009
+Subject: [Slony1-general] Version 2.x rpms?
+Message-ID: <4A23DB95.1070003@endpoint.com>
+
+Is there a rough idea of when slony.info will have rpms for version 2.x?
+I've heard a few rumors, bit it would be nice to have it stated here in
+the archives. :)
+
+
+-- =
+
+Greg Sabino Mullane greg@endpoint.com
+End Point Corporation
+PGP Key: 0x14964AC8
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: signature.asc
+Type: application/pgp-signature
+Size: 225 bytes
+Desc: OpenPGP digital signature
+Url : http://lists.slony.info/pipermail/slony1-general/attachments/20090601=
+/736d5c2b/signature.pgp
+From sean at ftdna.com  Mon Jun  1 08:38:02 2009
+From: sean at ftdna.com (Sean)
+Date: Mon Jun  1 08:38:18 2009
+Subject: [Slony1-general] Initial replication of sequences is failing
+In-Reply-To: <6bc73d4c0905310659g2484101cn56013b4cf825ca40@mail.gmail.com>
+References: <4A204B3B.9040900@ftdna.com>
+	<6bc73d4c0905310659g2484101cn56013b4cf825ca40@mail.gmail.com>
+Message-ID: <4A23F5DA.5030205@ftdna.com>
+
+Thanks for all the responses.  To quickly answer Stuart's question...  
+Yes it keeps looping.  Also, it doesn't appear that the system is 
+running out of disk space.  The root partition still has 27G free and 
+the partition that contains the postgresql data has 261G free.  I'll 
+investigate Bug #62 in the meantime.  Just to help with troubleshooting, 
+I'll build another replication cluster and start the table IDs at 1 and 
+the sequence IDs at 1001.
+
+Cheers!
+Sean
+
+Stuart Bishop wrote:
+> On Sat, May 30, 2009 at 3:53 AM, Sean Staats <sean@ftdna.com> wrote:
+>   
+>> The initial replication of all 165 tables appears to succeed.  When slony
+>> tries to replicate the first sequence, the following error is reported:
+>> log snippet...
+>>     
+>
+>   
+>> 2009-05-29 15:39:06 CDT ERROR  remoteWorkerThread_1: "select
+>> "_finch_cluster_1".setAddSequence_int(1, 1,
+>> '"finch"."contig_sequence_id_seq"', '')" PGRES_FATAL_ERROR ERROR:  Slony-I:
+>> setAddSequence_int(): sequence ID 1 has already been assigned
+>> 2009-05-29 15:39:06 CDT WARN   remoteWorkerThread_1: data copy for set 1
+>> failed - sleep 60 seconds
+>> WARNING:  there is no transaction in progress
+>>     
+>
+> Does it keep looping?
+>
+> You might be hitting Bug #62 (
+> http://www.slony.info/bugzilla/show_bug.cgi?id=62 ). Its repeatable if
+> you run out of disk space during replication, but there might be other
+> triggers too. If you search the archives, there is a thread about the
+> same error message roughly every month or two.
+>
+>   
+
+From rainer at ultra-secure.de  Tue Jun  2 02:41:29 2009
+From: rainer at ultra-secure.de (Rainer Duffner)
+Date: Tue Jun  2 02:42:08 2009
+Subject: [Slony1-general] Problem running slonik on	Solaris:	slony1_funcs
+	not found
+In-Reply-To: <OF0732A532.66134EFA-ON652575C5.0028950C-652575C5.0028B9C7@ibsplc.com>
+References: <OF0732A532.66134EFA-ON652575C5.0028950C-652575C5.0028B9C7@ibsplc.com>
+Message-ID: <4A24F3C9.2090206@ultra-secure.de>
+
+Jayadevan M schrieb:
+> Hi,
+> There is a mention of that error (configure: error: Your version of
+> libpq doesn't have PQunescapeBytea) here...
+> http://www.slony.info/documentation/faq.html
+> Regards,
+> Jay
+>
+>   
+
+
+
+Hi,
+it seems that it's a 32/64 bit problem.
+
+I tried compiling it with some more flags:
+
+PATH=/opt/SUNWspro/bin/:/usr/postgres/8.3/bin:/usr/sfw/bin:/usr/bin:/usr/ucb:/usr/sbin/:.
+&& export PATH
+CC=cc && export CC
+CFLAGS="-m64"
+export CFLAGS
+CPPFLAGS="-I/usr/postgres/8.3/include/
+-I/usr/postgres/8.3/include/server/ -I../../src/slonik"   && export CPPFLAGS
+
+But this resulted in pgport (libpgport.a) not being found anymore.
+I had compiled pgport previously out of the sources of postgres (from
+Solaris DVD). So, I went and recompiled it, too:
+(with -m64 and -xarch=native, as suggested here:
+http://blogs.sun.com/jkshah/entry/postgres_and_sun_studio_12 )
+
+But now, the gmake of slony bombs out with:
+
+cc -m64 -I../.. -KPIC -I/usr/postgres/8.3/include/
+-I/usr/postgres/8.3/include/server/ -I/usr/postgres/8.3/include/
+-I/usr/postgres/8.3/include/server/ -I/usr/postgres/8.3/include/
+-I/usr/postgres/8.3/include/server/ -I/usr/postgres/8.3/include/
+-I/usr/postgres/8.3/include/server/ -I../../src/slonik -c -o
+slony1_funcs.o slony1_funcs.c
+"slony1_funcs.c", line 1029: warning: argument #1 is incompatible with
+prototype:
+        prototype: pointer to const char :
+"/usr/postgres/8.3/include/server/mb/pg_wchar.h", line 351
+        argument : pointer to unsigned char
+ld -G -Bdynamic -o slony1_funcs.so slony1_funcs.o
+ld: warning: i386:x86-64 architecture of input file `slony1_funcs.o' is
+incompatible with i386 output
+
+
+
+
+Help, how can I fix this?
+Has anybody built slony on Solaris?
+
+
+
+
+Best Regards,
+Rainer
+
+
+From owais at preceptglobalaccess.com  Tue Jun  2 06:17:17 2009
+From: owais at preceptglobalaccess.com (owais)
+Date: Tue Jun  2 06:57:21 2009
+Subject: [Slony1-general] How to shut-down slony replication
+Message-ID: <001401c9e384$75a8e140$60faa3c0$@com>
+
+Hi guys, I just start looking in to slony1 project. The project has
+impressed me a lot. I have successfully manage to start the replication
+between two databases (one the same machine). I have used the following
+article to setup slony replication
+(http://www.linuxjournal.com/article/7834). 
+
+ 
+
+Now, I have the following questions:
+
+ 
+
+1)      What is the procedure to stop replication process? Can anyone
+present me a sample shell script?
+
+ 
+
+2)      Is it possible to toggle master and slave? I only have 1 master
+database and 1 slave. Can I change slave to master?
+
+ 
+
+-Regards
+
+ 
+
+Owais
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20090602/9167e6a3/attachment.htm
+From melvin6925 at yahoo.com  Tue Jun  2 07:17:45 2009
+From: melvin6925 at yahoo.com (Melvin Davidson)
+Date: Tue Jun  2 07:17:51 2009
+Subject: [Slony1-general] How to shut-down slony replication
+Message-ID: <675794.98977.qm@web53008.mail.re2.yahoo.com>
+
+To temporarily stop replication, I issue=A0=A0 pkill slon=A0 on the master =
+and all slave. =
+
+
+To toggle a master and slave, I use a slonik script like one below:
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D
+slonik <<_EOF_
+
+#--
+# define the namespace the replication system uses in our example it is
+# slony_example
+#--
+CLUSTER NAME =3D $PTS_META_REP;
+
+#--
+# admin conninfo's are used by slonik to connect to the nodes one for each
+# node on each side of the cluster, the syntax is that of PQconnectdb in
+# the C-API
+# --
+node 1 admin conninfo=3D'dbname=3D$MASTERDBNAME host=3D$MASTERHOST port=3D$=
+PGPORT user=3D$REPLICATIONUSER';
+node 101 admin conninfo=3D'dbname=3D$MASTERDBNAME host=3D$SLAVEHOST1 port=
+=3D$JCIPORT user=3D$REPLICATIONUSER';
+
+# ----
+# Switchover to node 101, make node 1 the slave
+# ----
+
+lock set (id =3D 1, origin =3D 1);
+wait for event (origin =3D 1, confirmed =3D 101);
+move set (id =3D 1, old origin =3D 1, new origin =3D 101);
+wait for event (origin =3D 1, confirmed =3D 101);
+
+_EOF_
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D
+
+Likewise to switch back, I use:
+
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D
+slonik <<_EOF_
+
+#--
+# define the namespace the replication system uses in our example it is
+# slony_example
+#--
+CLUSTER NAME =3D $PTS_META_REP;
+
+#--
+# admin conninfo's are used by slonik to connect to the nodes one for each
+# node on each side of the cluster, the syntax is that of PQconnectdb in
+# the C-API
+# --
+node 1 admin conninfo=3D'dbname=3D$MASTERDBNAME host=3D$MASTERHOST port=3D$=
+PGPORT user=3D$REPLICATIONUSER';
+node 101 admin conninfo=3D'dbname=3D$MASTERDBNAME host=3D$SLAVEHOST1 port=
+=3D$JCIPORT user=3D$REPLICATIONUSER';
+
+# ----
+# Switchover to node 1, make node 101 the slave
+# ----
+
+lock set (id =3D 1, origin =3D 101);
+wait for event (origin =3D 101, confirmed =3D 1);
+move set (id =3D 1, old origin =3D 101, new origin =3D 1);
+wait for event (origin =3D 101, confirmed =3D 1);
+
+_EOF_
+
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D
+
+Melvin Davidson =
+
+ =
+
+
+
+--- On Tue, 6/2/09, owais <owais@preceptglobalaccess.com> wrote:
+
+From: owais <owais@preceptglobalaccess.com>
+Subject: [Slony1-general] How to shut-down slony replication
+To: slony1-general@lists.slony.info
+Date: Tuesday, June 2, 2009, 7:17 AM
+
+
+
+
+ =
+
+ =
+
+
+
+
+
+
+
+Hi guys, I just start looking in to slony1 project. The
+project has impressed me a lot. I have successfully manage to start the
+replication between two databases (one the same machine). I have used the
+following article to setup slony replication (http://www.linuxjournal.com/a=
+rticle/7834).
+ =
+
+
+ =A0 =
+
+
+Now, I have the following questions: =
+
+
+ =A0 =
+
+
+1)=A0=A0=A0=A0=A0
+What is the procedure to stop replication process? Can
+anyone present me a sample shell script? =
+
+
+ =A0 =
+
+
+2)=A0=A0=A0=A0=A0
+Is it possible to toggle master and slave? I only have
+1 master database and 1 slave. Can I change slave to master? =
+
+
+ =A0 =
+
+
+-Regards =
+
+
+ =A0 =
+
+
+Owais =
+
+
+
+
+ =
+
+
+
+-----Inline Attachment Follows-----
+
+_______________________________________________
+Slony1-general mailing list
+Slony1-general@lists.slony.info
+http://lists.slony.info/mailman/listinfo/slony1-general
+
+
+
+      =
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20090602/=
+475dd092/attachment.htm
+From stephane.schildknecht at postgresqlfr.org  Tue Jun  2 08:29:15 2009
+From: stephane.schildknecht at postgresqlfr.org (=?ISO-8859-15?Q?=22St=E9phane_A=2E_Schildknecht=22?=)
+Date: Tue Jun  2 08:29:28 2009
+Subject: [Slony1-general] Another problem with slony1-ctl
+In-Reply-To: <7932B163-5CF1-4D50-B142-0A98B3334B62@bastian-voigt.de>
+References: <5638A604-F222-4FCA-A93F-96D046B7FAD5@bastian-voigt.de>
+	<7932B163-5CF1-4D50-B142-0A98B3334B62@bastian-voigt.de>
+Message-ID: <4A25454B.7060400@postgresqlfr.org>
+
+-----BEGIN PGP SIGNED MESSAGE-----
+Hash: SHA1
+
+Bastian Voigt a ?crit :
+> I did some further investigation on this one, and this is what I found out:
+> 
+> It seems that the scripts (11_create_addobj and 12_exec_addobj) generate
+> bad return values, even though they executed successfully. When I leave
+> out the "or die" in my perl script, both scripts are executed fine.
+> 
+> Any explanation for this behaviour?
+> 
+> 
+> Cheers
+> Bastian
+> 
+> 
+> Am 04.05.2009 um 11:05 schrieb Bastian Voigt:
+> 
+>> Hi *,
+>>
+>> in my database I have one very large table wich is partioned using
+>> PG's inheritance feature. To maintain this table, I have a cron script
+>> that runs every month, creates a new table and modifies the insert
+>> trigger. Now that my DB is being upgraded to a slony master-slave
+>> setup I need to modify this monthly script, so that it adds the newly
+>> created table to the repliation set.
+>>
+>> I tried to do this from perl:
+>>
+>> system("/opt/slony1-ctl/slony-ctl/outils/11_create_addobj.sh -c
+>> vesseltracker -s 1 -f $filename") or die $!;
+>> exec("/opt/slony1-ctl/slony-ctl/outils/12_exec_addobj.sh -c
+>> vesseltracker -s 1") or die $!;
+>>
+>> The first script works, the second one gives me an error:
+>>
+>> "Inappropriate ioctl for device at /scripts/trackingtables.pl line 124"
+>>
+>> Any idea where that might come from?
+>>
+
+Hi,
+
+I did some improvments in return codes in suscripts. Hope it may have solved
+this problem. Just let me know.
+
+These improvments may be found in version 1.1.3 package :
+http://pgfoundry.org/frs/download.php/2250/slony1-ctl-1.1.3.tar.gz
+
+Best regards,
+- --
+St?phane Schildknecht
+PostgreSQLFr - http://www.postgresql.fr
+-----BEGIN PGP SIGNATURE-----
+Version: GnuPG v1.4.6 (GNU/Linux)
+Comment: Using GnuPG with Mozilla - http://enigmail.mozdev.org
+
+iD8DBQFKJUVLA+REPKWGI0ERAgd6AJ9dE+4nnSRX/g+CNqZZYf+nZRJ7cwCfb8/p
+4BwK1AnvTkZPYeK2wAG/f7g=
+=lLIj
+-----END PGP SIGNATURE-----
+From sean at ftdna.com  Tue Jun  2 08:30:45 2009
+From: sean at ftdna.com (Sean Staats)
+Date: Tue Jun  2 08:30:58 2009
+Subject: [Slony1-general] Initial replication of sequences is failing
+In-Reply-To: <4A23F5DA.5030205@ftdna.com>
+References: <4A204B3B.9040900@ftdna.com>	<6bc73d4c0905310659g2484101cn56013b4cf825ca40@mail.gmail.com>
+	<4A23F5DA.5030205@ftdna.com>
+Message-ID: <4A2545A5.20502@ftdna.com>
+
+I created a new replication cluster.  It turns out that starting the 
+table IDs at id=1 and the sequence IDs at id=1001 didn't make any 
+difference as slony gave me the same error (sequence ID 1001 has already 
+been assigned.)  Increasing the log verbosity to 4 doesn't produce any 
+more useful debugging information.  Time for another approach.
+
+Would it make sense to create 2 different sets - one to replicate the 
+tables and one to replicate the sequences?  Is there a downside to this 
+kind of workaround?
+
+Sean
+
+
+Sean wrote:
+> Thanks for all the responses.  To quickly answer Stuart's question...  
+> Yes it keeps looping.  Also, it doesn't appear that the system is 
+> running out of disk space.  The root partition still has 27G free and 
+> the partition that contains the postgresql data has 261G free.  I'll 
+> investigate Bug #62 in the meantime.  Just to help with 
+> troubleshooting, I'll build another replication cluster and start the 
+> table IDs at 1 and the sequence IDs at 1001.
+>
+> Cheers!
+> Sean
+>
+> Stuart Bishop wrote:
+>> On Sat, May 30, 2009 at 3:53 AM, Sean Staats <sean@ftdna.com> wrote:
+>>  
+>>> The initial replication of all 165 tables appears to succeed.  When 
+>>> slony
+>>> tries to replicate the first sequence, the following error is reported:
+>>> log snippet...
+>>>     
+>>
+>>  
+>>> 2009-05-29 15:39:06 CDT ERROR  remoteWorkerThread_1: "select
+>>> "_finch_cluster_1".setAddSequence_int(1, 1,
+>>> '"finch"."contig_sequence_id_seq"', '')" PGRES_FATAL_ERROR ERROR:  
+>>> Slony-I:
+>>> setAddSequence_int(): sequence ID 1 has already been assigned
+>>> 2009-05-29 15:39:06 CDT WARN   remoteWorkerThread_1: data copy for 
+>>> set 1
+>>> failed - sleep 60 seconds
+>>> WARNING:  there is no transaction in progress
+>>>     
+>>
+>> Does it keep looping?
+>>
+>> You might be hitting Bug #62 (
+>> http://www.slony.info/bugzilla/show_bug.cgi?id=62 ). Its repeatable if
+>> you run out of disk space during replication, but there might be other
+>> triggers too. If you search the archives, there is a thread about the
+>> same error message roughly every month or two.
+>>
+>>   
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general@lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+
+From troy at troywolf.com  Tue Jun  2 11:02:46 2009
+From: troy at troywolf.com (Troy Wolf)
+Date: Tue Jun  2 11:03:05 2009
+Subject: [Slony1-general] How to shut-down slony replication
+Message-ID: <e0d7c3f50906021102n6e684e3aueba8d81f2738abdd@mail.gmail.com>
+
+>
+> Date: Tue, 2 Jun 2009 18:17:17 +0500
+> From: "owais" <owais@preceptglobalaccess.com>
+>
+
+
+> 1)      What is the procedure to stop replication process? Can anyone
+> present me a sample shell script?
+>
+>
+> 2)      Is it possible to toggle master and slave? I only have 1 master
+> database and 1 slave. Can I change slave to master?
+>
+
+First, a disclaimer--I am not a Slony expert, but I did stay in a Holiday
+Inn Express last night.
+
+#1
+To start and stop the slon processes, since I run on SUSE Linux, I use a
+SUSE style init script. I cannot take credit for most of this because I got
+it from someone else--don't remember who. It works great. Below, I'll post
+the contents of the init script along with a "slony_vars" file. You'll need
+to read through both to figure out the parts you need to change. Also, I
+pipe slon logs through cronolog to handle rotation at midnight (one log file
+per day). You don't have to do this, but it's simple to use and configure.
+
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D
+FILENAME: /path/to/your/slony/scripts/slony_vars.sh
+I stripped this file down for generic purposes here. In my application, it
+has a case statement
+that is used to output slightly different files based on the host machine.
+The purpose is to
+output constants that are used in all slonik scripts and the init script.
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D
+#!/bin/sh
+
+if [ -z "$SLONY_DIR" ]; then
+    SLONY_DIR=3D"/path/to/your/slony/scripts"
+fi
+
+# This script may get included more than once, so create these variables if
+not
+# already initialized.
+if [ -z "$CLUSTERNAME" ]; then
+    RET=3D0
+
+    CLUSTERNAME=3Dslony
+    SLONY_USER=3Dslony
+    SLONY_LOGDIR=3D/path/to/your/logfiles
+
+    HOST1=3Dyour_master_host_name
+    HOST1_DBNAME=3Dyour_master_db_name
+    HOST1_DSN=3D"host=3D$HOST1 dbname=3D$HOST1_DBNAME user=3D$SLONY_USER"
+
+    HOST2=3Dyour_slave_host_name
+    HOST2_DBNAME=3Dyour_slave_db_name  # Perhaps same as master name.
+    HOST2_DSN=3D"host=3D$HOST2 dbname=3D$HOST2_DBNAME user=3D$SLONY_USER"
+
+    # Create the slonik preamble -- the common stuff you have to do in every
+script.
+    echo "# This file is written by slony_vars.sh - DO NOT EDIT." >
+$SLONY_DIR/slonik_preamble.txt
+    echo "# Cluster definition common to all slonik scripts." >>
+$SLONY_DIR/slonik_preamble.txt
+    echo "cluster name =3D $CLUSTERNAME;" >> $SLONY_DIR/slonik_preamble.txt
+    echo "node 1 admin conninfo =3D '$HOST1_DSN';"  >>
+$SLONY_DIR/slonik_preamble.txt
+    echo "node 2 admin conninfo =3D '$HOST2_DSN';"  >>
+$SLONY_DIR/slonik_preamble.txt
+    chmod 666 "$SLONY_DIR/slonik_preamble.txt"
+
+    # Generate the slon conf file used by the slon process on startup.
+    SLON_CONFIG=3D"$SLONY_DIR/slon.conf"
+    echo "# This file generated by the slony init script - DO NOT EDIT!" >
+$SLON_CONFIG
+    echo "# The slon process uses these options on startup." >> $SLON_CONFIG
+    echo "cluster_name=3D\"$CLUSTERNAME\"" >> $SLON_CONFIG
+    echo "conn_info=3D\"$HOST1_DSN\"" >> $SLON_CONFIG
+    echo "pid_file=3D\"$SLONY_DIR/slon.pid\"" >> $SLON_CONFIG
+    echo "sync_group_maxsize=3D1000" >> $SLON_CONFIG
+    echo "log_level=3D1" >> $SLON_CONFIG
+    chmod 666 "$SLON_CONFIG"
+fi
+
+
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D
+FILENAME: /etc/init.d/slony
+This is a Suse style init script. I got this from someone else and modified
+for my use.
+Once in place, and with Suse-style rc aliases, you can do as root:
+  # rcslony start
+  # rcslony stop
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D
+#!/bin/sh
+#
+# /etc/init.d/slony
+#
+### BEGIN INIT INFO
+# Provides:          slony
+# Required-Start:    $syslog $local_fs $network $time postgresql
+# Should-Start:      sendmail
+# Required-Stop:     $syslog $local_fs
+# Should-Stop:
+# Default-Start:     3 5
+# Default-Stop:      0 1 2 6
+# Short-Description: Slony database replication
+# Description:       Start the slon listener to enable
+#                 Slony to communicate with other nodes in the cluster
+### END INIT INFO
+
+# Location of the slony scripts.
+SLONY_DIR=3D"/path/to/your/slony/scripts"
+
+# I created a slony_vars.sh where I set a lot of global variables to be
+shared
+# by all Slony scripts.
+test -r $SLONY_DIR/slony_vars.sh || { echo "$SLONY_DIR/slony_vars.sh does
+not exist";
+        if [ "$1" =3D "stop" ]; then exit 0;
+        else exit 6; fi; }
+
+# Read the slony variables
+. $SLONY_DIR/slony_vars.sh
+
+SLON_CONFIG=3D"$SLONY_DIR/slon.conf"
+SLON_LOGFILE=3D"$SLONY_LOGDIR/slon-%Y-%m-%d.log"
+
+# Make sure the file is good.
+test -r $SLON_CONFIG || { echo "$SLON_CONFIG does not exist";
+        if [ "$1" =3D "stop" ]; then exit 0;
+        else exit 6; fi; }
+
+# Check for missing binaries (stale symlinks should not happen)
+# Note: Special treatment of stop for LSB conformance
+SLON_BIN=3D"/path/to/slon/binary"
+test -x $SLON_BIN || { echo "$SLON_BIN not installed";
+if [ "$1" =3D "stop" ]; then exit 0;
+else exit 5; fi; }
+
+# I use cronolog to handle logging and log file rotation.
+CRONOLOG_BIN=3D"/opt/pg/bin/cronolog"
+test -x $CRONOLOG_BIN || { echo "$CRONOLOG_BIN not installed";
+if [ "$1" =3D "stop" ]; then exit 0;
+else exit 5; fi; }
+
+. /etc/rc.status
+
+# Reset status of this service
+rc_reset
+
+case "$1" in
+
+    start)
+echo -n "Starting slon "
+## Start daemon with startproc(8). If this fails
+## the return value is set appropriately by startproc.
+/sbin/startproc -v -u postgres $SLON_BIN -f $SLON_CONFIG 2>&1 |
+$CRONOLOG_BIN $SLON_LOGFILE &
+
+# Remember status and be verbose
+rc_status -v
+;;
+
+    stop)
+echo -n "Shutting down slon "
+## Stop daemon with killproc(8) and if this fails
+## killproc sets the return value according to LSB.
+
+/sbin/killproc -TERM $SLON_BIN
+
+# Remember status and be verbose
+rc_status -v
+;;
+
+    restart)
+## Stop the service and regardless of whether it was
+## running or not, start it again.
+$0 stop
+$0 start
+
+# Remember status and be quiet
+rc_status
+;;
+
+    status)
+echo -n "Checking for service slon "
+## Check status with checkproc(8), if process is running
+## checkproc will return with exit status 0.
+
+# Return value is slightly different for the status command:
+# 0 - service up and running
+# 1 - service dead, but /var/run/  pid  file exists
+# 2 - service dead, but /var/lock/ lock file exists
+# 3 - service not running (unused)
+# 4 - service status unknown :-(
+# 5--199 reserved (5--99 LSB, 100--149 distro, 150--199 appl.)
+
+# NOTE: checkproc returns LSB compliant status values.
+/sbin/checkproc $SLON_BIN
+# NOTE: rc_status knows that we called this init script with
+# "status" option and adapts its messages accordingly.
+rc_status -v
+;;
+
+    *)
+echo "Usage: $0 {start|stop|status|restart}"
+exit 1
+;;
+esac
+rc_exit
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D
+
+#2
+There are 2 main ways you make the slave into master.
+http://www.slony.info/adminguide/slony1-1.2.6/doc/adminguide/failover.html
+
+  1. Switchover
+      http://www.slony.info/documentation/stmtmoveset.html
+
+  2. Failover
+      http://www.slony.info/documentation/stmtfailover.html
+
+A "Fail over" is a concept as well as an actual slonik command. This is an
+irreversible action. That is, it is assumed the master has crashed. Once
+you've repaired the master, you'd have to re-setup Slony from scratch on it.
+(which is not really that difficult once you've figured it out and scripted
+your table set creation)
+
+A "Switch over" is really just "moving" a replication set from one node to
+another. That is, making a different node the "originator" of the data. The
+magical part is that all the slony triggers are dropped and re-created
+appropriately on the nodes so you can now insert on the new "master" db
+while the new slave(s) are protected from manual updates. We use switchover
+in testing our disaster recovery strategy. It is safe and fast to do.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20090602/=
+9f9041b7/attachment.htm
+From ajs at crankycanuck.ca  Tue Jun  2 13:02:19 2009
+From: ajs at crankycanuck.ca (Andrew Sullivan)
+Date: Tue Jun  2 13:02:37 2009
+Subject: [Slony1-general] Initial replication of sequences is failing
+In-Reply-To: <4A2545A5.20502@ftdna.com>
+References: <4A204B3B.9040900@ftdna.com>
+	<6bc73d4c0905310659g2484101cn56013b4cf825ca40@mail.gmail.com>
+	<4A23F5DA.5030205@ftdna.com> <4A2545A5.20502@ftdna.com>
+Message-ID: <20090602200218.GB16529@shinkuro.com>
+
+On Tue, Jun 02, 2009 at 10:30:45AM -0500, Sean Staats wrote:
+> I created a new replication cluster.  It turns out that starting the  
+> table IDs at id=1 and the sequence IDs at id=1001 didn't make any  
+> difference as slony gave me the same error (sequence ID 1001 has already  
+> been assigned.)  Increasing the log verbosity to 4 doesn't produce any  
+> more useful debugging information.  Time for another approach.
+>
+> Would it make sense to create 2 different sets - one to replicate the  
+> tables and one to replicate the sequences?  Is there a downside to this  
+> kind of workaround?
+
+It'd be better to figure out what the duplication is caused by.  Have
+a look in the _slony tables and check to see what's in there.  Where's
+the collision?
+
+A
+
+-- 
+Andrew Sullivan
+ajs@crankycanuck.ca
+From jeff at frostconsultingllc.com  Tue Jun  2 13:11:12 2009
+From: jeff at frostconsultingllc.com (Jeff Frost)
+Date: Tue Jun  2 13:12:18 2009
+Subject: [Slony1-general] Initial replication of sequences is failing
+In-Reply-To: <20090602200218.GB16529@shinkuro.com>
+References: <4A204B3B.9040900@ftdna.com>	<6bc73d4c0905310659g2484101cn56013b4cf825ca40@mail.gmail.com>	<4A23F5DA.5030205@ftdna.com>
+	<4A2545A5.20502@ftdna.com> <20090602200218.GB16529@shinkuro.com>
+Message-ID: <EMEWEMEW2_DELIMl51FBNbaf5c9c8a78e259939f496,
+	jeff@frostconsultingllc.com, 4A258760.50>
+
+Andrew Sullivan wrote:
+> On Tue, Jun 02, 2009 at 10:30:45AM -0500, Sean Staats wrote:
+>   =
+
+>> I created a new replication cluster.  It turns out that starting the  =
+
+>> table IDs at id=3D1 and the sequence IDs at id=3D1001 didn't make any  =
+
+>> difference as slony gave me the same error (sequence ID 1001 has already=
+  =
+
+>> been assigned.)  Increasing the log verbosity to 4 doesn't produce any  =
+
+>> more useful debugging information.  Time for another approach.
+>>
+>> Would it make sense to create 2 different sets - one to replicate the  =
+
+>> tables and one to replicate the sequences?  Is there a downside to this  =
+
+>> kind of workaround?
+>>     =
+
+>
+> It'd be better to figure out what the duplication is caused by.  Have
+> a look in the _slony tables and check to see what's in there.  Where's
+> the collision?
+>
+>   =
+
+I've seen this issue recently when the initial sync fails.  If you
+scroll further back in your logs do you have a failure for the initial
+copy_set?  When this happens to me, it seems that slony leaves the slave
+DB in a half replicated state, but reattempts to do the initial sync and
+finds that the sequences are already in _cluster.sl_sequence table, then
+errors out.  This requires dropping the node and starting over.  This is
+with version 1.2.16. I recall previous versions being able to recover
+from a failed initial sync without intervention, but my memory could be
+mistaken.
+
+
+-- =
+
+Jeff Frost, Owner 	<jeff@frostconsultingllc.com>
+Frost Consulting, LLC 	http://www.frostconsultingllc.com/
+Phone: 916-647-6411	FAX: 916-405-4032
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20090602/=
+c08c11fb/attachment.htm
+From jeff at frostconsultingllc.com  Tue Jun  2 13:17:19 2009
+From: jeff at frostconsultingllc.com (Jeff Frost)
+Date: Tue Jun  2 13:18:34 2009
+Subject: [Slony1-general] Initial replication of sequences is failing
+In-Reply-To: <4A258760.5030900@frostconsultingllc.com>
+References: <4A204B3B.9040900@ftdna.com>	<6bc73d4c0905310659g2484101cn56013b4cf825ca40@mail.gmail.com>	<4A23F5DA.5030205@ftdna.com>
+	<4A2545A5.20502@ftdna.com> <20090602200218.GB16529@shinkuro.com>
+	<4A258760.5030900@frostconsultingllc.com>
+Message-ID: <EMEWEMEW2_DELIMl51FHK34913f427ae914a96ceaa1,
+	jeff@frostconsultingllc.com, 4A2588CF.50>
+
+Jeff Frost wrote:
+> Andrew Sullivan wrote:
+>> On Tue, Jun 02, 2009 at 10:30:45AM -0500, Sean Staats wrote:
+>>   =
+
+>>> I created a new replication cluster.  It turns out that starting the  =
+
+>>> table IDs at id=3D1 and the sequence IDs at id=3D1001 didn't make any  =
+
+>>> difference as slony gave me the same error (sequence ID 1001 has alread=
+y  =
+
+>>> been assigned.)  Increasing the log verbosity to 4 doesn't produce any  =
+
+>>> more useful debugging information.  Time for another approach.
+>>>
+>>> Would it make sense to create 2 different sets - one to replicate the  =
+
+>>> tables and one to replicate the sequences?  Is there a downside to this=
+  =
+
+>>> kind of workaround?
+>>>     =
+
+>>
+>> It'd be better to figure out what the duplication is caused by.  Have
+>> a look in the _slony tables and check to see what's in there.  Where's
+>> the collision?
+>>
+>>   =
+
+> I've seen this issue recently when the initial sync fails.  If you
+> scroll further back in your logs do you have a failure for the initial
+> copy_set?  When this happens to me, it seems that slony leaves the
+> slave DB in a half replicated state, but reattempts to do the initial
+> sync and finds that the sequences are already in _cluster.sl_sequence
+> table, then errors out.  This requires dropping the node and starting
+> over.  This is with version 1.2.16. I recall previous versions being
+> able to recover from a failed initial sync without intervention, but
+> my memory could be mistaken.
+In fact, here's how it looks in my logs:
+
+Jun  2 13:09:36 localhost slon[1867]: [274-1] 2009-06-02 13:09:36 PDT
+ERROR  remoteWorkerThread_1: "select
+"_engage_cluster".tableHasSerialKey('"archive"."invitation"');"
+Jun  2 13:09:36 localhost slon[1867]: [274-2]  could not receive data
+from server: Connection timed out
+Jun  2 13:09:36 localhost slon[1867]: [275-1] 2009-06-02 13:09:36 PDT
+WARN   remoteWorkerThread_1: data copy for set 1 failed - sleep 30 seconds
+Jun  2 13:09:36 localhost postgres[1880]: [26-1] NOTICE:  there is no
+transaction in progress
+Jun  2 13:10:06 localhost slon[1867]: [276-1] 2009-06-02 13:10:06 PDT
+DEBUG1 copy_set 1
+Jun  2 13:10:06 localhost slon[1867]: [277-1] 2009-06-02 13:10:06 PDT
+DEBUG1 remoteWorkerThread_1: connected to provider DB
+Jun  2 13:10:09 localhost slon[1867]: [278-1] 2009-06-02 13:10:09 PDT
+ERROR  remoteWorkerThread_1: "select
+"_engage_cluster".setAddSequence_int(1, 4,
+Jun  2 13:10:09 localhost slon[1867]: [278-2] =
+
+'"public"."tracking_sequence"', 'public.tracking_sequence sequence')"
+PGRES_FATAL_ERROR ERROR:  Slony-I: setAddSequence_int():
+Jun  2 13:10:09 localhost slon[1867]: [278-3]  sequence ID 4 has already
+been assigned
+Jun  2 13:10:09 localhost slon[1867]: [279-1] 2009-06-02 13:10:09 PDT
+WARN   remoteWorkerThread_1: data copy for set 1 failed - sleep 60 seconds
+
+The DB in question is 144GB and it's being replicated over a relatively
+slow link.  It seems to do about 1GB/hr, but never gets past 10GB.  It
+always dies at that same point. =
+
+
+-- =
+
+Jeff Frost, Owner 	<jeff@frostconsultingllc.com>
+Frost Consulting, LLC 	http://www.frostconsultingllc.com/
+Phone: 916-647-6411	FAX: 916-405-4032
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20090602/=
+99bc85a5/attachment.htm
+From ajs at crankycanuck.ca  Tue Jun  2 13:30:04 2009
+From: ajs at crankycanuck.ca (Andrew Sullivan)
+Date: Tue Jun  2 13:30:21 2009
+Subject: [Slony1-general] Initial replication of sequences is failing
+In-Reply-To: <EMEWEMEW2_DELIMl51FHK34913f427ae914a96ceaa1,
+	jeff@frostconsultingllc.com, 4A2588CF.50>
+References: <4A204B3B.9040900@ftdna.com>
+	<6bc73d4c0905310659g2484101cn56013b4cf825ca40@mail.gmail.com>
+	<4A23F5DA.5030205@ftdna.com> <4A2545A5.20502@ftdna.com>
+	<20090602200218.GB16529@shinkuro.com>
+	<4A258760.5030900@frostconsultingllc.com>
+	<EMEWEMEW2_DELIMl51FHK34913f427ae914a96ceaa1,
+	jeff@frostconsultingllc.com, 4A2588CF.50>
+Message-ID: <20090602203003.GA16755@shinkuro.com>
+
+On Tue, Jun 02, 2009 at 01:17:19PM -0700, Jeff Frost wrote:
+> The DB in question is 144GB and it's being replicated over a relatively
+> slow link.  It seems to do about 1GB/hr, but never gets past 10GB.  It
+> always dies at that same point. 
+
+Could this have something to do with some firewall that decides your
+connection is "dead"?
+
+A
+
+-- 
+Andrew Sullivan
+ajs@crankycanuck.ca
+From sean at ftdna.com  Tue Jun  2 13:44:53 2009
+From: sean at ftdna.com (Sean Staats)
+Date: Tue Jun  2 13:45:14 2009
+Subject: [Slony1-general] Initial replication of sequences is failing
+In-Reply-To: <20090602203003.GA16755@shinkuro.com>
+References: <4A204B3B.9040900@ftdna.com>	<6bc73d4c0905310659g2484101cn56013b4cf825ca40@mail.gmail.com>	<4A23F5DA.5030205@ftdna.com>
+	<4A2545A5.20502@ftdna.com>	<20090602200218.GB16529@shinkuro.com>	<4A258760.5030900@frostconsultingllc.com>	<EMEWEMEW2_DELIMl51FHK34913f427ae914a96ceaa1,
+	jeff@frostconsultingllc.com,
+	4A2588CF.50> <20090602203003.GA16755@shinkuro.com>
+Message-ID: <4A258F45.3090701@ftdna.com>
+
+Nope.  There is no firewall between the servers.
+
+Andrew Sullivan wrote:
+> On Tue, Jun 02, 2009 at 01:17:19PM -0700, Jeff Frost wrote:
+>   
+>> The DB in question is 144GB and it's being replicated over a relatively
+>> slow link.  It seems to do about 1GB/hr, but never gets past 10GB.  It
+>> always dies at that same point. 
+>>     
+>
+> Could this have something to do with some firewall that decides your
+> connection is "dead"?
+>
+> A
+>
+>   
+
+From sean at ftdna.com  Tue Jun  2 13:49:26 2009
+From: sean at ftdna.com (Sean Staats)
+Date: Tue Jun  2 13:49:45 2009
+Subject: [Slony1-general] Initial replication of sequences is failing
+In-Reply-To: <EMEWEMEW2_DELIMl51FHK34913f427ae914a96ceaa1,
+	jeff@frostconsultingllc.com, 4A2588CF.50>
+References: <4A204B3B.9040900@ftdna.com>	<6bc73d4c0905310659g2484101cn56013b4cf825ca40@mail.gmail.com>	<4A23F5DA.5030205@ftdna.com>	<4A2545A5.20502@ftdna.com>
+	<20090602200218.GB16529@shinkuro.com>	<4A258760.5030900@frostconsultingllc.com>
+	<EMEWEMEW2_DELIMl51FHK34913f427ae914a96ceaa1,
+	jeff@frostconsultingllc.com, 4A2588CF.50>
+Message-ID: <4A259056.2050102@ftdna.com>
+
+Thanks for the idea, Jeff.  I inspected the log more closely and found 
+what I think is the _real_ problem (unexpected chunk number)...
+
+2009-05-28 23:49:31 CDT DEBUG2 remoteWorkerThread_1: Begin COPY of table 
+"finch"."blastres_qry"
+2009-05-28 23:49:31 CDT DEBUG2 remoteWorkerThread_1:  nodeon73 is 0
+NOTICE:  truncate of "finch"."blastres_qry" failed - doing delete
+2009-05-28 23:49:31 CDT DEBUG2 remoteListenThread_1: LISTEN
+2009-05-28 23:49:33 CDT DEBUG2 remoteListenThread_1: queue event 1,4141 SYNC
+2009-05-28 23:49:33 CDT DEBUG2 remoteListenThread_1: UNLISTEN
+2009-05-28 23:49:34 CDT DEBUG2 syncThread: new sl_action_seq 1 - SYNC 2412
+2009-05-28 23:49:38 CDT DEBUG2 localListenThread: Received event 2,2412 SYNC
+2009-05-28 23:49:44 CDT DEBUG2 syncThread: new sl_action_seq 1 - SYNC 2413
+2009-05-28 23:49:44 CDT DEBUG2 localListenThread: Received event 2,2413 SYNC
+2009-05-28 23:49:45 CDT DEBUG2 remoteListenThread_1: queue event 1,4142 SYNC
+2009-05-28 23:49:53 CDT DEBUG2 remoteListenThread_1: LISTEN
+2009-05-28 23:49:54 CDT DEBUG2 syncThread: new sl_action_seq 1 - SYNC 2414
+2009-05-28 23:49:56 CDT DEBUG2 localListenThread: Received event 2,2414 SYNC
+2009-05-28 23:50:00 CDT ERROR  remoteWorkerThread_1: copy to stdout on 
+provider - PGRES_FATAL_ERROR ERROR:  unexpected chunk number 8618 
+(expected 426) for toast value 34675334
+2009-05-28 23:50:00 CDT WARN   remoteWorkerThread_1: data copy for set 1 
+failed - sleep 30 seconds
+2009-05-28 23:50:00 CDT DEBUG2 remoteListenThread_1: queue event 1,4143 SYNC
+2009-05-28 23:50:00 CDT DEBUG2 remoteListenThread_1: UNLISTEN
+WARNING:  there is no transaction in progress
+
+Any ideas on what could cause such an error?
+
+Sean
+
+
+Jeff Frost wrote:
+> Jeff Frost wrote:
+>> Andrew Sullivan wrote:
+>>> On Tue, Jun 02, 2009 at 10:30:45AM -0500, Sean Staats wrote:
+>>>   
+>>>> I created a new replication cluster.  It turns out that starting the  
+>>>> table IDs at id=1 and the sequence IDs at id=1001 didn't make any  
+>>>> difference as slony gave me the same error (sequence ID 1001 has already  
+>>>> been assigned.)  Increasing the log verbosity to 4 doesn't produce any  
+>>>> more useful debugging information.  Time for another approach.
+>>>>
+>>>> Would it make sense to create 2 different sets - one to replicate the  
+>>>> tables and one to replicate the sequences?  Is there a downside to this  
+>>>> kind of workaround?
+>>>>     
+>>>
+>>> It'd be better to figure out what the duplication is caused by.  Have
+>>> a look in the _slony tables and check to see what's in there.  Where's
+>>> the collision?
+>>>
+>>>   
+>> I've seen this issue recently when the initial sync fails.  If you 
+>> scroll further back in your logs do you have a failure for the 
+>> initial copy_set?  When this happens to me, it seems that slony 
+>> leaves the slave DB in a half replicated state, but reattempts to do 
+>> the initial sync and finds that the sequences are already in 
+>> _cluster.sl_sequence table, then errors out.  This requires dropping 
+>> the node and starting over.  This is with version 1.2.16. I recall 
+>> previous versions being able to recover from a failed initial sync 
+>> without intervention, but my memory could be mistaken.
+> In fact, here's how it looks in my logs:
+>
+> Jun  2 13:09:36 localhost slon[1867]: [274-1] 2009-06-02 13:09:36 PDT 
+> ERROR  remoteWorkerThread_1: "select 
+> "_engage_cluster".tableHasSerialKey('"archive"."invitation"');"
+> Jun  2 13:09:36 localhost slon[1867]: [274-2]  could not receive data 
+> from server: Connection timed out
+> Jun  2 13:09:36 localhost slon[1867]: [275-1] 2009-06-02 13:09:36 PDT 
+> WARN   remoteWorkerThread_1: data copy for set 1 failed - sleep 30 seconds
+> Jun  2 13:09:36 localhost postgres[1880]: [26-1] NOTICE:  there is no 
+> transaction in progress
+> Jun  2 13:10:06 localhost slon[1867]: [276-1] 2009-06-02 13:10:06 PDT 
+> DEBUG1 copy_set 1
+> Jun  2 13:10:06 localhost slon[1867]: [277-1] 2009-06-02 13:10:06 PDT 
+> DEBUG1 remoteWorkerThread_1: connected to provider DB
+> Jun  2 13:10:09 localhost slon[1867]: [278-1] 2009-06-02 13:10:09 PDT 
+> ERROR  remoteWorkerThread_1: "select 
+> "_engage_cluster".setAddSequence_int(1, 4,
+> Jun  2 13:10:09 localhost slon[1867]: [278-2]  
+> '"public"."tracking_sequence"', 'public.tracking_sequence sequence')" 
+> PGRES_FATAL_ERROR ERROR:  Slony-I: setAddSequence_int():
+> Jun  2 13:10:09 localhost slon[1867]: [278-3]  sequence ID 4 has 
+> already been assigned
+> Jun  2 13:10:09 localhost slon[1867]: [279-1] 2009-06-02 13:10:09 PDT 
+> WARN   remoteWorkerThread_1: data copy for set 1 failed - sleep 60 seconds
+>
+> The DB in question is 144GB and it's being replicated over a 
+> relatively slow link.  It seems to do about 1GB/hr, but never gets 
+> past 10GB.  It always dies at that same point. 
+> -- 
+> Jeff Frost, Owner 	<jeff@frostconsultingllc.com>
+> Frost Consulting, LLC 	http://www.frostconsultingllc.com/
+> Phone: 916-647-6411	FAX: 916-405-4032
+>   
+> ------------------------------------------------------------------------
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general@lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+>   
+
+From ajs at crankycanuck.ca  Tue Jun  2 14:21:35 2009
+From: ajs at crankycanuck.ca (Andrew Sullivan)
+Date: Tue Jun  2 14:21:55 2009
+Subject: [Slony1-general] Initial replication of sequences is failing
+In-Reply-To: <4A259056.2050102@ftdna.com>
+References: <4A204B3B.9040900@ftdna.com>
+	<6bc73d4c0905310659g2484101cn56013b4cf825ca40@mail.gmail.com>
+	<4A23F5DA.5030205@ftdna.com> <4A2545A5.20502@ftdna.com>
+	<20090602200218.GB16529@shinkuro.com>
+	<4A258760.5030900@frostconsultingllc.com>
+	<4A259056.2050102@ftdna.com>
+Message-ID: <20090602212135.GB16755@shinkuro.com>
+
+On Tue, Jun 02, 2009 at 03:49:26PM -0500, Sean Staats wrote:
+> provider - PGRES_FATAL_ERROR ERROR:  unexpected chunk number 8618  
+> (expected 426) for toast value 34675334
+
+Ouch.  This is a fatal error from your provider.  You have corrupted
+data on your provider, and when Postgres tries to read it out, you get
+a failure.  If you try to read that row of data from whatever table
+that is, you'll get an error (and an aborted transaction) also.  It
+should also be appearing in your Postgres logs, whence you might be
+able to learn more.
+
+A
+
+-- 
+Andrew Sullivan
+ajs@crankycanuck.ca
+From owais at preceptglobalaccess.com  Tue Jun  2 20:50:16 2009
+From: owais at preceptglobalaccess.com (owais)
+Date: Wed Jun  3 08:01:04 2009
+Subject: [Slony1-general] How to shut-down slony replication
+In-Reply-To: <675794.98977.qm@web53008.mail.re2.yahoo.com>
+References: <675794.98977.qm@web53008.mail.re2.yahoo.com>
+Message-ID: <000e01c9e3fe$6b892c40$429b84c0$@com>
+
+Melvin thank for the reply. Kindly tell me what do you mean by "temporarily
+stopping replication"? Secondly can you give me a sample of how to use pkill
+slon. 
+
+ 
+
+Is it necessary to call "uninstall node" and "unsubscribe set" commands to
+stop replication?
+
+ 
+
+-Owais
+
+ 
+
+From: Melvin Davidson [mailto:melvin6925@yahoo.com] 
+Sent: Tuesday, June 02, 2009 7:18 PM
+To: slony1-general@lists.slony.info; owais
+Subject: Re: [Slony1-general] How to shut-down slony replication
+
+ 
+
+
+To temporarily stop replication, I issue   pkill slon  on the master and all
+slave. 
+
+To toggle a master and slave, I use a slonik script like one below:
+===========================================================
+slonik <<_EOF_
+
+#--
+# define the namespace the replication system uses in our example it is
+# slony_example
+#--
+CLUSTER NAME = $PTS_META_REP;
+
+#--
+# admin conninfo's are used by slonik to connect to the nodes one for each
+# node on each side of the cluster, the syntax is that of PQconnectdb in
+# the C-API
+# --
+node 1 admin conninfo='dbname=$MASTERDBNAME host=$MASTERHOST port=$PGPORT
+user=$REPLICATIONUSER';
+node 101 admin conninfo='dbname=$MASTERDBNAME host=$SLAVEHOST1 port=$JCIPORT
+user=$REPLICATIONUSER';
+
+# ----
+# Switchover to node 101, make node 1 the slave
+# ----
+
+lock set (id = 1, origin = 1);
+wait for event (origin = 1, confirmed = 101);
+move set (id = 1, old origin = 1, new origin = 101);
+wait for event (origin = 1, confirmed = 101);
+
+_EOF_
+===========================================================
+
+Likewise to switch back, I use:
+
+===========================================================
+slonik <<_EOF_
+
+#--
+# define the namespace the replication system uses in our example it is
+# slony_example
+#--
+CLUSTER NAME = $PTS_META_REP;
+
+#--
+# admin conninfo's are used by slonik to connect to the nodes one for each
+# node on each side of the cluster, the syntax is that of PQconnectdb in
+# the C-API
+# --
+node 1 admin conninfo='dbname=$MASTERDBNAME host=$MASTERHOST port=$PGPORT
+user=$REPLICATIONUSER';
+node 101 admin conninfo='dbname=$MASTERDBNAME host=$SLAVEHOST1 port=$JCIPORT
+user=$REPLICATIONUSER';
+
+# ----
+# Switchover to node 1, make node 101 the slave
+# ----
+
+lock set (id = 1, origin = 101);
+wait for event (origin = 101, confirmed = 1);
+move set (id = 1, old origin = 101, new origin = 1);
+wait for event (origin = 101, confirmed = 1);
+
+_EOF_
+
+===========================================================
+
+Melvin Davidson 
+
+
+
+--- On Tue, 6/2/09, owais <owais@preceptglobalaccess.com> wrote:
+
+
+From: owais <owais@preceptglobalaccess.com>
+Subject: [Slony1-general] How to shut-down slony replication
+To: slony1-general@lists.slony.info
+Date: Tuesday, June 2, 2009, 7:17 AM
+
+Hi guys, I just start looking in to slony1 project. The project has
+impressed me a lot. I have successfully manage to start the replication
+between two databases (one the same machine). I have used the following
+article to setup slony replication (
+<http://www.linuxjournal.com/article/7834>
+http://www.linuxjournal.com/article/7834). 
+
+ 
+
+Now, I have the following questions:
+
+ 
+
+1)      What is the procedure to stop replication process? Can anyone
+present me a sample shell script?
+
+ 
+
+2)      Is it possible to toggle master and slave? I only have 1 master
+database and 1 slave. Can I change slave to master?
+
+ 
+
+-Regards
+
+ 
+
+Owais
+
+
+-----Inline Attachment Follows-----
+
+_______________________________________________
+Slony1-general mailing list
+Slony1-general@lists.slony.info
+ <http://lists.slony.info/mailman/listinfo/slony1-general>
+http://lists.slony.info/mailman/listinfo/slony1-general
+
+ 
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20090603/191cef9b/attachment.htm
+From jeff at frostconsultingllc.com  Wed Jun  3 08:48:11 2009
+From: jeff at frostconsultingllc.com (Jeff Frost)
+Date: Wed Jun  3 09:04:27 2009
+Subject: [Slony1-general] Initial replication of sequences is failing
+In-Reply-To: <4A258F45.3090701@ftdna.com>
+References: <4A204B3B.9040900@ftdna.com>	<6bc73d4c0905310659g2484101cn56013b4cf825ca40@mail.gmail.com>	<4A23F5DA.5030205@ftdna.com>	<4A2545A5.20502@ftdna.com>	<20090602200218.GB16529@shinkuro.com>	<4A258760.5030900@frostconsultingllc.com>	<EMEWEMEW2_DELIMl51FHK34913f427ae914a96ceaa1,
+	jeff@frostconsultingllc.com,
+	4A2588CF.50> <20090602203003.GA16755@shinkuro.com>
+	<4A258F45.3090701@ftdna.com>
+Message-ID: <EMEWEMEW2_DELIMl52B3r5c08d766df109edc00501f,
+	jeff@frostconsultingllc.com, 4A269B3B.80>
+
+
+
+Sean Staats wrote:
+> Nope.  There is no firewall between the servers.
+>
+> Andrew Sullivan wrote:
+>> On Tue, Jun 02, 2009 at 01:17:19PM -0700, Jeff Frost wrote:
+>>  
+>>> The DB in question is 144GB and it's being replicated over a relatively
+>>> slow link.  It seems to do about 1GB/hr, but never gets past 10GB.  It
+>>> always dies at that same point.     
+>>
+>> Could this have something to do with some firewall that decides your
+>> connection is "dead"?
+>>
+Hrmmm, I never got Andrew's reply.  I should have mentioned that I'm
+already speculating it's firewall related.  This connection is going
+across a netscreen VPN and I'm pretty sure the netscreen is timing out
+the connection for some reason.  My question was actually why slony
+leaves the node in a broken state instead of just trying the initial
+sync again.  I thought it had acted like that in the past, but I haven't
+seen an initial sync fail for quite a while before now.
+
+-- 
+Jeff Frost, Owner 	<jeff@frostconsultingllc.com>
+Frost Consulting, LLC 	http://www.frostconsultingllc.com/
+Phone: 916-647-6411	FAX: 916-405-4032
+
+From ajs at crankycanuck.ca  Wed Jun  3 09:11:42 2009
+From: ajs at crankycanuck.ca (Andrew Sullivan)
+Date: Wed Jun  3 09:11:54 2009
+Subject: [Slony1-general] Initial replication of sequences is failing
+In-Reply-To: <EMEWEMEW2_DELIMl52B3r5c08d766df109edc00501f,
+	jeff@frostconsultingllc.com, 4A269B3B.80>
+References: <4A204B3B.9040900@ftdna.com>
+	<6bc73d4c0905310659g2484101cn56013b4cf825ca40@mail.gmail.com>
+	<4A23F5DA.5030205@ftdna.com> <4A2545A5.20502@ftdna.com>
+	<20090602200218.GB16529@shinkuro.com>
+	<4A258760.5030900@frostconsultingllc.com>
+	<20090602203003.GA16755@shinkuro.com> <4A258F45.3090701@ftdna.com>
+	<EMEWEMEW2_DELIMl52B3r5c08d766df109edc00501f,
+	jeff@frostconsultingllc.com, 4A269B3B.80>
+Message-ID: <20090603161141.GA18246@shinkuro.com>
+
+On Wed, Jun 03, 2009 at 08:48:11AM -0700, Jeff Frost wrote:
+
+> Hrmmm, I never got Andrew's reply.  I should have mentioned that I'm
+> already speculating it's firewall related.  This connection is going
+> across a netscreen VPN and I'm pretty sure the netscreen is timing out
+> the connection for some reason.  My question was actually why slony
+> leaves the node in a broken state instead of just trying the initial
+> sync again.  I thought it had acted like that in the past, but I haven't
+> seen an initial sync fail for quite a while before now.
+
+The problem is that Slony's start up is a little less granular than it
+ought to be in one sense.  That is, it writes out all the Slony
+metadata and commits that, and then attempts the COPYing of the
+different tables in a separate transaction.  When the transaction is
+aborted by a disconnection from the other end, however, Slony doesn't
+know it's past bootstrap-pt1 (i.e. the metadata is in place) and needs
+to just start from bootstrap-pt2 (i.e. only the data needs to be
+copied).  I think this was originally coded this way to introduce
+another potential pooint for robustness (i.e. you could automatically
+recover from this situation), but never got completed.  I think we
+decided it was acceptable to fail in this way because no replication
+at all had yet succeeded anyway.  I might be misremembering, however.
+
+A
+
+-- 
+Andrew Sullivan
+ajs@crankycanuck.ca
+From devrim at gunduz.org  Wed Jun  3 12:36:37 2009
+From: devrim at gunduz.org (Devrim =?ISO-8859-1?Q?G=DCND=DCZ?=)
+Date: Wed Jun  3 12:37:12 2009
+Subject: [Slony1-general] Version 2.x rpms?
+In-Reply-To: <4A23DB95.1070003@endpoint.com>
+References: <4A23DB95.1070003@endpoint.com>
+Message-ID: <1244057797.2415.20.camel@hp-laptop2.gunduz.org>
+
+T24gTW9uLCAyMDA5LTA2LTAxIGF0IDA5OjQ1IC0wNDAwLCBHcmVnIFNhYmlubyBNdWxsYW5lIHdy
+b3RlOgo+IElzIHRoZXJlIGEgcm91Z2ggaWRlYSBvZiB3aGVuIHNsb255LmluZm8gd2lsbCBoYXZl
+IHJwbXMgZm9yIHZlcnNpb24KPiAyLng/CgpZb3UgY2FuIGdyYWIgaXQgZnJvbSAKCmh0dHA6Ly95
+dW0ucGdzcWxycG1zLm9yZy9zcnBtcy84LjQvZmVkb3JhL2ZlZG9yYS0xMS1pMzg2L3Nsb255MS0y
+LjAuMi0xLmYxMS5zcmMucnBtCgpUaGlzIFNSUE0gY2FuIGJlIGJ1aWx0IG9uIGFueSBwbGF0Zm9y
+bS4KClJlZ2FyZHMsCi0tIApEZXZyaW0gR8OcTkTDnFosIFJIQ0UKQ29tbWFuZCBQcm9tcHQgLSBo
+dHRwOi8vd3d3LkNvbW1hbmRQcm9tcHQuY29tIApkZXZyaW1+Z3VuZHV6Lm9yZywgZGV2cmltflBv
+c3RncmVTUUwub3JnLCBkZXZyaW0uZ3VuZHV6fmxpbnV4Lm9yZy50cgogICAgICAgICAgICAgICAg
+ICAgaHR0cDovL3d3dy5ndW5kdXoub3JnCi0tLS0tLS0tLS0tLS0tIG5leHQgcGFydCAtLS0tLS0t
+LS0tLS0tLQpBIG5vbi10ZXh0IGF0dGFjaG1lbnQgd2FzIHNjcnViYmVkLi4uCk5hbWU6IG5vdCBh
+dmFpbGFibGUKVHlwZTogYXBwbGljYXRpb24vcGdwLXNpZ25hdHVyZQpTaXplOiAxOTcgYnl0ZXMK
+RGVzYzogVGhpcyBpcyBhIGRpZ2l0YWxseSBzaWduZWQgbWVzc2FnZSBwYXJ0ClVybCA6IGh0dHA6
+Ly9saXN0cy5zbG9ueS5pbmZvL3BpcGVybWFpbC9zbG9ueTEtZ2VuZXJhbC9hdHRhY2htZW50cy8y
+MDA5MDYwMy8zOWFlMmE5YS9hdHRhY2htZW50LnBncAo=
+From greg at endpoint.com  Wed Jun  3 12:50:58 2009
+From: greg at endpoint.com (Greg Sabino Mullane)
+Date: Wed Jun  3 13:29:13 2009
+Subject: [Slony1-general] Version 2.x rpms?
+In-Reply-To: <1244057797.2415.20.camel@hp-laptop2.gunduz.org>
+References: <4A23DB95.1070003@endpoint.com>
+	<1244057797.2415.20.camel@hp-laptop2.gunduz.org>
+Message-ID: <4A26D422.1060408@endpoint.com>
+
+PiBZb3UgY2FuIGdyYWIgaXQgZnJvbSAKPiAKPiBodHRwOi8veXVtLnBnc3FscnBtcy5vcmcvc3Jw
+bXMvOC40L2ZlZG9yYS9mZWRvcmEtMTEtaTM4Ni9zbG9ueTEtMi4wLjItMS5mMTEuc3JjLnJwbQo+
+IAo+IFRoaXMgU1JQTSBjYW4gYmUgYnVpbHQgb24gYW55IHBsYXRmb3JtLgoKRXhjZWxsZW50LCB0
+aGFuayB5b3UuCgpDaHJpcywgYW55IHJlYXNvbiBub3QgdG8gbGluayB0aGUgYWJvdmUgZnJvbSBz
+bG9ueS5pbmZvPwoKLS0gCkdyZWcgU2FiaW5vIE11bGxhbmUgZ3JlZ0BlbmRwb2ludC5jb20KRW5k
+IFBvaW50IENvcnBvcmF0aW9uClBHUCBLZXk6IDB4MTQ5NjRBQzgKCi0tLS0tLS0tLS0tLS0tIG5l
+eHQgcGFydCAtLS0tLS0tLS0tLS0tLQpBIG5vbi10ZXh0IGF0dGFjaG1lbnQgd2FzIHNjcnViYmVk
+Li4uCk5hbWU6IHNpZ25hdHVyZS5hc2MKVHlwZTogYXBwbGljYXRpb24vcGdwLXNpZ25hdHVyZQpT
+aXplOiAyMjUgYnl0ZXMKRGVzYzogT3BlblBHUCBkaWdpdGFsIHNpZ25hdHVyZQpVcmwgOiBodHRw
+Oi8vbGlzdHMuc2xvbnkuaW5mby9waXBlcm1haWwvc2xvbnkxLWdlbmVyYWwvYXR0YWNobWVudHMv
+MjAwOTA2MDMvNWNlMDcyODMvc2lnbmF0dXJlLnBncAo=
+From hans at welinux.cl  Fri Jun  5 07:20:15 2009
+From: hans at welinux.cl (hans@welinux.cl)
+Date: Fri Jun  5 07:18:50 2009
+Subject: [Slony1-general] How to rename a database
+Message-ID: <1543347017.101244211615639.JavaMail.root@ronin>
+
+Hi,
+
+For various reasons i was forced to rebuild a complete cluster. Currently i have two nodes, master and slave and there are many clients accessing the slave node, hence one of the restrictions was to "interrupt the service the minimum posible". 
+
+Resuming, i device the next strategy: "create a new subscriber database and then rename to the original", in steps:
+
+1.- Stop synchronizing for while, i can handle be off line for some minutes.
+2.- Create an empty subscriber database with another name, say db_subscriber_temp.
+3.- Create all the cluster from scratch, using the aforementioned new subscriber database.
+4.- Let replication working fine with the new database.
+5.- Rename new database to the published name say: rename db_subscriber_temp to db_subscriber.  
+
+I'am using altperl tools, and i modify the /usr/local/etc/slon_tools.conf file, first to make the new cluster definition works, and then switch back to the original version after renaming the database to the published name.  
+
+It seems to be that slony metadata is still pointing to the old names, and i need to modify it. I googled for a while and found some tips for renaming nodes, but no databases, after all, i run some slonik commands with no result. 
+
+Question: How to rename a database.
+
+Thanks
+Hans 
+
+-- 
+Hans Poo, WeLinux S.A.
+Oficina: 697.25.42, Celular: 09-319.93.05
+Bombero Ossa # 1010, Santiago
+
+From vivek at khera.org  Fri Jun  5 08:04:19 2009
+From: vivek at khera.org (Vick Khera)
+Date: Fri Jun  5 08:04:28 2009
+Subject: [Slony1-general] How to rename a database
+In-Reply-To: <1543347017.101244211615639.JavaMail.root@ronin>
+References: <1543347017.101244211615639.JavaMail.root@ronin>
+Message-ID: <2968dfd60906050804l711f2d52h99815c661d88a77f@mail.gmail.com>
+
+On Fri, Jun 5, 2009 at 10:20 AM, <hans@welinux.cl> wrote:
+> Hi,
+>
+> For various reasons i was forced to rebuild a complete cluster. Currently i have two nodes, master and slave and there are many clients accessing the slave node, hence one of the restrictions was to "interrupt the service the minimum posible".
+
+How about installing a Postgres proxy on the slave node on port 5432
+that forwards connections to the master, then rebuild the DB running
+on a different port.  Then when it is rebuilt just turn off the proxy
+and rest the server to the default postgres port on the slave.
+From ajs at crankycanuck.ca  Fri Jun  5 08:06:16 2009
+From: ajs at crankycanuck.ca (Andrew Sullivan)
+Date: Fri Jun  5 08:06:25 2009
+Subject: [Slony1-general] How to rename a database
+In-Reply-To: <2968dfd60906050804l711f2d52h99815c661d88a77f@mail.gmail.com>
+References: <1543347017.101244211615639.JavaMail.root@ronin>
+	<2968dfd60906050804l711f2d52h99815c661d88a77f@mail.gmail.com>
+Message-ID: <20090605150616.GF20690@shinkuro.com>
+
+On Fri, Jun 05, 2009 at 11:04:19AM -0400, Vick Khera wrote:
+> How about installing a Postgres proxy on the slave node on port 5432
+> that forwards connections to the master, then rebuild the DB running
+> on a different port.  Then when it is rebuilt just turn off the proxy
+> and rest the server to the default postgres port on the slave.
+
+That's certainly easier than renaming a database under Slony, which is
+sort of a pain.
+
+A
+
+-- 
+Andrew Sullivan
+ajs@crankycanuck.ca
+From hans at welinux.cl  Fri Jun  5 08:12:06 2009
+From: hans at welinux.cl (hans@welinux.cl)
+Date: Fri Jun  5 08:10:41 2009
+Subject: [Slony1-general] How to rename a database
+In-Reply-To: <2968dfd60906050804l711f2d52h99815c661d88a77f@mail.gmail.com>
+Message-ID: <1184447146.381244214726185.JavaMail.root@ronin>
+
+Vick,
+
+Yes, may be proxying, i will take a look further to that solution... it's just that i tought it was going to be easier to modify slony metadata, or even the possibility to find a standard procedure to do what i wanted...
+
+Thank you
+Hans
+
+----- "Vick Khera" <vivek@khera.org> escribi?:
+
+> On Fri, Jun 5, 2009 at 10:20 AM, <hans@welinux.cl> wrote:
+> > Hi,
+> >
+> > For various reasons i was forced to rebuild a complete cluster.
+> Currently i have two nodes, master and slave and there are many
+> clients accessing the slave node, hence one of the restrictions was to
+> "interrupt the service the minimum posible".
+> 
+> How about installing a Postgres proxy on the slave node on port 5432
+> that forwards connections to the master, then rebuild the DB running
+> on a different port.  Then when it is rebuilt just turn off the proxy
+> and rest the server to the default postgres port on the slave.
+
+-- 
+Hans Poo, WeLinux S.A.
+Oficina: 697.25.42, Celular: 09-319.93.05
+Bombero Ossa # 1010, Santiago
+
+From cbbrowne at ca.afilias.info  Fri Jun  5 10:55:09 2009
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Fri Jun  5 10:55:26 2009
+Subject: [Slony1-general] Version 2.x rpms?
+In-Reply-To: <4A26D422.1060408@endpoint.com> (Greg Sabino Mullane's message of
+	"Wed, 03 Jun 2009 15:50:58 -0400")
+References: <4A23DB95.1070003@endpoint.com>
+	<1244057797.2415.20.camel@hp-laptop2.gunduz.org>
+	<4A26D422.1060408@endpoint.com>
+Message-ID: <87y6s6ftvm.fsf@dba2.int.libertyrms.com>
+
+Greg Sabino Mullane <greg@endpoint.com> writes:
+>> You can grab it from 
+>> 
+>> http://yum.pgsqlrpms.org/srpms/8.4/fedora/fedora-11-i386/slony1-2.0.2-1.f11.src.rpm
+>> 
+>> This SRPM can be built on any platform.
+>
+> Excellent, thank you.
+>
+> Chris, any reason not to link the above from slony.info?
+
+No, I have added this.
+-- 
+let name="cbbrowne" and tld="ca.afilias.info" in name ^ "@" ^ tld;;
+<http://dba2.int.libertyrms.com/>
+Christopher Browne
+(416) 673-4124 (land)
+"Bother,"  said Pooh,  "Eeyore, ready  two photon  torpedoes  and lock
+phasers on the Heffalump, Piglet, meet me in transporter room three"
+From cbbrowne at ca.afilias.info  Fri Jun  5 12:00:16 2009
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Fri Jun  5 12:00:30 2009
+Subject: [Slony1-general] Initial replication of sequences is failing
+In-Reply-To: <1243867648.20786.51.camel@bnicholson-desktop> (Brad Nicholson's
+	message of "Mon, 01 Jun 2009 10:47:28 -0400")
+References: <393288.40720.qm@web53004.mail.re2.yahoo.com>
+	<20090530040848.GF13757@shinkuro.com>
+	<1243867648.20786.51.camel@bnicholson-desktop>
+Message-ID: <87tz2ufqv3.fsf@dba2.int.libertyrms.com>
+
+Brad Nicholson <bnichols@ca.afilias.info> writes:
+> I wonder though if there will be a limiting factor in Slony itself
+> though.  I recall that node numbers had some sort of artificial ceiling
+> around 9000 or so, due to how they are used internally. 
+
+The trouble with node numbers is that there is an in-memory array set
+up storing node information, because that needs to be referenced
+frequently.
+
+There isn't any need to keep sequence values in memory "en masse," so
+the query that pulls sequence updates does so simply via a query.
+
+There is no array "denominated by" sequence numbers, so this oughtn't
+be an issue.
+
+It's a good thing to consider, but it shouldn't be a problem to have
+sequences numbered "quite a bit higher."  Actually, I'll see about
+changing the sequence test to validate all of this ;-).
+
+[... time passes ...]
+
+I've got a sample running right now that generates 2000-odd sequences,
+with fairly large sequence ID values, and that seems to be working
+AOK.
+
+Thus:
+  sequences seq400000 thru seq402000
+
+with IDs
+             23400000 thru 23402000
+
+The test runs for a mighty long time, basically because it takes
+*some* time to add each object to replication, and the test adds
+thousands of objects.  But within that stipulation, all seems to be
+working fine.
+-- 
+(format nil "~S@~S" "cbbrowne" "ca.afilias.info")
+<http://dba2.int.libertyrms.com/>
+Christopher Browne
+(416) 673-4124 (land)
+"Bother,"  said Pooh,  "Eeyore, ready  two photon  torpedoes  and lock
+phasers on the Heffalump, Piglet, meet me in transporter room three"
+From cbbrowne at ca.afilias.info  Fri Jun  5 14:36:48 2009
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Fri Jun  5 14:37:06 2009
+Subject: [Slony1-general] cleanup_interval parameter not working
+In-Reply-To: <140258.93021.qm@web53009.mail.re2.yahoo.com> (Melvin Davidson's
+	message of "Tue, 26 May 2009 08:15:46 -0700 (PDT)")
+References: <140258.93021.qm@web53009.mail.re2.yahoo.com>
+Message-ID: <87iqjafjm7.fsf@dba2.int.libertyrms.com>
+
+Melvin Davidson <melvin6925@yahoo.com> writes:
+>  CentOS-5.3
+>  PostgreSQL 8.3.7                
+>  Slony 2.0.2                     
+>  It appears that the cleanup_interval parameter is not being read from the slon.conf.            
+>  It is my understanding that if a parameter is not specified in the slon command line, it takes it from the slon.conf.   
+>  In my slon.conf I have:                 
+>  =======================================================                 
+>  Title = "slon"                  
+>  # Which logfile group...                
+>  Logfile = /var/lib/pgsql/slony/slon.log                 
+>  cleanup_interval="60 minutes"                   
+>  # Only give lines pertaining to the sshd service...             
+>  *OnlyService = slon                     
+>  *RemoveHeaders                  
+>  =======================================================                 
+>  My startup command is:                  
+>  source $HOME/.bash_profile              
+>  slon -d1 -c0 -pslon_mas_1.pid $MAS_CLUSTER "dbname=$REPDB user=$REPLICATIONUSER host=$MASTERHOST port=$PGPORT" > slon.log &     
+>  Yet, when I check the slon.log, I see                   
+>  2009-05-26 09:32:41 EDT CONFIG main: String option cleanup_interval = 10 minutes        
+
+>  So either the cleanup_interval parameter is not being accepted, or
+>  I have misread the documentation. Also, the documentation does not
+>  specify the intervals accepted. Ideally, I would like to set this
+>  to "24 hours" or "1 day" but I am not sure if that is permissible.
+
+That seems curious.
+
+I'm seeing the values being taken.
+
+chris@dba2:Slony-I/CMD/slony1-2.0/tests> cat /tmp/slony-regress.LXlyM3/slon-conf.1
+log_level=2
+vac_frequency=2
+cleanup_interval="30 seconds"
+sync_interval=2010
+sync_interval_timeout=15000
+sync_group_maxsize=8
+sync_max_rowsize=4096
+sync_max_largemem=1048576
+syslog=1
+log_timestamp=true
+log_timestamp_format='%Y-%m-%d %H:%M:%S %Z'
+pid_file='/tmp/slony-regress.LXlyM3/slon-pid.1'
+syslog_facility=LOCAL0
+syslog_ident=slon-slony_regress1-1
+cluster_name='slony_regress1'
+conn_info='dbname=slonyregress1 host=localhost user=chris port=7083'
+desired_sync_time=60000
+sql_on_connection="SET log_min_duration_statement to '1000';"
+lag_interval="2 seconds"
+
+When I run slon against that:
+
+chris@dba2:Slony-I/CMD/slony1-2.0/tests> slon -d1 -c0  -f  /tmp/slony-regress.LXlyM3/slon-conf.1
+CONFIG main: slon version 2.0.2 starting up
+INFO   slon: watchdog process started
+CONFIG slon: watchdog ready - pid = 3950
+CONFIG main: Integer option vac_frequency = 2
+CONFIG main: Integer option log_level = 2
+CONFIG main: Integer option sync_interval = 2010
+CONFIG main: Integer option sync_interval_timeout = 15000
+CONFIG slon: worker process created - pid = 3951
+CONFIG main: Integer option sync_group_maxsize = 8
+CONFIG main: Integer option desired_sync_time = 60000
+CONFIG main: Integer option syslog = 1
+CONFIG main: Integer option quit_sync_provider = 0
+CONFIG main: Integer option quit_sync_finalsync = 0
+CONFIG main: Integer option sync_max_rowsize = 4096
+CONFIG main: Integer option sync_max_largemem = 1048576
+CONFIG main: Integer option remote_listen_timeout = 300
+CONFIG main: Boolean option log_pid = 0
+CONFIG main: Boolean option log_timestamp = 1
+CONFIG main: Boolean option cleanup_deletelogs = 0
+CONFIG main: Real option real_placeholder = 0.000000
+CONFIG main: String option cluster_name = slony_regress1
+CONFIG main: String option conn_info = dbname=slonyregress1 host=localhost user=chris port=7083
+CONFIG main: String option pid_file = /tmp/slony-regress.LXlyM3/slon-pid.1
+CONFIG main: String option log_timestamp_format = %Y-%m-%d %H:%M:%S %Z
+CONFIG main: String option archive_dir = [NULL]
+CONFIG main: String option sql_on_connection = SET log_min_duration_statement to '1000';
+CONFIG main: String option lag_interval = 2 seconds
+CONFIG main: String option command_on_logarchive = [NULL]
+CONFIG main: String option syslog_facility = LOCAL0
+CONFIG main: String option syslog_ident = slon-slony_regress1-1
+CONFIG main: String option cleanup_interval = 30 seconds
+CONFIG main: local node id = 1
+INFO   main: main process started
+CONFIG main: launching sched_start_mainloop
+CONFIG main: loading current cluster configuration
+
+So I'll not say you didn't see what you did :-), but I'm definitely
+not duplicating that.
+
+And while I have some differences in the code tree, none of them are
+in the src/slon area so as to be relevant to this.
+
+I would suggest fiddling a bit, making variations in that parameter as
+well as in others to ensure that you're not making some mistake such
+as referring to the wrong .conf file.  (I know you'd never do that,
+but I have once or twice ;-).)
+
+If you fiddle with it a bit, you may "shake loose" whatever it is that
+is causing it to be mishandled.
+
+As for the format, the value is used as an SQL interval, so it could
+be expressed with the full expressiveness of that data type.
+
+The following is a somewhat pathological example of the possible
+interactions.  I don't suggest that the expression shown is a
+particularly *GOOD* way to describe an interval consisting of 3 days,
+but it does happen to add up...
+
+slonyregress1=# select '1 days 37 hours 598 minutes 3720 seconds'::interval + now() as wacky, now() + '3 days'::interval as regular;
+             wacky             |            regular
+-------------------------------+-------------------------------
+ 2009-06-08 21:35:33.792528+00 | 2009-06-08 21:35:33.792528+00
+(1 row)
+-- 
+(reverse (concatenate 'string "ofni.sailifa.ac" "@" "enworbbc"))
+<http://dba2.int.libertyrms.com/>
+Christopher Browne
+(416) 673-4124 (land)
+"Bother,"  said Pooh,  "Eeyore, ready  two photon  torpedoes  and lock
+phasers on the Heffalump, Piglet, meet me in transporter room three"
+From cbbrowne at ca.afilias.info  Fri Jun  5 14:57:11 2009
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Fri Jun  5 14:57:29 2009
+Subject: [Slony1-general] Slony bug and patch proposal
+In-Reply-To: <80E49997-66B4-4D6C-9A9F-CB46D8F99ED3@mamontov.net> (Oleg
+	A. Mamontov's message of "Mon, 1 Jun 2009 13:07:59 +0400")
+References: <80E49997-66B4-4D6C-9A9F-CB46D8F99ED3@mamontov.net>
+Message-ID: <87d49ifio8.fsf@dba2.int.libertyrms.com>
+
+"Oleg A. Mamontov" <oleg@mamontov.net> writes:
+> I am using it on FreeBSD systems for moving PostgreSQL databases between
+> servers with minimum downtime, all works fine.
+> But when I try to setup permanent master-slave schema some problems
+> occured.
+> Some times (accidentally) master system didn't generate sync events,
+> and shutting down
+> slon on master systems had long time.
+> After debugging session, i found cause of problem (there is two
+> problem, Slony and FreeBSD too).
+> IMHO there is a logical mistake in slon/scheduler.c, in sched_mainloop
+> fdsets copied
+> for select before checking connections for their timeouts. In timeout
+> case this
+> descriptors will be removed with DLLIST_REMOVE and sched_remove_fdset,
+> but stayed in
+> select descriptors bit vector.
+> There is a race condition: scheduler and libpq client polls same file
+> descriptor and sometime
+> scheduler select discover readable descriptor and lipbq poll blocks
+> for infinte time :(
+> I tested this on FreeBSD 7.0, trouble repeated in ~60% runs.
+> I attach a patch, please, take a look on this code, it seems right,
+> imho...
+
+This seems plausible; could you help describe a way to induce the
+problem that this solves?
+
+It would be *really* nice to have a test that fails more or less
+consistently so that we know that the fix rectifies the problem.
+-- 
+"cbbrowne","@","ca.afilias.info"
+<http://dba2.int.libertyrms.com/>
+Christopher Browne
+(416) 673-4124 (land)
+"Bother,"  said Pooh,  "Eeyore, ready  two photon  torpedoes  and lock
+phasers on the Heffalump, Piglet, meet me in transporter room three"
+From melvin6925 at yahoo.com  Mon Jun  8 05:08:37 2009
+From: melvin6925 at yahoo.com (Melvin Davidson)
+Date: Mon Jun  8 05:08:41 2009
+Subject: [Slony1-general] How to shut-down slony replication
+Message-ID: <250472.6302.qm@web53003.mail.re2.yahoo.com>
+
+owais, =
+
+
+>when I toggle
+from slave to master, it gives me error.
+
+>"_OAK_CLUSTER".getMaxXid();=A0 - ERROR:=A0 Slony-I: set 1 does
+not originate on local node =
+
+
+ =
+
+
+The purpose of the switchover is to change the master to the slave and slav=
+e to master. But you cannot switch from a slave to a master. There is no po=
+int in that.
+
+Melvin Davidson =
+
+ =
+
+
+
+--- On Mon, 6/8/09, owais <owais@preceptglobalaccess.com> wrote:
+
+From: owais <owais@preceptglobalaccess.com>
+Subject: RE: [Slony1-general] How to shut-down slony replication
+To: "'Melvin Davidson'" <melvin6925@yahoo.com>, slony1-general@lists.slony.=
+info
+Date: Monday, June 8, 2009, 1:39 AM
+
+
+
+
+ =
+
+ =
+
+
+
+
+
+
+
+Toggling from master to slave is working fine. But when I toggle
+from slave to master, it gives me error. =
+
+
+ =A0 =
+
+
+<stdin>:19: PGRES_FATAL_ERROR select
+"_OAK_CLUSTER".lockSet(1); select
+"_OAK_CLUSTER".getMaxXid();=A0 - ERROR:=A0 Slony-I: set 1 does
+not originate on local node =
+
+
+ =A0 =
+
+
+Kindly help me =
+
+
+ =A0 =
+
+
+-Owais =
+
+
+ =A0 =
+
+
+
+
+From: Melvin Davidson
+[mailto:melvin6925@yahoo.com] =
+
+
+Sent: Tuesday, June 02, 2009 7:18 PM
+
+To: slony1-general@lists.slony.info; owais
+
+Subject: Re: [Slony1-general] How to shut-down slony replication =
+
+
+
+
+ =A0 =
+
+
+
+ =
+
+  =
+
+  To temporarily stop
+  replication, I issue=A0=A0 pkill slon=A0 on the master and
+  all slave. =
+
+
+  =
+
+
+  To toggle a master and slave, I use a slonik script like one below:
+
+  =3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D
+
+  slonik <<_EOF_
+
+  =
+
+
+  #--
+
+  # define the namespace the replication system uses in our example it is
+
+  # slony_example
+
+  #--
+
+  CLUSTER NAME =3D $PTS_META_REP;
+
+  =
+
+
+  #--
+
+  # admin conninfo's are used by slonik to connect to the nodes one for each
+
+  # node on each side of the cluster, the syntax is that of PQconnectdb in
+
+  # the C-API
+
+  # --
+
+  node 1 admin conninfo=3D'dbname=3D$MASTERDBNAME host=3D$MASTERHOST port=
+=3D$PGPORT
+  user=3D$REPLICATIONUSER';
+
+  node 101 admin conninfo=3D'dbname=3D$MASTERDBNAME host=3D$SLAVEHOST1 port=
+=3D$JCIPORT
+  user=3D$REPLICATIONUSER';
+
+  =
+
+
+  # ----
+
+  # Switchover to node 101, make node 1 the slave
+
+  # ----
+
+  =
+
+
+  lock set (id =3D 1, origin =3D 1);
+
+  wait for event (origin =3D 1, confirmed =3D 101);
+
+  move set (id =3D 1, old origin =3D 1, new origin =3D 101);
+
+  wait for event (origin =3D 1, confirmed =3D 101);
+
+  =
+
+
+  _EOF_
+
+  =3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D
+
+  =
+
+
+  Likewise to switch back, I use:
+
+  =
+
+
+  =3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D
+
+  slonik <<_EOF_
+
+  =
+
+
+  #--
+
+  # define the namespace the replication system uses in our example it is
+
+  # slony_example
+
+  #--
+
+  CLUSTER NAME =3D $PTS_META_REP;
+
+  =
+
+
+  #--
+
+  # admin conninfo's are used by slonik to connect to the nodes one for each
+
+  # node on each side of the cluster, the syntax is that of PQconnectdb in
+
+  # the C-API
+
+  # --
+
+  node 1 admin conninfo=3D'dbname=3D$MASTERDBNAME host=3D$MASTERHOST port=
+=3D$PGPORT
+  user=3D$REPLICATIONUSER';
+
+  node 101 admin conninfo=3D'dbname=3D$MASTERDBNAME host=3D$SLAVEHOST1 port=
+=3D$JCIPORT
+  user=3D$REPLICATIONUSER';
+
+  =
+
+
+  # ----
+
+  # Switchover to node 1, make node 101 the slave
+
+  # ----
+
+  =
+
+
+  lock set (id =3D 1, origin =3D 101);
+
+  wait for event (origin =3D 101, confirmed =3D 1);
+
+  move set (id =3D 1, old origin =3D 101, new origin =3D 1);
+
+  wait for event (origin =3D 101, confirmed =3D 1);
+
+  =
+
+
+  _EOF_
+
+  =
+
+
+  =3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D =
+
+  =
+
+  Melvin Davidson  =
+
+  =
+
+  =
+
+
+  =
+
+
+  --- On Tue, 6/2/09, owais <owais@preceptglobalaccess.com>
+  wrote: =
+
+  =
+
+
+  From: owais <owais@preceptglobalaccess.com>
+
+  Subject: [Slony1-general] How to shut-down slony replication
+
+  To: slony1-general@lists.slony.info
+
+  Date: Tuesday, June 2, 2009, 7:17 AM =
+
+  =
+
+  =
+
+  Hi
+  guys, I just start looking in to slony1 project. The project has impresse=
+d me
+  a lot. I have successfully manage to start the replication between two
+  databases (one the same machine). I have used the following article to se=
+tup
+  slony replication (http://www.linuxjournal.com/article/7834).
+   =
+
+  =A0 =
+
+  Now,
+  I have the following questions: =
+
+  =A0 =
+
+  1)=A0=A0=A0=A0=A0
+  What is the procedure to stop replication process? Can anyone present
+  me a sample shell script? =
+
+  =A0 =
+
+  2)=A0=A0=A0=A0=A0
+  Is it possible to toggle master and slave? I only have 1 master
+  database and 1 slave. Can I change slave to master? =
+
+  =A0 =
+
+  -Regards =
+
+  =A0 =
+
+  Owais =
+
+  =
+
+  =
+
+  =
+
+
+  -----Inline Attachment Follows----- =
+
+  =
+
+  _______________________________________________
+
+  Slony1-general mailing list
+
+  Slony1-general@lists.slony.info
+
+  http://lists.slony.info/mailman/listinfo/slony1-general =
+
+  =
+
+  =
+
+ =
+
+
+
+ =A0 =
+
+
+
+
+ =
+
+
+
+
+
+      =
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20090608/=
+2057af2a/attachment.htm
+From owais at preceptglobalaccess.com  Mon Jun  8 00:39:46 2009
+From: owais at preceptglobalaccess.com (owais)
+Date: Mon Jun  8 08:16:50 2009
+Subject: [Slony1-general] How to shut-down slony replication
+In-Reply-To: <675794.98977.qm@web53008.mail.re2.yahoo.com>
+References: <675794.98977.qm@web53008.mail.re2.yahoo.com>
+Message-ID: <000801c9e80c$4f052a80$ed0f7f80$@com>
+
+Toggling from master to slave is working fine. But when I toggle from slave
+to master, it gives me error.
+
+ 
+
+<stdin>:19: PGRES_FATAL_ERROR select "_OAK_CLUSTER".lockSet(1); select
+"_OAK_CLUSTER".getMaxXid();  - ERROR:  Slony-I: set 1 does not originate on
+local node
+
+ 
+
+Kindly help me
+
+ 
+
+-Owais
+
+ 
+
+From: Melvin Davidson [mailto:melvin6925@yahoo.com] 
+Sent: Tuesday, June 02, 2009 7:18 PM
+To: slony1-general@lists.slony.info; owais
+Subject: Re: [Slony1-general] How to shut-down slony replication
+
+ 
+
+
+To temporarily stop replication, I issue   pkill slon  on the master and all
+slave. 
+
+To toggle a master and slave, I use a slonik script like one below:
+===========================================================
+slonik <<_EOF_
+
+#--
+# define the namespace the replication system uses in our example it is
+# slony_example
+#--
+CLUSTER NAME = $PTS_META_REP;
+
+#--
+# admin conninfo's are used by slonik to connect to the nodes one for each
+# node on each side of the cluster, the syntax is that of PQconnectdb in
+# the C-API
+# --
+node 1 admin conninfo='dbname=$MASTERDBNAME host=$MASTERHOST port=$PGPORT
+user=$REPLICATIONUSER';
+node 101 admin conninfo='dbname=$MASTERDBNAME host=$SLAVEHOST1 port=$JCIPORT
+user=$REPLICATIONUSER';
+
+# ----
+# Switchover to node 101, make node 1 the slave
+# ----
+
+lock set (id = 1, origin = 1);
+wait for event (origin = 1, confirmed = 101);
+move set (id = 1, old origin = 1, new origin = 101);
+wait for event (origin = 1, confirmed = 101);
+
+_EOF_
+===========================================================
+
+Likewise to switch back, I use:
+
+===========================================================
+slonik <<_EOF_
+
+#--
+# define the namespace the replication system uses in our example it is
+# slony_example
+#--
+CLUSTER NAME = $PTS_META_REP;
+
+#--
+# admin conninfo's are used by slonik to connect to the nodes one for each
+# node on each side of the cluster, the syntax is that of PQconnectdb in
+# the C-API
+# --
+node 1 admin conninfo='dbname=$MASTERDBNAME host=$MASTERHOST port=$PGPORT
+user=$REPLICATIONUSER';
+node 101 admin conninfo='dbname=$MASTERDBNAME host=$SLAVEHOST1 port=$JCIPORT
+user=$REPLICATIONUSER';
+
+# ----
+# Switchover to node 1, make node 101 the slave
+# ----
+
+lock set (id = 1, origin = 101);
+wait for event (origin = 101, confirmed = 1);
+move set (id = 1, old origin = 101, new origin = 1);
+wait for event (origin = 101, confirmed = 1);
+
+_EOF_
+
+===========================================================
+
+Melvin Davidson 
+
+
+
+--- On Tue, 6/2/09, owais <owais@preceptglobalaccess.com> wrote:
+
+
+From: owais <owais@preceptglobalaccess.com>
+Subject: [Slony1-general] How to shut-down slony replication
+To: slony1-general@lists.slony.info
+Date: Tuesday, June 2, 2009, 7:17 AM
+
+Hi guys, I just start looking in to slony1 project. The project has
+impressed me a lot. I have successfully manage to start the replication
+between two databases (one the same machine). I have used the following
+article to setup slony replication (
+<http://www.linuxjournal.com/article/7834>
+http://www.linuxjournal.com/article/7834). 
+
+ 
+
+Now, I have the following questions:
+
+ 
+
+1)      What is the procedure to stop replication process? Can anyone
+present me a sample shell script?
+
+ 
+
+2)      Is it possible to toggle master and slave? I only have 1 master
+database and 1 slave. Can I change slave to master?
+
+ 
+
+-Regards
+
+ 
+
+Owais
+
+
+-----Inline Attachment Follows-----
+
+_______________________________________________
+Slony1-general mailing list
+Slony1-general@lists.slony.info
+ <http://lists.slony.info/mailman/listinfo/slony1-general>
+http://lists.slony.info/mailman/listinfo/slony1-general
+
+ 
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20090608/0ae457e4/attachment-0001.htm
+From melvin6925 at yahoo.com  Mon Jun  8 15:45:55 2009
+From: melvin6925 at yahoo.com (Melvin Davidson)
+Date: Mon Jun  8 15:46:14 2009
+Subject: [Slony1-general] How to shut-down slony replication
+Message-ID: <455618.80390.qm@web53008.mail.re2.yahoo.com>
+
+Are you trying to use the exact same script to
+toggle?You cannot do that. You need one script to toggle from node 1
+(master) to node 101 (slave), and a second script (the exact opposite,
+to toggle from node 101 (now master) to node 1 (now slave).
+
+
+
+See the example of the slonik move set command:
+
+http://slony.info/documentation/stmtmoveset.html
+
+
+
+Melvin Davidson =
+
+ Home 720-870-9595 =
+
+ =A0=A0=A0 Cell 720-320-0155  =
+
+
+I reserve the right to fantasize.=A0 Whether or not you =
+
+ wish to share my fantasy is entirely up to you. =
+
+
+www.youtube.com/unusedhero
+ =
+
+ Folk Alley - All Folk - 24 Hours a day =
+
+www.folkalley.com
+
+
+
+--- On Mon, 6/8/09, owais@preceptglobalaccess.com <owais@preceptglobalacces=
+s.com> wrote:
+
+From: owais@preceptglobalaccess.com <owais@preceptglobalaccess.com>
+Subject: Re:  [Slony1-general] How to shut-down slony replication
+To: "Melvin Davidson" <melvin6925@yahoo.com>, slony1-general@lists.slony.in=
+fo, "owais" <owais@preceptglobalaccess.com>
+Date: Monday, June 8, 2009, 10:05 AM
+
+I don't get it. Can you explain a bit more. =
+
+
+As i have 1 master and 1 slave. Then i run a toggle script that changes my =
+slave to master and my master to slave. =
+
+
+Therefore, My previous slave is a new master. =
+
+
+Now, I want to toggle again. And it is giving me an error. What is wrong in=
+ it ? =
+
+
+- Owais
+=A0
+-----Original Message-----
+From: Melvin Davidson [mailto:melvin6925@yahoo.com]
+Sent: Monday, June 8, 2009 08:08 AM
+To: slony1-general@lists.slony.info, 'owais'
+Subject: RE: [Slony1-general] How to shut-down slony replication
+
+owais, =
+
+
+>when I toggle
+from slave to master, it gives me error.
+
+>"_OAK_CLUSTER".getMaxXid();=A0 - ERROR:=A0 Slony-I: set 1 does
+not originate on local node
+
+ =
+
+
+The purpose of the switchover is to change the master to the slave and slav=
+e to master. But you cannot switch from a slave to a master. There is no po=
+int in that.
+
+Melvin Davidson =
+
+ =
+
+
+
+--- On Mon, 6/8/09, owais <owais@preceptglobalaccess.com> wrote:
+
+From: owais <owais@preceptglobalaccess.com>
+Subject: RE: [Slony1-general] How to shut-down slony replication
+To: "'Melvin Davidson'"
+ <melvin6925@yahoo.com>, slony1-general@lists.slony.info
+Date: Monday, June 8, 2009, 1:39 AM
+
+
+
+
+
+
+
+
+
+
+
+
+Toggling from master to slave is working fine. But when I toggle
+from slave to master, it gives me error.
+
+ =A0
+
+<stdin>:19: PGRES_FATAL_ERROR select
+"_OAK_CLUSTER".lockSet(1); select
+"_OAK_CLUSTER".getMaxXid();=A0 - ERROR:=A0 Slony-I: set 1 does
+not originate on local node
+
+ =A0
+
+Kindly help me
+
+ =A0
+
+-Owais
+
+ =A0
+
+
+
+From: Melvin Davidson
+[mailto:melvin6925@yahoo.com] =
+
+
+Sent: Tuesday, June 02, 2009 7:18 PM
+
+To: slony1-general@lists.slony.info; owais
+
+Subject: Re: [Slony1-general] How to shut-down slony replication
+
+
+
+ =A0
+
+
+ =
+
+  =
+
+  To temporarily stop
+  replication, I issue=A0=A0 pkill slon=A0 on the master and
+  all slave. =
+
+
+  =
+
+
+  To toggle a master and slave, I use a slonik script like one below:
+
+  =3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D
+
+  slonik <<_EOF_
+
+  =
+
+
+  #--
+
+  # define the namespace the replication system uses in our example it is
+
+  # slony_example
+
+  #--
+
+  CLUSTER NAME =3D $PTS_META_REP;
+
+  =
+
+
+  #--
+
+  # admin conninfo's are used by slonik to connect to the nodes one for each
+
+  # node on each side of the cluster, the syntax is that of PQconnectdb in
+
+  # the C-API
+
+  # --
+
+  node 1 admin conninfo=3D'dbname=3D$MASTERDBNAME host=3D$MASTERHOST port=
+=3D$PGPORT
+  user=3D$REPLICATIONUSER';
+
+  node 101 admin conninfo=3D'dbname=3D$MASTERDBNAME host=3D$SLAVEHOST1 port=
+=3D$JCIPORT
+  user=3D$REPLICATIONUSER';
+
+  =
+
+
+  # ----
+
+  # Switchover to node 101, make node 1 the slave
+
+  # ----
+
+  =
+
+
+  lock set (id =3D 1, origin =3D 1);
+
+  wait for event (origin =3D 1, confirmed =3D 101);
+
+  move set (id =3D 1, old origin =3D 1, new origin =3D 101);
+
+  wait for event (origin =3D 1, confirmed =3D 101);
+
+  =
+
+
+  _EOF_
+
+  =3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D
+
+  =
+
+
+  Likewise to switch back, I use:
+
+  =
+
+
+  =3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D
+
+  slonik <<_EOF_
+
+  =
+
+
+  #--
+
+  # define the namespace the replication system uses in our example it is
+
+  # slony_example
+
+  #--
+
+  CLUSTER NAME =3D $PTS_META_REP;
+
+  =
+
+
+  #--
+
+  # admin conninfo's are used by slonik to connect to the nodes one for each
+
+  # node on each side of the cluster, the syntax is that of PQconnectdb in
+
+  # the C-API
+
+  # --
+
+  node 1 admin conninfo=3D'dbname=3D$MASTERDBNAME host=3D$MASTERHOST port=
+=3D$PGPORT
+  user=3D$REPLICATIONUSER';
+
+  node 101 admin conninfo=3D'dbname=3D$MASTERDBNAME host=3D$SLAVEHOST1 port=
+=3D$JCIPORT
+  user=3D$REPLICATIONUSER';
+
+  =
+
+
+  # ----
+
+  # Switchover to node 1, make node 101 the slave
+
+  # ----
+
+  =
+
+
+  lock set (id =3D 1, origin =3D 101);
+
+  wait for event (origin =3D 101, confirmed =3D 1);
+
+  move set (id =3D 1, old origin =3D 101, new origin =3D 1);
+
+  wait for event (origin =3D 101, confirmed =3D 1);
+
+  =
+
+
+  _EOF_
+
+  =
+
+
+  =3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D
+  =
+
+  Melvin Davidson =
+
+  =
+
+  =
+
+
+  =
+
+
+  --- On Tue, 6/2/09, owais <owais@preceptglobalaccess.com>
+  wrote:
+  =
+
+
+  From: owais <owais@preceptglobalaccess.com>
+
+  Subject: [Slony1-general] How to shut-down slony replication
+
+  To: slony1-general@lists.slony.info
+
+  Date: Tuesday, June 2, 2009, 7:17 AM
+  =
+
+  =
+
+  Hi
+  guys, I just start looking in to slony1 project. The project has impresse=
+d me
+  a lot. I have successfully manage to start the replication between two
+  databases (one the same machine). I have used the following article to se=
+tup
+  slony replication (http://www.linuxjournal.com/article/7834).
+  =
+
+  =A0
+  Now,
+  I have the following questions:
+  =A0
+  1)=A0=A0=A0=A0=A0
+  What is the procedure to stop replication process? Can anyone present
+  me a sample shell script?
+  =A0
+  2)=A0=A0=A0=A0=A0
+  Is it possible to toggle master and slave? I only have 1 master
+  database and 1 slave. Can I change slave to master?
+  =A0
+  -Regards
+  =A0
+  Owais
+  =
+
+  =
+
+  =
+
+
+  -----Inline Attachment Follows-----
+  =
+
+  _______________________________________________
+
+  Slony1-general mailing list
+
+  Slony1-general@lists.slony.info
+
+  http://lists.slony.info/mailman/listinfo/slony1-general
+  =
+
+  =
+
+ =
+
+
+
+ =A0
+
+
+
+
+
+
+
+
+
+
+      =
+
+
+
+      =
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20090608/=
+8b4375ad/attachment.htm
+From stephane.schildknecht at postgresqlfr.org  Tue Jun  9 02:30:03 2009
+From: stephane.schildknecht at postgresqlfr.org (=?ISO-8859-15?Q?=22St=E9phane_A=2E_Schildknecht=22?=)
+Date: Tue Jun  9 02:30:35 2009
+Subject: [Slony1-general] Slony1-ctl 1.1.4 released
+Message-ID: <4A2E2B9B.9040604@postgresqlfr.org>
+
+-----BEGIN PGP SIGNED MESSAGE-----
+Hash: SHA1
+
+Hello,
+
+A new version of slony1-ctl, a collection of shell scripts aiming at
+simplifying everyday admnistration of a Slony replication has been released.
+
+This version adds support for propagating an SQL script through all nodes of a
+replication outside of slony.
+One can now easily propagate creation of a table or an index, for instance.
+
+The project homepage :
+  http://pgfoundry.org/projects/slony1-ctl/
+
+The package :
+  http://pgfoundry.org/frs/download.php/2253/slony1-ctl-1.1.4.tar.gz
+
+Best regards,
+- --
+St?phane Schildknecht
+PostgreSQLFr - http://www.postgresql.fr
+-----BEGIN PGP SIGNATURE-----
+Version: GnuPG v1.4.6 (GNU/Linux)
+Comment: Using GnuPG with Mozilla - http://enigmail.mozdev.org
+
+iD8DBQFKLiuaA+REPKWGI0ERAubpAJ4o2Y77MUi1/XjaXncs4oOAn5NaaQCfYssY
+Mn1mWXNVXaPUFMZVAswBJ64=
+=YSET
+-----END PGP SIGNATURE-----
+From owais at preceptglobalaccess.com  Mon Jun  8 09:05:17 2009
+From: owais at preceptglobalaccess.com (owais@preceptglobalaccess.com)
+Date: Tue Jun  9 08:41:25 2009
+Subject: [Slony1-general] How to shut-down slony replication
+Message-ID: <W767031776565671244477117@webmail44>
+
+I don't get it. Can you explain a bit more. =
+
+
+As i have 1 master and 1 slave. Then i run a toggle script that changes my =
+slave to master and my master to slave. =
+
+
+Therefore, My previous slave is a new master. =
+
+
+Now, I want to toggle again. And it is giving me an error. What is wrong in=
+ it ? =
+
+
+- Owais
+
+-----Original Message-----
+From: Melvin Davidson [mailto:melvin6925@yahoo.com]
+Sent: Monday, June 8, 2009 08:08 AM
+To: slony1-general@lists.slony.info, 'owais'
+Subject: RE: [Slony1-general] How to shut-down slony replication
+
+owais, =
+
+
+>when I togglefrom slave to master, it gives me error.
+
+>"_OAK_CLUSTER".getMaxXid(); - ERROR: Slony-I: set 1 doesnot originate on l=
+ocal node =
+
+
+The purpose of the switchover is to change the master to the slave and slav=
+e to master. But you cannot switch from a slave to a master. There is no po=
+int in that.
+
+Melvin Davidson =
+
+
+
+
+
+--- On Mon, 6/8/09, owais <owais@preceptglobalaccess.com> wrote:
+
+From: owais <owais@preceptglobalaccess.com>
+Subject: RE: [Slony1-general] How to shut-down slony replication
+To: "'Melvin Davidson'" <melvin6925@yahoo.com>, slony1-general@lists.slony.=
+info
+Date: Monday, June 8, 2009, 1:39 AM
+
+Toggling from master to slave is working fine. But when I togglefrom slave =
+to master, it gives me error.
+
+<stdin>:19: PGRES_FATAL_ERROR select"_OAK_CLUSTER".lockSet(1); select"_OAK_=
+CLUSTER".getMaxXid(); - ERROR: Slony-I: set 1 doesnot originate on local no=
+de
+
+Kindly help me
+
+-Owais
+
+From: Melvin Davidson[mailto:melvin6925@yahoo.com] =
+
+Sent: Tuesday, June 02, 2009 7:18 PM
+To: slony1-general@lists.slony.info; owais
+Subject: Re: [Slony1-general] How to shut-down slony replication
+
+
+To temporarily stop replication, I issue pkill slon on the master and all s=
+lave. =
+
+
+ To toggle a master and slave, I use a slonik script like one below:
+ =3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D
+ slonik <<_EOF_
+
+ #--
+ # define the namespace the replication system uses in our example it is
+ # slony_example
+ #--
+ CLUSTER NAME =3D $PTS_META_REP;
+
+ #--
+ # admin conninfo's are used by slonik to connect to the nodes one for each
+ # node on each side of the cluster, the syntax is that of PQconnectdb in
+ # the C-API
+ # --
+ node 1 admin conninfo=3D'dbname=3D$MASTERDBNAME host=3D$MASTERHOST port=3D=
+$PGPORT user=3D$REPLICATIONUSER';
+ node 101 admin conninfo=3D'dbname=3D$MASTERDBNAME host=3D$SLAVEHOST1 port=
+=3D$JCIPORT user=3D$REPLICATIONUSER';
+
+ # ----
+ # Switchover to node 101, make node 1 the slave
+ # ----
+
+ lock set (id =3D 1, origin =3D 1);
+ wait for event (origin =3D 1, confirmed =3D 101);
+ move set (id =3D 1, old origin =3D 1, new origin =3D 101);
+ wait for event (origin =3D 1, confirmed =3D 101);
+
+ _EOF_
+ =3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D
+
+ Likewise to switch back, I use:
+
+ =3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D
+ slonik <<_EOF_
+
+ #--
+ # define the namespace the replication system uses in our example it is
+ # slony_example
+ #--
+ CLUSTER NAME =3D $PTS_META_REP;
+
+ #--
+ # admin conninfo's are used by slonik to connect to the nodes one for each
+ # node on each side of the cluster, the syntax is that of PQconnectdb in
+ # the C-API
+ # --
+ node 1 admin conninfo=3D'dbname=3D$MASTERDBNAME host=3D$MASTERHOST port=3D=
+$PGPORT user=3D$REPLICATIONUSER';
+ node 101 admin conninfo=3D'dbname=3D$MASTERDBNAME host=3D$SLAVEHOST1 port=
+=3D$JCIPORT user=3D$REPLICATIONUSER';
+
+ # ----
+ # Switchover to node 1, make node 101 the slave
+ # ----
+
+ lock set (id =3D 1, origin =3D 101);
+ wait for event (origin =3D 101, confirmed =3D 1);
+ move set (id =3D 1, old origin =3D 101, new origin =3D 1);
+ wait for event (origin =3D 101, confirmed =3D 1);
+
+ _EOF_
+
+ =3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D
+Melvin Davidson =
+
+
+
+
+ --- On Tue, 6/2/09, owais <owais@preceptglobalaccess.com> wrote:
+
+ From: owais <owais@preceptglobalaccess.com>
+ Subject: [Slony1-general] How to shut-down slony replication
+ To: slony1-general@lists.slony.info
+ Date: Tuesday, June 2, 2009, 7:17 AM
+Hi guys, I just start looking in to slony1 project. The project has impress=
+ed me a lot. I have successfully manage to start the replication between tw=
+o databases (one the same machine). I have used the following article to se=
+tup slony replication (http://www.linuxjournal.com/article/7834). =
+
+
+Now, I have the following questions:
+
+1)What is the procedure to stop replication process? Can anyone present me =
+a sample shell script?
+
+2)Is it possible to toggle master and slave? I only have 1 master database =
+and 1 slave. Can I change slave to master?
+
+-Regards
+
+Owais
+
+
+
+ -----Inline Attachment Follows-----
+_______________________________________________
+ Slony1-general mailing list
+Slony1-general@lists.slony.info
+http://lists.slony.info/mailman/listinfo/slony1-general
+
+
+
+
+
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20090608/=
+9b37114e/attachment-0001.htm
+From vivek at khera.org  Tue Jun  9 08:59:03 2009
+From: vivek at khera.org (Vick Khera)
+Date: Tue Jun  9 08:59:12 2009
+Subject: [Slony1-general] How to shut-down slony replication
+In-Reply-To: <W767031776565671244477117@webmail44>
+References: <W767031776565671244477117@webmail44>
+Message-ID: <2968dfd60906090859q74cc6988m13e8f97487fd8fb1@mail.gmail.com>
+
+On Mon, Jun 8, 2009 at 12:05 PM, <owais@preceptglobalaccess.com> wrote:
+> Now, I want to toggle again. And it is giving me an error. What is wrong in
+> it ?
+>
+
+One of the mind readers on the list will have to help you with that.
+Until one does, posting the error message will help the rest of us
+help you.
+From uothrawn at yahoo.com  Wed Jun 10 05:33:47 2009
+From: uothrawn at yahoo.com (g h)
+Date: Wed Jun 10 05:33:52 2009
+Subject: [Slony1-general] Multi-slave replication question
+Message-ID: <956207.99822.qm@web45115.mail.sp1.yahoo.com>
+
+
+I am trying to set up SlonyI to replicated a master DB to two slaves and I am encountering an error when I try to set up the routes. I have the following Slonik script:
+
+cluster name = mycluster;
+node 1 admin conninfo = 'dbname=mydb host=master user=postgres';
+node 2 admin conninfo = 'dbname=mydb host=slave1 user=postgres';
+node 3 admin conninfo = 'dbname=mydb host=slave2 user=postgres';
+
+init cluster ( id=1, comment='abc' );
+create set ( id=1, origin=1, comment='abcd' );
+set add table ( set id=1, origin=1, id=1, fully qualified name='myschema.mytable', comment='a Table' );
+
+store node ( id=2, comment='slave1', event node=1 );
+store path ( server=1, client=2, conninfo='dbname=mydb host=master user=postgres' );
+store listen ( origin=1, provider=1, receiver=2 );
+
+store node ( id=3, comment='slave2', event node=1 );
+store path ( server=1, client=3, conninfo='dbname=mydb host=master user=postgres' );
+store listen ( origin=1, provider=1, receiver=3 );
+
+
+However, it is failing on the second call to store node as the cluster schema was already created in the first call to store node. I am curious as to why the first call is touching my slave2 database. Is this the proper way to have two-slave replication?
+
+Error message is: "Error: namespace "_mycluster" already exists in database of node 3".
+
+Thanks,
+g h
+
+
+      
+
+From stephane.schildknecht at postgresqlfr.org  Wed Jun 10 06:10:10 2009
+From: stephane.schildknecht at postgresqlfr.org (=?ISO-8859-15?Q?=22St=E9phane_A=2E_Schildknecht=22?=)
+Date: Wed Jun 10 06:10:19 2009
+Subject: [Slony1-general] Multi-slave replication question
+In-Reply-To: <956207.99822.qm@web45115.mail.sp1.yahoo.com>
+References: <956207.99822.qm@web45115.mail.sp1.yahoo.com>
+Message-ID: <4A2FB0B2.9070802@postgresqlfr.org>
+
+-----BEGIN PGP SIGNED MESSAGE-----
+Hash: SHA1
+
+g h a ?crit :
+> I am trying to set up SlonyI to replicated a master DB to two slaves and I am encountering an error when I try to set up the routes. I have the following Slonik script:
+> 
+> cluster name = mycluster;
+> node 1 admin conninfo = 'dbname=mydb host=master user=postgres';
+> node 2 admin conninfo = 'dbname=mydb host=slave1 user=postgres';
+> node 3 admin conninfo = 'dbname=mydb host=slave2 user=postgres';
+> 
+> init cluster ( id=1, comment='abc' );
+> create set ( id=1, origin=1, comment='abcd' );
+> set add table ( set id=1, origin=1, id=1, fully qualified name='myschema.mytable', comment='a Table' );
+> 
+> store node ( id=2, comment='slave1', event node=1 );
+> store path ( server=1, client=2, conninfo='dbname=mydb host=master user=postgres' );
+> store listen ( origin=1, provider=1, receiver=2 );
+> 
+> store node ( id=3, comment='slave2', event node=1 );
+> store path ( server=1, client=3, conninfo='dbname=mydb host=master user=postgres' );
+> store listen ( origin=1, provider=1, receiver=3 );
+> 
+> 
+> However, it is failing on the second call to store node as the cluster schema was already created in the first call to store node. I am curious as to why the first call is touching my slave2 database. Is this the proper way to have two-slave replication?
+> 
+> Error message is: "Error: namespace "_mycluster" already exists in database of node 3".
+> 
+> Thanks,
+> g h
+
+Hi,
+
+I don't know why Slony should have created anything on node 3, despite the fact
+you already tried to create node 3 in the paste.
+
+Are you working with fresh installed schemas ?
+
+Which version of Slony are you using ?
+
+(BTW, store listen is no more needed with newer version of slony (at least 1.2
+and 2.0).)
+
+Regards,
+- --
+St?phane Schildknecht
+PostgreSQLFr - http://www.postgresql.fr
+-----BEGIN PGP SIGNATURE-----
+Version: GnuPG v1.4.6 (GNU/Linux)
+Comment: Using GnuPG with Mozilla - http://enigmail.mozdev.org
+
+iD8DBQFKL7CyA+REPKWGI0ERAt0KAKCbRXU7suE+obdYqHCRAwcPsnz6ZQCfYPUq
+r1TZuc0ZiSC/MRo//iu5NJQ=
+=NDci
+-----END PGP SIGNATURE-----
+From ajs at crankycanuck.ca  Wed Jun 10 07:42:04 2009
+From: ajs at crankycanuck.ca (Andrew Sullivan)
+Date: Wed Jun 10 07:42:13 2009
+Subject: [Slony1-general] How to shut-down slony replication
+In-Reply-To: <W767031776565671244477117@webmail44>
+References: <W767031776565671244477117@webmail44>
+Message-ID: <20090610144203.GA33231@shinkuro.com>
+
+On Mon, Jun 08, 2009 at 04:05:17PM +0000, owais@preceptglobalaccess.com wrote:
+> I don't get it. Can you explain a bit more.
+> 
+> As i have 1 master and 1 slave. Then i run a toggle script that changes my slave to master and my master to slave.
+> 
+> Therefore, My previous slave is a new master.
+> 
+> Now, I want to toggle again. And it is giving me an error. What is wrong in it ?
+
+You have the wrong model of how Slony works.
+
+Nodes are not "master" or "slave" as such.  They're data sources for
+particular sets (possibly being the origin for one set and a recipient
+for some other set).  Therefore, running the same script the second
+time will in fact just try to move the source of the target set from
+the first node to the second node.  But you already did that when you
+tried the first time, which means that your second attempt will not be
+successful.
+
+If you want a "toggle" script, then you need to write a script that
+detects the _current_ state of the cluster based on what the various
+nodes have configured (and you better check them all!), and then runs
+the correct "move set" script(s) to move the set as it is currently
+configured to a new origin.  Note that there are serious race
+conditions here, and while Slony is designed to avoid letting you
+break it (1) it is nevertheless possible to get it into a bad state
+and (2) it is quite tricky to write a bulletproof script due to the races.
+
+Slony has a lot of features, but this unfortunately means that a naive
+"master-slave" installation still requires quite a bit of
+understanding of the underlying sophisticated bits.  
+
+The manual is pretty complete (although a little orotund) about how
+this all works.  Look in particular at the "task oriented" segments,
+and work through all the examples step by step (because there's no
+"shortcut" documentation for Slony as far as I know).  This learning
+curve problem is one of the barriers to Slony adoption, I'm afraid.
+
+A
+
+
+-- 
+Andrew Sullivan
+ajs@crankycanuck.ca
+From JanWieck at Yahoo.com  Wed Jun 10 08:04:08 2009
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Wed Jun 10 08:04:12 2009
+Subject: [Slony1-general] Slony bug and patch proposal
+In-Reply-To: <80E49997-66B4-4D6C-9A9F-CB46D8F99ED3@mamontov.net>
+References: <80E49997-66B4-4D6C-9A9F-CB46D8F99ED3@mamontov.net>
+Message-ID: <4A2FCB68.8030001@Yahoo.com>
+
+On 6/1/2009 5:07 AM, Oleg A. Mamontov wrote:
+> Hello!
+> 
+> I am using it on FreeBSD systems for moving PostgreSQL databases between
+> servers with minimum downtime, all works fine.
+> But when I try to setup permanent master-slave schema some problems  
+> occured.
+> Some times (accidentally) master system didn't generate sync events,  
+> and shutting down
+> slon on master systems had long time.
+> After debugging session, i found cause of problem (there is two  
+> problem, Slony and FreeBSD too).
+> IMHO there is a logical mistake in slon/scheduler.c, in sched_mainloop  
+> fdsets copied
+> for select before checking connections for their timeouts. In timeout  
+> case this
+> descriptors will be removed with DLLIST_REMOVE and sched_remove_fdset,  
+> but stayed in
+> select descriptors bit vector.
+> There is a race condition: scheduler and libpq client polls same file  
+> descriptor and sometime
+> scheduler select discover readable descriptor and lipbq poll blocks  
+> for infinte time :(
+> I tested this on FreeBSD 7.0, trouble repeated in ~60% runs.
+> I attach a patch, please, take a look on this code, it seems right,  
+> imho...
+
+No need for a test case, Chris. A quick look at the code reveals that 
+Oleg is indeed right.
+
+Patch applied.
+
+Good work, thank you.
+
+
+Jan
+
+-- 
+Anyone who trades liberty for security deserves neither
+liberty nor security. -- Benjamin Franklin
+
+From storm at iparadigms.com  Wed Jun 10 15:19:42 2009
+From: storm at iparadigms.com (Christian Storm)
+Date: Wed Jun 10 15:19:59 2009
+Subject: [Slony1-general] Re: Slony1-general Digest, Vol 28, Issue 12
+In-Reply-To: <20090610190004.885EE290BFA@main.slony.info>
+References: <20090610190004.885EE290BFA@main.slony.info>
+Message-ID: <3c2d02c90906101519l75734394n224c6161ce0a7ed9@mail.gmail.com>
+
+Will this go into 2.1?
+
+
+>   4. Re: Slony bug and patch proposal (Jan Wieck)
+>
+>
+> Message: 4
+> Date: Wed, 10 Jun 2009 11:04:08 -0400
+> From: Jan Wieck <JanWieck@Yahoo.com>
+> Subject: Re: [Slony1-general] Slony bug and patch proposal
+> To: "Oleg A. Mamontov" <oleg@mamontov.net>
+> Cc: slony1-general@lists.slony.info
+> Message-ID: <4A2FCB68.8030001@Yahoo.com>
+> Content-Type: text/plain; charset=3DISO-8859-1; format=3Dflowed
+>
+> On 6/1/2009 5:07 AM, Oleg A. Mamontov wrote:
+> > Hello!
+> >
+> > I am using it on FreeBSD systems for moving PostgreSQL databases between
+> > servers with minimum downtime, all works fine.
+> > But when I try to setup permanent master-slave schema some problems
+> > occured.
+> > Some times (accidentally) master system didn't generate sync events,
+> > and shutting down
+> > slon on master systems had long time.
+> > After debugging session, i found cause of problem (there is two
+> > problem, Slony and FreeBSD too).
+> > IMHO there is a logical mistake in slon/scheduler.c, in sched_mainloop
+> > fdsets copied
+> > for select before checking connections for their timeouts. In timeout
+> > case this
+> > descriptors will be removed with DLLIST_REMOVE and sched_remove_fdset,
+> > but stayed in
+> > select descriptors bit vector.
+> > There is a race condition: scheduler and libpq client polls same file
+> > descriptor and sometime
+> > scheduler select discover readable descriptor and lipbq poll blocks
+> > for infinte time :(
+> > I tested this on FreeBSD 7.0, trouble repeated in ~60% runs.
+> > I attach a patch, please, take a look on this code, it seems right,
+> > imho...
+>
+> No need for a test case, Chris. A quick look at the code reveals that
+> Oleg is indeed right.
+>
+> Patch applied.
+>
+> Good work, thank you.
+>
+>
+> Jan
+>
+> --
+> Anyone who trades liberty for security deserves neither
+> liberty nor security. -- Benjamin Franklin
+>
+>
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20090610/=
+06f0249a/attachment.htm
+From cbbrowne at ca.afilias.info  Wed Jun 10 16:13:40 2009
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Wed Jun 10 16:13:58 2009
+Subject: [Slony1-general] Re: Slony1-general Digest, Vol 28, Issue 12
+In-Reply-To: <3c2d02c90906101519l75734394n224c6161ce0a7ed9@mail.gmail.com>
+References: <20090610190004.885EE290BFA@main.slony.info>
+	<3c2d02c90906101519l75734394n224c6161ce0a7ed9@mail.gmail.com>
+Message-ID: <4A303E24.8000603@ca.afilias.info>
+
+Christian Storm wrote:
+> Will this go into 2.1?
+That has been applied to all the branches, 1.2, 2.0, and HEAD.
+
+From stephane.schildknecht at postgresqlfr.org  Thu Jun 11 05:49:52 2009
+From: stephane.schildknecht at postgresqlfr.org (=?ISO-8859-15?Q?=22St=E9phane_A=2E_Schildknecht=22?=)
+Date: Thu Jun 11 05:49:57 2009
+Subject: [Slony1-general] Best way to propagate 327 000 rows update
+Message-ID: <4A30FD70.2030300@postgresqlfr.org>
+
+-----BEGIN PGP SIGNED MESSAGE-----
+Hash: SHA1
+
+Hi,
+
+One of the table I have in a set of replication (123 tables or such) contains
+some 6 000 000 rows. Let's call it mybigtable (MBT).
+
+I need to update more than 300 000 rows at once in MBT.
+
+I wonder what the best option is.
+
+Indeed, I see three options :
+
+ 1. update MBT on master, and wait ;
+ 2. drop MBT out of replication, update it, and then add it back to the
+replication;
+ 3. move MBT to a new set, update rows, and then merge sets back.
+
+One of the slaves (1 master, 9 slaves) is really far from master, and link is
+quite slow.
+
+Thus, I'm afraid first solution could lead to wait for too many hours.
+
+When first initialising the replication, I had to wait for some 2 hours and
+half for the farest node to be in sync. I think it could be far longer to wait
+for that many rows updated on that slave.
+
+That's why I thought of solution 2. BTW, updating 320 000 rows on master could
+take some 20 minutes or so.
+
+What's more I wonder if slony could work two sets in parallel so that I don't
+have to wait for MBT to be updated and other tables can stay in touch with
+master while processing MBT updates.
+
+Any advice is welcome.
+
+Best regards,
+- --
+St?phane Schildknecht
+PostgreSQLFr - http://www.postgresql.fr
+-----BEGIN PGP SIGNATURE-----
+Version: GnuPG v1.4.6 (GNU/Linux)
+Comment: Using GnuPG with Mozilla - http://enigmail.mozdev.org
+
+iD8DBQFKMP1wA+REPKWGI0ERAijCAJ93yAIgBbwYBx5j4/uXtIUsXmn73ACZASt8
+xgvvErD5dviNBxsCThPaE2g=
+=ruFz
+-----END PGP SIGNATURE-----
+From jean-paul at postgresqlfr.org  Thu Jun 11 06:44:05 2009
+From: jean-paul at postgresqlfr.org (Jean-Paul Argudo)
+Date: Thu Jun 11 06:44:22 2009
+Subject: [Slony1-general] Best way to propagate 327 000 rows update
+In-Reply-To: <4A30FD70.2030300@postgresqlfr.org>
+References: <4A30FD70.2030300@postgresqlfr.org>
+Message-ID: <4A310A25.1040004@postgresqlfr.org>
+
+Hi St?phane,
+
+>  2. drop MBT out of replication, update it, and then add it back to the
+> replication;
+
+The best option so far IMHO. But what's better? Let transit 320K
+modified rows or 6M new rows ? I really don't know there.
+
+> [...]
+> That's why I thought of solution 2. BTW, updating 320 000 rows on master could
+> take some 20 minutes or so.
+
+I just wonder why didn't you partitionned MBT? In that particular case
+it could improove things, right ?
+
+Not only for replication purpose, but in general ?
+
+I wonder whats the impact for slony in replicating from 1 table of 6
+millions row, or, lets say, 6 tables of 1 million rows? What if 12
+tables of half-million, etc?...
+
+> What's more I wonder if slony could work two sets in parallel so that I don't
+> have to wait for MBT to be updated and other tables can stay in touch with
+> master while processing MBT updates.
+
+Im' sorry, I don't get the parallel thing here.
+
+-- 
+Jean-Paul Argudo
+www.PostgreSQLFr.org
+www.Dalibo.com
+From vivek at khera.org  Thu Jun 11 07:04:02 2009
+From: vivek at khera.org (Vick Khera)
+Date: Thu Jun 11 07:04:08 2009
+Subject: [Slony1-general] Best way to propagate 327 000 rows update
+In-Reply-To: <4A30FD70.2030300@postgresqlfr.org>
+References: <4A30FD70.2030300@postgresqlfr.org>
+Message-ID: <2968dfd60906110704q38908b7aoe94f50495f64bc58@mail.gmail.com>
+
+On Thu, Jun 11, 2009 at 8:49 AM, "St?phane A.
+Schildknecht"<stephane.schildknecht@postgresqlfr.org> wrote:
+> One of the table I have in a set of replication (123 tables or such) contains
+> some 6 000 000 rows. Let's call it mybigtable (MBT).
+>
+> I need to update more than 300 000 rows at once in MBT.
+>
+> I wonder what the best option is.
+>
+
+6 million rows is not "big". ;-)
+
+We regularly do updates this big to our bigger tables (200 million row
+range).  Slony handles it just fine.  Sometimes the replication lags
+for a couple of minutes, but it always catches up.
+
+It all depends on whether your hardware is capable of handling the
+load you throw at it.
+From stephane.schildknecht at postgresqlfr.org  Thu Jun 11 08:57:02 2009
+From: stephane.schildknecht at postgresqlfr.org (=?ISO-8859-15?Q?=22St=E9phane_A=2E_Schildknecht=22?=)
+Date: Thu Jun 11 08:57:13 2009
+Subject: [Slony1-general] Best way to propagate 327 000 rows update
+In-Reply-To: <4A310A25.1040004@postgresqlfr.org>
+References: <4A30FD70.2030300@postgresqlfr.org>
+	<4A310A25.1040004@postgresqlfr.org>
+Message-ID: <4A31294E.5080300@postgresqlfr.org>
+
+-----BEGIN PGP SIGNED MESSAGE-----
+Hash: SHA1
+
+Jean-Paul Argudo a ?crit :
+> Hi St?phane,
+> 
+>>  2. drop MBT out of replication, update it, and then add it back to the
+>> replication;
+> 
+> The best option so far IMHO. But what's better? Let transit 320K
+> modified rows or 6M new rows ? I really don't know there.
+> 
+>> [...]
+>> That's why I thought of solution 2. BTW, updating 320 000 rows on master could
+>> take some 20 minutes or so.
+> 
+> I just wonder why didn't you partitionned MBT? In that particular case
+> it could improove things, right ?
+> 
+> Not only for replication purpose, but in general ?
+> 
+> I wonder whats the impact for slony in replicating from 1 table of 6
+> millions row, or, lets say, 6 tables of 1 million rows? What if 12
+> tables of half-million, etc?...
+
+There will either ways be 300 000 update queries to propagate, I guess.
+
+> 
+>> What's more I wonder if slony could work two sets in parallel so that I don't
+>> have to wait for MBT to be updated and other tables can stay in touch with
+>> master while processing MBT updates.
+> 
+> Im' sorry, I don't get the parallel thing here.
+> 
+
+Well, let me try to explain what I thought...
+
+If MBT was in a particular set, with the same subscribers than the other set
+that contains all other objects, would slony keep objects in sync in the second
+set while the first set begins to lag, due to many events originating from MBT
+on that set ?
+
+In other words, are there two distinct treatments for two sets that originate
+from the same node and subscribed by the same subscribers ?
+
+I tried, and the answer is ... no. the two sets will lag.
+
+It seems useless, then, to declare a specific set for that table.
+
+Regards,
+SAS
+-----BEGIN PGP SIGNATURE-----
+Version: GnuPG v1.4.6 (GNU/Linux)
+Comment: Using GnuPG with Mozilla - http://enigmail.mozdev.org
+
+iD8DBQFKMSlNA+REPKWGI0ERAtPkAJ9NNiFwHwXXeR47b5kGH1ImTcq8XACgnjwb
+9c2XmZQdkBrgRJt0J7XpNG4=
+=llrZ
+-----END PGP SIGNATURE-----
+From dave at meteorsolutions.com  Thu Jun 11 15:39:52 2009
+From: dave at meteorsolutions.com (Dave Youatt)
+Date: Thu Jun 11 15:40:11 2009
+Subject: [Slony1-general] cache lookup failed for type 267501
+Message-ID: <4A3187B8.4010702@meteorsolutions.com>
+
+Help?
+
+Just configured a Slony-I cluster, two nodes, Centos 5.2 x64, master
+logging errors like the excerpt below almost continuously.  stopped the
+slon daemons, and dropped replication on each node for now.
+
+There were two file sets, one of 7 tables, and another of 21 tables.  I
+believe it was in the process of copying one of the large tables in the
+first set to the slave.
+
+2009-06-11 15:44:10.752 CDTERROR:  cache lookup failed for type 267501
+2009-06-11 15:44:10.752 CDTCONTEXT:  SQL statement "INSERT INTO
+_meteorstats.sl_log_1 (log_origin, log_xid, log_tableid, log_actionseq,
+log_cmdtype, log_cmddata) VALUES (1, $1, $2,
+nextval('_meteorstats.sl_action_seq'), $3, $4);"
+        SQL function "increment_url_visits" statement 1
+2009-06-11 15:44:10.752 CDTSTATEMENT:  select increment_url_visits($1,$2)
+2009-06-11 15:44:10.756 CDTERROR:  cache lookup failed for type 267501
+2009-06-11 15:44:10.756 CDTCONTEXT:  SQL statement "INSERT INTO
+_meteorstats.sl_log_1 (log_origin, log_xid, log_tableid, log_actionseq,
+log_cmdtype, log_cmddata) VALUES (1, $1, $2,
+nextval('_meteorstats.sl_action_seq'), $3, $4);"
+        SQL function "increment_url_visits" statement 1
+2009-06-11 15:44:10.756 CDTSTATEMENT:  select increment_url_visits($1,$2)
+2009-06-11 15:44:10.765 CDTERROR:  cache lookup failed for type 267501
+2009-06-11 15:44:10.765 CDTCONTEXT:  SQL statement "INSERT INTO
+_meteorstats.sl_log_1 (log_origin, log_xid, log_tableid, log_actionseq,
+log_cmdtype, log_cmddata) VALUES (1, $1, $2,
+nextval('_meteorstats.sl_action_seq'), $3, $4);"
+        SQL function "increment_url_visits" statement 1
+
+
+Master rpms:
+compat-postgresql-libs-4-1PGDG.rhel5
+postgresql-server-8.3.6-1PGDG.rhel5
+postgresql-libs-8.1.11-1.el5_1.1
+postgresql-libs-8.3.6-1PGDG.rhel5
+postgresql-8.3.6-1PGDG.rhel5
+postgresql-devel-8.3.6-1PGDG.rhel5
+postgresql-contrib-8.3.6-1PGDG.rhel5
+postgresql-docs-8.3.6-1PGDG.rhel5
+
+slony1-docs-1.2.15-3.rhel5
+slony1-1.2.15-3.rhel5
+
+Slave rpms:
+postgresql-8.3.7-1PGDG.rhel5
+postgresql-contrib-8.3.7-1PGDG.rhel5
+postgresql-libs-8.1.11-1.el5_1.1
+postgresql-server-8.3.6-1PGDG.rhel5
+postgresql-docs-8.3.6-1PGDG.rhel5
+postgresql-libs-8.3.7-1PGDG.rhel5
+postgresql-server-8.3.7-1PGDG.rhel5
+postgresql-plpython-8.3.7-1PGDG.rhel5
+postgresql-devel-8.3.7-1PGDG.rhel5
+compat-postgresql-libs-4-1PGDG.rhel5
+postgresql-python-8.1.11-1.el5_1.1
+
+slony1-docs-1.2.15-3.rhel5
+slony1-1.2.15-3.rhel5
+
+
+Noticed that there are updated slony1 rpms, but don't want to start
+playing rpm roulette, just yet.
+
+Same two servers had been replicating happily for months, but only 5 tables.
+
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20090611/=
+4c16dbcd/attachment.htm
+From mnagaraja at alcatel-lucent.com  Fri Jun 12 00:50:56 2009
+From: mnagaraja at alcatel-lucent.com (Nagaraja, Madhukar (Madhukar))
+Date: Fri Jun 12 00:52:18 2009
+Subject: [Slony1-general] Switchover issue.
+Message-ID: <E9F099885B445541A55D830FC62E175A0B6623938E@INBANSXCHMBSA3.in.alcatel-lucent.com>
+
+Hi,
+We are using Slony 2.0.1 on Postgres 8.3.7 for our solution.
+We are facing a unique issue, after we switchover there is a time lag for the next update to happen.
+We have automated the slony switchover process and when we issue a switchover from the GUI, evrything seems quite ok. But when we trying adding new entries from the GUI, we get a very vague PSQL exception - duplicate entry primary key voilation. But the same thing works if we wait for a few secs/min.
+Have you come across this issue ? Please let me know if you know anything about this.
+
+Thanks.
+From ajs at crankycanuck.ca  Fri Jun 12 06:54:12 2009
+From: ajs at crankycanuck.ca (Andrew Sullivan)
+Date: Fri Jun 12 06:54:20 2009
+Subject: [Slony1-general] Switchover issue.
+In-Reply-To: <E9F099885B445541A55D830FC62E175A0B6623938E@INBANSXCHMBSA3.in.alcatel-lucent.com>
+References: <E9F099885B445541A55D830FC62E175A0B6623938E@INBANSXCHMBSA3.in.alcatel-lucent.com>
+Message-ID: <20090612135412.GA36147@shinkuro.com>
+
+On Fri, Jun 12, 2009 at 01:20:56PM +0530, Nagaraja, Madhukar (Madhukar) wrote:
+
+> switchover from the GUI, evrything seems quite ok. But when we
+> trying adding new entries from the GUI, we get a very vague PSQL
+> exception - duplicate entry primary key voilation. 
+
+That doesn't sound vague to me.  It sounds like a perfectly clear
+message.  My bet is that you're tripping over a sequence value that
+is set too low or something like that.  But without seeing the actual
+exception message, instead of your vague description of it, I can't
+say more.
+
+A
+
+
+-- 
+Andrew Sullivan
+ajs@crankycanuck.ca
+From drees76 at gmail.com  Fri Jun 12 11:36:44 2009
+From: drees76 at gmail.com (David Rees)
+Date: Fri Jun 12 11:37:14 2009
+Subject: [Slony1-general] Switchover issue.
+In-Reply-To: <20090612135412.GA36147@shinkuro.com>
+References: <E9F099885B445541A55D830FC62E175A0B6623938E@INBANSXCHMBSA3.in.alcatel-lucent.com>
+	<20090612135412.GA36147@shinkuro.com>
+Message-ID: <72dbd3150906121136r3e2bfc4dt6b68312424de4788@mail.gmail.com>
+
+On Fri, Jun 12, 2009 at 6:54 AM, Andrew Sullivan<ajs@crankycanuck.ca> wrote:
+> On Fri, Jun 12, 2009 at 01:20:56PM +0530, Nagaraja, Madhukar (Madhukar) wrote:
+>
+>> switchover from the GUI, evrything seems quite ok. But when we
+>> trying adding new entries from the GUI, we get a very vague PSQL
+>> exception - duplicate entry primary key voilation.
+>
+> That doesn't sound vague to me. ?It sounds like a perfectly clear
+> message. ?My bet is that you're tripping over a sequence value that
+> is set too low or something like that. ?But without seeing the actual
+> exception message, instead of your vague description of it, I can't
+> say more.
+
+I would guess that a sequence isn't getting replicated and should be,
+which is why you run in to the duplicate key issues after switching
+nodes.
+
+-Dave
+From cbbrowne at ca.afilias.info  Fri Jun 12 13:32:37 2009
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Fri Jun 12 13:32:51 2009
+Subject: [Slony1-general] Upgrade to 2.0 proposal: Subscribe set OMIT COPY
+	option
+Message-ID: <87zlcdchwa.fsf@dba2.int.libertyrms.com>
+
+There was a discussion Some Time Ago about how to accomplish an
+upgrade from 1.2 to 2.0, where I outlined a proposed mechanism.
+
+  http://lists.slony.info/pipermail/slony1-general/2009-February/009193.html
+
+It bears a certain resemblance to pg_migrator in the sense that it
+would do rather a lot of grovelling around throughout the Slony-I data
+structures to fix things up.
+
+Another thought came up this week; Jan suggested the thought that what
+we could do is to add an OMIT COPY option to the SUBSCRIBE SET
+command, and basically handle the upgrade via the following process:
+
+  Step 0.  You decide it's time to upgrade.
+
+           Lock out users (via pg_hba.conf), and make sure replication
+           is caught up.
+
+           Outage of application begins.
+
+            ---- From here on, it's important for there to be ZARRO
+                 changes made to data!!! ----
+  
+  Step 1.  Stop v1.2 slons.
+
+  Step 2.  Run UNINSTALL NODE on all nodes.
+
+           At this point, replication is gone from your environment,
+           and all nodes are recovered so that pg_catalog is no longer
+           "hacked up" by Slony-I.
+
+  Step 3.  You may wish to stop postmaster as part of the process of
+           shuffling new Slony-I 2.0 binaries into place.
+
+  Step 4.  Recreate replication.
+
+           Using Slony-I 2.0 tools.
+
+           The notable Special Thing is that SUBSCRIBE SET requests
+           are submitted with the new OMIT COPY option.
+
+           This option causes the slons to not bother doing
+           TRUNCATE/COPY.
+
+Steps 1-4 should only take a few seconds, as:
+ a) Everyone's locked out, so there are no locks being held
+ b) We're just throwing in metadata, NOT 18-hour-long COPY statements
+
+Once all nodes are subscribed, and things are looking well, it should
+be safe to let the users back in, and start back up.
+
+There are a number of other possible uses for SUBSCRIBE SET with OMIT
+COPY; I'll leave thoughts about that to other postings :-).
+
+I have a seemingly-working patch, along with a regression test;
+attached below.
+
+Comments, rocks, tomatoes, all welcome :-)
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: omitcopy.bz2
+Type: application/octet-stream
+Size: 3744 bytes
+Desc: not available
+Url : http://lists.slony.info/pipermail/slony1-general/attachments/20090612/c3fa1b6e/omitcopy.obj
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: testomitcopy.tar.bz2
+Type: application/octet-stream
+Size: 3033 bytes
+Desc: not available
+Url : http://lists.slony.info/pipermail/slony1-general/attachments/20090612/c3fa1b6e/testomitcopy.tar.obj
+-------------- next part --------------
+-- 
+select 'cbbrowne' || '@' || 'cbbrowne.com';
+http://linuxfinances.info/info/
+"You shouldn't make my toaster angry."
+-- Household security explained in "Johnny Quest"
+From cbbrowne at ca.afilias.info  Fri Jun 12 13:42:52 2009
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Fri Jun 12 13:43:05 2009
+Subject: [Slony1-general] Upgrade to 2.0 proposal: Subscribe set OMIT COPY
+	option
+In-Reply-To: <87zlcdchwa.fsf@dba2.int.libertyrms.com> (Christopher Browne's
+	message of "Fri, 12 Jun 2009 16:32:37 -0400")
+References: <87zlcdchwa.fsf@dba2.int.libertyrms.com>
+Message-ID: <87tz2lchf7.fsf@dba2.int.libertyrms.com>
+
+Let me note that...
+
+ - The "grovelling around the configuration" approach took a couple of
+   days work to simply think about what *appeared* to be all of the
+   complexities, forget about starting to implement them.
+
+ - I started work on OMIT COPY yesterday afternoon, and had something
+   passing tests this afternoon, and I wasn't working on it full time.
+
+The difference in complexity between the approaches is pretty
+staggering ;-).
+
+There is a *bit* of complexity in that you need to have slonik scripts
+around to re-initialize the cluster.  I've got a 3/4-there script in
+tools/slonikconfdump.sh; it is missing two things that I'd like to
+have before treating this as finalized:
+
+ a) We need something to pull information about triggers out of the
+    former sl_trigger table, and generate ALTER TABLE statements to apply
+    to the appropriate nodes.
+
+ b) There needs to be a topological sort of the subscriptions so as to
+    do them in the correct order.
+-- 
+select 'cbbrowne' || '@' || 'linuxfinances.info';
+http://linuxfinances.info/info/emacs.html
+Bad command. Bad, bad command! Sit! Stay! Staaay... 
+From stuart at stuartbishop.net  Fri Jun 12 21:40:49 2009
+From: stuart at stuartbishop.net (Stuart Bishop)
+Date: Fri Jun 12 21:41:11 2009
+Subject: [Slony1-general] Upgrade to 2.0 proposal: Subscribe set OMIT COPY
+	option
+In-Reply-To: <87zlcdchwa.fsf@dba2.int.libertyrms.com>
+References: <87zlcdchwa.fsf@dba2.int.libertyrms.com>
+Message-ID: <6bc73d4c0906122140r39041de5u6e3770db8e2dc1ac@mail.gmail.com>
+
+On 6/13/09, Christopher Browne <cbbrowne@ca.afilias.info> wrote:
+
+> Another thought came up this week; Jan suggested the thought that what
+> we could do is to add an OMIT COPY option to the SUBSCRIBE SET
+> command, and basically handle the upgrade via the following process:
+
+This feature on its own might be enough to get me to upgrade to 2.0. I
+will be able to rebuild my staging environment in less than half the
+time saving hours on this daily process.
+
+
+-- 
+Stuart Bishop <stuart@stuartbishop.net>
+http://www.stuartbishop.net/
+From mnagaraja at alcatel-lucent.com  Mon Jun 15 04:46:26 2009
+From: mnagaraja at alcatel-lucent.com (Nagaraja, Madhukar (Madhukar))
+Date: Mon Jun 15 04:48:25 2009
+Subject: [Slony1-general] RE:Switchover issue
+In-Reply-To: <20090612190003.66839290BFA@main.slony.info>
+References: <20090612190003.66839290BFA@main.slony.info>
+Message-ID: <E9F099885B445541A55D830FC62E175A0B6623980E@INBANSXCHMBSA3.in.alcatel-lucent.com>
+
+Hi all,
+
+The eror that comes is:
+ERROR: duplicate key value voilates unique constraint "XXXXXX_pkey"
+
+Another observation, I try adding the same insert statement 2-3 times, it gives the above error and after some 2-3 times it succeeds. The same insert statement !!!
+
+Is it something to do with wait for event.. I do not have a wait for event after a switch over. wait for event(origin=$fromnode, confirmed=$tonode);
+
+If I enable the wait for event I get the following error:
+No admin conninfo provided for node -1
+
+Thanks.
+
+------------------------------
+
+Message: 3
+Date: Fri, 12 Jun 2009 09:54:12 -0400
+From: Andrew Sullivan <ajs@crankycanuck.ca>
+Subject: Re: [Slony1-general] Switchover issue.
+To: slony1-general@lists.slony.info
+Message-ID: <20090612135412.GA36147@shinkuro.com>
+Content-Type: text/plain; charset=us-ascii
+
+On Fri, Jun 12, 2009 at 01:20:56PM +0530, Nagaraja, Madhukar (Madhukar) wrote:
+
+> switchover from the GUI, evrything seems quite ok. But when we trying
+> adding new entries from the GUI, we get a very vague PSQL exception -
+> duplicate entry primary key voilation.
+
+That doesn't sound vague to me.  It sounds like a perfectly clear message.  My bet is that you're tripping over a sequence value that is set too low or something like that.  But without seeing the actual exception message, instead of your vague description of it, I can't say more.
+
+A
+
+
+--
+Andrew Sullivan
+ajs@crankycanuck.ca
+
+
+------------------------------
+
+Message: 4
+Date: Fri, 12 Jun 2009 11:36:44 -0700
+From: David Rees <drees76@gmail.com>
+Subject: Re: [Slony1-general] Switchover issue.
+To: slony1-general@lists.slony.info
+Message-ID:
+        <72dbd3150906121136r3e2bfc4dt6b68312424de4788@mail.gmail.com>
+Content-Type: text/plain; charset=ISO-8859-1
+
+On Fri, Jun 12, 2009 at 6:54 AM, Andrew Sullivan<ajs@crankycanuck.ca> wrote:
+> On Fri, Jun 12, 2009 at 01:20:56PM +0530, Nagaraja, Madhukar (Madhukar) wrote:
+>
+>> switchover from the GUI, evrything seems quite ok. But when we
+>> trying adding new entries from the GUI, we get a very vague PSQL
+>> exception - duplicate entry primary key voilation.
+>
+> That doesn't sound vague to me. ?It sounds like a perfectly clear
+> message. ?My bet is that you're tripping over a sequence value that
+> is set too low or something like that. ?But without seeing the actual
+> exception message, instead of your vague description of it, I can't
+> say more.
+
+I would guess that a sequence isn't getting replicated and should be,
+which is why you run in to the duplicate key issues after switching
+nodes.
+
+-Dave
+
+From JanWieck at Yahoo.com  Mon Jun 15 11:03:31 2009
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Mon Jun 15 11:04:15 2009
+Subject: [Slony1-general] Upgrade to 2.0 proposal: Subscribe set OMIT
+	COPY	option
+In-Reply-To: <6bc73d4c0906122140r39041de5u6e3770db8e2dc1ac@mail.gmail.com>
+References: <87zlcdchwa.fsf@dba2.int.libertyrms.com>
+	<6bc73d4c0906122140r39041de5u6e3770db8e2dc1ac@mail.gmail.com>
+Message-ID: <4A368CF3.3030701@Yahoo.com>
+
+On 6/13/2009 12:40 AM, Stuart Bishop wrote:
+> On 6/13/09, Christopher Browne <cbbrowne@ca.afilias.info> wrote:
+> 
+>> Another thought came up this week; Jan suggested the thought that what
+>> we could do is to add an OMIT COPY option to the SUBSCRIBE SET
+>> command, and basically handle the upgrade via the following process:
+> 
+> This feature on its own might be enough to get me to upgrade to 2.0. I
+> will be able to rebuild my staging environment in less than half the
+> time saving hours on this daily process.
+
+We have identified several use cases for SUBSCRIBE ... OMIT COPY. 
+Including building the initial subscriber via PITR with a short outage. 
+This is definitely a feature that has more value than just making 
+upgrade easier.
+
+
+Jan
+
+-- 
+Anyone who trades liberty for security deserves neither
+liberty nor security. -- Benjamin Franklin
+
+From ajs at crankycanuck.ca  Mon Jun 15 13:40:47 2009
+From: ajs at crankycanuck.ca (Andrew Sullivan)
+Date: Mon Jun 15 13:41:01 2009
+Subject: [Slony1-general] RE:Switchover issue
+In-Reply-To: <E9F099885B445541A55D830FC62E175A0B6623980E@INBANSXCHMBSA3.in.alcatel-lucent.com>
+References: <20090612190003.66839290BFA@main.slony.info>
+	<E9F099885B445541A55D830FC62E175A0B6623980E@INBANSXCHMBSA3.in.alcatel-lucent.com>
+Message-ID: <20090615204046.GH38531@shinkuro.com>
+
+On Mon, Jun 15, 2009 at 05:16:26PM +0530, Nagaraja, Madhukar (Madhukar) wrote:
+> Hi all,
+> 
+> The eror that comes is:
+> ERROR: duplicate key value voilates unique constraint "XXXXXX_pkey"
+
+You are running into a unique key constraint.  But you're not telling
+us what table it's on.  Is the primary key of that table coming from a
+sequence?  Is the sequence replicated?
+
+A
+-- 
+Andrew Sullivan
+ajs@crankycanuck.ca
+From mnagaraja at alcatel-lucent.com  Tue Jun 16 06:09:00 2009
+From: mnagaraja at alcatel-lucent.com (Nagaraja, Madhukar (Madhukar))
+Date: Tue Jun 16 06:09:29 2009
+Subject: [Slony1-general] RE: Switchover issue
+References: <20090612190003.66839290BFA@main.slony.info> 
+Message-ID: <E9F099885B445541A55D830FC62E175A0B663BEAAB@INBANSXCHMBSA3.in.alcatel-lucent.com>
+
+Found out the issue.
+The problem was we stop the postgresql but the slon daemons were still running. So when we resart our application which also starts the postgersql the slon daemons tried to connect to the postgre on the old connection I guess and it used to restart the postgresql. So bcos of this the postgresql gave this primary key voilation error.. Which is totally invalid.
+
+So the solution was we also stop and start slon daemons as part of our application restart. After this it started working.
+
+Thanks.
+
+------------------------------
+
+Message: 3
+Date: Fri, 12 Jun 2009 09:54:12 -0400
+From: Andrew Sullivan <ajs@crankycanuck.ca>
+Subject: Re: [Slony1-general] Switchover issue.
+To: slony1-general@lists.slony.info
+Message-ID: <20090612135412.GA36147@shinkuro.com>
+Content-Type: text/plain; charset=us-ascii
+
+On Fri, Jun 12, 2009 at 01:20:56PM +0530, Nagaraja, Madhukar (Madhukar) wrote:
+
+> switchover from the GUI, evrything seems quite ok. But when we trying
+> adding new entries from the GUI, we get a very vague PSQL exception -
+> duplicate entry primary key voilation.
+
+That doesn't sound vague to me.  It sounds like a perfectly clear message.  My bet is that you're tripping over a sequence value that is set too low or something like that.  But without seeing the actual exception message, instead of your vague description of it, I can't say more.
+
+A
+
+
+--
+Andrew Sullivan
+ajs@crankycanuck.ca
+
+
+------------------------------
+
+Message: 4
+Date: Fri, 12 Jun 2009 11:36:44 -0700
+From: David Rees <drees76@gmail.com>
+Subject: Re: [Slony1-general] Switchover issue.
+To: slony1-general@lists.slony.info
+Message-ID:
+        <72dbd3150906121136r3e2bfc4dt6b68312424de4788@mail.gmail.com>
+Content-Type: text/plain; charset=ISO-8859-1
+
+On Fri, Jun 12, 2009 at 6:54 AM, Andrew Sullivan<ajs@crankycanuck.ca> wrote:
+> On Fri, Jun 12, 2009 at 01:20:56PM +0530, Nagaraja, Madhukar (Madhukar) wrote:
+>
+>> switchover from the GUI, evrything seems quite ok. But when we trying
+>> adding new entries from the GUI, we get a very vague PSQL exception -
+>> duplicate entry primary key voilation.
+>
+> That doesn't sound vague to me. ?It sounds like a perfectly clear
+> message. ?My bet is that you're tripping over a sequence value that is
+> set too low or something like that. ?But without seeing the actual
+> exception message, instead of your vague description of it, I can't
+> say more.
+
+I would guess that a sequence isn't getting replicated and should be, which is why you run in to the duplicate key issues after switching nodes.
+
+-Dave
+
+From mnagaraja at alcatel-lucent.com  Wed Jun 17 08:10:39 2009
+From: mnagaraja at alcatel-lucent.com (Nagaraja, Madhukar (Madhukar))
+Date: Wed Jun 17 08:10:51 2009
+Subject: [Slony1-general] RE: Switchover issue
+References: <20090612190003.66839290BFA@main.slony.info>  
+Message-ID: <E9F099885B445541A55D830FC62E175A0B663BEE67@INBANSXCHMBSA3.in.alcatel-lucent.com>
+
+Hi all,
+I encounted the problem again. The solution I mentioned in the previous mail did not work. Actually now I have a couple of problems more.
+
+1) After I do a switchover, on some tables the insert fails the first time and then it works. On one of the table the insert fails all the time.(this was slave previously). But when I again do a switchover again(the original master) it is able to insert.
+
+2) I think the index is not repliating on the tables. The insert is failing the first time on switchover is because the  when I do a select on the tables(select last_value from cfg_usermgr_laptoptable_ev_id_seq; ) I get value of the last exisiting pkey value.  So it fails always the first time.
+
+On one of the tables( select last_value from cfgconnmgrruletable_ev_id_seq) I am getting the value as 6 whereas there are 70 entries in the DB.
+
+Can you please help me as soon as possbile.. We have a release coming up.
+
+Thanks.
+
+-----Original Message-----
+From: Nagaraja, Madhukar (Madhukar)
+Sent: Tuesday, June 16, 2009 6:39 PM
+To: 'slony1-general@lists.slony.info'
+Subject: RE: Switchover issue
+
+Found out the issue.
+The problem was we stop the postgresql but the slon daemons were still running. So when we resart our application which also starts the postgersql the slon daemons tried to connect to the postgre on the old connection I guess and it used to restart the postgresql. So bcos of this the postgresql gave this primary key voilation error.. Which is totally invalid.
+
+So the solution was we also stop and start slon daemons as part of our application restart. After this it started working.
+
+Thanks.
+
+------------------------------
+
+Message: 3
+Date: Fri, 12 Jun 2009 09:54:12 -0400
+From: Andrew Sullivan <ajs@crankycanuck.ca>
+Subject: Re: [Slony1-general] Switchover issue.
+To: slony1-general@lists.slony.info
+Message-ID: <20090612135412.GA36147@shinkuro.com>
+Content-Type: text/plain; charset=us-ascii
+
+On Fri, Jun 12, 2009 at 01:20:56PM +0530, Nagaraja, Madhukar (Madhukar) wrote:
+
+> switchover from the GUI, evrything seems quite ok. But when we trying
+> adding new entries from the GUI, we get a very vague PSQL exception -
+> duplicate entry primary key voilation.
+
+That doesn't sound vague to me.  It sounds like a perfectly clear message.  My bet is that you're tripping over a sequence value that is set too low or something like that.  But without seeing the actual exception message, instead of your vague description of it, I can't say more.
+
+A
+
+
+--
+Andrew Sullivan
+ajs@crankycanuck.ca
+
+
+------------------------------
+
+Message: 4
+Date: Fri, 12 Jun 2009 11:36:44 -0700
+From: David Rees <drees76@gmail.com>
+Subject: Re: [Slony1-general] Switchover issue.
+To: slony1-general@lists.slony.info
+Message-ID:
+        <72dbd3150906121136r3e2bfc4dt6b68312424de4788@mail.gmail.com>
+Content-Type: text/plain; charset=ISO-8859-1
+
+On Fri, Jun 12, 2009 at 6:54 AM, Andrew Sullivan<ajs@crankycanuck.ca> wrote:
+> On Fri, Jun 12, 2009 at 01:20:56PM +0530, Nagaraja, Madhukar (Madhukar) wrote:
+>
+>> switchover from the GUI, evrything seems quite ok. But when we trying
+>> adding new entries from the GUI, we get a very vague PSQL exception -
+>> duplicate entry primary key voilation.
+>
+> That doesn't sound vague to me. ?It sounds like a perfectly clear
+> message. ?My bet is that you're tripping over a sequence value that is
+> set too low or something like that. ?But without seeing the actual
+> exception message, instead of your vague description of it, I can't
+> say more.
+
+I would guess that a sequence isn't getting replicated and should be, which is why you run in to the duplicate key issues after switching nodes.
+
+-Dave
+
+From cbbrowne at ca.afilias.info  Wed Jun 17 08:51:27 2009
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Wed Jun 17 08:51:47 2009
+Subject: [Slony1-general] RE: Switchover issue
+In-Reply-To: <E9F099885B445541A55D830FC62E175A0B663BEE67@INBANSXCHMBSA3.in.alcatel-lucent.com>
+	(Madhukar Nagaraja's message of "Wed, 17 Jun 2009 20:40:39 +0530")
+References: <20090612190003.66839290BFA@main.slony.info>
+	<E9F099885B445541A55D830FC62E175A0B663BEE67@INBANSXCHMBSA3.in.alcatel-lucent.com>
+Message-ID: <87d492dfk0.fsf@dba2.int.libertyrms.com>
+
+"Nagaraja, Madhukar (Madhukar)" <mnagaraja@alcatel-lucent.com> writes:
+> Hi all,
+> I encounted the problem again. The solution I mentioned in the previous mail did not work. Actually now I have a couple of problems more.
+>
+> 1) After I do a switchover, on some tables the insert fails the first time and then it works. On one of the table the insert fails all the time.(this was slave previously). But when I again do a switchover again(the original master) it is able to insert.
+>
+> 2) I think the index is not repliating on the tables. The insert is failing the first time on switchover is because the  when I do a select on the tables(select last_value from cfg_usermgr_laptoptable_ev_id_seq; ) I get value of the last exisiting pkey value.  So it fails always the first time.
+>
+> On one of the tables( select last_value from cfgconnmgrruletable_ev_id_seq) I am getting the value as 6 whereas there are 70 entries in the DB.
+>
+> Can you please help me as soon as possbile.. We have a release coming up.
+
+Based on that, I think that the previous counsel that "a sequence
+isn't getting replicated and should be" is making plenty of sense.
+
+Did you request SET ADD SEQUENCE for the sequence cfgconnmgrruletable_ev_id_seq?
+
+If not, then that exactly explains the issue.  You need to add the
+sequences to replication.  (Create a new set, add the sequences,
+SUBSCRIBE SET as needed, MERGE SET to get it merged in with the other
+set(s)...)
+-- 
+output = ("cbbrowne" "@" "linuxdatabases.info")
+http://www3.sympatico.ca/cbbrowne/lsf.html
+"Just because it's free doesn't mean you can afford it."  -- Unknown
+From mnagaraja at alcatel-lucent.com  Wed Jun 17 08:54:37 2009
+From: mnagaraja at alcatel-lucent.com (Nagaraja, Madhukar (Madhukar))
+Date: Wed Jun 17 08:55:26 2009
+Subject: [Slony1-general] RE: Switchover issue
+In-Reply-To: <87d492dfk0.fsf@dba2.int.libertyrms.com>
+References: <20090612190003.66839290BFA@main.slony.info>
+	<E9F099885B445541A55D830FC62E175A0B663BEE67@INBANSXCHMBSA3.in.alcatel-lucent.com>
+	<87d492dfk0.fsf@dba2.int.libertyrms.com>
+Message-ID: <E9F099885B445541A55D830FC62E175A0B663BEE79@INBANSXCHMBSA3.in.alcatel-lucent.com>
+
+Hi,
+Yup I found that out. Now it is working. I wrote the mail too soon(before I could debug properly)
+
+Thanks a lot.
+
+
+-----Original Message-----
+From: Christopher Browne [mailto:cbbrowne@ca.afilias.info]
+Sent: Wednesday, June 17, 2009 9:21 PM
+To: Nagaraja, Madhukar (Madhukar)
+Cc: slony1-general@lists.slony.info
+Subject: Re: [Slony1-general] RE: Switchover issue
+
+"Nagaraja, Madhukar (Madhukar)" <mnagaraja@alcatel-lucent.com> writes:
+> Hi all,
+> I encounted the problem again. The solution I mentioned in the previous mail did not work. Actually now I have a couple of problems more.
+>
+> 1) After I do a switchover, on some tables the insert fails the first time and then it works. On one of the table the insert fails all the time.(this was slave previously). But when I again do a switchover again(the original master) it is able to insert.
+>
+> 2) I think the index is not repliating on the tables. The insert is failing the first time on switchover is because the  when I do a select on the tables(select last_value from cfg_usermgr_laptoptable_ev_id_seq; ) I get value of the last exisiting pkey value.  So it fails always the first time.
+>
+> On one of the tables( select last_value from cfgconnmgrruletable_ev_id_seq) I am getting the value as 6 whereas there are 70 entries in the DB.
+>
+> Can you please help me as soon as possbile.. We have a release coming up.
+
+Based on that, I think that the previous counsel that "a sequence isn't getting replicated and should be" is making plenty of sense.
+
+Did you request SET ADD SEQUENCE for the sequence cfgconnmgrruletable_ev_id_seq?
+
+If not, then that exactly explains the issue.  You need to add the sequences to replication.  (Create a new set, add the sequences, SUBSCRIBE SET as needed, MERGE SET to get it merged in with the other
+set(s)...)
+--
+output = ("cbbrowne" "@" "linuxdatabases.info") http://www3.sympatico.ca/cbbrowne/lsf.html
+"Just because it's free doesn't mean you can afford it."  -- Unknown
+From ben at burry.name  Wed Jun 17 09:17:13 2009
+From: ben at burry.name (Ben)
+Date: Wed Jun 17 09:17:23 2009
+Subject: [Slony1-general] Cascaded replication - load characteristics
+Message-ID: <4A391709.5030309@burry.name>
+
+Hi
+
+We have a relatively simple replication setup - a single cluster with a 
+single replication set, from a master node (1) to a single slave node 
+(2). This has been working fine for a number of months.
+
+I recently tried adding a second slave node (3) to this cluster, as a 
+cascaded slave from node 2. While the replication *worked*, we were 
+seeing some unexpected behaviour on the other two nodes - I wanted to 
+ask whether this is usual, and just a misunderstanding on our part as to 
+how cascaded replication works.
+
+The intention was to set up node 3 with no direct access to the master 
+node (1) - however, this appears to not be possible. Having added node 3 
+(with a provider of node 2) to the cluster, the initial full data sync 
+appeared to be made from node 1, not node 2 as I was expecting. After 
+that point, while the replication was working correctly, the log-table 
+truncates on node 1 weren't occurring until they had happened on node 2 
+(and hence, if node 3 was lagging, the log tables would bloat on the 
+master *and* on the first slave).
+
+My assumption originally was that node 3 would be isolated from 1, and 
+so node 1 wouldn't see any additional load caused by node 3 lagging. Is 
+this purely a misunderstanding on my part, or does it sound like there 
+has been a misconfiguration in our replication setup?
+
+Any info would be extremely useful!
+
+Many thanks
+Ben
+From ajs at crankycanuck.ca  Wed Jun 17 11:16:45 2009
+From: ajs at crankycanuck.ca (Andrew Sullivan)
+Date: Wed Jun 17 11:16:57 2009
+Subject: [Slony1-general] Cascaded replication - load characteristics
+In-Reply-To: <4A391709.5030309@burry.name>
+References: <4A391709.5030309@burry.name>
+Message-ID: <20090617181645.GG2145@shinkuro.com>
+
+On Wed, Jun 17, 2009 at 05:17:13PM +0100, Ben wrote:
+
+> I recently tried adding a second slave node (3) to this cluster, as a  
+> cascaded slave from node 2. While the replication *worked*, we were  
+> seeing some unexpected behaviour on the other two nodes - I wanted to  
+> ask whether this is usual, and just a misunderstanding on our part as to  
+> how cascaded replication works.
+
+Nope, can't do what you want.
+
+>
+> The intention was to set up node 3 with no direct access to the master  
+> node (1)
+
+This isn't really the way it works.  Slony is designed so that node3
+could get its data from node1 if node2 failed permanently -- then
+you're not totally hosed.  If you want node3 really never to be able
+to talk to node1, then you need to do log shipping from node2-> node3.
+This is not, I realise, a perfect solution, and it doesn't cover a
+possible use-case that Slony might otherwise cover (sort of a bitter
+irony, considering how complicated Slony is in order to cover every
+other use-case), but it's the way things are.
+
+There are some very tricky things you can do with the paths such that
+you might be able to hack around this, but it's not a natural feature
+of Slony.  It might be interesting to design a feature to make this
+more natural, though.
+
+A
+
+-- 
+Andrew Sullivan
+ajs@crankycanuck.ca
+From cbbrowne at ca.afilias.info  Wed Jun 17 14:39:49 2009
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Wed Jun 17 14:40:05 2009
+Subject: [Slony1-general] Code committed for OMIT COPY option to SUBCRIBE SET
+Message-ID: <8763euczfe.fsf@dba2.int.libertyrms.com>
+
+I have committed the recently-discussed patch, plus docs + some
+scripts, for the OMIT COPY option for SUBSCRIBE SET.
+
+This is particularly nice in enabling upgrade from 1.2 to 2.0, but the
+option should lend itself to other uses as well, such as using PITR to
+get a subscriber up and running.
+
+Please poke at this!
+-- 
+let name="cbbrowne" and tld="ca.afilias.info" in name ^ "@" ^ tld;;
+<http://dba2.int.libertyrms.com/>
+Christopher Browne
+(416) 673-4124 (land)
+"Bother,"  said Pooh,  "Eeyore, ready  two photon  torpedoes  and lock
+phasers on the Heffalump, Piglet, meet me in transporter room three"
+From dba at richyen.com  Wed Jun 17 15:32:24 2009
+From: dba at richyen.com (Richard Yen)
+Date: Wed Jun 17 15:32:40 2009
+Subject: [Slony1-general] Bug in slony-ctl when trying to drop table
+Message-ID: <EF6C151A-85FE-499F-8198-C4745AC81F48@richyen.com>
+
+Hi All,
+
+Seems like slony_dropobj.sh expects *both* a table and a sequence to  
+drop, or else, it'll print out an empty try{} block, which (at least  
+on my bash shell) complains about a syntax error.
+
+I'd like to propose a patch:
+
+128,130d127
+< if [ x"$DROPTABLES" = "x" ]; then
+<     DROPTABLES="echo 'no tables specified'"
+< fi
+154,156d150
+< if [ x"$DROPSEQ" = "x" ]; then
+<     DROPSEQ="echo 'no sequences specified'"
+< fi
+
+(basically, right after the two outer for() loops)
+
+--Richard
+From stephane.schildknecht at postgresqlfr.org  Wed Jun 17 16:46:52 2009
+From: stephane.schildknecht at postgresqlfr.org (=?ISO-8859-15?Q?=22St=E9phane_A=2E_Schildknecht=22?=)
+Date: Thu Jun 18 00:25:04 2009
+Subject: [Slony1-general] Bug in slony-ctl when trying to drop table
+In-Reply-To: <EF6C151A-85FE-499F-8198-C4745AC81F48@richyen.com>
+References: <EF6C151A-85FE-499F-8198-C4745AC81F48@richyen.com>
+Message-ID: <4A39806C.1040205@postgresqlfr.org>
+
+-----BEGIN PGP SIGNED MESSAGE-----
+Hash: SHA1
+
+Richard Yen a ?crit :
+> Hi All,
+> 
+> Seems like slony_dropobj.sh expects *both* a table and a sequence to
+> drop, or else, it'll print out an empty try{} block, which (at least on
+> my bash shell) complains about a syntax error.
+> 
+> I'd like to propose a patch:
+> 
+> 128,130d127
+> < if [ x"$DROPTABLES" = "x" ]; then
+> <     DROPTABLES="echo 'no tables specified'"
+> < fi
+> 154,156d150
+> < if [ x"$DROPSEQ" = "x" ]; then
+> <     DROPSEQ="echo 'no sequences specified'"
+> < fi
+> 
+> (basically, right after the two outer for() loops)
+> 
+
+Yes, you're right.
+Thanks for the report. I've commited modification to HEAD.
+
+Best regards,
+- --
+St?phane Schildknecht
+PostgreSQLFr - http://www.postgresql.fr
+-----BEGIN PGP SIGNATURE-----
+Version: GnuPG v1.4.6 (GNU/Linux)
+Comment: Using GnuPG with Mozilla - http://enigmail.mozdev.org
+
+iD8DBQFKOYBcA+REPKWGI0ERAqraAKCZBnzKRzHDixxCcEhyREJ0NeESOQCgtY1X
+6vxsK63+J9InHqqkPBe0RQs=
+=jeh8
+-----END PGP SIGNATURE-----
+
+From nishkarsh_k at rediffmail.com  Thu Jun 18 00:27:05 2009
+From: nishkarsh_k at rediffmail.com (nishkarsh  kulshrestha)
+Date: Thu Jun 18 06:57:54 2009
+Subject: [Slony1-general] Issue with configuring Slony-I on Windows
+Message-ID: <20090618072705.20547.qmail@f5mail-237-219.rediffmail.com>
+
+Hello every one,
+I am using Postgres 8.3.7, on Windows XP / Vista.
+I was following the Slony-I example in the help for pgAdmin III (it is
+exactly same as one in the link you sent). I am able to perform the
+steps from 1-7. Step 8 : create Slony-I cluster i am getting a msg in
+the interface
+       "Slony-I creation script no available; only join possible"
+On doing some research i found some scripts to be copied (I was not
+able to find very clear instruction) and give slony-I path. i tried all
+that but was not able to move ahead.
+Can u plz guide me through =
+
+Regards
+Nishkarsh =
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20090618/=
+3f414ff1/attachment.htm
+From dba at richyen.com  Thu Jun 18 11:18:23 2009
+From: dba at richyen.com (Richard Yen)
+Date: Thu Jun 18 11:18:51 2009
+Subject: [Slony1-general] Failover hangs in 2.0.2
+Message-ID: <7108ABFD-9BC6-430F-9045-2A7839301046@richyen.com>
+
+Hi,
+
+I've been trying to get failover to work in 2.0.2, but it seems to hang.
+
+I have a 3-node architecture, and have tried the instructions, per http://www.slony.info/documentation/failover.html#COMPLEXFAILOVER
+
+Here's how I do it (node 1 is provider, and node 2 is failover node):
+    -- subscribe node 3 to node 2
+    -- execute FAILOVER
+    -- slonik hangs
+
+If I go into node 2 and to and look at sl_subscribe, there is only one  
+row with provider=2, subscriber=3 (which is correct and expected).   
+However, looking at sl_status, looks like everything is running just  
+fine (sl_event_lag and sl_time_lag go up and down, as if there's  
+activity).  HOWEVER, if I do an update on node 2, the update never  
+makes it to node 3.  (Node 1 still says provider=1, subscriber=2 AND  
+provider=2, subscriber=3)
+
+slonik is still running/hanging during all this.
+
+if I strace the slonik process, I find the following:
+
+======BEGIN STRACE======
+rt_sigprocmask(SIG_BLOCK, [PIPE], [], 8) = 0
+sendto(3, "Q\0\0\0\30begin transaction; \0"..., 25, 0, NULL, 0) = 25
+rt_sigprocmask(SIG_SETMASK, [], NULL, 8) = 0
+poll([{fd=3, events=POLLIN|POLLERR}], 1, -1) = 1 ([{fd=3,  
+revents=POLLIN}])
+recvfrom(3, "C\0\0\0\nBEGIN\0Z\0\0\0\5T"..., 16384, 0, NULL, NULL) = 17
+rt_sigprocmask(SIG_BLOCK, [PIPE], [], 8) = 0
+sendto(3, "Q\0\0\0Wselect nl_backendpid from \"_sltest 
+\".sl_nodelock     where nl_backendpid <> 28927; \0"..., 88, 0, NULL,  
+0) = 88
+rt_sigprocmask(SIG_SETMASK, [], NULL, 8) = 0
+poll([{fd=3, events=POLLIN|POLLERR}], 1, -1) = 1 ([{fd=3,  
+revents=POLLIN}])
+recvfrom(3, "T\0\0\0&\0\1nl_backendpid\0\304\27Dn 
+\0\3\0\0\0\27\0\4\377\377\377\377\0\0D\0\0\0\17\0\1\0\0\0\00529006D 
+\0\0\0\17\0\1\0\0\0\00529011D\0\0\0\17\0\1\0\0\0\00529012C 
+\0\0\0\vSELECT\0Z\0\0\0\5T"..., 16384, 0, NULL, NULL) = 105
+rt_sigprocmask(SIG_BLOCK, [PIPE], [], 8) = 0
+sendto(3, "Q\0\0\0\32rollback transaction;\0"..., 27, 0, NULL, 0) = 27
+rt_sigprocmask(SIG_SETMASK, [], NULL, 8) = 0
+poll([{fd=3, events=POLLIN|POLLERR}], 1, -1) = 1 ([{fd=3,  
+revents=POLLIN}])
+recvfrom(3, "C\0\0\0\rROLLBACK\0Z\0\0\0\5I"..., 16384, 0, NULL, NULL)  
+= 20
+rt_sigprocmask(SIG_BLOCK, [PIPE], [], 8) = 0
+sendto(4, "Q\0\0\0\30begin transaction; \0"..., 25, 0, NULL, 0) = 25
+rt_sigprocmask(SIG_SETMASK, [], NULL, 8) = 0
+poll([{fd=4, events=POLLIN|POLLERR}], 1, -1) = 1 ([{fd=4,  
+revents=POLLIN}])
+recvfrom(4, "C\0\0\0\nBEGIN\0Z\0\0\0\5T"..., 16384, 0, NULL, NULL) = 17
+rt_sigprocmask(SIG_BLOCK, [PIPE], [], 8) = 0
+sendto(4, "Q\0\0\0Wselect nl_backendpid from \"_sltest 
+\".sl_nodelock     where nl_backendpid <> 16155; \0"..., 88, 0, NULL,  
+0) = 88
+rt_sigprocmask(SIG_SETMASK, [], NULL, 8) = 0
+poll([{fd=4, events=POLLIN|POLLERR}], 1, -1) = 1 ([{fd=4,  
+revents=POLLIN}])
+recvfrom(4, "T\0\0\0&\0\1nl_backendpid 
+\0\0\1\"\203\0\3\0\0\0\27\0\4\377\377\377\377\0\0D 
+\0\0\0\17\0\1\0\0\0\00517510D\0\0\0\17\0\1\0\0\0\00517511C 
+\0\0\0\vSELECT\0Z\0\0\0\5T"..., 16384, 0, NULL, NULL) = 89
+rt_sigprocmask(SIG_BLOCK, [PIPE], [], 8) = 0
+sendto(4, "Q\0\0\0\32rollback transaction;\0"..., 27, 0, NULL, 0) = 27
+rt_sigprocmask(SIG_SETMASK, [], NULL, 8) = 0
+poll([{fd=4, events=POLLIN|POLLERR}], 1, -1) = 1 ([{fd=4,  
+revents=POLLIN}])
+recvfrom(4, "C\0\0\0\rROLLBACK\0Z\0\0\0\5I"..., 16384, 0, NULL, NULL)  
+= 20
+rt_sigprocmask(SIG_BLOCK, [CHLD], [], 8) = 0
+rt_sigaction(SIGCHLD, NULL, {SIG_DFL, [], 0}, 8) = 0
+rt_sigprocmask(SIG_SETMASK, [], NULL, 8) = 0
+nanosleep({1, 0}, {1, 0})               = 0
+======END STRACE======
+
+This repeats over and over again in the log (infinite loop?)
+
+I also tried a different time with the script provided by slony-ctl,  
+but no luck. (It DOES, however, work when there's only 2 nodes)
+
+Are there any know issues for 3+ node failover in 2.0.2?
+
+Would anyone be able to walk me through this, if perhaps I'm doing  
+something wrong?
+
+Thanks!
+--Richard
+From drees76 at gmail.com  Thu Jun 18 17:41:22 2009
+From: drees76 at gmail.com (David Rees)
+Date: Thu Jun 18 17:42:04 2009
+Subject: [Slony1-general] Subscription errors don't automatically recover
+Message-ID: <72dbd3150906181741h69734b0egb926418fb01ce555@mail.gmail.com>
+
+Using slony1 1.2.15, if I try to subscribe a set and the receiver node
+generates an error so that Slony retries, even after fixing the issue
+that caused the failure, the subscription will never succeed.  The
+slon daemon for the receiver node reports "table id <N> has already
+been assigned!".
+
+Here's the full log snippet:
+
+2009-06-18 17:19:11.325322500 DEBUG2 remoteWorkerThread_1: all tables
+for set 2 found on subscriber
+2009-06-18 17:19:11.328928500 DEBUG2 remoteWorkerThread_1: copy table
+"public"."customer"
+2009-06-18 17:19:11.330919500 DEBUG3 remoteWorkerThread_1: table
+"public"."customer" does not require Slony-I serial key
+2009-06-18 17:19:11.383551500 ERROR  remoteWorkerThread_1: "select
+"_customer".setAddTable_int(2, 42, '"public"."customer"',
+'pk_customer', 'Table public.customer with primary key'); "
+PGRES_FATAL_ERROR ERROR:  Slony-I: setAddTable_int: table id 42 has
+already been assigned!
+2009-06-18 17:19:11.383701500 WARN   remoteWorkerThread_1: data copy
+for set 2 failed - sleep 60 seconds
+2009-06-18 17:19:11.384672500 NOTICE:  there is no transaction in progress
+
+To proceed, I need to drop the set, recreate the set and resubscribe
+the receiving node.  Not that big a deal, but I swear this used to
+work properly in the past...
+
+I know I should upgrade to 1.2.16, but I looked through the release
+notes and didn't notice anything that seemed relevant to this issue,
+so perhaps it still exists there?
+
+-Dave
+From nitro at zhukcity.ru  Thu Jun 25 04:24:29 2009
+From: nitro at zhukcity.ru (Nickolay)
+Date: Thu Jun 25 04:25:08 2009
+Subject: [Slony1-general] failover problem
+Message-ID: <4A435E6D.5000604@zhukcity.ru>
+
+Hello all,
+
+Platform: centOS Linux 4.7
+PostgreSQL: 8.3.6
+Slony: 1.2.15
+Has anyone run into the problem of recovering the failed node after 
+failover process when replication includes large tables?
+There is the following situation:
+We have 2 nodes running in master-slave configuration with "hot" backup 
+mode. When master node failes, the slave should become active.
+The problem is that that we may have large tables in the set and it will 
+take too much time to subscribe the failed node from scratch.
+Are there any solutions for such kind of situation?
+May be it is possible to override the node subscription procedure (COPY 
+of all the data in the set) with some kind of self-written procedure 
+which will copy only the most needed (recent) data, and then copy the 
+rest in background and take the responsibility and risks for node sync?
+The system is kind of critical application, which needs a backup node 
+ready to go.
+Also, is there any solution to prevent OS from reboot or shutdown until 
+master-slave switchover process is completed?
+It's very uncomfortable that when we accidentally reboot master machine, 
+our software is receiving soft termination signal at first and tries to 
+do a switchover, but there is a pretty big chance that it won't be 
+completed before all processes (including slony and postgres) receive 
+kill signal and being aborted.
+
+Best regards, Nick.
+From beho at worth-while.com  Thu Jun 25 04:39:07 2009
+From: beho at worth-while.com (=?UTF-8?B?44Ki44Or44OP44Kk44OI?=)
+Date: Thu Jun 25 04:39:44 2009
+Subject: [Slony1-general] Lowering Slony update cpu usage
+Message-ID: <4A4361DB.2060502@worth-while.com>
+
+Hi,
+
+I have recently had to install Slony at work. Everything works fine 
+however, I do have a single question regarding Slony's configuration. Is 
+it at all possible to throttle the speed at which slony performs an 
+update? (not $SYNC_CHECK_INTERVAL) I am asking because my boss would 
+like to lower the cpu usage on slave nodes during an update. If there 
+are any other good ways of lowering cpu usage during updates, I would be 
+happy to hear them!
+
+Thank you in advance,
+Berthold
+
+-- 
+-----------------------------------------------------
+???????????????
+???????
+Berthold Alheit
+?980-0811
+?????????2-8-10?????????????5F
+TEL?022-212-3663
+FAX?022-212-3664
+URL??http://www.worth-while.com
+-----------------------------------------------------
+Worth-while.com
+Software Development Division
+Berthold Alheit
+TEL?022-212-3663
+FAX?022-212-3664
+URL??http://www.worth-while.com
+-----------------------------------------------------
+
+From cbbrowne at ca.afilias.info  Thu Jun 25 13:29:50 2009
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Thu Jun 25 13:30:12 2009
+Subject: [Slony1-general] Lowering Slony update cpu usage
+In-Reply-To: <4A4361DB.2060502@worth-while.com>
+References: <4A4361DB.2060502@worth-while.com>
+Message-ID: <4A43DE3E.6030708@ca.afilias.info>
+
+????? wrote:
+> Hi,
+>
+> I have recently had to install Slony at work. Everything works fine 
+> however, I do have a single question regarding Slony's configuration. 
+> Is it at all possible to throttle the speed at which slony performs an 
+> update? (not $SYNC_CHECK_INTERVAL) I am asking because my boss would 
+> like to lower the cpu usage on slave nodes during an update. If there 
+> are any other good ways of lowering cpu usage during updates, I would 
+> be happy to hear them!
+>
+> Thank you in advance,
+> Berthold
+>
+I don't see much of a way to do this, short of actually suppressing 
+replication.
+
+The main work that is done is the INSERT/UPDATE/DELETE stream, and I'd 
+think that the only effects you can reasonably have on that would be to, 
+in some fashion, throttle Slony-I *part* of the time, which would mean 
+that you'd push the work to a different point in time.
+
+If you defer the work, that will tend to mean that there will be a 
+larger set of updates, which would mean that CPU load would be elevated 
+somewhat less often, but for longer periods of time.
+
+Two scenarios might be (I'm making up numbers out of the air!)
+
+ - Suppose you let Slony-I apply changes continually, then it might use 
+40% of the CPU all the time
+
+ - If you (by some means, I'm not quite certain what!) defer the work, 
+then there would be periods of time when it uses 0% CPU, because no work 
+is being done, but, since that work needs to be done, about 40% of the 
+time, it would increase CPU usage to ~100%.
+
+I suppose it might be an interesting idea to try to get the slon to look 
+at the system load, and process fewer SYNCs if the number is high.  
+That's definitely a "surgery-ish" change.
+From Burak.Bender at gmx.net  Fri Jun 26 09:08:22 2009
+From: Burak.Bender at gmx.net (Burak Bender)
+Date: Fri Jun 26 09:48:57 2009
+Subject: [Slony1-general] hanging slony replication
+Message-ID: <20090626160822.51510@gmx.net>
+
+Hi there,
+
+I am using Slony 1.2.15 on gentoo with postgres 8.3.4
+Context is a java web application running on tomcat.
+
+I encountered some weird behaviour when doing multiple select statements with a plain jdbc connection triggered by a script on the master db.
+
+It seems that the select statements are slowing down the slony replication in a major way, so that slony commits wont be processed
+until the select statement finishes.
+The connection pool gets exhausted by queries that do not return and stay at the COMMIT statement. Selecting pg_stat_activity shows up to 42 "hanging" COMMIT statements!
+
+In pg_logs I can see lots of waiting queries:
+
+duration: 5557.956 ms  statement: select "_km_cluster".forwardConfirm(2, 3,'1814465', '2009-06-26 15:55:02.034346');
+15:55:09   km_prod LOG:  duration: 5219.536 ms  statement: notify "_km_cluster_Event"; insert into "_km_cluster".sl_event     
+	(ev_origin, ev_seqno, ev_timestamp,      ev_minxid, ev_maxxid, ev_xip, ev_type     ) values ('2','1814466', '2009-06-26 15:55:03.98378', '75848912', '75848912', '', 'SYNC'); 
+	insert into "_km_cluster".sl_confirm ^I(con_origin,con_received, con_seqno, con_timestamp)    values (2, 1, '1814466', now()); commit transaction;
+15:55:10 comm_prod LOG:  duration: 17750.271 ms  statement: listen "_comm_cluster_Event";
+15:55:10 comm_prod LOG:  duration: 17694.024 ms  statement: listen "_comm_cluster_Event";
+15:55:11 comm_prod LOG:  duration: 16337.644 ms  statement: notify "_comm_cluster_Event"; insert
+15:55:11 km_prod LOG:  duration: 13147.354 ms  execute S_2: COMMIT into "_comm_cluster".sl_event     (ev_origin, ev_seqno, ev_timestamp,      ev_minxid, ev_maxxid, ev_xip, ev_type     ) values
+	('3', '1213250', '2009-06-26 15:54:53.709398', '50637491', '50637491', '', 'SYNC'); insert into "_comm_cluster".sl_confirm
+	^I(con_origin, con_received, con_seqno, con_timestamp)    values (3, 1, '1213250', now()); commit transaction;
+15:55:12   comm_prod LOG:  duration: 24362.984 ms  statement: notify "_comm_cluster_Event"; insert into "_comm_cluster".sl_event     (ev_origin, ev_seqno, ev_timestamp,      ev_minxid, ev_maxxid, ev_xip, ev_type     ) values
+	('2', '1815023', '2009-06-26 15:54:47.1518', '75848890', '75848890', '', 'SYNC'); insert into "_comm_cluster".sl_confirm ^I(con_origin, con_received, con_seqno, con_timestamp)    values (2, 1, '1815023', now()); commit transaction;
+15:55:12   comm_prod LOG:  duration: 5728.775 ms  statement: select "_comm_cluster".createEvent('_comm_cluster', 'SYNC', NULL);
+15:55:13 km_prod LOG:  duration: 6187.793 ms  execute S_2: COMMIT
+15:55:13 km_prod LOG:  duration: 12125.475 ms  execute S_2: COMMIT
+15:55:15 km_prod LOG:  duration: 7538.928 ms  execute S_2: COMMIT
+15:55:15 km_prod LOG:  duration: 7532.898 ms  execute S_2: COMMIT
+15:55:15 km_prod LOG:  duration: 7531.024 ms  execute S_2: COMMIT
+15:55:15 km_prod LOG:  duration: 7763.779 ms  execute S_2: COMMIT
+... lots of waiting commits
+
+
+Any idea or hint what may causes the problem?
+I am confused because "Select statements" do not bother Slony , don't they?
+
+Best regards
+Burak
+-- 
+GRATIS f?r alle GMX-Mitglieder: Die maxdome Movie-FLAT!
+Jetzt freischalten unter http://portal.gmx.net/de/go/maxdome01
+From ajs at crankycanuck.ca  Fri Jun 26 10:49:35 2009
+From: ajs at crankycanuck.ca (Andrew Sullivan)
+Date: Fri Jun 26 11:24:42 2009
+Subject: [Slony1-general] hanging slony replication
+In-Reply-To: <20090626160822.51510@gmx.net>
+References: <20090626160822.51510@gmx.net>
+Message-ID: <C1939F2C-EEDE-4197-BECE-525BFD182DD4@crankycanuck.ca>
+
+Long running transactions are a problem. Do you have them?  What's  
+your maintenance regime (vacuum and so on?)
+
+Andrew Sullivan
+ajs@shinkuro.com
+
+On 2009-06-26, at 12:08, "Burak Bender" <Burak.Bender@gmx.net> wrote:
+
+> Hi there,
+>
+> I am using Slony 1.2.15 on gentoo with postgres 8.3.4
+> Context is a java web application running on tomcat.
+>
+> I encountered some weird behaviour when doing multiple select  
+> statements with a plain jdbc connection triggered by a script on the  
+> master db.
+>
+> It seems that the select statements are slowing down the slony  
+> replication in a major way, so that slony commits wont be processed
+> until the select statement finishes.
+> The connection pool gets exhausted by queries that do not return and  
+> stay at the COMMIT statement. Selecting pg_stat_activity shows up to  
+> 42 "hanging" COMMIT statements!
+>
+> In pg_logs I can see lots of waiting queries:
+>
+> duration: 5557.956 ms  statement: select "_km_cluster".forwardConfirm 
+> (2, 3,'1814465', '2009-06-26 15:55:02.034346');
+> 15:55:09   km_prod LOG:  duration: 5219.536 ms  statement: notify  
+> "_km_cluster_Event"; insert into "_km_cluster".sl_event
+>    (ev_origin, ev_seqno, ev_timestamp,      ev_minxid, ev_maxxid,  
+> ev_xip, ev_type     ) values ('2','1814466', '2009-06-26  
+> 15:55:03.98378', '75848912', '75848912', '', 'SYNC');
+>    insert into "_km_cluster".sl_confirm ^I(con_origin,con_received,  
+> con_seqno, con_timestamp)    values (2, 1, '1814466', now()); commit  
+> transaction;
+> 15:55:10 comm_prod LOG:  duration: 17750.271 ms  statement: listen  
+> "_comm_cluster_Event";
+> 15:55:10 comm_prod LOG:  duration: 17694.024 ms  statement: listen  
+> "_comm_cluster_Event";
+> 15:55:11 comm_prod LOG:  duration: 16337.644 ms  statement: notify  
+> "_comm_cluster_Event"; insert
+> 15:55:11 km_prod LOG:  duration: 13147.354 ms  execute S_2: COMMIT  
+> into "_comm_cluster".sl_event     (ev_origin, ev_seqno,  
+> ev_timestamp,      ev_minxid, ev_maxxid, ev_xip, ev_type     ) values
+>    ('3', '1213250', '2009-06-26 15:54:53.709398', '50637491', '50637491 
+> ', '', 'SYNC'); insert into "_comm_cluster".sl_confirm
+>    ^I(con_origin, con_received, con_seqno, con_timestamp)    values  
+> (3, 1, '1213250', now()); commit transaction;
+> 15:55:12   comm_prod LOG:  duration: 24362.984 ms  statement: notify  
+> "_comm_cluster_Event"; insert into "_comm_cluster".sl_event      
+> (ev_origin, ev_seqno, ev_timestamp,      ev_minxid, ev_maxxid,  
+> ev_xip, ev_type     ) values
+>    ('2', '1815023', '2009-06-26 15:54:47.1518', '75848890',  
+> '75848890', '', 'SYNC'); insert into "_comm_cluster".sl_confirm ^I 
+> (con_origin, con_received, con_seqno, con_timestamp)    values (2,  
+> 1, '1815023', now()); commit transaction;
+> 15:55:12   comm_prod LOG:  duration: 5728.775 ms  statement: select  
+> "_comm_cluster".createEvent('_comm_cluster', 'SYNC', NULL);
+> 15:55:13 km_prod LOG:  duration: 6187.793 ms  execute S_2: COMMIT
+> 15:55:13 km_prod LOG:  duration: 12125.475 ms  execute S_2: COMMIT
+> 15:55:15 km_prod LOG:  duration: 7538.928 ms  execute S_2: COMMIT
+> 15:55:15 km_prod LOG:  duration: 7532.898 ms  execute S_2: COMMIT
+> 15:55:15 km_prod LOG:  duration: 7531.024 ms  execute S_2: COMMIT
+> 15:55:15 km_prod LOG:  duration: 7763.779 ms  execute S_2: COMMIT
+> ... lots of waiting commits
+>
+>
+> Any idea or hint what may causes the problem?
+> I am confused because "Select statements" do not bother Slony ,  
+> don't they?
+>
+> Best regards
+> Burak
+> -- 
+> GRATIS f?r alle GMX-Mitglieder: Die maxdome Movie-FLAT!
+> Jetzt freischalten unter http://portal.gmx.net/de/go/maxdome01
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general@lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+From ajs at crankycanuck.ca  Mon Jun 29 06:27:53 2009
+From: ajs at crankycanuck.ca (Andrew Sullivan)
+Date: Mon Jun 29 06:28:01 2009
+Subject: [Slony1-general] hanging slony replication
+In-Reply-To: <20090629080705.12810@gmx.net>
+References: <20090629080705.12810@gmx.net>
+Message-ID: <20090629132753.GA1525@shinkuro.com>
+
+On Mon, Jun 29, 2009 at 10:07:05AM +0200, Burak Bender wrote:
+
+> If the script runs against a slony slave, everything is fine. But
+> against the master database, the replication as well as other
+> queries get very slow.
+
+This sounds like a pure load issue -- you just have too many queries
+on your database.  Slony works by performing queries too, so it will
+be affected if the origin is overloaded.
+
+A
+
+-- 
+Andrew Sullivan
+ajs@crankycanuck.ca
+From Burak.Bender at gmx.net  Mon Jun 29 01:07:05 2009
+From: Burak.Bender at gmx.net (Burak Bender)
+Date: Mon Jun 29 08:39:57 2009
+Subject: [Slony1-general] hanging slony replication
+Message-ID: <20090629080705.12810@gmx.net>
+
+Hi Andrew,
+
+at that specific time, there are no other long running transactions.
+Just a few users on the tomcat producing minor database traffic.
+The vacuum run is 2 hours later. 
+
+The problem begins when running a script which sends select statements over a raw jdbc connection in autocommit mode.
+
+If the script runs against a slony slave, everything is fine. But against the master database, the replication as well as other queries get very slow.
+
+Best regards
+Burak 
+-- 
+GRATIS f?r alle GMX-Mitglieder: Die maxdome Movie-FLAT!
+Jetzt freischalten unter http://portal.gmx.net/de/go/maxdome01
+From pdoria at netmadeira.com  Mon Jun 29 09:09:20 2009
+From: pdoria at netmadeira.com (Pedro Doria Meunier)
+Date: Mon Jun 29 09:09:29 2009
+Subject: [Slony1-general] Timezone issue
+Message-ID: <4A48E730.9090009@netmadeira.com>
+
+-----BEGIN PGP SIGNED MESSAGE-----
+Hash: SHA1
+
+Since this is my first post here: Hi All!
+
+I've been discussing this issue at the postgresql mlist and this is
+story so far:
+
+When configuring a Slony cluster I get the infamous 'ERROR:  invalid
+input syntax for type timestamp: "Mon Jun 29 13:00:36.628805 2009 WEST"'
+
+I know that this is a timezone setting issue.
+In my case I have my system set to 'Atlantic/Madeira' and system clock
+set to UTC.
+
+My postgresql.conf has the same setting ('Atlantic/Madeira')
+Postgresql ver. 8.3.7 on Fedora 8
+
+This is what's defined in postgresql.conf
+
+datestyle = 'iso, ymd'
+timezone = 'Atlantic/Madeira'
+
+I've altered '/usr/share/pgsql/timezonesets/Default' to include the
+'WEST' abbrev. from
+'/usr/share/pgsql/timezonesets/Atlantic.txt':
+
+WEST     3600 D  # Western Europe Summer Time
+                 #     (Atlantic/Canary)
+                 #     (Atlantic/Faeroe)
+                 #     (Atlantic/Madeira)
+                 #     (Europe/Lisbon)
+
+No go after all the above :(
+
+Could someone *please* share some pointers on how to overcome this
+annoying issue?
+
+TIA,
+
+- --
+Pedro Doria Meunier
+GSM: +351 96 17 20 188
+Skype: pdoriam
+ 
+-----BEGIN PGP SIGNATURE-----
+Version: GnuPG v1.4.7 (GNU/Linux)
+Comment: Using GnuPG with Fedora - http://enigmail.mozdev.org
+
+iD8DBQFKSOcl2FH5GXCfxAsRAjRfAJ44Sb9+Fj39GxYBocwTrAVlPTlpIwCdEQQx
+37g6+Oi4K7npF4YxGp8bL5M=
+=dMxC
+-----END PGP SIGNATURE-----
+
+From Burak.Bender at gmx.net  Mon Jun 29 09:30:20 2009
+From: Burak.Bender at gmx.net (Burak Bender)
+Date: Mon Jun 29 09:32:08 2009
+Subject: [Slony1-general] hanging slony replication
+In-Reply-To: <20090629132753.GA1525@shinkuro.com>
+References: <20090629080705.12810@gmx.net> <20090629132753.GA1525@shinkuro.com>
+Message-ID: <20090629163020.12830@gmx.net>
+
+Hi Andrew,
+
+thanks for your replies.
+
+Unfortunately it seems that the load issue has something to do with slony because the queries are simple select statements and the database server is quite powerfull. Otherwise there would be the same performance issue when querying the slave.
+The queries seem to hang for some reason, which does not seem to be a load issue on the database server.
+
+Any idea of other causes?
+
+Best regards
+Burak
+
+-------- Original-Nachricht --------
+> Datum: Mon, 29 Jun 2009 09:27:53 -0400
+> Von: Andrew Sullivan <ajs@crankycanuck.ca>
+> An: Burak Bender <Burak.Bender@gmx.net>
+> CC: ajs@crankycanuck.ca, slony1-general@lists.slony.info
+> Betreff: Re: [Slony1-general] hanging slony replication
+
+> On Mon, Jun 29, 2009 at 10:07:05AM +0200, Burak Bender wrote:
+> 
+> > If the script runs against a slony slave, everything is fine. But
+> > against the master database, the replication as well as other
+> > queries get very slow.
+> 
+> This sounds like a pure load issue -- you just have too many queries
+> on your database.  Slony works by performing queries too, so it will
+> be affected if the origin is overloaded.
+> 
+> A
+> 
+> -- 
+> Andrew Sullivan
+> ajs@crankycanuck.ca
+
+-- 
+GRATIS f?r alle GMX-Mitglieder: Die maxdome Movie-FLAT!
+Jetzt freischalten unter http://portal.gmx.net/de/go/maxdome01
+From ajs at crankycanuck.ca  Mon Jun 29 10:18:52 2009
+From: ajs at crankycanuck.ca (Andrew Sullivan)
+Date: Mon Jun 29 10:19:04 2009
+Subject: [Slony1-general] hanging slony replication
+In-Reply-To: <20090629163020.12830@gmx.net>
+References: <20090629080705.12810@gmx.net> <20090629132753.GA1525@shinkuro.com>
+	<20090629163020.12830@gmx.net>
+Message-ID: <20090629171851.GN1525@shinkuro.com>
+
+On Mon, Jun 29, 2009 at 06:30:20PM +0200, Burak Bender wrote:
+> Hi Andrew,
+> 
+> thanks for your replies.
+> 
+> Unfortunately it seems that the load issue has something to do with
+> slony because the queries are simple select statements and the
+> database server is quite powerfull. Otherwise there would be the
+> same performance issue when querying the slave.
+
+No, that's not true.  The data origin is under read-write load, which
+means that there are effects on the origin which are not being seen on
+the replicas.  
+
+It's more or less impossible to debug this for you without access to
+the machines, and certainly on the basis of the sketchy info you've
+provided.  But given that there are differences in performance for the
+same queries on two different systems, you have plenty of diagnostic
+tools at your disposal:
+
+ - Look at the system tables on both systems.  In recent releases,
+ there's all kinds of data about the maintenance of the system as
+ well.  You want to look at the information about vacuum performance
+ and the data about table organization.  You may also want to see
+ whether updates to the tables are being done as efficiently as
+ possible.
+
+ - Look to see about cache efficiency.  How well is the cache being
+ used.
+
+ - What's the cache set like anyway?  Do you have the right number of
+ buffers for the machine?  Are they balanced right?
+
+ - What does iostat and other such system-level monitor tools tell
+ you?  Saying "the server is powerful" is not meaningful: I have seen
+ 1/2 million dollar servers brought to their knees by I/O storms.
+ (Sometimes these storms were even known about in advance, but were
+ ignored by the manager in charge of acquisition or the system
+ administrators who set up the server without understanding its
+ purpose).
+
+Contrary to what you seem to believe, SELECT statements do use a
+transaction.  In the most recent versions of Postgres, they don't
+represent a barrier to vacuum in the way they once did.  I forget
+which version you're using, however.  Also, SELECT statements have to
+go to the disk if the record they want isn't in cache.  If you're
+suffering from cache churn because you're rolling through too much
+data at a time, then every record has to be retrieved from disk.  That
+can be enough to slow down a system noticably.
+
+A
+
+
+
+> The queries seem to hang for some reason, which does not seem to be a load issue on the database server.
+> 
+> Any idea of other causes?
+> 
+> Best regards
+> Burak
+> 
+> -------- Original-Nachricht --------
+> > Datum: Mon, 29 Jun 2009 09:27:53 -0400
+> > Von: Andrew Sullivan <ajs@crankycanuck.ca>
+> > An: Burak Bender <Burak.Bender@gmx.net>
+> > CC: ajs@crankycanuck.ca, slony1-general@lists.slony.info
+> > Betreff: Re: [Slony1-general] hanging slony replication
+> 
+> > On Mon, Jun 29, 2009 at 10:07:05AM +0200, Burak Bender wrote:
+> > 
+> > > If the script runs against a slony slave, everything is fine. But
+> > > against the master database, the replication as well as other
+> > > queries get very slow.
+> > 
+> > This sounds like a pure load issue -- you just have too many queries
+> > on your database.  Slony works by performing queries too, so it will
+> > be affected if the origin is overloaded.
+> > 
+> > A
+> > 
+> 
+
+-- 
+Andrew Sullivan
+ajs@crankycanuck.ca

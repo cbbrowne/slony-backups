@@ -1,0 +1,311 @@
+From tgl at sss.pgh.pa.us  Mon Mar 10 16:03:20 2008
+From: tgl at sss.pgh.pa.us (Tom Lane)
+Date: Mon Mar 10 16:03:34 2008
+Subject: [Slony1-hackers] I seem to recall that slony likes to look at
+	pg_listener ...
+Message-ID: <1753.1205190200@sss.pgh.pa.us>
+
+Anyone care to comment on
+http://archives.postgresql.org/pgsql-bugs/2008-03/msg00095.php
+particularly the point about LISTEN not affecting pg_listener
+until end of transaction?
+
+			regards, tom lane
+From y-mori at sraoss.co.jp  Wed Mar 26 23:02:30 2008
+From: y-mori at sraoss.co.jp (Yoshiharu Mori)
+Date: Wed Mar 26 23:02:55 2008
+Subject: [Slony1-hackers] An useless packet was send by set_config_option()
+Message-ID: <20080327150230.a90f1c4e.y-mori@sraoss.co.jp>
+
+I send a small patch for CVS-HEAD;
+
+The set_config_option function is used in _Slony_I_logTrigger(),
+I think it shouldn't be used if there is no necessary because a useless packet
+is returned to the user(frontend).
+
+See utiles/misc/guc.c(set_config_option and ReportGUCOption) at PostgreSQL source code.
+
+------
+Index: slony1_funcs.c
+===================================================================
+RCS file: /slony1/slony1-engine/src/backend/slony1_funcs.c,v
+retrieving revision 1.53.2.3
+diff -u -r1.53.2.3 slony1_funcs.c
+--- slony1_funcs.c  22 Nov 2007 22:51:04 -0000  1.53.2.3
++++ slony1_funcs.c  27 Mar 2008 04:50:15 -0000
+@@ -575,7 +575,8 @@
+     */
+    need_comma = false;
+    OldDateStyle=GetConfigOptionByName("DateStyle", NULL);
+-   set_config_option("DateStyle", "ISO", PGC_USERSET, PGC_S_SESSION, true, true);
++   if(!strstr(OldDateStyle,"ISO"))
++     set_config_option("DateStyle", "ISO", PGC_USERSET, PGC_S_SESSION, true, true);
+    for (i = 0; i < tg->tg_relation->rd_att->natts; i++)
+    {
+      /*
+@@ -615,7 +616,8 @@
+      cp += len_value;
+    }
+
+-   set_config_option("DateStyle", OldDateStyle, PGC_USERSET, PGC_S_SESSION, true, true);
++   if(!strstr(OldDateStyle,"ISO"))
++     set_config_option("DateStyle", OldDateStyle, PGC_USERSET, PGC_S_SESSION, true, true);
+
+    /*
+     * Terminate and done
+@@ -739,9 +741,11 @@
+      else
+      {
+        OldDateStyle=GetConfigOptionByName("DateStyle", NULL);
+-       set_config_option("DateStyle", "ISO", PGC_USERSET, PGC_S_SESSION, true, true);
++       if(!strstr(OldDateStyle,"ISO"))
++         set_config_option("DateStyle", "ISO", PGC_USERSET, PGC_S_SESSION, true, true);
+        col_value = slon_quote_literal(SPI_getvalue(new_row, tupdesc, i + 1));
+-       set_config_option("DateStyle", OldDateStyle, PGC_USERSET, PGC_S_SESSION, true, true);
++       if(!strstr(OldDateStyle,"ISO"))
++         set_config_option("DateStyle", OldDateStyle, PGC_USERSET, PGC_S_SESSION, true, true);
+      }
+      cmddata_need = (cp - (char *)(cs->cmddata_buf)) + 16 +
+        (len_ident = strlen(col_ident)) +
+------
+
+
+-- 
+SRA OSS, Inc. Japan
+Yoshiharu Mori <y-mori@sraoss.co.jp>
+http://www.sraoss.co.jp/
+From cbbrowne at ca.afilias.info  Thu Mar 27 08:03:17 2008
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Thu Mar 27 08:03:25 2008
+Subject: [Slony1-hackers] An useless packet was send by set_config_option()
+In-Reply-To: <20080327150230.a90f1c4e.y-mori@sraoss.co.jp> (Yoshiharu Mori's
+	message of "Thu, 27 Mar 2008 15:02:30 +0900")
+References: <20080327150230.a90f1c4e.y-mori@sraoss.co.jp>
+Message-ID: <60y7845hvu.fsf@dba2.int.libertyrms.com>
+
+Yoshiharu Mori <y-mori@sraoss.co.jp> writes:
+> I send a small patch for CVS-HEAD;
+>
+> The set_config_option function is used in _Slony_I_logTrigger(),
+> I think it shouldn't be used if there is no necessary because a useless packet
+> is returned to the user(frontend).
+>
+> See utiles/misc/guc.c(set_config_option and ReportGUCOption) at PostgreSQL source code.
+
+Thanks for this; I agree that this is a good change to make.  It's
+certainly nice if we can eliminate the need to set the datestyle if
+the user is already using ISO.
+
+I ran through the "dates" test, which specifically exercises the use
+of varying date styles, and that ran fine.  I have committed the
+change:
+
+http://lists.slony.info/pipermail/slony1-commit/2008-March/002217.html
+-- 
+let name="cbbrowne" and tld="linuxdatabases.info" in String.concat "@" [name;tld];;
+http://linuxfinances.info/info/multiplexor.html
+"So you don't  want  to hear about my  ideas  for Cliche  Programming?
+(Basically, the  unit of abstraction   is a Stereotype;  instances  of
+Stereotypes interact by exchanging Hype.)" -- Peter Lewerin
+From Jorgen.Austvik at Sun.COM  Fri Mar 28 05:43:50 2008
+From: Jorgen.Austvik at Sun.COM (Jorgen Austvik - Sun Norway)
+Date: Fri Mar 28 05:44:01 2008
+Subject: [Slony1-hackers] Slony-I REL_1_2_STABLE compile against PostgreSQL
+	HEAD
+Message-ID: <47ECE806.6080704@sun.com>
+
+Sorry, the include was needed two places to compile against PostgreSQL =
+
+HEAD. It might be better to place it in some common header, though?
+
+The attached patch fixes a compile problem on at least Solaris and Linux =
+
+against PostgreSQL HEAD from CVS.
+
+-J
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: slony-I-snapmgr.patch
+Type: text/x-patch
+Size: 1479 bytes
+Desc: not available
+Url : http://lists.slony.info/pipermail/slony1-hackers/attachments/20080328=
+/514b768e/slony-I-snapmgr.bin
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: jorgen_austvik.vcf
+Type: text/x-vcard
+Size: 390 bytes
+Desc: not available
+Url : http://lists.slony.info/pipermail/slony1-hackers/attachments/20080328=
+/514b768e/jorgen_austvik.vcf
+From cbbrowne at ca.afilias.info  Fri Mar 28 08:25:51 2008
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Fri Mar 28 08:25:57 2008
+Subject: [Slony1-hackers] Slony-I REL_1_2_STABLE compile against
+	PostgreSQL HEAD
+In-Reply-To: <47ECE806.6080704@sun.com> (Jorgen Austvik's message of "Fri,
+	28 Mar 2008 13:43:50 +0100")
+References: <47ECE806.6080704@sun.com>
+Message-ID: <60hceq6fb4.fsf@dba2.int.libertyrms.com>
+
+Jorgen Austvik - Sun Norway <Jorgen.Austvik@Sun.COM> writes:
+> Sorry, the include was needed two places to compile against PostgreSQL
+> HEAD. It might be better to place it in some common header, though?
+>
+> The attached patch fixes a compile problem on at least Solaris and
+> Linux against PostgreSQL HEAD from CVS.
+
+I'm going to defer this one for the moment; HEAD isn't going to become
+a release until some time late in 2008 or early in 2009, and the
+change needs to have a bit more strategy behind it in view of the fact
+that we need NOT to do the #include for versions of PostgreSQL up to
+8.3.
+
+I'm adding this into the bug tracker, so that this will not be
+forgotten.  But in that there will be no 8.4 release any time soon, I
+don't see a fix being a high priority.  No doubt other things will get
+changed in the 8.4 cycle that will cause us similar grief ;-).
+
+http://bugs.slony.info/bugzilla/show_bug.cgi?id=46
+
+Thanks for pointing out the issue!
+-- 
+let name="cbbrowne" and tld="linuxfinances.info" in name ^ "@" ^ tld;;
+http://cbbrowne.com/info/emacs.html
+"Starting a project in C/C++ is a premature optimization."
+-- Peter Jensen
+From m_faisal at erp-bd.com  Mon Mar 24 02:40:37 2008
+From: m_faisal at erp-bd.com (Mustafa Amir Faisal)
+Date: Thu Sep 25 08:30:52 2008
+Subject: [Slony1-hackers] (no subject)
+Message-ID: <001201c88d93$0980e410$6e00a8c0@wahid>
+
+Skipped content of type multipart/alternative-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: not available
+Type: image/gif
+Size: 145 bytes
+Desc: not available
+Url : http://lists.slony.info/pipermail/slony1-hackers/attachments/20080324/85c96956/attachment-0001.gif
+From Jorgen.Austvik at Sun.COM  Fri Mar 28 02:36:20 2008
+From: Jorgen.Austvik at Sun.COM (Jorgen Austvik - Sun Norway)
+Date: Thu Sep 25 08:30:52 2008
+Subject: [Slony1-hackers] Slony-I REL_1_2_STABLE compile issue against
+	PostgreSQL HEAD
+Message-ID: <47ECBBEF.7040607@sun.com>
+
+Hi,
+
+I am facing a problem compiling Slony-I REL_1_2_STABLE against =
+
+PostgreSQL HEAD on Solaris and Linux:
+
+--------8<----------------8<----------------8<----------------8<-----------=
+-----8<--------
+gmake[2]: Entering directory =
+
+`/home/autopg/bld/slony1/slony1-engine/src/xxid'
+/opt/studio11/SUNWspro/bin/cc -xO3 -xarch=3D386 -xchip=3Dpentium -xspace -X=
+a =
+
+-xildoff -xCC -I./ -KPIC -I../.. =
+
+-I/usr/local/postgres/version/NIGHT/SunOS_i386/usr/postgres/8.3/include/ =
+
+-I/usr/local/postgres/version/NIGHT/SunOS_i386/usr/postgres/8.3/include/ser=
+ver/ =
+
+  -c -o xxid.o xxid.c
+"xxid.c", line 236: undefined symbol: SerializableSnapshot
+"xxid.c", line 239: undefined symbol: SerializableSnapshot
+"xxid.c", line 239: non-unique member requires struct/union pointer: xmin
+"xxid.c", line 239: left operand of "->" must be pointer to struct/union
+"xxid.c", line 249: undefined symbol: SerializableSnapshot
+"xxid.c", line 252: undefined symbol: SerializableSnapshot
+"xxid.c", line 252: non-unique member requires struct/union pointer: xmax
+"xxid.c", line 252: left operand of "->" must be pointer to struct/union
+cc: acomp failed for xxid.c
+--------8<----------------8<----------------8<----------------8<-----------=
+-----8<--------
+
+It looks like something has changed in the PostgreSQL code.
+
+Anyway, a patch like this seems to fix this problem, but I am not sure =
+
+this is the correct way to address it.
+
+--------8<----------------8<----------------8<----------------8<-----------=
+-----8<--------
+Index: src/xxid/xxid.c
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D
+RCS file: /slony1/slony1-engine/src/xxid/xxid.c,v
+retrieving revision 1.12.2.3
+diff -c -p -u -r1.12.2.3 xxid.c
+cvs diff: conflicting specifications of output style
+--- src/xxid/xxid.c     14 May 2007 22:04:49 -0000      1.12.2.3
++++ src/xxid/xxid.c     28 Mar 2008 09:33:17 -0000
+@@ -12,6 +12,7 @@
+
+  #include "config.h"
+  #include "postgres.h"
++#include "utils/snapmgr.h"
+
+  #include <limits.h>
+--------8<----------------8<----------------8<----------------8<-----------=
+-----8<--------
+
+-J
+-- =
+
+
+J=F8rgen Austvik, Software Engineering - QA
+Sun Microsystems Database Technology Group
+
+Sun Microsystems AS
+Haakon VII gt. 7b
+N-7485 Trondheim, Norway
+Phone  +47 73 84 21 10
+Fax    +47 73 84 21 01
+Mobile +47 90 19 78 86
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: jorgen_austvik.vcf
+Type: text/x-vcard
+Size: 390 bytes
+Desc: not available
+Url : http://lists.slony.info/pipermail/slony1-hackers/attachments/20080328=
+/8f0574c5/jorgen_austvik-0001.vcf
+From Nirbhay.Choubey at Sun.COM  Mon Mar 31 01:26:08 2008
+From: Nirbhay.Choubey at Sun.COM (Nirbhay Choubey)
+Date: Thu Sep 25 08:30:52 2008
+Subject: [Slony1-hackers] Choosing the slony test temp output directory?
+Message-ID: <47F0A003.70503@Sun.COM>
+
+Hi
+
+I am running the slony tests(1.2.13/1.2.14) on Solaris n there are some =
+
+temporary files/directories which are getting created into /tmp directory.
+Now even when I set TMPDIR to some other directory,the issue remains the =
+
+same.As want the temp files to be created into the directory of my =
+
+choice, I have created a patch(run_test.sh on 1.2.14) for this, which I =
+
+am attaching with the mail.
+
+Regards
+Nirbhay
+
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: run_test.patch
+Type: text/x-patch
+Size: 2193 bytes
+Desc: not available
+Url : http://lists.slony.info/pipermail/slony1-hackers/attachments/20080331=
+/231ce5a2/run_test-0001.bin

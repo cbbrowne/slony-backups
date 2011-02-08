@@ -1,0 +1,493 @@
+From cbbrowne at ca.afilias.info  Wed Aug  4 11:05:21 2010
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Wed, 04 Aug 2010 14:05:21 -0400
+Subject: [Slony1-patches] bug 118 patch
+In-Reply-To: <4C4EFD20.1080909@ca.afilias.info> (Steve Singer's message of
+	"Tue, 27 Jul 2010 11:37:04 -0400")
+References: <4C2B4C5E.3050902@ca.afilias.info>
+	<4C4EFD20.1080909@ca.afilias.info>
+Message-ID: <87pqxy45jy.fsf@cbbrowne.afilias-int.info>
+
+Steve Singer <ssinger at ca.afilias.info> writes:
+> Steve Singer wrote:
+>
+> This is a version of the bug118 patch for the 1.2 branch.
+>
+> Do we want to backport this bug to 1.2?
+>
+> (I'm thinking we do)
+Yep, I'd think so.
+-- 
+let name="cbbrowne" and tld="ca.afilias.info" in String.concat "@" [name;tld];;
+Christopher Browne
+"Bother,"  said Pooh,  "Eeyore, ready  two photon  torpedoes  and lock
+phasers on the Heffalump, Piglet, meet me in transporter room three"
+
+From ssinger at ca.afilias.info  Fri Aug  6 13:56:29 2010
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Fri, 06 Aug 2010 16:56:29 -0400
+Subject: [Slony1-patches] bug 139 + bug 132
+Message-ID: <4C5C76FD.3080706@ca.afilias.info>
+
+This set of patches tries to address bugs 139 and 132.
+
+It changes the way we use signal handlers in slon.
+
+-The signal handlers are now installed AFTER the fork() instead of 
+before so the worker process should not have them installed
+-The signal handler no longer calls slon_log() since slon_log makes 
+calls to non async safe functions
+-I get rid of the business with the alarm.  When the watchdog slon 
+decides it needs to kill the worker it just does it
+-If a nodelock can't be obtained the worker will sleep then try again 
+instead of exiting.  Instances of when the worker tries to do this 
+before the old pg backend dies were common in my testing
+
+
+
+
+-- 
+Steve Singer
+Afilias Canada
+Data Services Developer
+416-673-1142
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: 0001-Replace-usage-of-alarm-for-restarting-slon-with-a-KI.patch
+Type: text/x-patch
+Size: 0 bytes
+Desc: not available
+Url : http://lists.slony.info/pipermail/slony1-patches/attachments/20100806/f375b79f/attachment.bin 
+
+From ssinger at ca.afilias.info  Wed Aug  4 05:17:41 2010
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Wed, 4 Aug 2010 08:17:41 -0400
+Subject: [PATCH 1/3] Replace usage of alarm() for restarting slon with a KILL of the child
+ and a sleep before restarting.
+Message-ID: <mailman.9.1281128193.4684.slony1-patches@lists.slony.info>
+
+Numerous instances were observed where the parent/watchdog slon instance
+would exit on a SIGALRM.  The various POSIX standards define rules about
+what functions can be called by a signal handler.  We suspect not following
+these guidelines was part of the problem.
+---
+ src/slon/slon.c |   15 ++-------------
+ 1 files changed, 2 insertions(+), 13 deletions(-)
+
+diff --git a/src/slon/slon.c b/src/slon/slon.c
+index f3b5f2e..36eaf4a 100644
+--- a/src/slon/slon.c
++++ b/src/slon/slon.c
+@@ -861,11 +861,11 @@ SlonWatchdog(void)
+ 	}
+ 	slon_log(SLON_CONFIG, "slon: child terminated status: %d; pid: %d, current worker pid: %d\n", child_status, pid, slon_worker_pid);
+ 
+-	(void) alarm(0);
+ 
+ 	switch (watchdog_status)
+ 	{
+ 		case SLON_WATCHDOG_RESTART:
++			sleep(20);
+ 			(void) execvp(main_argv[0], main_argv);
+ 			slon_log(SLON_FATAL, "slon: cannot restart via execvp() - %s\n",
+ 					 strerror(errno));
+@@ -958,19 +958,8 @@ sighandler(int signo)
+ void
+ slon_terminate_worker()
+ {
+-#ifndef WIN32 /* does not support in windows. */
+-	slon_log(SLON_INFO, "slon: notify worker process to shutdown\n");
++	(void) kill(slon_worker_pid, SIGKILL);
+ 
+-	if (pipewrite(sched_wakeuppipe[1], "p", 1) != 1)
+-	{
+-		slon_log(SLON_FATAL, "main: write to worker pipe failed -(%d) %s\n", errno, strerror(errno));
+-		(void) kill(slon_worker_pid, SIGKILL);
+-		slon_exit(-1);
+-	}
+-        (void) close(sched_wakeuppipe[0]);
+-	(void) close(sched_wakeuppipe[1]);
+-	(void) alarm(20);
+-#endif
+ }
+ 
+ /* ---------- 
+-- 
+1.6.3.3
+
+
+--------------000606050901080609030803
+Content-Type: text/x-patch;
+ name="0002-Install-the-signal-handlers-after-the-fork.patch"
+Content-Transfer-Encoding: 7bit
+Content-Disposition: inline;
+ filename*0="0002-Install-the-signal-handlers-after-the-fork.patch"
+
+
+From ssinger at ca.afilias.info  Thu Aug  5 08:55:43 2010
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Thu, 5 Aug 2010 11:55:43 -0400
+Subject: [PATCH 2/3] Install the signal handlers after the fork.
+ sighandler is intended to be used by the watchdog instance not the worker
+Message-ID: <mailman.10.1281128193.4684.slony1-patches@lists.slony.info>
+
+This can be considered part of bug 139 (non async safe functions being called
+by a signal handler)
+---
+ src/slon/slon.c |   21 +++++++++++----------
+ 1 files changed, 11 insertions(+), 10 deletions(-)
+
+diff --git a/src/slon/slon.c b/src/slon/slon.c
+index 36eaf4a..837d709 100644
+--- a/src/slon/slon.c
++++ b/src/slon/slon.c
+@@ -793,7 +793,17 @@ SlonWatchdog(void)
+ #endif
+ 	slon_log(SLON_INFO, "slon: watchdog process started\n");
+ 
+-	/*
++
++
++	slon_log(SLON_CONFIG, "slon: watchdog ready - pid = %d\n", slon_watchdog_pid);
++
++	slon_worker_pid = fork();
++	if (slon_worker_pid == 0)
++	{
++		SlonMain();
++		exit(-1);
++	}
++		/*
+ 	 * Install signal handlers
+ 	 */
+ #ifndef CYGWIN
+@@ -841,15 +851,6 @@ SlonWatchdog(void)
+ 		slon_exit(-1);
+ 	}
+ 
+-	slon_log(SLON_CONFIG, "slon: watchdog ready - pid = %d\n", slon_watchdog_pid);
+-
+-	slon_worker_pid = fork();
+-	if (slon_worker_pid == 0)
+-	{
+-		SlonMain();
+-		exit(-1);
+-	}
+-
+ 	slon_log(SLON_CONFIG, "slon: worker process created - pid = %d\n",
+ 			 slon_worker_pid);
+ 	while ((pid = wait(&child_status)) != slon_worker_pid)
+-- 
+1.6.3.3
+
+
+--------------000606050901080609030803
+Content-Type: text/x-patch;
+ name="0003-If-the-nodelock-can-not-be-obtained-then-the-worker-.patch"
+Content-Transfer-Encoding: 7bit
+Content-Disposition: inline;
+ filename*0="0003-If-the-nodelock-can-not-be-obtained-then-the-worker-.pa";
+ filename*1="tch"
+
+
+From ssinger at ca.afilias.info  Thu Aug  5 07:45:35 2010
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Thu, 5 Aug 2010 10:45:35 -0400
+Subject: [PATCH 3/3] If the nodelock can not be obtained then the worker will keep retrying instead
+ of exiting.  Bug # 132 discussses issues where slon can't restart because
+ of a duplicate node lock.  The watchdog instance of slon can kill the worker
+ child and restart it.  The issue is that postgresql backend for the old
+ worker might still be around when the new worker tries to get the nodelock.
+Message-ID: <mailman.11.1281128193.4684.slony1-patches@lists.slony.info>
+
+Prior to this patch we only had one shot at this, now we will keep retrying
+until a user decides to kill this process or the other one goes away
+---
+ src/slon/local_listen.c |   34 +++++++++++++++++++++-------------
+ 1 files changed, 21 insertions(+), 13 deletions(-)
+
+diff --git a/src/slon/local_listen.c b/src/slon/local_listen.c
+index 4e332e5..1c8fbf4 100644
+--- a/src/slon/local_listen.c
++++ b/src/slon/local_listen.c
+@@ -47,6 +47,7 @@ localListenThread_main(/* @unused@ */ void *dummy)
+ 	char		restart_notify[256];
+ 	int			restart_request;
+ 	int poll_sleep = 0;
++	int         node_lock_obtained=0;
+ 
+ 	slon_log(SLON_INFO, "localListenThread: thread starts\n");
+ 
+@@ -92,24 +93,31 @@ localListenThread_main(/* @unused@ */ void *dummy)
+ 				 "    %d, 0, \"pg_catalog\".pg_backend_pid()); ",
+ 				 rtcfg_namespace, rtcfg_namespace,
+ 				 rtcfg_nodeid);
+-	res = PQexec(dbconn, dstring_data(&query1));
+-	if (PQresultStatus(res) != PGRES_COMMAND_OK)
++	while(!node_lock_obtained)
+ 	{
+-		slon_log(SLON_FATAL,
+-				 "localListenThread: \"%s\" - %s\n",
+-				 dstring_data(&query1), PQresultErrorMessage(res));
+-		if (strncmp(NODELOCKERROR, PQresultErrorMessage(res), strlen(NODELOCKERROR)) == 0) {
+-			slon_log(SLON_FATAL,
+-				 "Do you already have a slon running against this node?\n");
++		res = PQexec(dbconn, dstring_data(&query1));
++		if (PQresultStatus(res) != PGRES_COMMAND_OK)
++		{
+ 			slon_log(SLON_FATAL,
+-				 "Or perhaps a residual idle backend connection from a dead slon?\n");
+-		}
++					 "localListenThread: \"%s\" - %s\n",
++					 dstring_data(&query1), PQresultErrorMessage(res));
++			if (strncmp(NODELOCKERROR, PQresultErrorMessage(res), strlen(NODELOCKERROR)) == 0) {
++				slon_log(SLON_FATAL,
++						 "Do you already have a slon running against this node?\n");
++				slon_log(SLON_FATAL,
++						 "Or perhaps a residual idle backend connection from a dead slon?\n");
++				PQclear(res);
++				sleep(5);
++				continue;
++			}
+ 		    
++			PQclear(res);
++			dstring_free(&query1);
++			slon_abort();
++		}
+ 		PQclear(res);
+-		dstring_free(&query1);
+-		slon_abort();
++		node_lock_obtained=1;
+ 	}
+-	PQclear(res);
+ 
+ 	/*
+ 	 * Flag the main thread that the coast is clear and he can launch all
+-- 
+1.6.3.3
+
+
+--------------000606050901080609030803--
+
+From ssinger at ca.afilias.info  Mon Aug  9 07:55:11 2010
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Mon, 09 Aug 2010 10:55:11 -0400
+Subject: [Slony1-patches] bug 136 patches
+Message-ID: <4C6016CF.5080908@ca.afilias.info>
+
+
+Attached are a set of patches for addressing the issues discussed in bug136.
+
+These issues show up when you have a forwarding node that fails. The 
+nodes that were being provided from the failed node need to be 
+reconfigured to get there data elsewhere.  The issue is that even if 
+path exists between the provider nodes and other nodes in the system the 
+provider node might not be listening for these events so it might never 
+no to reconfigure itself.
+
+This patch set tries to deal with both cases where a FAILOVER is issued 
+  and cases where the failed node is just a forwarder so a SUBSCRIBE SET 
+is issued but no FAILOVER.
+
+The intent is that these patches will be applied with the ones for 
+bug139 and 132.
+
+http://github.com/ssinger/slony1-engine/tree/bug139_132_136
+http://github.com/ssinger/slony1-engine/tree/bug136
+
+
+
+
+
+
+
+-- 
+Steve Singer
+Afilias Canada
+Data Services Developer
+416-673-1142
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: 0001-If-a-origin-node-fails-a-subscriber-might.patch
+Type: text/x-patch
+Size: 0 bytes
+Desc: not available
+Url : http://lists.slony.info/pipermail/slony1-patches/attachments/20100809/3a82b8a9/attachment.bin 
+
+From ssinger at ca.afilias.info  Mon Aug  9 07:46:22 2010
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Mon, 9 Aug 2010 10:46:22 -0400
+Subject: [PATCH 4/4]  Bug 136
+         When a forwarding node goes away a dba might issue a subscribe set to reshape the
+         cluster so the receiver gets the data from a different provider.
+         It could be the case that the receiver never sees the SUBSCRIBE_SET event
+         because it is only listening on events from the origin from the forwarder
+         that has gone away.
+Message-ID: <mailman.14.1281365715.4684.slony1-patches@lists.slony.info>
+
+        If we are reshaping a cluster then slonik will contact the receiver
+        directly and run update sl_subscribe so the receiver can
+        listen from the correct source.
+---
+ src/backend/slony1_funcs.sql |   24 ++++++++++++++++++
+ src/slonik/slonik.c          |   56 ++++++++++++++++++++++++++++++++++++++++-
+ 2 files changed, 78 insertions(+), 2 deletions(-)
+
+diff --git a/src/backend/slony1_funcs.sql b/src/backend/slony1_funcs.sql
+index 8c77c8d..773fd36 100644
+--- a/src/backend/slony1_funcs.sql
++++ b/src/backend/slony1_funcs.sql
+@@ -5885,3 +5885,27 @@ comment on function @NAMESPACE at .replicate_partition(int4, text, text, text, text
+ tab_idxname is optional - if NULL, then we use the primary key.
+ This function looks up replication configuration via the parent table.';
+ 
++create or replace function @NAMESPACE at .reshapeSubscription (int4, int4, int4) returns int4 as $$
++declare
++	p_sub_set			alias for $1;
++	p_sub_provider		alias for $2;
++	p_sub_receiver		alias for $3;
++begin
++	-- ----
++	-- Grab the central configuration lock
++	-- ----
++	lock table @NAMESPACE at .sl_config_lock;
++
++	update @NAMESPACE at .sl_subscribe set sub_provider=p_sub_provider
++		   WHERE sub_set=p_sub_set AND sub_receiver=p_sub_receiver;
++	perform @NAMESPACE at .RebuildListenEntries();
++	notify "_ at CLUSTERNAME@_Restart";
++	return 0;
++end
++$$ language plpgsql;
++
++comment on function @NAMESPACE at .reshapeSubscription(int4,int4,int4) is
++'Run on a receiver/subscriber node when the provider for that
++subscription is being changed.  Slonik will invoke this method
++before the SUBSCRIBE_SET event propogates to the receiver
++so listen paths can be updated.';
+\ No newline at end of file
+diff --git a/src/slonik/slonik.c b/src/slonik/slonik.c
+index cb46ffb..35ca6f7 100644
+--- a/src/slonik/slonik.c
++++ b/src/slonik/slonik.c
+@@ -3444,6 +3444,9 @@ slonik_subscribe_set(SlonikStmt_subscribe_set * stmt)
+ {
+ 	SlonikAdmInfo *adminfo1;
+ 	SlonDString query;
++	PGresult    *res1;
++	SlonikAdmInfo * adminfo2;
++	int reshape=0;
+ 
+ 	adminfo1 = get_active_adminfo((SlonikStmt *) stmt, stmt->sub_provider);
+ 	if (adminfo1 == NULL)
+@@ -3454,6 +3457,33 @@ slonik_subscribe_set(SlonikStmt_subscribe_set * stmt)
+ 
+ 	dstring_init(&query);
+ 
++	/**
++	 * If the receiver is already subscribed to
++	 * the set through a different provider
++	 * slonik will need to tell the receiver
++	 * about this change directy.
++	 *
++	 */
++
++	slon_mkquery(&query,"select * FROM \"_%s\".sl_subscribe " \
++				 "where sub_set=%d AND sub_receiver=%d " \
++				 " and sub_active=true and sub_provider<>%d",
++				 stmt->hdr.script->clustername,
++				 stmt->sub_setid,stmt->sub_receiver,
++				 stmt->sub_provider);
++	
++	res1 = db_exec_select((SlonikStmt*) stmt,adminfo1,&query);
++	if(res1 == NULL) {
++		dstring_free(&query);
++		return -1;
++	}
++	if(PQntuples(res1) > 0) 
++	{
++		reshape=1;
++	}
++	PQclear(res1);
++	dstring_reset(&query);
++
+ 	slon_mkquery(&query,
+ 				 "select \"_%s\".subscribeSet(%d, %d, %d, '%s', '%s'); ",
+ 				 stmt->hdr.script->clustername,
+@@ -3466,8 +3496,30 @@ slonik_subscribe_set(SlonikStmt_subscribe_set * stmt)
+ 		dstring_free(&query);
+ 		return -1;
+ 	}
+-
+-	dstring_free(&query);
++	dstring_reset(&query);
++	if(reshape)
++	{
++		adminfo2 = get_active_adminfo((SlonikStmt *) stmt, stmt->sub_receiver);
++		if(adminfo2 == NULL) 
++		{
++			printf("can not find conninfo for receiver node %d\n",
++				   stmt->sub_receiver);
++			return -1;
++		}
++		slon_mkquery(&query,
++					 "select \"_%s\".reshapeSubscription(%d,%d,%d);",
++					 stmt->hdr.script->clustername,
++					 stmt->sub_provider,stmt->sub_setid,
++					 stmt->sub_receiver);	
++		if (db_exec_evcommand((SlonikStmt *) stmt, adminfo2, &query) < 0)
++		{
++			printf("error reshaping subscriber\n");
++			dstring_free(&query);
++			return -1;
++		}
++		
++		dstring_free(&query);
++	}
+ 	return 0;
+ }
+ 
+-- 
+1.6.3.3
+
+
+--------------020106060301020405000608--
+
+From JanWieck at Yahoo.com  Sun Aug 15 11:10:05 2010
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Sun, 15 Aug 2010 14:10:05 -0400
+Subject: [Slony1-patches] bug 136 patches
+In-Reply-To: <4C6016CF.5080908@ca.afilias.info>
+References: <4C6016CF.5080908@ca.afilias.info>
+Message-ID: <4C682D7D.5030004@Yahoo.com>
+
+On 8/9/2010 10:55 AM, Steve Singer wrote:
+> Attached are a set of patches for addressing the issues discussed in bug136.
+> 
+> These issues show up when you have a forwarding node that fails. The 
+> nodes that were being provided from the failed node need to be 
+> reconfigured to get there data elsewhere.  The issue is that even if 
+> path exists between the provider nodes and other nodes in the system the 
+> provider node might not be listening for these events so it might never 
+> no to reconfigure itself.
+> 
+> This patch set tries to deal with both cases where a FAILOVER is issued 
+>   and cases where the failed node is just a forwarder so a SUBSCRIBE SET 
+> is issued but no FAILOVER.
+> 
+> The intent is that these patches will be applied with the ones for 
+> bug139 and 132.
+> 
+> http://github.com/ssinger/slony1-engine/tree/bug139_132_136
+> http://github.com/ssinger/slony1-engine/tree/bug136
+
+I think reshapeSubscription() should only initiate a slon restart if it 
+actually updated a row in sl_subscribe. Otherwise it will needlessly 
+restart a slon on a regular subscription.
+
+
+Jan
+
+-- 
+Anyone who trades liberty for security deserves neither
+liberty nor security. -- Benjamin Franklin
+

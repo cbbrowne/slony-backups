@@ -1,0 +1,3086 @@
+From bugzilla-daemon at main.slony.info  Thu Dec  2 08:25:38 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu,  2 Dec 2010 08:25:38 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 167] New: Slow down of slon with large backlog
+Message-ID: <bug-167-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=167
+
+           Summary: Slow down of slon with large backlog
+           Product: Slony-I
+           Version: devel
+          Platform: All
+        OS/Version: All
+            Status: NEW
+          Severity: enhancement
+          Priority: low
+         Component: slon
+        AssignedTo: slony1-bugs at lists.slony.info
+        ReportedBy: janwieck at yahoo.com
+                CC: slony1-bugs at lists.slony.info
+   Estimated Hours: 0.0
+
+
+During catch up of a major backlog, the receiving slon slows down further and
+further, sometimes to a point where it cannot keep up any longer with the rate
+of new changes being logged.
+
+This is caused by a problem in the query from the remoteWorker selecting from
+sl_log. The lower boundary for the log tuples is the min_xid of the first
+snapshot OR the xip-vector of the first snapshot. That OR clause causes the
+planner to fail to create a lower scankey for the index scan against sl_log. It
+therefore always scans from the beginning with a filter condition. At some
+point this becomes so expensive that it even switches to a seqscan.
+
+The attempted fix for this will be to extract those transactions, that were in
+progress at the first snapshot and are no longer in progress at the second, out
+into another UNION. This will allow the plan to use a lower bound scankey for
+the bulk of the log rows and pull the few transactions from the current OR
+clause in with a nested loop of index scans.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Thu Dec  2 16:06:30 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu,  2 Dec 2010 16:06:30 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 168] New: shared/slon.conf-example install issues
+Message-ID: <bug-168-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=168
+
+           Summary: shared/slon.conf-example install issues
+           Product: Slony-I
+           Version: devel
+          Platform: All
+        OS/Version: All
+            Status: NEW
+          Severity: minor
+          Priority: low
+         Component: core scripts
+        AssignedTo: slony1-bugs at lists.slony.info
+        ReportedBy: janwieck at yahoo.com
+                CC: slony1-bugs at lists.slony.info
+   Estimated Hours: 0.0
+
+
+The file shared/slon.conf-example is not installed by a global make install.
+
+Also the Makefile in shared/ tries to install it into /usr/local/etc (on
+FreeBSD). I think it should get installed into $(pgshareddir) instead.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Fri Dec  3 12:08:02 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Fri,  3 Dec 2010 12:08:02 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 169] New: Add common representation for
+ administrative DB connections
+Message-ID: <bug-169-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=169
+
+           Summary: Add common representation for administrative DB
+                    connections
+           Product: Slony-I
+           Version: devel
+          Platform: All
+        OS/Version: All
+            Status: NEW
+          Severity: enhancement
+          Priority: low
+         Component: core scripts
+        AssignedTo: slony1-bugs at lists.slony.info
+        ReportedBy: cbbrowne at ca.afilias.info
+                CC: slony1-bugs at lists.slony.info
+   Estimated Hours: 0.0
+
+
+There appears to be some value in trying to have a common representation
+of administrative connection data.  This was brought up in recent
+brainstorming.[1]
+
+We know of several places where this data is needed, and presently,
+there's no non-clumsy way to reuse it.
+
+1.  When running Slonik scripts, you need ADMIN CONNINFO[2] statements in
+the preamble to indicate how to connect to all the nodes.
+
+2.  There is a script that tests the state of a cluster.[3]  It presently
+oversimplifies by pulling data configured using STORE PATH.[4]
+
+This is not really correct, in general, because the connections used for
+central management mayn't be the same as those used for slons.
+
+3.  We wish to add additional scripts to help analyze cluster states.  A
+better, common way of storing this DB connection information would make
+it easier to keep all these connections straight.
+There appears to be some value in trying to have a common representation
+of administrative connection data.  This was brought up in recent
+brainstorming.[1]
+
+We know of several places where this data is needed, and presently,
+there's no non-clumsy way to reuse it.
+
+1.  When running Slonik scripts, you need ADMIN CONNINFO[2] statements in
+the preamble to indicate how to connect to all the nodes.
+
+2.  There is a script that tests the state of a cluster.[3]  It presently
+oversimplifies by pulling data configured using STORE PATH.[4]
+
+This is not really correct, in general, because the connections used for
+central management mayn't be the same as those used for slons.
+
+3.  We wish to add additional scripts to help analyze cluster states.  A
+better, common way of storing this DB connection information would make
+it easier to keep all these connections straight.
+
+4.  ALTPERL tools do similar to #2 above [5].
+
+5.  slony-ctl (a Bash-based equivalent to "altperl") does similar to
+"altperl".  See bases.h[6]
+
+Effectively the only "correct" representation that exists, at present,
+is the one in Slonik preambles (#1).
+
+Footnotes: 
+[1]  http://wiki.postgresql.org/wiki/SlonyBrainstorming#Common_Admin_Conninfo
+
+[2]  http://slony.info/documentation/2.0/admconninfo.html
+
+[3]  http://slony.info/documentation/2.0/monitoring.html#test_slony_state
+
+[4]  http://slony.info/documentation/2.0/stmtstorepath.html
+
+[5] 
+http://git.postgresql.org/gitweb?p=slony1-engine.git;a=blob_plain;f=tools/altperl/slon_tools.conf-sample;hb=HEAD
+
+[6] 
+http://cvs.pgfoundry.org/cgi-bin/cvsweb.cgi/slony1-ctl/slony-ctl/etc/bases.h
+4.  ALTPERL tools do similar to #2 above [5].
+
+5.  slony-ctl (a Bash-based equivalent to "altperl") does similar to
+"altperl".  See bases.h[6]
+
+Footnotes: 
+[1]  http://wiki.postgresql.org/wiki/SlonyBrainstorming#Common_Admin_Conninfo
+
+[2]  http://slony.info/documentation/2.0/admconninfo.html
+
+[3]  http://slony.info/documentation/2.0/monitoring.html#test_slony_state
+
+[4]  http://slony.info/documentation/2.0/stmtstorepath.html
+
+[5] 
+http://git.postgresql.org/gitweb?p=slony1-engine.git;a=blob_plain;f=tools/altperl/slon_tools.conf-sample;hb=HEAD
+
+[6] 
+http://cvs.pgfoundry.org/cgi-bin/cvsweb.cgi/slony1-ctl/slony-ctl/etc/bases.h
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Fri Dec  3 12:44:34 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Fri,  3 Dec 2010 12:44:34 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 170] New: Remove SNMP support
+Message-ID: <bug-170-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=170
+
+           Summary: Remove SNMP support
+           Product: Slony-I
+           Version: devel
+          Platform: All
+        OS/Version: All
+            Status: NEW
+          Severity: enhancement
+          Priority: low
+         Component: slon
+        AssignedTo: slony1-bugs at lists.slony.info
+        ReportedBy: cbbrowne at ca.afilias.info
+                CC: slony1-bugs at lists.slony.info
+   Estimated Hours: 0.0
+
+
+http://wiki.postgresql.org/wiki/SlonyBrainstorming#SNMP
+
+Some minimal SNMP functionality was added in 2005.  It remains untouched since,
+and requires --with-netsnmp option to ./Configure, which was, and still is,
+marked as **EXPERIMENTAL**
+
+It does not presently seem to work, based on trying a build with it turned on,
+which fails to compile.
+
+Proposed: That it be removed.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Fri Dec  3 12:54:01 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Fri,  3 Dec 2010 12:54:01 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 171] New: Health Check: Verify node's parentage
+Message-ID: <bug-171-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=171
+
+           Summary: Health Check: Verify node's parentage
+           Product: Slony-I
+           Version: devel
+          Platform: All
+        OS/Version: All
+            Status: NEW
+          Severity: enhancement
+          Priority: low
+         Component: slon
+        AssignedTo: slony1-bugs at lists.slony.info
+        ReportedBy: cbbrowne at ca.afilias.info
+                CC: slony1-bugs at lists.slony.info
+   Estimated Hours: 0.0
+
+
+Per [http://wiki.postgresql.org/wiki/SlonyBrainstorming#Parentage_Check]
+
+At time of node start up, check to see if the nodes providing my subscriptions
+believe my node exists:
+- If they do, all is well
+- If they don't, then presumably I'm a failed node, and I should stop with a
+fatal error
+- If a connection cannot be established, then warn of this (probably with a
+pretty quick timeout) but continue, for now...
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Fri Dec  3 12:56:59 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Fri,  3 Dec 2010 12:56:59 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 172] New: Use application_name
+Message-ID: <bug-172-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=172
+
+           Summary: Use application_name
+           Product: Slony-I
+           Version: devel
+          Platform: All
+        OS/Version: All
+            Status: NEW
+          Severity: enhancement
+          Priority: low
+         Component: slon
+        AssignedTo: slony1-bugs at lists.slony.info
+        ReportedBy: cbbrowne at ca.afilias.info
+                CC: slony1-bugs at lists.slony.info
+   Estimated Hours: 0.0
+
+
+http://wiki.postgresql.org/wiki/SlonyBrainstorming#Use_application_name
+
+
+If on a version of Postgres that supports GUC application_name, connections
+should capture "this is slon" - application_name is available on PG 9.0+
+
+The value we use should likely include various (possibly all) of the following:
+- slon
+- ID of the node being managed by slon
+- ID of the secondary node being queried
+- perhaps the cluster name?
+
+Similar is apropos for slonik.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Fri Dec  3 12:58:11 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Fri,  3 Dec 2010 12:58:11 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 172] Use application_name
+In-Reply-To: <bug-172-4@http.www.slony.info/bugzilla/>
+References: <bug-172-4@http.www.slony.info/bugzilla/>
+Message-ID: <20101203205811.D3365290D76@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=172
+
+--- Comment #1 from Christopher Browne <cbbrowne at ca.afilias.info> 2010-12-03 12:58:11 PST ---
+Note that this allows monitoring processes looking at the view pg_stat_activity
+to have a little more information as to "what's this process for?"
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Fri Dec  3 13:03:13 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Fri,  3 Dec 2010 13:03:13 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 170] Remove SNMP support
+In-Reply-To: <bug-170-4@http.www.slony.info/bugzilla/>
+References: <bug-170-4@http.www.slony.info/bugzilla/>
+Message-ID: <20101203210313.E5910290D7A@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=170
+
+--- Comment #1 from Steve Singer <ssinger at ca.afilias.info> 2010-12-03 13:03:14 PST ---
+Based on the fact that
+
+1) The feature is marked as experimental (people had been warned)
+2) It doesn't seem to compile.  
+
+I agree we should remove this code in a future major version.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Fri Dec  3 13:14:45 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Fri,  3 Dec 2010 13:14:45 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 53] High memory usage when using high table id
+In-Reply-To: <bug-53-4@http.www.slony.info/bugzilla/>
+References: <bug-53-4@http.www.slony.info/bugzilla/>
+Message-ID: <20101203211445.D4F2C290D80@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=53
+
+--- Comment #3 from Christopher Browne <cbbrowne at ca.afilias.info> 2010-12-03 13:14:45 PST ---
+Some further discussion has taken place on this; see
+[http://wiki.postgresql.org/wiki/SlonyBrainstorming#.2353_-_high_RAM_usage_with_high_table_.23]
+
+
+Possible BSD-licensed hash table implementations:
+* [http://www.cl.cam.ac.uk/~cwc22/hashtable/ C Hash Table] 
+* See also [https://github.com/ryantenney/chashtable ryantenney / chashtable @
+GitHub] 
+* Note:
+[http://xen.1045712.n5.nabble.com/Legal-concerns-added-hashtable-implementation-td2485274.html
+Used in Xen]
+* [http://uthash.sourceforge.net/ UTHash]
+* [http://burtleburtle.net/bob/c/lookup3.c lookup3] - Public Domain
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Fri Dec  3 13:33:17 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Fri,  3 Dec 2010 13:33:17 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 173] New: Slonik ABORT command
+Message-ID: <bug-173-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=173
+
+           Summary: Slonik ABORT command
+           Product: Slony-I
+           Version: devel
+          Platform: All
+        OS/Version: All
+            Status: NEW
+          Severity: enhancement
+          Priority: low
+         Component: slonik
+        AssignedTo: slony1-bugs at lists.slony.info
+        ReportedBy: cbbrowne at ca.afilias.info
+                CC: slony1-bugs at lists.slony.info
+   Estimated Hours: 0.0
+
+
+http://wiki.postgresql.org/wiki/SlonyBrainstorming#ABORT
+
+Initially mentioned by Vivek Khera
+
+General point: Fail if replication is behind
+
+Reasonable criteria:
+ - event count - "within 3 events is OK"
+ - time interval "behind by no more than 15 seconds is OK"
+
+Other Health Criteria
+- Is node there?
+- Is replication set there?
+- Is subscription active?
+- Run SQL, fail if ERROR
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Fri Dec  3 13:42:15 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Fri,  3 Dec 2010 13:42:15 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 174] New: Isolated Nodes
+Message-ID: <bug-174-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=174
+
+           Summary: Isolated Nodes
+           Product: Slony-I
+           Version: devel
+          Platform: All
+        OS/Version: All
+            Status: NEW
+          Severity: enhancement
+          Priority: low
+         Component: slonik
+        AssignedTo: slony1-bugs at lists.slony.info
+        ReportedBy: cbbrowne at ca.afilias.info
+                CC: slony1-bugs at lists.slony.info
+   Estimated Hours: 0.0
+
+
+Per [http://lists.slony.info/pipermail/slony1-general/2010-November/011353.html
+discussion on list]
+
+* Allow configuring that some nodes should be ignored for the purpose
+  of confirmations.
+
+* This allows the cleanup thread to trim out sl_log_(1|2) data for the
+  ignored nodes
+
+* FAILOVER may already support the notion that an "ignored" node might
+  be lost.
+
+* An interesting extension: SUBSCRIBE SET might automatically mark the
+  "child" node as shunned until such time as the subscription has
+  completed and caught up.  This only works if only one set is
+  involved; if there are multiple subscriptions, shunning only works
+  out well for the first one.
+
+* [Jan] It will work just fine for multiple subscriptions. The point
+  here is to free the master and other forwarders than the data
+  provider for the node, that is busy subscribing, from keeping copies
+  of the log.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Fri Dec  3 13:43:24 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Fri,  3 Dec 2010 13:43:24 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 174] Isolated Nodes
+In-Reply-To: <bug-174-4@http.www.slony.info/bugzilla/>
+References: <bug-174-4@http.www.slony.info/bugzilla/>
+Message-ID: <20101203214324.C97E9290D86@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=174
+
+Christopher Browne <cbbrowne at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+                URL|                            |http://wiki.postgresql.org/
+                   |                            |wiki/SlonyBrainstorming#Iso
+                   |                            |lated_Node
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Fri Dec  3 13:45:56 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Fri,  3 Dec 2010 13:45:56 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 175] New: Monitoring cluster better
+Message-ID: <bug-175-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=175
+
+           Summary: Monitoring cluster better
+           Product: Slony-I
+           Version: devel
+          Platform: All
+               URL: http://wiki.postgresql.org/wiki/SlonyBrainstorming#Slo
+                    n_monitoring
+        OS/Version: All
+            Status: NEW
+          Severity: enhancement
+          Priority: low
+         Component: core scripts
+        AssignedTo: slony1-bugs at lists.slony.info
+        ReportedBy: cbbrowne at ca.afilias.info
+                CC: slony1-bugs at lists.slony.info
+   Estimated Hours: 0.0
+
+
+* slon records in a queryable form what it's working on
+* Requires writing (+COMMIT) at the start of the event loop
+* [As noted by Yehuda] This ought to also be useful with slonik, to allow
+indicating "whazzup"?
+
+Debate took place surrounding various mechanisms.  The only one without
+dramatically unacceptable properties was to add a table to the Slony-I schema.
+
+; SNMP
+: Existing standard for network-based monitoring
+: Downside - requires extra infrastructure including libraries and possibly
+additional tooling to use it
+; [http://www.spread.org/ Spread]
+: Fast
+: Downside - requires extra infrastructure that's not particularly "standard"
+; NOTIFY/LISTEN
+: Built-in to Postgres - no new infrastructure needed
+: In Postgres 9.0+ can carry payload
+: Only becomes visible upon COMMIT
+: Results are not stored; listeners must pre-declare their interest
+; SQL table
+: Built-in to Postgres - no new infrastructure needed
+: Only becomes visible upon COMMIT
+: Another table to manage and clean up
+
+==== Monitoring Requirements ====
+
+Crucial facts that we want to know about:
+# Is replication behind?
+# What are components (e.g. - slon, slonik) doing? <BR> Note that slon has
+numerous threads
+# Recent abnormal states for events (e.g. - error messages)
+# Are any non-SYNC events outstanding?
+# Backlog volume?
+# What is the cluster's configuration?
+
+===== Replication Behind? =====
+
+The existing view sl_status captures this from a what-is-confirmed perspective.
+ That is not perfect, but it is not obvious that there is high priority to
+enhancing this.
+
+===== What are components doing? =====
+
+Nothing relevant is captured in a usable fashion.
+
+It is thought that what we may do is to add a table where each thread would
+capture ''what am I doing?'' (which would replace whatever was previously being
+done)
+
+This table would contain a tuple for:
+# Each remote worker thread
+# Cleanup thread
+# Each remote listener thread
+# Local SYNC thread
+
+It would track things such as:
+# Time processing started
+# What thread/process am I?
+# What node am I for?
+# What am I doing?  <BR> Possibly in several pieces, to cover the following
+sorts of facts:
+## Event ID
+## Event type <BR> Though this could be pulled from sl_event, given node and
+event ID
+## Additional event activity <BR> Again, could be pulled from sl_event, given
+node and event ID
+
+Note that the contents of this table should be quite tiny; a tuple per slon
+thread on a node.
+
+This also needs to be able to capture what '''slonik''' is doing; this seems
+more troublesome.
+# It is possible to have multiple slonik instances acting concurrently -
+multiple concurrent events!
+# There is no natural "event loop" such that slonik activities would be
+expected to clean themselves up over time
+
+====== Suggested slon implementation ======
+
+Two approaches emerged for establishing connections to capture this monitoring
+data
+# Each thread opens its own DB connection <BR> Unacceptable: Leads to
+''enormous'' increase in use of DB connections that are mostly basically idle
+# Establish a "monitoring thread"
+## A message queue allows other threads to stow entries (complete with
+timestamps) that the monitoring thread periodically flushes to the database
+## It is plausible that this thread could be merged into the existing local
+SYNC thread which isn't terribly busy
+
+===== Recent abnormal states for events  =====
+
+This captures messages about the most recent problem that occurred, storing:
+# Time of abnormality
+# Event ID
+# Node ID
+# Description / Error Message
+
+===== non-SYNC events outstanding? =====
+
+This information is already captured, and may be revealed by running a query
+that asks, on the source node, for all events that are:
+# Not SYNC events
+# Have not been confirmed by the subscriber
+
+===== Backlog volume =====
+
+[http://www.slony.info/bugzilla/show_bug.cgi?id=166 Bug #166]
+
+This seems troublesome; calculating the number of sl_log_* tuples involved in a
+particular SYNC requires running the same complex query that the remote_worker
+thread uses to determine which tuples are to be applied.
+
+This is a query that is complex to generate that is fairly expensive to run.
+
+Note that [http://www.slony.info/bugzilla/show_bug.cgi?id=167 Bug #167] is
+changing this query.
+
+===== Cluster configuration =====
+
+There is an existing tool that does some analysis of cluster configuration; see
+[http://git.postgresql.org/gitweb?p=slony1-engine.git;a=blob;f=tools/test_slony_state.pl;h=fdc9dcc060229f39a1e1ac8608e33d63054658bf;hb=refs/heads/master
+test_slony_state.pl]
+
+It is desirable to have something that generates diagrams of the relationships
+between nodes, capturing:
+# Nodes
+# Subscription Sets, and the paths they take
+# Paths between nodes
+# Listen paths
+
+It would be nice for the Subscription Set diagram to include indication of
+replication state/lag for each node, indicating things like:
+# Event Number
+# Events Behind Parent
+# Time Behind Parent
+# Events Behind Origin
+# Time Behind Origin
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Fri Dec  3 14:15:04 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Fri,  3 Dec 2010 14:15:04 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 170] Remove SNMP support
+In-Reply-To: <bug-170-4@http.www.slony.info/bugzilla/>
+References: <bug-170-4@http.www.slony.info/bugzilla/>
+Message-ID: <20101203221504.5C67E290D89@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=170
+
+--- Comment #2 from Christopher Browne <cbbrowne at ca.afilias.info> 2010-12-03 14:15:04 PST ---
+Created git branch for this:
+https://github.com/cbbrowne/slony1-engine/tree/bug170
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Fri Dec  3 18:27:34 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Fri,  3 Dec 2010 18:27:34 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 170] Remove SNMP support
+In-Reply-To: <bug-170-4@http.www.slony.info/bugzilla/>
+References: <bug-170-4@http.www.slony.info/bugzilla/>
+Message-ID: <20101204022734.29BB6290D8A@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=170
+
+--- Comment #3 from Jan Wieck <janwieck at yahoo.com> 2010-12-03 18:27:33 PST ---
++1
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Mon Dec  6 09:52:30 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Mon,  6 Dec 2010 09:52:30 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 176] New: Cluster Analysis Tool
+Message-ID: <bug-176-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=176
+
+           Summary: Cluster Analysis Tool
+           Product: Slony-I
+           Version: devel
+          Platform: All
+               URL: http://git.postgresql.org/gitweb?p=slony1-engine.git;a
+                    =blob;f=tools/test_slony_state.pl;h=fdc9dcc060229f39a1
+                    e1ac8608e33d63054658bf;hb=refs/heads/master
+        OS/Version: All
+            Status: NEW
+          Severity: enhancement
+          Priority: medium
+         Component: core scripts
+        AssignedTo: slony1-bugs at lists.slony.info
+        ReportedBy: cbbrowne at ca.afilias.info
+                CC: slony1-bugs at lists.slony.info
+   Estimated Hours: 0.0
+
+
+There is an existing tool that does some analysis of cluster configuration; see
+test_slony_state.pl.
+
+It is desirable to have something that generates diagrams of the relationships
+between nodes, capturing:
+# Nodes
+# Subscription Sets, and the paths they take
+# Paths between nodes
+# Listen paths
+
+It would be nice for the Subscription Set diagram to include indication of
+replication state/lag for each node, indicating things like:
+# Event Number
+# Events Behind Parent
+# Time Behind Parent
+# Events Behind Origin
+# Time Behind Origin
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Mon Dec  6 13:26:19 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Mon,  6 Dec 2010 13:26:19 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 176] Cluster Analysis Tool
+In-Reply-To: <bug-176-4@http.www.slony.info/bugzilla/>
+References: <bug-176-4@http.www.slony.info/bugzilla/>
+Message-ID: <20101206212619.1D610290D6C@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=176
+
+--- Comment #1 from Christopher Browne <cbbrowne at ca.afilias.info> 2010-12-06 13:26:19 PST ---
+Set up branch on Github:  https://github.com/cbbrowne/slony1-engine/tree/bug176
+
+Have drafted up a simple example script:
+
+https://github.com/cbbrowne/slony1-engine/blob/bug176/tools/analyze-cluster.sh
+
+Will attach sample diagrams
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Mon Dec  6 13:28:30 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Mon,  6 Dec 2010 13:28:30 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 176] Cluster Analysis Tool
+In-Reply-To: <bug-176-4@http.www.slony.info/bugzilla/>
+References: <bug-176-4@http.www.slony.info/bugzilla/>
+Message-ID: <20101206212830.BF091290D97@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=176
+
+--- Comment #2 from Christopher Browne <cbbrowne at ca.afilias.info> 2010-12-06 13:28:30 PST ---
+Created an attachment (id=76)
+ --> (http://www.slony.info/bugzilla/attachment.cgi?id=76)
+Subscription sample
+
+Here is a sample diagram that shows the sets and the subscription paths.
+
+It does not, at this point, show anything about status of the sets; that
+shouldn't be difficult to add, later, if this seems a viable approach.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Mon Dec  6 13:29:09 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Mon,  6 Dec 2010 13:29:09 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 176] Cluster Analysis Tool
+In-Reply-To: <bug-176-4@http.www.slony.info/bugzilla/>
+References: <bug-176-4@http.www.slony.info/bugzilla/>
+Message-ID: <20101206212909.19CAF290D97@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=176
+
+--- Comment #3 from Christopher Browne <cbbrowne at ca.afilias.info> 2010-12-06 13:29:09 PST ---
+Created an attachment (id=77)
+ --> (http://www.slony.info/bugzilla/attachment.cgi?id=77)
+Listen Paths diagram sample
+
+Sample output of draft script
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Mon Dec  6 13:29:42 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Mon,  6 Dec 2010 13:29:42 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 176] Cluster Analysis Tool
+In-Reply-To: <bug-176-4@http.www.slony.info/bugzilla/>
+References: <bug-176-4@http.www.slony.info/bugzilla/>
+Message-ID: <20101206212942.E1E5A290D9B@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=176
+
+--- Comment #4 from Christopher Browne <cbbrowne at ca.afilias.info> 2010-12-06 13:29:42 PST ---
+Created an attachment (id=78)
+ --> (http://www.slony.info/bugzilla/attachment.cgi?id=78)
+Connection Paths for Slons - sample diagram
+
+Sample diagram for slon connection paths
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Mon Dec  6 14:02:16 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Mon,  6 Dec 2010 14:02:16 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 175] Monitoring cluster better
+In-Reply-To: <bug-175-4@http.www.slony.info/bugzilla/>
+References: <bug-175-4@http.www.slony.info/bugzilla/>
+Message-ID: <20101206220216.A3B1F290D3E@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=175
+
+Christopher Browne <cbbrowne at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         Depends on|                            |176
+
+--- Comment #1 from Christopher Browne <cbbrowne at ca.afilias.info> 2010-12-06 14:02:16 PST ---
+Note that the cluster analysis portion has been put into bug #176
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Mon Dec  6 14:02:16 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Mon,  6 Dec 2010 14:02:16 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 176] Cluster Analysis Tool
+In-Reply-To: <bug-176-4@http.www.slony.info/bugzilla/>
+References: <bug-176-4@http.www.slony.info/bugzilla/>
+Message-ID: <20101206220216.DAA42290D9B@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=176
+
+Christopher Browne <cbbrowne at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+             Blocks|                            |175
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Mon Dec  6 14:02:44 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Mon,  6 Dec 2010 14:02:44 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 175] Monitoring cluster better
+In-Reply-To: <bug-175-4@http.www.slony.info/bugzilla/>
+References: <bug-175-4@http.www.slony.info/bugzilla/>
+Message-ID: <20101206220244.87921290DAD@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=175
+
+Christopher Browne <cbbrowne at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         Depends on|                            |167
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Mon Dec  6 14:02:44 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Mon,  6 Dec 2010 14:02:44 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 167] Slow down of slon with large backlog
+In-Reply-To: <bug-167-4@http.www.slony.info/bugzilla/>
+References: <bug-167-4@http.www.slony.info/bugzilla/>
+Message-ID: <20101206220244.C4949290DAE@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=167
+
+Christopher Browne <cbbrowne at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+             Blocks|                            |175
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Tue Dec  7 09:16:57 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Tue,  7 Dec 2010 09:16:57 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 177] New: Refactor logshipping code out of slon
+Message-ID: <bug-177-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=177
+
+           Summary: Refactor logshipping code out of slon
+           Product: Slony-I
+           Version: devel
+          Platform: PC
+               URL: http://wiki.postgresql.org/wiki/SlonyBrainstorming#Log
+                    _Shipping
+        OS/Version: Linux
+            Status: NEW
+          Severity: enhancement
+          Priority: low
+         Component: slon
+        AssignedTo: slony1-bugs at lists.slony.info
+        ReportedBy: cbbrowne at ca.afilias.info
+                CC: slony1-bugs at lists.slony.info
+   Estimated Hours: 0.0
+
+
+Afilias doesn't use it; wouldn't mind diminishing the code base by its removal.
+There appear to be some users of it that would be injured by its removal, so
+that seems like a no-go.
+
+An attractive idea: Split slon into two forms:
+
+1.  The "usual" one which manages nodes that are databases amenable to
+forwarding, failover, and such
+
+2.  Log-shipping-only nodes
+
+Note that there is a lot of log-shipping functionality strewn throughout
+remote_worker.c. If split out, this might make the log shipping node code
+simple, and regular slon simpler, too.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Tue Dec  7 12:12:06 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Tue,  7 Dec 2010 12:12:06 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 178] New: More sophisticated FAILOVER
+Message-ID: <bug-178-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=178
+
+           Summary: More sophisticated FAILOVER
+           Product: Slony-I
+           Version: devel
+          Platform: PC
+        OS/Version: Linux
+            Status: NEW
+          Severity: enhancement
+          Priority: low
+         Component: slonik
+        AssignedTo: slony1-bugs at lists.slony.info
+        ReportedBy: cbbrowne at ca.afilias.info
+                CC: slony1-bugs at lists.slony.info
+   Estimated Hours: 0.0
+
+
+General proposal, that FAILOVER be a much more sophisticated command, allowing:
+* Dropping nodes considered dead
+* Doing several failovers of sets as one request
+
+Thus, something like:
+<pre>
+  failover (dead nodes=(1,2,4),
+            set id=1, backup node=3,
+            set id=2, backup node=5,
+            set id=3, backup node=3);
+</pre>
+
+* Failover should check various conditions and abort if any are the case
+** There need to be paths to support communications to let the new masters
+catch up
+** Slons need to be running for nodes that are needed to let masters catch up
+** If a node hosts a subscription that cannot be kept that subscription may be
+marked dead
+*** Automatically kill that subscription?
+*** Refuse failover until subscription is marked dead? 
+This requires a dead subscription clause be added...
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Tue Dec  7 12:14:44 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Tue,  7 Dec 2010 12:14:44 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 179] New: Implicit WAIT FOR EVENT
+Message-ID: <bug-179-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=179
+
+           Summary: Implicit WAIT FOR EVENT
+           Product: Slony-I
+           Version: devel
+          Platform: All
+               URL: http://lists.slony.info/pipermail/slony1-general/2010-
+                    November/011288.html
+        OS/Version: All
+            Status: NEW
+          Severity: enhancement
+          Priority: high
+         Component: slonik
+        AssignedTo: slony1-bugs at lists.slony.info
+        ReportedBy: cbbrowne at ca.afilias.info
+                CC: slony1-bugs at lists.slony.info
+            Blocks: 178
+   Estimated Hours: 0.0
+
+
+Should track (per Yehuda) some status information so that if it's waiting for a
+sustained period of time, this isn't a mystery to the user or to people
+monitoring things.
+
+Slonik commands that require inter-node coordination should check to see if all
+relevant slon processes are running.  Notable exceptions include STORE NODE,
+STORE PATH
+
+Slonik should warn or error out if the slon isn't running
+
+Controlling Implicit WAIT FOR EVENT
+
+To support both legacy slonik scripts and new ones, the following features are
+suggested:
+
+slonik should have a command line option that deactivates "auto-wait"
+
+It may be desirable for uses to control wait behavior inside scripts, hence we
+should add two slonik commands:
+* activate auto wait
+* deactivate auto wait
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Tue Dec  7 12:14:45 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Tue,  7 Dec 2010 12:14:45 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 178] More sophisticated FAILOVER
+In-Reply-To: <bug-178-4@http.www.slony.info/bugzilla/>
+References: <bug-178-4@http.www.slony.info/bugzilla/>
+Message-ID: <20101207201445.2398A290D34@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=178
+
+Christopher Browne <cbbrowne at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         Depends on|                            |179
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Tue Dec  7 12:15:12 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Tue,  7 Dec 2010 12:15:12 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 178] More sophisticated FAILOVER
+In-Reply-To: <bug-178-4@http.www.slony.info/bugzilla/>
+References: <bug-178-4@http.www.slony.info/bugzilla/>
+Message-ID: <20101207201512.8F2CE290D3B@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=178
+
+--- Comment #1 from Christopher Browne <cbbrowne at ca.afilias.info> 2010-12-07 12:15:12 PST ---
+Note that this requires the WAIT FOR EVENT changes of Bug #179
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Tue Dec  7 12:18:38 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Tue,  7 Dec 2010 12:18:38 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 180] New: Slonik DATE command
+Message-ID: <bug-180-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=180
+
+           Summary: Slonik DATE command
+           Product: Slony-I
+           Version: devel
+          Platform: All
+               URL: http://lists.slony.info/pipermail/slony1-general/2010-
+                    November/011328.html
+        OS/Version: All
+            Status: NEW
+          Severity: enhancement
+          Priority: low
+         Component: slonik
+        AssignedTo: slony1-bugs at lists.slony.info
+        ReportedBy: cbbrowne at ca.afilias.info
+                CC: slony1-bugs at lists.slony.info
+   Estimated Hours: 0.0
+
+
+Add DATE command that emits the current date + time as output from Slonik.
+
+Enables capturing timing information within a script.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Tue Dec  7 12:21:10 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Tue,  7 Dec 2010 12:21:10 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 181] New: Bulk Adding Tables
+Message-ID: <bug-181-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=181
+
+           Summary: Bulk Adding Tables
+           Product: Slony-I
+           Version: devel
+          Platform: All
+               URL: http://lists.slony.info/pipermail/slony1-hackers/2010-
+                    December/000416.html
+        OS/Version: All
+            Status: NEW
+          Severity: enhancement
+          Priority: medium
+         Component: slonik
+        AssignedTo: slony1-bugs at lists.slony.info
+        ReportedBy: cbbrowne at ca.afilias.info
+                CC: slony1-bugs at lists.slony.info
+   Estimated Hours: 0.0
+
+
+Slonik would support the following extensions:
+
+ set add table (... tables='public.*', ..);
+ set add table (.. tables='billing.(!password)', ...);
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Tue Dec  7 12:45:20 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Tue,  7 Dec 2010 12:45:20 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 182] New: fewer defaults for SET ADD TABLE
+Message-ID: <bug-182-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=182
+
+           Summary: fewer defaults for SET ADD TABLE
+           Product: Slony-I
+           Version: devel
+          Platform: All
+               URL: http://wiki.postgresql.org/wiki/SlonyBrainstorming#few
+                    er_defaults_for_SET_ADD_TABLE
+        OS/Version: All
+            Status: NEW
+          Severity: enhancement
+          Priority: low
+         Component: slonik
+        AssignedTo: slony1-bugs at lists.slony.info
+        ReportedBy: cbbrowne at ca.afilias.info
+                CC: slony1-bugs at lists.slony.info
+   Estimated Hours: 0.0
+
+
+Automatically determine an ID
+Automatically determine the origin
+
+See also discussion:
+http://lists.slony.info/pipermail/slony1-general/2010-November/011325.html
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Tue Dec  7 12:47:29 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Tue,  7 Dec 2010 12:47:29 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 183] New: Specified Preamble
+Message-ID: <bug-183-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=183
+
+           Summary: Specified Preamble
+           Product: Slony-I
+           Version: devel
+          Platform: All
+               URL: http://wiki.postgresql.org/wiki/SlonyBrainstorming#Spe
+                    cified_Preamble
+        OS/Version: All
+            Status: NEW
+          Severity: enhancement
+          Priority: low
+         Component: slonik
+        AssignedTo: slony1-bugs at lists.slony.info
+        ReportedBy: cbbrowne at ca.afilias.info
+                CC: slony1-bugs at lists.slony.info
+   Estimated Hours: 0.0
+
+
+per Steve Singer
+-p option draws in preamble automagically
+See http://lists.slony.info/pipermail/slony1-general/2010-November/011325.html
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Dec  8 07:20:44 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed,  8 Dec 2010 07:20:44 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 167] Slow down of slon with large backlog
+In-Reply-To: <bug-167-4@http.www.slony.info/bugzilla/>
+References: <bug-167-4@http.www.slony.info/bugzilla/>
+Message-ID: <20101208152044.B4BB4290CF9@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=167
+
+Jan Wieck <janwieck at yahoo.com> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+                URL|                            |https://github.com/wieck/sl
+                   |                            |ony1-engine/commit/cfdf5c51
+                   |                            |1e390775fdeb43dc37b07dffc61
+                   |                            |a3b20
+
+--- Comment #1 from Jan Wieck <janwieck at yahoo.com> 2010-12-08 07:20:44 PST ---
+I have combined the EXPLAIN_INTERVAL feature with the new log selection query
+into one commit for review here:
+
+https://github.com/wieck/slony1-engine/commit/cfdf5c511e390775fdeb43dc37b07dffc61a3b20
+
+The new query seems to be completely independent of the sl_log_* size with
+respect to the delay for the first row. Since the plan ALWAYS requires a Sort
+step at the top and that sort does not include wide rows, we can assume that
+the entire result set at that moment is in local memory of the backend unless
+there is a mismatch between workmem and max sync group settings.
+
+The delay for the first row is now consistently only a small fraction of the
+entire processing time for a sync group. This completely obsoletes any need for
+sync pipelining. 
+
+As a side note, I was curious if Londiste/SkyTools is suffering from the same
+problem and was surprised that their logic already resembles what I came up
+with. They have a stored PL/pgSQL procedure that assembles the query while we
+do it in C, but the query structure is very similar.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Dec  8 12:02:33 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed,  8 Dec 2010 12:02:33 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 163] Resolve Timezone ambiguity
+In-Reply-To: <bug-163-4@http.www.slony.info/bugzilla/>
+References: <bug-163-4@http.www.slony.info/bugzilla/>
+Message-ID: <20101208200233.4C037290CE7@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=163
+
+Christopher Browne <cbbrowne at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         AssignedTo|slony1-bugs at lists.slony.inf |cbbrowne at ca.afilias.info
+                   |o                           |
+             Status|NEW                         |ASSIGNED
+
+--- Comment #1 from Christopher Browne <cbbrowne at ca.afilias.info> 2010-12-08 12:02:32 PST ---
+Intent: Do a).
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Dec  8 12:26:17 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed,  8 Dec 2010 12:26:17 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 167] Slow down of slon with large backlog
+In-Reply-To: <bug-167-4@http.www.slony.info/bugzilla/>
+References: <bug-167-4@http.www.slony.info/bugzilla/>
+Message-ID: <20101208202617.B7522290CF4@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=167
+
+--- Comment #2 from Christopher Browne <cbbrowne at ca.afilias.info> 2010-12-08 12:26:17 PST ---
+Relevant Skytools code:
+https://github.com/cbbrowne/skytools-dev/blob/master/sql/pgq/functions/pgq.batch_event_sql.sql
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Dec  8 12:46:56 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed,  8 Dec 2010 12:46:56 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 178] More sophisticated FAILOVER
+In-Reply-To: <bug-178-4@http.www.slony.info/bugzilla/>
+References: <bug-178-4@http.www.slony.info/bugzilla/>
+Message-ID: <20101208204656.09EC8290CED@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=178
+
+Christopher Browne <cbbrowne at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         AssignedTo|slony1-bugs at lists.slony.inf |janwieck at yahoo.com
+                   |o                           |
+           Priority|low                         |high
+             Status|NEW                         |ASSIGNED
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Dec  8 14:38:22 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed,  8 Dec 2010 14:38:22 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 163] Resolve Timezone ambiguity
+In-Reply-To: <bug-163-4@http.www.slony.info/bugzilla/>
+References: <bug-163-4@http.www.slony.info/bugzilla/>
+Message-ID: <20101208223822.EF466290CED@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=163
+
+Christopher Browne <cbbrowne at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+                URL|                            |https://github.com/cbbrowne
+                   |                            |/slony1-engine/commits/bug1
+                   |                            |63
+
+--- Comment #2 from Christopher Browne <cbbrowne at ca.afilias.info> 2010-12-08 14:38:23 PST ---
+Set up a branch for this on GitHub...
+
+https://github.com/cbbrowne/slony1-engine/commits/bug163
+
+Took an initial swing at implementation:
+
+https://github.com/cbbrowne/slony1-engine/commit/42a4d2ed275d4d2c1b08f49b5c079e8c6a790258
+
+1.  Change TIMESTAMP to TIMESTAMPTZ in slony1_base.sql
+
+2.  Add logic to upgradeSchema() that looks for tables with "timestamp without
+time zone" and changes them to "timestamp with time zone"
+
+This has a couple of complications...
+
+The view sl_status depends on the underlying tables; if you try to alter them,
+this errors out as follows:
+
+Dec  8 17:01:23 cbbrowne postgres[32294]: [3-1] ERROR:  cannot alter type of a
+column used by a view or rule
+Dec  8 17:01:23 cbbrowne postgres[32294]: [3-2] DETAIL:  rule _RETURN on view
+sl_status depends on column "ev_timestamp"
+Dec  8 17:01:23 cbbrowne postgres[32294]: [3-3] STATEMENT:  alter table
+sl_event  alter column ev_timestamp set data type timestamp with time zone;
+
+Consequently, I added logic to pull the definition of sl_status, using
+pg_get_viewdef().  So the logic is...
+
+- Capture view definition for sl_status
+- Drop view sl_status
+- Do all necessary alterations
+- Recreate sl_status
+
+Note also that this requires changing the schema to the Slony cluster's schema,
+so pg_get_viewdef() and the subsequent recreation are working against the same
+namespaces.
+
+Consequence: change the function to set search_path appropriately.  That seems
+like something we might want to do to all the Slony functions.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Dec  8 14:41:15 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed,  8 Dec 2010 14:41:15 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 184] New: Set search_path for most/all Slony
+	functions?
+Message-ID: <bug-184-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=184
+
+           Summary: Set search_path for most/all Slony functions?
+           Product: Slony-I
+           Version: devel
+          Platform: All
+        OS/Version: All
+            Status: NEW
+          Severity: enhancement
+          Priority: low
+         Component: core scripts
+        AssignedTo: slony1-bugs at lists.slony.info
+        ReportedBy: cbbrowne at ca.afilias.info
+                CC: slony1-bugs at lists.slony.info
+   Estimated Hours: 0.0
+
+
+As noticed in Bug 163, in some cases, Slony functions need to have search_path
+set to indicate the @NAMESPACE@ of the cluster.
+
+If we were to define *all* functions in this fashion, we could safely omit a
+lot of references to @NAMESPACE@ inside these functions.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Dec  8 14:43:14 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed,  8 Dec 2010 14:43:14 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 185] New: Function argument cleanup
+Message-ID: <bug-185-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=185
+
+           Summary: Function argument cleanup
+           Product: Slony-I
+           Version: devel
+          Platform: All
+        OS/Version: All
+            Status: NEW
+          Severity: enhancement
+          Priority: low
+         Component: core scripts
+        AssignedTo: slony1-bugs at lists.slony.info
+        ReportedBy: cbbrowne at ca.afilias.info
+                CC: slony1-bugs at lists.slony.info
+   Estimated Hours: 0.0
+
+
+On modern versions of PostgreSQL, we can have named parameters, allowing us to
+remove ALIAS statements and have the function signatures be more
+self-explanatory.
+
+This should be a straightforward change with little risk that would make the
+code base a little easier to maintain.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Dec  8 15:08:01 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed,  8 Dec 2010 15:08:01 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 167] Slow down of slon with large backlog
+In-Reply-To: <bug-167-4@http.www.slony.info/bugzilla/>
+References: <bug-167-4@http.www.slony.info/bugzilla/>
+Message-ID: <20101208230801.6DF29290CF4@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=167
+
+Christopher Browne <cbbrowne at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         AssignedTo|slony1-bugs at lists.slony.inf |janwieck at yahoo.com
+                   |o                           |
+             Status|NEW                         |ASSIGNED
+
+--- Comment #3 from Christopher Browne <cbbrowne at ca.afilias.info> 2010-12-08 15:08:01 PST ---
+Per the verbal discussion, I'd be keen to see an alternative implementation
+that pushes generation of the query(queries?) into a pl/pgsql function.  
+
+That would eliminate a lot of "string munging" on the C side (and be analagous
+to what the Skytools code does), which has a fair likelihood of shortening the
+resultant code and making it more maintainable.
+
+It's possible it won't be an improvement, but it sure would be nice to try to
+head down the "more maintainable" path.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Thu Dec  9 04:50:16 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu,  9 Dec 2010 04:50:16 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 184] Set search_path for most/all Slony
+	functions?
+In-Reply-To: <bug-184-4@http.www.slony.info/bugzilla/>
+References: <bug-184-4@http.www.slony.info/bugzilla/>
+Message-ID: <20101209125017.083011490C9@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=184
+
+--- Comment #1 from Steve Singer <ssinger at ca.afilias.info> 2010-12-09 04:50:16 PST ---
+Or is the bug that some functions use search_path where they all should be
+called with @NAMESPACE at .
+
+Consider someone who wants to have 2 different slony clusters on the same
+database. If we always use @NAMESPACE@ and qualify table+function names this
+should not be  a problem.  If we start depending on search_path then we might
+start getting situations where the wrong sl_table gets used.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Thu Dec  9 08:21:21 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu,  9 Dec 2010 08:21:21 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 184] Set search_path for most/all Slony
+	functions?
+In-Reply-To: <bug-184-4@http.www.slony.info/bugzilla/>
+References: <bug-184-4@http.www.slony.info/bugzilla/>
+Message-ID: <20101209162121.D9E1729024C@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=184
+
+--- Comment #2 from Christopher Browne <cbbrowne at ca.afilias.info> 2010-12-09 08:21:21 PST ---
+(In reply to comment #1)
+> Or is the bug that some functions use search_path where they all should be
+> called with @NAMESPACE at .
+
+What do you mean by "called with @NAMESPACE@"?  @NAMESPACE@ is only evaluated
+at installation time.  It is not involved at the time functions are called.
+
+> Consider someone who wants to have 2 different slony clusters on the same
+> database. If we always use @NAMESPACE@ and qualify table+function names this
+> should not be  a problem.  If we start depending on search_path then we might
+> start getting situations where the wrong sl_table gets used.
+
+
+If we have Slony functions set search_path at the time that the functions are
+defined, then there is no problem with having two slony clusters on the same
+database.
+
+- When functions relating to cluster "_a" are called, search path is set to
+"_a", and they get the right objects.
+
+- When functions relating to cluster "_b" are called, search path is set to
+"_b", again, providing the right objects.
+
+The very same piece of configuration, @NAMESPACE@, is being stored in one of
+two places:
+
+ a) In each reference to tables, sequences, views, functions, so if we miss
+one, things will break.
+
+ b) In the function's search_path setting.
+
+We get rid of a bunch of references to @NAMESPACE@ by putting it into the
+function definition.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Thu Dec  9 09:34:33 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu,  9 Dec 2010 09:34:33 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 171] Health Check: Verify node's parentage
+In-Reply-To: <bug-171-4@http.www.slony.info/bugzilla/>
+References: <bug-171-4@http.www.slony.info/bugzilla/>
+Message-ID: <20101209173433.72452290D34@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=171
+
+Christopher Browne <cbbrowne at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         AssignedTo|slony1-bugs at lists.slony.inf |cbbrowne at ca.afilias.info
+                   |o                           |
+             Status|NEW                         |ASSIGNED
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Thu Dec  9 10:10:03 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu,  9 Dec 2010 10:10:03 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 184] Set search_path for most/all Slony
+	functions?
+In-Reply-To: <bug-184-4@http.www.slony.info/bugzilla/>
+References: <bug-184-4@http.www.slony.info/bugzilla/>
+Message-ID: <20101209181003.76DB2290464@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=184
+
+--- Comment #3 from Steve Singer <ssinger at ca.afilias.info> 2010-12-09 10:10:03 PST ---
+
+> If we have Slony functions set search_path at the time that the functions are
+> defined, then there is no problem with having two slony clusters on the same
+> database.
+> 
+> - When functions relating to cluster "_a" are called, search path is set to
+> "_a", and they get the right objects.
+> 
+> - When functions relating to cluster "_b" are called, search path is set to
+> "_b", again, providing the right objects.
+> 
+> The very same piece of configuration, @NAMESPACE@, is being stored in one of
+> two places:
+> 
+>  a) In each reference to tables, sequences, views, functions, so if we miss
+> one, things will break.
+> 
+>  b) In the function's search_path setting.
+> 
+> We get rid of a bunch of references to @NAMESPACE@ by putting it into the
+> function definition.
+
+I misunderstood your comment. I thought you were taking about setting the
+search_path IN the function not as a parameter to CREATE FUNCTION.
+
+This makes more sense.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Thu Dec  9 10:33:17 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu,  9 Dec 2010 10:33:17 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 171] Health Check: Verify node's parentage
+In-Reply-To: <bug-171-4@http.www.slony.info/bugzilla/>
+References: <bug-171-4@http.www.slony.info/bugzilla/>
+Message-ID: <20101209183317.D44B5290464@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=171
+
+--- Comment #1 from Christopher Browne <cbbrowne at ca.afilias.info> 2010-12-09 10:33:17 PST ---
+Added "bug171" branch: 
+https://github.com/cbbrowne/slony1-engine/tree/bug171
+
+Added code to perform the test:
+
+https://github.com/cbbrowne/slony1-engine/commit/23402816c258920aa0e3e0e23685c71748395689
+
+ - Pull list of all parent nodes
+ - If none, then we're probably OK
+ - For each one found
+   - try to connect
+     - Failure -> warning (not a FATAL error!)
+     - See if parent agrees that the slon's node is a subscriber
+       - If so, all is OK
+       - If not, then the local node is probably dropped out from a
+         failover, so slon dies with FATAL error
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Thu Dec  9 10:51:44 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu,  9 Dec 2010 10:51:44 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 152] Command line argument to only echo DDL on
+	failure
+In-Reply-To: <bug-152-4@http.www.slony.info/bugzilla/>
+References: <bug-152-4@http.www.slony.info/bugzilla/>
+Message-ID: <20101209185144.82210290D0F@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=152
+
+--- Comment #2 from Christopher Browne <cbbrowne at ca.afilias.info> 2010-12-09 10:51:44 PST ---
+Actually, I suggest another approach...
+
+When I modified DDL script processing, the printf() statements that you're
+observing were really part of my debugging infrastructure, when I was verifying
+that all was being handled properly.
+
+It may be readily argued that these statements should simply be removed.
+
+To that end, I have a branch that makes just such a change...
+
+https://github.com/cbbrowne/slony1-engine/tree/bug152
+
+Minor patch involved:
+https://github.com/cbbrowne/slony1-engine/commit/10dd7d4f44a17211f0aa4885c3128c5edb1f22d5
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Thu Dec  9 12:33:19 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu,  9 Dec 2010 12:33:19 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 174] Isolated Nodes
+In-Reply-To: <bug-174-4@http.www.slony.info/bugzilla/>
+References: <bug-174-4@http.www.slony.info/bugzilla/>
+Message-ID: <20101209203320.050A3290464@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=174
+
+Christopher Browne <cbbrowne at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         AssignedTo|slony1-bugs at lists.slony.inf |cbbrowne at ca.afilias.info
+                   |o                           |
+             Status|NEW                         |ASSIGNED
+
+--- Comment #1 from Christopher Browne <cbbrowne at ca.afilias.info> 2010-12-09 12:33:20 PST ---
+Making this more concrete...
+
+Set up branch for development... 
+https://github.com/cbbrowne/slony1-engine/tree/bug174
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Thu Dec  9 12:40:39 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu,  9 Dec 2010 12:40:39 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 174] Isolated Nodes
+In-Reply-To: <bug-174-4@http.www.slony.info/bugzilla/>
+References: <bug-174-4@http.www.slony.info/bugzilla/>
+Message-ID: <20101209204039.558D9290CE7@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=174
+
+--- Comment #2 from Christopher Browne <cbbrowne at ca.afilias.info> 2010-12-09 12:40:39 PST ---
+Proposed...  Add a table that will be replicated via event publishing that
+captures tuples of the form [excluder, excludee]
+
+That is, node [excluder] will ignore events coming from node [excludee].
+
+(Open question: Will it just be SYNC events that are ignored?  Seems quite
+likely apropos...)
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Thu Dec  9 12:54:57 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu,  9 Dec 2010 12:54:57 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 174] Isolated Nodes
+In-Reply-To: <bug-174-4@http.www.slony.info/bugzilla/>
+References: <bug-174-4@http.www.slony.info/bugzilla/>
+Message-ID: <20101209205457.66AC6290D43@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=174
+
+--- Comment #3 from Christopher Browne <cbbrowne at ca.afilias.info> 2010-12-09 12:54:57 PST ---
+Add in functions to manage the exclusion table.
+
+https://github.com/cbbrowne/slony1-engine/commit/062e79d42c986fc08e826ef2c0523350ee913abb
+
+4 functions:
+
+- excludenode(excluder, excludee)
+- excludenode_int(excluder, excludee)
+- unexcludenode(excluder, excludee)
+- unexcludenode_int(excluder, excludee)
+
+Exclude functions add in nodes
+
+Unexclude functions remove nodes
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Thu Dec  9 12:56:38 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu,  9 Dec 2010 12:56:38 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 174] Isolated Nodes
+In-Reply-To: <bug-174-4@http.www.slony.info/bugzilla/>
+References: <bug-174-4@http.www.slony.info/bugzilla/>
+Message-ID: <20101209205638.2A7EE290CFF@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=174
+
+--- Comment #4 from Christopher Browne <cbbrowne at ca.afilias.info> 2010-12-09 12:56:38 PST ---
+Add validation rules:
+
+- You can't add an exclusion if there's a subscription between the nodes
+
+https://github.com/cbbrowne/slony1-engine/commit/5cb7cad6aa22069360be9aa7ad3d5edffd78255d
+
+- You can't set up a subscription if the nodes are involved in exclusion
+
+https://github.com/cbbrowne/slony1-engine/commit/796df78da7e8e639e7df2df642800671ca945b04
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Thu Dec  9 13:02:57 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu,  9 Dec 2010 13:02:57 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 174] Isolated Nodes
+In-Reply-To: <bug-174-4@http.www.slony.info/bugzilla/>
+References: <bug-174-4@http.www.slony.info/bugzilla/>
+Message-ID: <20101209210257.E0A4C290D0A@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=174
+
+--- Comment #5 from Steve Singer <ssinger at ca.afilias.info> 2010-12-09 13:02:58 PST ---
+(In reply to comment #2)
+> Proposed...  Add a table that will be replicated via event publishing that
+> captures tuples of the form [excluder, excludee]
+> 
+> That is, node [excluder] will ignore events coming from node [excludee].
+> 
+> (Open question: Will it just be SYNC events that are ignored?  Seems quite
+> likely apropos...)
+
+How would WAIT FOR (todays manual WAIT FOR - ignoring any automatic one) work
+if you ignore non sync events?  
+
+Also, just because node 1 is excluding node 4 doesn't mean that node 3 is
+excluding node 4 (it probably isn't).  How will WAIT FOR change.
+
+Also what are the implications with respect to FAILOVER and MOVE SET or
+rehshaping a subscription for this change.
+
+Also can you propose some syntax for making a node excluded?
+
+What happens if you no longer want a node to be excluded?  Especially if the
+events have already been deleted on the excluder.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Thu Dec  9 13:37:56 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu,  9 Dec 2010 13:37:56 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 174] Isolated Nodes
+In-Reply-To: <bug-174-4@http.www.slony.info/bugzilla/>
+References: <bug-174-4@http.www.slony.info/bugzilla/>
+Message-ID: <20101209213756.9EC30290D43@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=174
+
+--- Comment #6 from Christopher Browne <cbbrowne at ca.afilias.info> 2010-12-09 13:37:56 PST ---
+(In reply to comment #5)
+> (In reply to comment #2)
+> > Proposed...  Add a table that will be replicated via event publishing that
+> > captures tuples of the form [excluder, excludee]
+> > 
+> > That is, node [excluder] will ignore events coming from node [excludee].
+> > 
+> > (Open question: Will it just be SYNC events that are ignored?  Seems quite
+> > likely apropos...)
+> 
+> How would WAIT FOR (todays manual WAIT FOR - ignoring any automatic one) work
+> if you ignore non sync events?  
+
+> Also, just because node 1 is excluding node 4 doesn't mean that node 3 is
+> excluding node 4 (it probably isn't).  How will WAIT FOR change.
+
+If it's only present in the new world (e.g. - where WAIT is implicit), then
+that's not *totally* important :-).
+
+But sure, it's a good question.
+
+I imagine the result is that events from Node A will get ignored on Node B.
+
+WAIT FOR presently has 2 forms:
+
+a) WAIT FOR a particular node; this only breaks down if you ask to wait for an
+event from Node A arriving at Node B.  I think we can make such a request error
+out - it's not sensible to ask for this if there's an "exclusion" present.
+
+b) WAIT FOR ALL.  I expect we'd have these requests ignore exclusions.
+
+Seems sensible?
+
+> Also what are the implications with respect to FAILOVER and MOVE SET or
+> rehshaping a subscription for this change.
+
+I expect we have to refuse these requests.  It shouldn't be problematic to add
+tests similar to
+<https://github.com/cbbrowne/slony1-engine/commit/796df78da7e8e639e7df2df642800671ca945b04>
+to FAILOVER and MOVE SET.
+
+> Also can you propose some syntax for making a node excluded?
+> 
+> What happens if you no longer want a node to be excluded?  Especially if the
+> events have already been deleted on the excluder.
+
+I'd think slonik syntax would look like:
+
+IGNORE NODE (IGNORE ID=2, IGNORE BY=4);
+UNIGNORE NODE( ID=2, IGNORE BY=4);
+
+Whether events have been deleted or not seems beside the point; that's a
+question at the time of SUBSCRIBE SET, MOVE SET, FAILOVER.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Fri Dec 10 08:13:35 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Fri, 10 Dec 2010 08:13:35 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 172] Use application_name
+In-Reply-To: <bug-172-4@http.www.slony.info/bugzilla/>
+References: <bug-172-4@http.www.slony.info/bugzilla/>
+Message-ID: <20101210161335.30E6B1490C9@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=172
+
+Christopher Browne <cbbrowne at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         AssignedTo|slony1-bugs at lists.slony.inf |cbbrowne at ca.afilias.info
+                   |o                           |
+             Status|NEW                         |ASSIGNED
+
+--- Comment #2 from Christopher Browne <cbbrowne at ca.afilias.info> 2010-12-10 08:13:35 PST ---
+Taking a peek at slon source code...
+
+
+-> % ack-grep slon_connectdb
+local_listen.c
+57:     if ((conn = slon_connectdb(rtcfg_conninfo, "local_listen")) == NULL)
+
+cleanup_thread.c
+80:     if ((conn = slon_connectdb(rtcfg_conninfo, "local_cleanup")) == NULL)
+
+remote_worker.c
+370:    if ((local_conn = slon_connectdb(rtcfg_conninfo, conn_symname)) ==
+NULL)
+2588:   if ((pro_conn = slon_connectdb(conninfo, conn_symname)) == NULL)
+3745:                   provider->conn = slon_connectdb(provider->pa_conninfo,
+
+remote_listen.c
+208:                    conn = slon_connectdb(conn_conninfo, conn_symname);
+
+sync_thread.c
+59:     if ((conn = slon_connectdb(rtcfg_conninfo, "local_sync")) == NULL)
+
+slon.h
+567:extern SlonConn *slon_connectdb(char *conninfo, char *symname);
+
+dbutils.c
+47: * slon_connectdb
+51:slon_connectdb(char *conninfo, char *symname)
+71:                              "slon_connectdb: PQconnectdb(\"%s\")
+failed\n",
+78:                              "slon_connectdb: PQconnectdb(\"%s\") failed -
+%s",
+120:                             "slon_connectdb: PQconnectdb(\"%s\")
+PostgreSQL version not supported\n",
+
+The value of "conn_symname" looks to be pretty suitable as being most of the
+value to pass in.
+
+Values include:
+ local_listen
+ local_cleanup
+ local_sync
+And within remote_worker.c:
+ remoteWorkerThread_%d
+ copy_set_%d
+ subscriber_%d_provider_%d
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Fri Dec 10 08:26:53 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Fri, 10 Dec 2010 08:26:53 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 172] Use application_name
+In-Reply-To: <bug-172-4@http.www.slony.info/bugzilla/>
+References: <bug-172-4@http.www.slony.info/bugzilla/>
+Message-ID: <20101210162653.995391490C9@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=172
+
+--- Comment #3 from Christopher Browne <cbbrowne at ca.afilias.info> 2010-12-10 08:26:53 PST ---
+Added branch for development of this feature...
+
+Added function store_application_name(name) that checks to see if the GUC
+variable exists, and sets it, if so.
+
+Added a hook to slon_connectdb() that calls the function.
+
+https://github.com/cbbrowne/slony1-engine/commit/a2d97d94017e74b0fdad100f4be3b2327a56b29d
+
+Sample output on Postgres HEAD:
+
+
+testdb at localhost->  select datid, datname, procpid, application_name from
+pg_stat_activity where application_name like 'slon%';
+ datid |    datname    | procpid |     application_name
+-------+---------------+---------+---------------------------
+ 44510 | slonyregress1 |   30969 | slon.local_listen
+ 44510 | slonyregress1 |   30974 | slon.local_cleanup
+ 44510 | slonyregress1 |   30975 | slon.local_sync
+ 44573 | slonyregress2 |   30976 | slon.node_2_listen
+ 44510 | slonyregress1 |   30977 | slon.remoteWorkerThread_2
+(5 rows)
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Fri Dec 10 08:50:12 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Fri, 10 Dec 2010 08:50:12 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 172] Use application_name
+In-Reply-To: <bug-172-4@http.www.slony.info/bugzilla/>
+References: <bug-172-4@http.www.slony.info/bugzilla/>
+Message-ID: <20101210165012.CB97A290CE7@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=172
+
+--- Comment #4 from Christopher Browne <cbbrowne at ca.afilias.info> 2010-12-10 08:50:12 PST ---
+Do much the same for slonik...
+
+https://github.com/cbbrowne/slony1-engine/commit/bbe9a3f0f7015768bf3fbc044d9a9bf14039859f
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Fri Dec 10 11:45:20 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Fri, 10 Dec 2010 11:45:20 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 172] Use application_name
+In-Reply-To: <bug-172-4@http.www.slony.info/bugzilla/>
+References: <bug-172-4@http.www.slony.info/bugzilla/>
+Message-ID: <20101210194520.72D62290D4A@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=172
+
+--- Comment #5 from Christopher Browne <cbbrowne at ca.afilias.info> 2010-12-10 11:45:20 PST ---
+https://github.com/cbbrowne/slony1-engine/commit/766acf3e105644878e19af8c1fa14f568f187341
+
+Revise slonik handling of application_name...
+
+Query to see if the GUC is there, and only try to set the GUC if it
+actually exists in this database.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Mon Dec 13 14:00:27 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Mon, 13 Dec 2010 14:00:27 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 163] Resolve Timezone ambiguity
+In-Reply-To: <bug-163-4@http.www.slony.info/bugzilla/>
+References: <bug-163-4@http.www.slony.info/bugzilla/>
+Message-ID: <20101213220027.EF7CB290CFE@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=163
+
+--- Comment #3 from Steve Singer <ssinger at ca.afilias.info> 2010-12-13 14:00:27 PST ---
+In slony1_funcs.sql log_switch_start()
+
+The reason why the now() needed a typecast was because now() returns a 
+timestampz and we were storing just a timestamp.  Since we are now 
+storing the full timestampz we don't need the typecast.
+
+upgradeSchema()
+
+My reading of this function is that it will take ANY table in the slony 
+schema that has a timestamp column and replace it with a timestampz 
+column.  I don't think this query is restricting things to the set of 
+slony tables that exist today.
+
+If in the future (maybe version 2.2 or 3.5)  we add a new column/table 
+and we REALLY do want a timestamp with no time zone then this 
+upgradeSchema() function will still alter the table.
+
+If anyone has added a custom table to their slony schema then this query 
+will alter their table as well. (I don't want to encourage people to be 
+adding their own tables to the slony schema; I just don't like the idea 
+of using pattern matching to any table/column in the schema as the 
+target for an alter table). I'd be more comfortable if we filtered on 
+the explicit slony tables we have in 2.0
+
+
+This section should also have a comment a to what it's for ie
+--
+-- When upgrading to 2.1 the 'timestamp' columns get changed to
+-- timestampz since we now store the timezone
+
+I have not tested this verison of the patch just reviewed it.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Tue Dec 14 09:27:27 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Tue, 14 Dec 2010 09:27:27 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 170] Remove SNMP support
+In-Reply-To: <bug-170-4@http.www.slony.info/bugzilla/>
+References: <bug-170-4@http.www.slony.info/bugzilla/>
+Message-ID: <20101214172727.CB486290CF4@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=170
+
+Christopher Browne <cbbrowne at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         Resolution|                            |FIXED
+             Status|NEW                         |RESOLVED
+
+--- Comment #4 from Christopher Browne <cbbrowne at ca.afilias.info> 2010-12-14 09:27:27 PST ---
+Committed to master...
+
+http://git.postgresql.org/gitweb?p=slony1-engine.git;a=commit;h=218fb6cb144807f77a1d8822d6c0b0e4a4d35375
+
+http://git.postgresql.org/gitweb?p=slony1-engine.git;a=commit;h=bf7377d0f7be8df21cfce17e7ac428bea3390475
+
+http://git.postgresql.org/gitweb?p=slony1-engine.git;a=commit;h=c7997e2bb87ea295c695108b2cf89f2f956875e5
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Tue Dec 14 10:16:55 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Tue, 14 Dec 2010 10:16:55 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 175] Monitoring cluster better
+In-Reply-To: <bug-175-4@http.www.slony.info/bugzilla/>
+References: <bug-175-4@http.www.slony.info/bugzilla/>
+Message-ID: <20101214181655.DE3ED290C1B@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=175
+
+--- Comment #2 from Christopher Browne <cbbrowne at ca.afilias.info> 2010-12-14 10:16:56 PST ---
+Set up a branch for bug #175
+https://github.com/cbbrowne/slony1-engine/tree/bug175
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Tue Dec 14 10:56:08 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Tue, 14 Dec 2010 10:56:08 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 167] Slow down of slon with large backlog
+In-Reply-To: <bug-167-4@http.www.slony.info/bugzilla/>
+References: <bug-167-4@http.www.slony.info/bugzilla/>
+Message-ID: <20101214185608.7F07B290035@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=167
+
+--- Comment #4 from Steve Singer <ssinger at ca.afilias.info> 2010-12-14 10:56:08 PST ---
+(In reply to comment #1)
+> I have combined the EXPLAIN_INTERVAL feature with the new log selection query
+> into one commit for review here:
+> 
+> https://github.com/wieck/slony1-engine/commit/cfdf5c511e390775fdeb43dc37b07dffc61a3b20
+> 
+
+My initial review is here
+
+remote_worker.c:4008
+1) This switch statement , switch(provider->log_status) 
+a) Inside of it we reach 5 levels of indentation. I think the code
+will be easier to read/follow if we some of this into a separate
+function
+
+b) From what I can tell we have a switch(provier->log_status) with
+the same code for 3 case statements (0,2,3) and those are the only
+case statements in the switch block that ends at line 4144.
+
+There is then a second switch(provider->log_status) with three more
+statements of the same form.
+
+if(provider->log_status==0 || provider->log_status==2 ||
+provider->log_status==3)
+would be a lot easier to read/follow. This might even make the 
+formatting easier to read to avoid (a)
+
+However I thik you can go further and create a function that takes in it
+an argument (1 or 2) along with a pointer to provider_query and
+appends the parts to it using either sl_log_%d (sl_log_1 or sl_log_2)
+as required.  There is a lot of code duplication here that I think can
+be eliminated.
+
+Once the duplication has been eliminated I'll take another look.
+
+I agree with Chris that a plpgsql implementation might be worth trying.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Tue Dec 14 13:20:45 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Tue, 14 Dec 2010 13:20:45 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 171] Health Check: Verify node's parentage
+In-Reply-To: <bug-171-4@http.www.slony.info/bugzilla/>
+References: <bug-171-4@http.www.slony.info/bugzilla/>
+Message-ID: <20101214212045.6C219290035@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=171
+
+--- Comment #2 from Steve Singer <ssinger at ca.afilias.info> 2010-12-14 13:20:45 PST ---
+A few initial comments:
+
+You state "If they don't, then presumably I'm a failed node, and I should stop
+with a fatal error"
+
+I'm not sure we can presume that.  The problem might be with the provider node
+not the failed node.
+
+Consider a cluster of the form
+
+b<--a--->c
+
+If something happens to node a and you want to do a failover from a-->b
+then node c might need to learn about cluster changes from node b via slon.
+You don't want node c exiting on startup when it could talk to b.
+
+Similarly the case 
+a-->b-->c
+
+The provider 'b' might have the problem not node c.  You can't assume that node
+c (the local node) is gone.
+
+
+Your patch also does not check the return code from the connect.  As I read
+your patch I think it will mean that if at startup time if slon has a
+connection failure to one of its providers then it will not start, though in
+the first comment you mention that the feature should be resilient to this.
+
+Maybe it would be better for the remote listener to check the remote database
+to see if it has an associated sl_node entry for the local id. If not the the
+remote listener should do nothing/sleep and retry periodically.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Dec 15 06:02:12 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed, 15 Dec 2010 06:02:12 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 172] Use application_name
+In-Reply-To: <bug-172-4@http.www.slony.info/bugzilla/>
+References: <bug-172-4@http.www.slony.info/bugzilla/>
+Message-ID: <20101215140212.6EA6E1490C9@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=172
+
+--- Comment #6 from Steve Singer <ssinger at ca.afilias.info> 2010-12-15 06:02:12 PST ---
+In the first patch you add a stored function store_application_name()
+wouldn't it be better for your change to slonik to use this function
+instead of duplicating the logic?
+
+I realize that there is a bit of a chicken/egg situation here in that until
+slonik installs the slony schema the function doesn't exist so it can't be
+called.
+
+
+I am also not sure how I feel about querying the catalog pg_settings table for
+application name to see what version we are on.   The other way of approaching
+this is to check the server version on from the pg connection data structures
+and not set the application name accordingly  OR we can have a no-op
+implementation of store_application_name() for versions < 9.0.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Dec 15 08:30:38 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed, 15 Dec 2010 08:30:38 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 172] Use application_name
+In-Reply-To: <bug-172-4@http.www.slony.info/bugzilla/>
+References: <bug-172-4@http.www.slony.info/bugzilla/>
+Message-ID: <20101215163038.49E14290CD6@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=172
+
+--- Comment #7 from Christopher Browne <cbbrowne at ca.afilias.info> 2010-12-15 08:30:37 PST ---
+(In reply to comment #6)
+> In the first patch you add a stored function store_application_name()
+> wouldn't it be better for your change to slonik to use this function
+> instead of duplicating the logic?
+> 
+> I realize that there is a bit of a chicken/egg situation here in that until
+> slonik installs the slony schema the function doesn't exist so it can't be
+> called.
+
+There lies the problem...  slonik can't call it unless the function is already
+there.
+
+The alternative, I suppose, is to change the slon logic to duplicate the logic
+in slonik, so we don't need to have a version-specific stored function.
+
+> I am also not sure how I feel about querying the catalog pg_settings table for
+> application name to see what version we are on.   The other way of approaching
+> this is to check the server version on from the pg connection data structures
+> and not set the application name accordingly  OR we can have a no-op
+> implementation of store_application_name() for versions < 9.0.
+
+I'm uninterested in what version we are on; I am interested in whether or not
+Postgres supports the GUC "application_name".  If we handle this feature that
+way, then we never have to ask what version it is tied to, because it doesn't
+matter.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Dec 15 10:07:08 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed, 15 Dec 2010 10:07:08 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 172] Use application_name
+In-Reply-To: <bug-172-4@http.www.slony.info/bugzilla/>
+References: <bug-172-4@http.www.slony.info/bugzilla/>
+Message-ID: <20101215180708.B4C56290C55@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=172
+
+--- Comment #8 from Steve Singer <ssinger at ca.afilias.info> 2010-12-15 10:07:08 PST ---
+(In reply to comment #7)
+
+
+That argument makes sense.
+
+It seems fine to commit except for:
+
+- For the slonik change, even if PQntuples(res)==0 you still need to call
+PQclear(res) to free the structure (that contains zero tuples) or you have a
+small memory leak.
+
+You do this properly in the slon change.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Dec 15 12:33:03 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed, 15 Dec 2010 12:33:03 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 53] High memory usage when using high table id
+In-Reply-To: <bug-53-4@http.www.slony.info/bugzilla/>
+References: <bug-53-4@http.www.slony.info/bugzilla/>
+Message-ID: <20101215203303.64194290035@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=53
+
+Christopher Browne <cbbrowne at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+             Status|ASSIGNED                    |NEW
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Dec 15 12:50:36 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed, 15 Dec 2010 12:50:36 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 172] Use application_name
+In-Reply-To: <bug-172-4@http.www.slony.info/bugzilla/>
+References: <bug-172-4@http.www.slony.info/bugzilla/>
+Message-ID: <20101215205036.989FD290479@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=172
+
+Christopher Browne <cbbrowne at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         Resolution|                            |FIXED
+             Status|ASSIGNED                    |RESOLVED
+
+--- Comment #9 from Christopher Browne <cbbrowne at ca.afilias.info> 2010-12-15 12:50:36 PST ---
+Added freeing of res in slonik.c...
+
+Squashed code into a commit to put into master:
+
+http://git.postgresql.org/gitweb?p=slony1-engine.git;a=commit;h=4ae9a212ccf6fe0bd52a4c015a39a251107405a5
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Thu Dec 16 08:54:45 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu, 16 Dec 2010 08:54:45 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 171] Health Check: Verify node's parentage
+In-Reply-To: <bug-171-4@http.www.slony.info/bugzilla/>
+References: <bug-171-4@http.www.slony.info/bugzilla/>
+Message-ID: <20101216165445.65E77290C1B@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=171
+
+Christopher Browne <cbbrowne at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+             Status|ASSIGNED                    |NEW
+         Depends on|                            |179
+
+--- Comment #3 from Christopher Browne <cbbrowne at ca.afilias.info> 2010-12-16 08:54:45 PST ---
+Further discussion showing that it's problematic to consider the cases where
+this should cause the slon to terminate with fatal error.
+
+The trouble is that there is little certainty in the determination that things
+are well and truly broken.
+
+1.  There isn't a straightforward way to indicate that a node is being
+"shunned" due to failover.
+
+2.  It may be that one or the other of the disagreeing nodes is simply behind
+in processing events from other places, and the contradiction may shortly clear
+itself up.
+
+There's no straightforward way to determine either.
+
+Once more of the "automated WAIT FOR" logic is in place, we may have clearer
+answers; attaching dependency and deferring...
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Thu Dec 16 08:54:45 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu, 16 Dec 2010 08:54:45 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 179] Implicit WAIT FOR EVENT
+In-Reply-To: <bug-179-4@http.www.slony.info/bugzilla/>
+References: <bug-179-4@http.www.slony.info/bugzilla/>
+Message-ID: <20101216165445.89656290CDC@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=179
+
+Christopher Browne <cbbrowne at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+             Blocks|                            |171
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Thu Dec 16 12:38:16 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu, 16 Dec 2010 12:38:16 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 163] Resolve Timezone ambiguity
+In-Reply-To: <bug-163-4@http.www.slony.info/bugzilla/>
+References: <bug-163-4@http.www.slony.info/bugzilla/>
+Message-ID: <20101216203816.4E57B290035@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=163
+
+--- Comment #4 from Christopher Browne <cbbrowne at ca.afilias.info> 2010-12-16 12:38:16 PST ---
+Made the changes suggested by Steve...
+
+https://github.com/cbbrowne/slony1-engine/commit/044a0f559f66a60f4c5baebb2ef9e263df8d1174
+
+https://github.com/cbbrowne/slony1-engine/commit/cc9a144bcc7cf3e28dd69424ca418c41453186bf
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Tue Dec 21 13:20:27 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Tue, 21 Dec 2010 13:20:27 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 186] New: slonik command to update comments
+Message-ID: <bug-186-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=186
+
+           Summary: slonik command to update comments
+           Product: Slony-I
+           Version: devel
+          Platform: PC
+        OS/Version: Linux
+            Status: NEW
+          Severity: enhancement
+          Priority: low
+         Component: slonik
+        AssignedTo: slony1-bugs at lists.slony.info
+        ReportedBy: ssinger at ca.afilias.info
+                CC: slony1-bugs at lists.slony.info
+   Estimated Hours: 0.0
+
+
+Slonik allows you to specify a descriptive comment on sets, nodes and tables.
+
+However we provide no way of changing that comment after it has been entered
+(short of manually executing UPDATE on sl_set on all nodes, which is
+discouraged)
+
+We should add a command to update comments on objects or at least nodes and
+sets.
+
+This feature request was passed to me from a DBA.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Dec 22 06:50:57 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed, 22 Dec 2010 06:50:57 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 126] slon sometimes does not recover from a
+	network outage
+In-Reply-To: <bug-126-4@http.www.slony.info/bugzilla/>
+References: <bug-126-4@http.www.slony.info/bugzilla/>
+Message-ID: <20101222145057.99EC1290D24@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=126
+
+Steve Singer <ssinger at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         AssignedTo|slony1-bugs at lists.slony.inf |ssinger at ca.afilias.info
+                   |o                           |
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Dec 22 13:33:14 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed, 22 Dec 2010 13:33:14 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 167] Slow down of slon with large backlog
+In-Reply-To: <bug-167-4@http.www.slony.info/bugzilla/>
+References: <bug-167-4@http.www.slony.info/bugzilla/>
+Message-ID: <20101222213314.11566290D1B@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=167
+
+--- Comment #5 from Jan Wieck <janwieck at yahoo.com> 2010-12-22 13:33:13 PST ---
+I've created a new version of this patch that eliminates the duplicate code by
+using a for() loop that processes both log tables.
+
+https://github.com/wieck/slony1-engine/tree/explain_and_bug167_v2
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Mon Dec 27 01:09:52 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Mon, 27 Dec 2010 01:09:52 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 187] New: add newline at end of PID file
+Message-ID: <bug-187-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=187
+
+           Summary: add newline at end of PID file
+           Product: Slony-I
+           Version: devel
+          Platform: All
+        OS/Version: All
+            Status: NEW
+          Severity: enhancement
+          Priority: low
+         Component: slon
+        AssignedTo: slony1-bugs at lists.slony.info
+        ReportedBy: peter_e at gmx.net
+                CC: slony1-bugs at lists.slony.info
+   Estimated Hours: 0.0
+
+
+Created an attachment (id=79)
+ --> (http://www.slony.info/bugzilla/attachment.cgi?id=79)
+patch
+
+PID files customarily end with newlines.  Please add one for slon as well.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Tue Dec 28 02:40:57 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Tue, 28 Dec 2010 02:40:57 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 180] Slonik DATE command
+In-Reply-To: <bug-180-4@http.www.slony.info/bugzilla/>
+References: <bug-180-4@http.www.slony.info/bugzilla/>
+Message-ID: <20101228104057.8516E290D04@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=180
+
+Jose Arthur Benetasso Villanova <jose.arthur at gmail.com> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         AssignedTo|slony1-bugs at lists.slony.inf |jose.arthur at gmail.com
+                   |o                           |
+                 CC|                            |jose.arthur at gmail.com
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Dec 29 13:24:48 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed, 29 Dec 2010 13:24:48 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 167] Slow down of slon with large backlog
+In-Reply-To: <bug-167-4@http.www.slony.info/bugzilla/>
+References: <bug-167-4@http.www.slony.info/bugzilla/>
+Message-ID: <20101229212448.ADE53290D37@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=167
+
+Jan Varga <jan.varga at gmail.com> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+                 CC|                            |jan.varga at gmail.com
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Dec 29 15:20:38 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed, 29 Dec 2010 15:20:38 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 186] slonik command to update comments
+In-Reply-To: <bug-186-4@http.www.slony.info/bugzilla/>
+References: <bug-186-4@http.www.slony.info/bugzilla/>
+Message-ID: <20101229232038.1AF95290D04@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=186
+
+--- Comment #1 from Jeff Frost <jeff at pgexperts.com> 2010-12-29 15:20:38 PST ---
+Looks like there is already some functionality for updating in the
+storenode_int(integer, text) and storeset_int(integer, integer, text)
+functions:
+
+It's just not exposed in slonik.
+
+So, you would think you can do something like this:
+
+select _schemadoc.createEvent('_schemadoc', 'STORE_NODE', '1', 'Node 1
+description');
+
+
+select _schemadoc.createEvent('_schemadoc', 'STORE_SET', '1', '1', 'new set
+description');
+
+but at least on 1.2, it causes the slons to crash.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Thu Dec 30 08:46:57 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu, 30 Dec 2010 08:46:57 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 171] Health Check: Verify node's parentage
+In-Reply-To: <bug-171-4@http.www.slony.info/bugzilla/>
+References: <bug-171-4@http.www.slony.info/bugzilla/>
+Message-ID: <20101230164658.02DE929026A@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=171
+
+Christopher Browne <cbbrowne at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         AssignedTo|cbbrowne at ca.afilias.info    |slony1-bugs at lists.slony.inf
+                   |                            |o
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Thu Dec 30 09:00:21 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu, 30 Dec 2010 09:00:21 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 163] Resolve Timezone ambiguity
+In-Reply-To: <bug-163-4@http.www.slony.info/bugzilla/>
+References: <bug-163-4@http.www.slony.info/bugzilla/>
+Message-ID: <20101230170021.3214F290D01@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=163
+
+--- Comment #5 from Christopher Browne <cbbrowne at ca.afilias.info> 2010-12-30 09:00:21 PST ---
+In principle, this may be committable; can folks take a poke at the branch
+https://github.com/cbbrowne/slony1-engine/tree/bug163
+???
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Thu Dec 30 09:09:41 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu, 30 Dec 2010 09:09:41 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 187] add newline at end of PID file
+In-Reply-To: <bug-187-4@http.www.slony.info/bugzilla/>
+References: <bug-187-4@http.www.slony.info/bugzilla/>
+Message-ID: <20101230170941.CAAF2290264@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=187
+
+Christopher Browne <cbbrowne at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         Resolution|                            |FIXED
+             Status|NEW                         |RESOLVED
+
+--- Comment #1 from Christopher Browne <cbbrowne at ca.afilias.info> 2010-12-30 09:09:41 PST ---
+Looks good to me.  Patched, added release notes, ran through brief test.
+
+http://git.postgresql.org/gitweb?p=slony1-engine.git;a=commit;h=54b9484e5d4650a8b2f8f7362266b699dfa3e94f
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Thu Dec 30 09:13:11 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu, 30 Dec 2010 09:13:11 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 186] slonik command to update comments
+In-Reply-To: <bug-186-4@http.www.slony.info/bugzilla/>
+References: <bug-186-4@http.www.slony.info/bugzilla/>
+Message-ID: <20101230171311.C110D2901AB@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=186
+
+--- Comment #2 from Christopher Browne <cbbrowne at ca.afilias.info> 2010-12-30 09:13:11 PST ---
+The function
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Thu Dec 30 09:25:46 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu, 30 Dec 2010 09:25:46 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 186] slonik command to update comments
+In-Reply-To: <bug-186-4@http.www.slony.info/bugzilla/>
+References: <bug-186-4@http.www.slony.info/bugzilla/>
+Message-ID: <20101230172546.3F969290D06@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=186
+
+--- Comment #3 from Christopher Browne <cbbrowne at ca.afilias.info> 2010-12-30 09:25:46 PST ---
+The event STORE_NODE leads to calling the function storeNode_int(),
+which seems to be suitably idempotent, where:
+
+- If the node doesn't exist, it'll add it;
+- If the node *does* exist, it updates the comment.
+
+Similarly, STORE_SET leads to calling the function storeSet_int(),
+which has the equivalent logic (with the appropriate s/node/set/g
+substitution).
+
+Taking one step back, Slonik calls, for STORE NODE, storeNode(), which
+simply passes the work on to storeNode_int(), which again should "just
+work."
+
+Unfortunately, in slonik, slonik_store_node() assumes it's creating a
+new node, so some rework would need to be done to allow it to cope
+with this reconfiguration of the node.
+
+On the SET side, slonik uses the command CREATE SET, which is pretty
+clearly intended to create a new set.  It should be straightforward to
+create another command, STORE SET, which is only permitted to alter
+the comment on the set.  It's a bit of work, but shouldn't be
+difficult.
+
+I'm not sure why it didn't work to inject the events by hand; in
+reading the code (in HEAD), it seems as though that ought to work
+already.  Hopefully fixing it involves a little debugging, and adding
+some examples to the regression tests to ensure the logic gets
+exercised regularly.
+
+The changes are straightforward enough that I'd encourage having someone that's
+new to altering Slonik work on it, so that we have more people that understand
+how to do so.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Thu Dec 30 12:12:51 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu, 30 Dec 2010 12:12:51 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 180] Slonik DATE command
+In-Reply-To: <bug-180-4@http.www.slony.info/bugzilla/>
+References: <bug-180-4@http.www.slony.info/bugzilla/>
+Message-ID: <20101230201252.0A52A290C4E@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=180
+
+--- Comment #1 from Jose Arthur Benetasso Villanova <jose.arthur at gmail.com> 2010-12-30 12:12:51 PST ---
+Created an attachment (id=80)
+ --> (http://www.slony.info/bugzilla/attachment.cgi?id=80)
+Date patch for slonik
+
+Hi.
+
+An implementation of the date command for slonik.
+
+Jos? Arthur.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Thu Dec 30 14:05:56 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu, 30 Dec 2010 14:05:56 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 185] Function argument cleanup
+In-Reply-To: <bug-185-4@http.www.slony.info/bugzilla/>
+References: <bug-185-4@http.www.slony.info/bugzilla/>
+Message-ID: <20101230220556.9C5B6290CFC@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=185
+
+Christopher Browne <cbbrowne at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         AssignedTo|slony1-bugs at lists.slony.inf |cbbrowne at ca.afilias.info
+                   |o                           |
+             Status|NEW                         |ASSIGNED
+
+--- Comment #1 from Christopher Browne <cbbrowne at ca.afilias.info> 2010-12-30 14:05:56 PST ---
+Changed all cases of
+ DECLARE
+    FOO ALIAS FOR $x;
+
+to use named function parameters...
+
+Branch at GitHub:
+
+https://github.com/cbbrowne/slony1-engine/tree/bug185
+
+It would be nice to merge this into master before doing much other work that
+might conflict with it.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Fri Dec 31 08:59:16 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Fri, 31 Dec 2010 08:59:16 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 188] New: ERROR: more than one row returned by a
+ subquery used as an expression
+Message-ID: <bug-188-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=188
+
+           Summary: ERROR:  more than one row returned by a subquery used
+                    as an expression
+           Product: Slony-I
+           Version: devel
+          Platform: All
+        OS/Version: All
+            Status: ASSIGNED
+          Severity: major
+          Priority: medium
+         Component: other scripts
+        AssignedTo: cbbrowne at ca.afilias.info
+        ReportedBy: cbbrowne at ca.afilias.info
+                CC: slony1-bugs at lists.slony.info
+   Estimated Hours: 0.0
+
+
+Tests occasionally get hung up for a while when a slon process complains for a
+while with the following error:
+
+Dec 31 11:47:25 cbbrowne postgres[13812]: [2-1] ERROR:  more than one row
+returned by a subquery used as an expression
+Dec 31 11:47:25 cbbrowne postgres[13812]: [2-2] STATEMENT:  select count(*)
+from "_slony_regress1".sl_log_1 l
+Dec 31 11:47:25 cbbrowne postgres[13812]: [2-3] #011where
+not(txid_visible_in_snapshot(l.log_txid, (select ev_snapshot from
+"_slony_regress1".sl_event where ev_timestamp = (select max(ev_timestamp) from
+"_slony_regress1".sl_event))));
+
+The trouble here is that there may be multiple snapshots with the same
+timestamp.
+
+Problem is in tests/poll_cluster.sh
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Fri Dec 31 09:01:37 2010
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Fri, 31 Dec 2010 09:01:37 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 188] ERROR: more than one row returned by a
+ subquery used as an expression
+In-Reply-To: <bug-188-4@http.www.slony.info/bugzilla/>
+References: <bug-188-4@http.www.slony.info/bugzilla/>
+Message-ID: <20101231170137.5B6E2290D29@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=188
+
+Christopher Browne <cbbrowne at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         Resolution|                            |FIXED
+             Status|ASSIGNED                    |RESOLVED
+
+--- Comment #1 from Christopher Browne <cbbrowne at ca.afilias.info> 2010-12-31 09:01:37 PST ---
+Fixed...
+
+http://git.postgresql.org/gitweb?p=slony1-engine.git;a=commit;h=dc15135d39d415b313f7938640b51494938b1537
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+

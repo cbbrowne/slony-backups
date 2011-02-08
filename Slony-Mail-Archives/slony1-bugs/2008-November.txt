@@ -1,0 +1,551 @@
+From slony1-bugs at lists.slony.info  Tue Nov  4 17:50:00 2008
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Tue Nov  4 17:50:02 2008
+Subject: [Slony1-bugs] [Bug 61] New: reload queue when empty
+Message-ID: <bug-61-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=61
+
+           Summary: reload queue when empty
+           Product: Slony-I
+           Version: 1.1
+          Platform: All
+        OS/Version: Linux
+            Status: NEW
+          Severity: enhancement
+          Priority: low
+         Component: slony_logshipper
+        AssignedTo: slony1-bugs@lists.slony.info
+        ReportedBy: dba@richyen.com
+                CC: slony1-bugs@lists.slony.info
+   Estimated Hours: 0.0
+
+
+changes to make slony_logshipper re-read archive directory instead of waiting
+for another app/process to feed it with new archive logfiles
+
+Index: slony_logshipper.c
+===================================================================
+--- slony_logshipper.c  (revision 232)
++++ slony_logshipper.c  (revision 298)
+@@ -47,6 +47,7 @@
+ /*
+  * Global data
+  */
++int         rescan_interval = 0;
+ int                    parse_errors = 0;
+ int                    opt_quiet = 0;
+ char      *destinationfname = NULL;
+@@ -134,7 +135,7 @@
+         * Parse commandline options
+         *
+         */
+-       while ((opt = getopt(argc, (char **)argv, "hvqcflrtTw")) != EOF)
++       while ((opt = getopt(argc, (char **)argv, "hvqcflrtTws:")) != EOF)
+        {
+                switch (opt)
+                {
+@@ -178,6 +179,10 @@
+                        case 'w':
+                                opt_nowait = 1;
+                                break;
++            
++            case 's':
++                rescan_interval = atoi(optarg);
++                break;
+
+                        default:
+                                fprintf(stderr, "unknown option '%c'\n", opt);
+@@ -365,6 +381,18 @@
+                if (rc == 0)
+                        break;
+
++               if (rc == -2)
++               {
++                       archscan_sort = NULL;
++            errlog(LOG_INFO, "Queue is empty.  Going to rescan in %d
+seconds\n", rescan_interval);
++            sleep(rescan_interval);
++                       if (archscan(optind, argc, (char **)argv) < 0)
++                       {
++                               return -1;
++                       }
++            errlog(LOG_INFO, "Archive dir scanned\n");
++                       continue;
++               }
+                if (rc < 0)
+                {
+                        return -1;
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Tue Nov  4 17:51:57 2008
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Tue Nov  4 17:51:59 2008
+Subject: [Slony1-bugs] [Bug 61] reload queue when empty
+In-Reply-To: <bug-61-4@http.www.slony.info/bugzilla/>
+Message-ID: <20081105015157.B2FDC290058@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=61
+
+
+
+
+
+--- Comment #1 from Richard Yen <dba@richyen.com>  2008-11-04 17:51:57 ---
+There were also changes in ipcutil.c
+
+Index: ipcutil.c
+===================================================================
+--- ipcutil.c   (revision 232)
++++ ipcutil.c   (revision 298)
+@@ -448,9 +448,11 @@
+                /*
+                 * Receive one single message blocking for it.
+                 */
+-               rc = msgrcv(msgid, &msg, sizeof(msg), 0, 0);
++               rc = msgrcv(msgid, &msg, sizeof(msg), 0, IPC_NOWAIT);
+                if (rc < 0)
+                {
++                       if (errno == ENOMSG)
++                               return -2;
+                        if (errno == EINTR)
+                                continue;
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Thu Nov  6 04:27:10 2008
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Thu Nov  6 04:27:12 2008
+Subject: [Slony1-bugs] [Bug 62] New: Initial subscription blocks with
+ "sequence ID <xxx> has already been assigned"
+Message-ID: <bug-62-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=62
+
+           Summary: Initial subscription blocks with  "sequence ID <xxx> has
+                    already been assigned"
+           Product: Slony-I
+           Version: 1.2
+          Platform: PC
+        OS/Version: Linux
+            Status: NEW
+          Severity: normal
+          Priority: medium
+         Component: core scripts
+        AssignedTo: slony1-bugs@lists.slony.info
+        ReportedBy: stuart@stuartbishop.net
+                CC: slony1-bugs@lists.slony.info
+   Estimated Hours: 0.0
+
+
+If the database connection to the master database is killed during a
+subscription operation, an ERROR will be logged:
+
+2008-10-24 17:49:49 BST ERROR  remoteWorkerThread_1: "select
+"_sl".tableHasSerialKey('"public"."translationrelicensingagreement"');"
+2008-10-24 17:49:49 BST WARN   remoteWorkerThread_1: data copy for set 1 failed
+- sleep 15 seconds
+
+remoteWorkerThread doesn't want to give up however:
+
+2008-10-24 17:52:35 BST DEBUG1 copy_set 1
+2008-10-24 17:52:35 BST DEBUG1 remoteWorkerThread_1: connected to provider DB
+2008-10-24 17:52:35 BST DEBUG2 remoteWorkerThread_1: prepare to copy table
+"public"."announcement"
+
+Eventually it will fail again, and continue to do so until the subscription
+stopped and the cluster repaired:
+
+2008-10-24 21:24:25 BST DEBUG2 remoteWorkerThread_1: all tables for set 1 found 
+on subscriber
+2008-10-24 21:24:25 BST DEBUG2 remoteWorkerThread_1: copy sequence
+"public"."ann
+ouncement_id_seq"
+2008-10-24 21:24:25 BST ERROR  remoteWorkerThread_1: "select
+"_sl".setAddSequence_int(1, 200, '"public"."announcement_id_seq"',
+'public.announcement_id_seq')" PGRES_FATAL_ERROR ERROR:  Slony-I:
+setAddSequence_int(): sequence ID 200 has already been assigned
+2008-10-24 21:24:25 BST WARN   remoteWorkerThread_1: data copy for set 1 failed
+- sleep 60 seconds
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From jcasanov at systemguards.com.ec  Wed Nov  5 13:30:03 2008
+From: jcasanov at systemguards.com.ec (Jaime Casanova)
+Date: Thu Nov  6 10:51:15 2008
+Subject: [Slony1-bugs] Documentation bug
+Message-ID: <3073cc9b0811051330x2536ccf6td1e141c0e68df0@mail.gmail.com>
+
+Hi,
+
+I send this to this list because i don't see any more plausible...
+
+in http://lists.slony.info/documentation/stmtsetaddtable.html at the
+Description says "usep table" when it should say "user table"
+
+-- 
+Atentamente,
+Jaime Casanova
+Soporte y capacitaci?n de PostgreSQL
+Asesor?a y desarrollo de sistemas
+Guayaquil - Ecuador
+Cel. +59387171157
+From cbbrowne at ca.afilias.info  Thu Nov  6 13:40:36 2008
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Thu Nov  6 13:40:51 2008
+Subject: [Slony1-bugs] Documentation bug
+In-Reply-To: <3073cc9b0811051330x2536ccf6td1e141c0e68df0@mail.gmail.com>
+	(Jaime Casanova's message of "Wed, 5 Nov 2008 16:30:03 -0500")
+References: <3073cc9b0811051330x2536ccf6td1e141c0e68df0@mail.gmail.com>
+Message-ID: <873ai4v8h7.fsf@dba2.int.libertyrms.com>
+
+"Jaime Casanova" <jcasanov@systemguards.com.ec> writes:
+> I send this to this list because i don't see any more plausible...
+>
+> in http://lists.slony.info/documentation/stmtsetaddtable.html at the
+> Description says "usep table" when it should say "user table"
+
+Thanks; I have just committed the change in CVS, so future builds of
+documentation won't have this typo.
+-- 
+(reverse (concatenate 'string "ofni.secnanifxunil" "@" "enworbbc"))
+http://linuxdatabases.info/info/wp.html
+Rules of the Evil Overlord  #108. "Any and all magic and/or technology
+that can miraculously resurrect a secondary character who has given up
+his/her life  through self sacrifice will be  outlawed and destroyed."
+<http://www.eviloverlord.com/>
+From slony1-bugs at lists.slony.info  Sun Nov 16 11:24:39 2008
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Sun Nov 16 11:24:41 2008
+Subject: [Slony1-bugs] [Bug 63] New: slony 2.0 RC2 cleanupThread problem
+Message-ID: <bug-63-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=63
+
+           Summary: slony 2.0 RC2 cleanupThread problem
+           Product: Slony-I
+           Version: devel
+          Platform: PC
+        OS/Version: Linux
+            Status: NEW
+          Severity: major
+          Priority: high
+         Component: slon
+        AssignedTo: slony1-bugs@lists.slony.info
+        ReportedBy: smith.not.western@gmail.com
+                CC: slony1-bugs@lists.slony.info
+   Estimated Hours: 0.0
+
+
+Hello,
+
+I'm running postgres 8.3.3 and slony 2.0 rc2 on three servers (1
+master, 2 slaves).
+
+I keep seeing this error from all 3 servers:
+
+Nov 12 02:26:49 database12 slon[4893]: [227-1] 2008-11-12 02:26:49 UTC
+FATAL  cleanupThread: "select "_sample".cleanupEvent('10
+minutes'::interval, 'false'::boolean); " -
+Nov 12 02:26:49 database12 slon[4893]: [227-2]  ERROR:  query has no
+destination for result data
+Nov 12 02:26:49 database12 slon[4893]: [227-3] HINT:  If you want to
+discard the results of a SELECT, use PERFORM instead.
+Nov 12 02:26:49 database12 slon[4893]: [227-4] CONTEXT:  PL/pgSQL
+function "logswitch_finish" line 42 at SQL statement
+Nov 12 02:26:49 database12 slon[4893]: [227-5] PL/pgSQL function
+"cleanupevent" line 99 at assignment
+Nov 12 02:26:49 database12 slon[4514]: [5-1] 2008-11-12 02:26:49 UTC
+INFO   slon: retry requested
+Nov 12 02:26:49 database12 slon[4514]: [6-1] 2008-11-12 02:26:49 UTC
+INFO   slon: notify worker process to shutdown
+Nov 12 02:26:49 database12 slon[4893]: [228-1] 2008-11-12 02:26:49 UTC
+INFO   syncThread: thread done
+Nov 12 02:26:49 database12 slon[4893]: [229-1] 2008-11-12 02:26:49 UTC
+INFO   remoteListenThread_3: disconnecting from 'dbname=sample
+host=1.2.3.4 user=slony port=5432'
+Nov 12 02:26:49 database12 slon[4893]: [230-1] 2008-11-12 02:26:49 UTC
+INFO   remoteListenThread_1: disconnecting from 'dbname=sample
+host=12.3.5 user=slony port=5432'
+Nov 12 02:26:49 database12 slon[4893]: [231-1] 2008-11-12 02:26:49 UTC
+INFO   localListenThread: thread done
+Nov 12 02:26:49 database12 slon[4893]: [232-1] 2008-11-12 02:26:49 UTC
+INFO   main: scheduler mainloop returned
+Nov 12 02:26:49 database12 slon[4893]: [233-1] 2008-11-12 02:26:49 UTC
+CONFIG main: wait for remote threads
+Nov 12 02:26:49 database12 slon[4893]: [234-1] 2008-11-12 02:26:49 UTC
+CONFIG remoteWorkerThread_1: update provider configuration
+Nov 12 02:26:49 database12 slon[4893]: [235-1] 2008-11-12 02:26:49 UTC
+CONFIG remoteWorkerThread_1: helper thread for provider 1 terminated
+Nov 12 02:26:49 database12 slon[4893]: [236-1] 2008-11-12 02:26:49 UTC
+CONFIG remoteWorkerThread_1: disconnecting from data provider 1
+Nov 12 02:26:49 database12 slon[4893]: [237-1] 2008-11-12 02:26:49 UTC
+INFO   remoteWorkerThread_1: thread done
+Nov 12 02:26:49 database12 slon[4893]: [238-1] 2008-11-12 02:26:49 UTC
+CONFIG remoteWorkerThread_3: update provider configuration
+Nov 12 02:26:49 database12 slon[4893]: [239-1] 2008-11-12 02:26:49 UTC
+INFO   remoteWorkerThread_3: thread done
+Nov 12 02:26:49 database12 slon[4893]: [240-1] 2008-11-12 02:26:49 UTC
+CONFIG main: done
+Nov 12 02:26:49 database12 slon[4514]: [7-1] 2008-11-12 02:26:49 UTC
+CONFIG slon: child terminated status: 0; pid: 4893, current worker
+pid: 4893
+
+Is this a known issue? Any workarounds for it?
+
+It is quite frustrating as slon needs to be constantly restarted. Yes, I use
+launch_clusters.sh to automate it, but nonetheless am reporting it here.
+
+Cheers,
+
+Mike
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Mon Nov 17 09:50:59 2008
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Mon Nov 17 09:51:01 2008
+Subject: [Slony1-bugs] [Bug 63] slony 2.0 RC2 cleanupThread problem
+In-Reply-To: <bug-63-4@http.www.slony.info/bugzilla/>
+Message-ID: <20081117175059.0F0C52901BA@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=63
+
+
+
+
+
+--- Comment #1 from Christopher Browne <cbbrowne@ca.afilias.info>  2008-11-17 09:50:58 ---
+Created an attachment (id=23)
+ --> (http://www.slony.info/bugzilla/attachment.cgi?id=23)
+Fix for bug #63
+
+I believe that the following patch should resolve the problem.
+
+I'll commit it to CVS as I hear back feedback...
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Mon Nov 17 14:36:02 2008
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Mon Nov 17 14:36:04 2008
+Subject: [Slony1-bugs] [Bug 61] reload queue when empty
+In-Reply-To: <bug-61-4@http.www.slony.info/bugzilla/>
+Message-ID: <20081117223602.E7A202901B7@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=61
+
+
+Christopher Browne <cbbrowne@ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         Resolution|                            |FIXED
+             Status|NEW                         |RESOLVED
+
+
+
+
+--- Comment #2 from Christopher Browne <cbbrowne@ca.afilias.info>  2008-11-17 14:36:02 ---
+Patch applied, along with a documentation string.
+
+http://lists.slony.info/pipermail/slony1-commit/2008-November/002386.html
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Mon Nov 17 14:45:07 2008
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Mon Nov 17 14:45:09 2008
+Subject: [Slony1-bugs] [Bug 63] slony 2.0 RC2 cleanupThread problem
+In-Reply-To: <bug-63-4@http.www.slony.info/bugzilla/>
+Message-ID: <20081117224507.826E92901BF@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=63
+
+
+Christopher Browne <cbbrowne@ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         Resolution|                            |FIXED
+             Status|NEW                         |RESOLVED
+
+
+
+
+--- Comment #2 from Christopher Browne <cbbrowne@ca.afilias.info>  2008-11-17 14:45:07 ---
+Fix commited...
+http://lists.slony.info/pipermail/slony1-commit/2008-November/002388.html
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Tue Nov 18 15:24:36 2008
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Tue Nov 18 15:24:38 2008
+Subject: [Slony1-bugs] [Bug 63] slony 2.0 RC2 cleanupThread problem
+In-Reply-To: <bug-63-4@http.www.slony.info/bugzilla/>
+Message-ID: <20081118232436.F2CF9290069@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=63
+
+
+
+
+
+--- Comment #3 from Mike C <smith.not.western@gmail.com>  2008-11-18 15:24:36 ---
+I applied the patch to my RC2 source and reinstalled slon/upgraded functions
+and this error has now disappeared. Thank you!
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Tue Nov 25 17:29:14 2008
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Tue Nov 25 17:29:16 2008
+Subject: [Slony1-bugs] [Bug 64] New: Syslog error levels do NOT cascade
+Message-ID: <bug-64-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=64
+
+           Summary: Syslog error levels do NOT cascade
+           Product: Slony-I
+           Version: 1.1
+          Platform: Macintosh
+        OS/Version: Mac OS
+            Status: NEW
+          Severity: minor
+          Priority: low
+         Component: slon
+        AssignedTo: slony1-bugs@lists.slony.info
+        ReportedBy: dba@richyen.com
+                CC: slony1-bugs@lists.slony.info
+   Estimated Hours: 0.0
+
+
+In the switch statement in misc.c (lines 95-140), "break;" lines at each "case"
+clause creates undesired syslog_level.
+
+i.e., if SLON_DEBUG4, syslog_level never gets set to LOG_DEBUG.
+
+Correct code should be:
+
+    switch (level)
+    {
+        case SLON_DEBUG4:
+            level_c = "DEBUG4";
+#ifdef HAVE_SYSLOG
+            syslog_level = LOG_DEBUG;
+#endif
+            break;
+        case SLON_DEBUG3:
+            level_c = "DEBUG3";
+#ifdef HAVE_SYSLOG
+            syslog_level = LOG_DEBUG;
+#endif
+            break;
+        case SLON_DEBUG2:
+            level_c = "DEBUG2";
+#ifdef HAVE_SYSLOG
+            syslog_level = LOG_DEBUG;
+#endif
+            break;
+        case SLON_DEBUG1:
+            level_c = "DEBUG1";
+#ifdef HAVE_SYSLOG
+            syslog_level = LOG_DEBUG;
+#endif                                                                          
+            break;                                                              
+        case SLON_INFO:                                                         
+            level_c = "INFO";                                                   
+#ifdef HAVE_SYSLOG                                                              
+            syslog_level = LOG_INFO;                                            
+#endif                                                                          
+            break;                                                              
+        case SLON_CONFIG:                                                       
+            level_c = "CONFIG";                                                 
+#ifdef HAVE_SYSLOG
+            syslog_level = LOG_WARNING;
+#endif
+            break;                                                              
+        case SLON_WARN:                                                         
+            level_c = "WARN";                                                   
+#ifdef HAVE_SYSLOG
+            syslog_level = LOG_WARNING;
+#endif
+            break;                                                              
+        case SLON_ERROR:                                                        
+            level_c = "ERROR";                                                  
+#ifdef HAVE_SYSLOG                                                              
+            syslog_level = LOG_ERR;                                             
+#endif                                                                          
+            break;                                                              
+        case SLON_FATAL:                                                        
+            level_c = "FATAL";                                                  
+#ifdef HAVE_SYSLOG                                                              
+            syslog_level = LOG_ERR;                                             
+#endif                                                                          
+            break;                                                              
+    }
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Tue Nov 25 17:36:38 2008
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Tue Nov 25 17:36:40 2008
+Subject: [Slony1-bugs] [Bug 64] Syslog error levels do NOT cascade
+In-Reply-To: <bug-64-4@http.www.slony.info/bugzilla/>
+Message-ID: <20081126013638.338C4290046@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=64
+
+
+Richard Yen <dba@richyen.com> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+            Version|1.1                         |1.2
+
+
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.

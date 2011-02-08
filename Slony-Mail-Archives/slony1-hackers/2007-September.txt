@@ -1,0 +1,2720 @@
+From hsn at sendmail.cz  Sun Sep  2 14:15:15 2007
+From: hsn at sendmail.cz (Radim Kolar SF.NET)
+Date: Sun Sep  2 14:15:37 2007
+Subject: [Slony1-hackers] optimizing slony1 wan performance
+In-Reply-To: <60mywi4aoe.fsf@dba2.int.libertyrms.com>
+References: <20070823003214.GA855@sanatana.dharma>
+	<60mywi4aoe.fsf@dba2.int.libertyrms.com>
+Message-ID: <20070902211513.GA30691@sanatana.dharma>
+
+> I don't think this will be material; the improvement is primarily in going
+> from 1 to 100; the improvement from going to (say) 1000 is small, in
+> comparison.  And I think 1.2 improved this in the logic that deals with large
+> tuples...
+problem for me are not big tuples but lot of small ones. tracing network
+discovered that fetching 100 rows needs just 11 1500 sized network packets.
+Because my network is fast > 100Mbit,  but it has high RTT time ~ 270 ms
+bandwith is not a problem and packet loss is < 0.1%. Switching from cursor
+fetching to COPY will provide major speedup.
+
+> The "better" answer would involve trying to do "peephole optimization"
+> on the query stream so as to group together related updates. 
+yes, all high-end replicators for Oracle are using it.
+From hsn at sendmail.cz  Sun Sep  2 14:37:28 2007
+From: hsn at sendmail.cz (Radim Kolar SF.NET)
+Date: Sun Sep  2 14:37:46 2007
+Subject: [Slony1-hackers] doing auto prepared statements
+In-Reply-To: <46D6D648.70702@Yahoo.com>
+References: <20070823003214.GA855@sanatana.dharma> <46D6D648.70702@Yahoo.com>
+Message-ID: <20070902213727.GB30691@sanatana.dharma>
+
+> The problem with prepared statements is that any given log entry might touch
+> different columns in the table. So for a table with 8 columns there are 255
+> different possible prepared statements to keep around. In reality, an
+> application might show a certain pattern of 4-10 different updates per table,
+> but keeping a cache and detecting which statement to use when isn't as easy
+> to implement as it is to say "use prepared statements".
+I have c++ library for it. Application just needs to send sql stamements and
+data separated i.e. ["UPDATE t1 SET x=$1 where y=$2", (x1,y1)] to it and library
+turns it into prepared statements and executes it. Its about 15k long (code +
+testsuite) - nothing to write home about, just crc32 hash SQL statement, if we
+dont have it, prepare it and put on queue ...  Keeping around about 100
+prepared statements cached seems to be enough, it misses only rare queries.
+From cbbrowne at ca.afilias.info  Sun Sep  2 16:32:17 2007
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Sun Sep  2 16:32:30 2007
+Subject: [Slony1-hackers] optimizing slony1 wan performance
+In-Reply-To: <20070902211513.GA30691@sanatana.dharma> (Radim Kolar's message
+	of "Sun, 2 Sep 2007 23:15:15 +0200")
+References: <20070823003214.GA855@sanatana.dharma>
+	<60mywi4aoe.fsf@dba2.int.libertyrms.com>
+	<20070902211513.GA30691@sanatana.dharma>
+Message-ID: <603axwzlry.fsf@dba2.int.libertyrms.com>
+
+"Radim Kolar SF.NET" <hsn@sendmail.cz> writes:
+>> I don't think this will be material; the improvement is primarily in going
+>> from 1 to 100; the improvement from going to (say) 1000 is small, in
+>> comparison.  And I think 1.2 improved this in the logic that deals with large
+>> tuples...
+> problem for me are not big tuples but lot of small ones. tracing network
+> discovered that fetching 100 rows needs just 11 1500 sized network packets.
+> Because my network is fast > 100Mbit,  but it has high RTT time ~ 270 ms
+> bandwith is not a problem and packet loss is < 0.1%. Switching from cursor
+> fetching to COPY will provide major speedup.
+
+The thing is, COPY can't do the job.  COPY is only in general any good
+for the initial subscription.  After that, you've got a mix of
+traffic.  INSERTs, UPDATEs, DELETEs.
+
+In principle, if you had a whole bunch of INSERT statements
+referencing a single table, that could be turned into a COPY.  In
+principle.
+
+Mind you, if your application does flurries of updates to various
+tables, those INSERTs won't all be in sequence, so you certainly won't
+get a COPY out of it.
+
+>> The "better" answer would involve trying to do "peephole optimization"
+>> on the query stream so as to group together related updates. 
+> yes, all high-end replicators for Oracle are using it.
+
+That seems assumption, to me.  I don't expect that Oracle replicators
+are similar enough for analogies to hold terribly much.
+-- 
+output = ("cbbrowne" "@" "linuxdatabases.info")
+http://linuxfinances.info/info/spiritual.html
+Microsoft Outlook: Deploying Viruses Has Never Been This Easy!
+From david at fetter.org  Fri Sep 14 12:54:56 2007
+From: david at fetter.org (David Fetter)
+Date: Fri Sep 14 13:25:14 2007
+Subject: [Slony1-hackers] Re: [Slony1-commit] slony1-engine/src/backend
+	slony1_funcs.sql
+In-Reply-To: <20070913142000.49573290CEC@main.slony.info>
+References: <20070913142000.49573290CEC@main.slony.info>
+Message-ID: <20070914195456.GC23892@fetter.org>
+
+On Thu, Sep 13, 2007 at 02:20:00PM +0000, Jan Wieck wrote:
+> Update of /home/cvsd/slony1/slony1-engine/src/backend
+> In directory main.slony.info:/tmp/cvs-serv19858/src/backend
+> 
+> Modified Files:
+> 	slony1_funcs.sql 
+> Log Message:
+> Apparently somebody decided to make "query" a reserved keyword
+> in the plpgsql parser.
+
+That would be the RETURNS QUERY feature Neil Conway put in.
+
+Cheers,
+D
+-- 
+David Fetter <david@fetter.org> http://fetter.org/
+phone: +1 415 235 3778        AIM: dfetter666
+                              Skype: davidfetter
+
+Remember to vote!
+Consider donating to PostgreSQL: http://www.postgresql.org/about/donate
+From decibel at decibel.org  Thu Sep 20 08:51:44 2007
+From: decibel at decibel.org (Decibel!)
+Date: Thu Sep 20 08:52:05 2007
+Subject: [Slony1-hackers] Is everyone on the replica-hooks-discuss mailing
+	list?
+Message-ID: <F0296FDB-72BA-46FD-B921-EA622DF1C89C@decibel.org>
+
+(cross-posted)
+
+Seeing the complete duplication of txid.sql between Slony and  
+londiste bugs me, so I'm hoping we can come up with a replacement for  
+that in core, and the replica-hooks list seems the logical way to  
+discuss that...
+-- 
+Decibel!, aka Jim C. Nasby, Database Architect  decibel@decibel.org
+Give your computer some brain candy! www.distributed.net Team #1828
+
+
+From markokr at gmail.com  Fri Sep 21 11:44:59 2007
+From: markokr at gmail.com (Marko Kreen)
+Date: Fri Sep 21 11:45:13 2007
+Subject: [Slony1-hackers] Is everyone on the replica-hooks-discuss mailing
+	list?
+In-Reply-To: <F0296FDB-72BA-46FD-B921-EA622DF1C89C@decibel.org>
+References: <F0296FDB-72BA-46FD-B921-EA622DF1C89C@decibel.org>
+Message-ID: <e51f66da0709211144l47f02402j35092d0ef58cd44b@mail.gmail.com>
+
+On 9/20/07, Decibel! <decibel@decibel.org> wrote:
+> Seeing the complete duplication of txid.sql between Slony and
+> londiste bugs me, so I'm hoping we can come up with a replacement for
+> that in core, and the replica-hooks list seems the logical way to
+> discuss that...
+
+You forgot to give link to list:
+
+ http://pgfoundry.org/mailman/listinfo/replica-hooks-discuss
+
+
+Compared of to rest of replica-hooks discussion, this is pretty
+straightforward affair, not much to discuss here.
+
+Only question is - Are Slony-I devs interested in common module?
+And do they want some changes in it?
+
+Actually, I planned to submit the module to 8.4 contrib,
+and we can have the discussion then.  But if you could review
+it beforehand, it would be even better as I can then do the
+changes before submitting.  Please look at the CVS/2.1.5-rc1
+version, there are several cleanups done compared to 2.1.4.
+
+-- 
+marko
+From david at fetter.org  Fri Sep 21 11:50:41 2007
+From: david at fetter.org (David Fetter)
+Date: Fri Sep 21 11:50:50 2007
+Subject: [Skytools-users] [Slony1-hackers] Is everyone on the
+	replica-hooks-discuss mailing list?
+In-Reply-To: <e51f66da0709211144l47f02402j35092d0ef58cd44b@mail.gmail.com>
+References: <F0296FDB-72BA-46FD-B921-EA622DF1C89C@decibel.org>
+	<e51f66da0709211144l47f02402j35092d0ef58cd44b@mail.gmail.com>
+Message-ID: <20070921185040.GF17506@fetter.org>
+
+On Fri, Sep 21, 2007 at 09:44:59PM +0300, Marko Kreen wrote:
+> On 9/20/07, Decibel! <decibel@decibel.org> wrote:
+> > Seeing the complete duplication of txid.sql between Slony and
+> > londiste bugs me, so I'm hoping we can come up with a replacement
+> > for that in core, and the replica-hooks list seems the logical way
+> > to discuss that...
+> 
+> You forgot to give link to list:
+> 
+>  http://pgfoundry.org/mailman/listinfo/replica-hooks-discuss
+> 
+> 
+> Compared of to rest of replica-hooks discussion, this is pretty
+> straightforward affair, not much to discuss here.
+> 
+> Only question is - Are Slony-I devs interested in common module?
+> And do they want some changes in it?
+
+What say we ask the rest of the Slony-I people, whom I'm CC'ing here :)
+
+Cheers,
+D
+> Actually, I planned to submit the module to 8.4 contrib, and we can
+> have the discussion then.  But if you could review it beforehand, it
+> would be even better as I can then do the changes before submitting.
+> Please look at the CVS/2.1.5-rc1 version, there are several cleanups
+> done compared to 2.1.4.
+
+> 
+> -- 
+> marko
+> _______________________________________________
+> Skytools-users mailing list
+> Skytools-users@pgfoundry.org
+> http://pgfoundry.org/mailman/listinfo/skytools-users
+
+-- 
+David Fetter <david@fetter.org> http://fetter.org/
+phone: +1 415 235 3778        AIM: dfetter666
+                              Skype: davidfetter
+
+Remember to vote!
+Consider donating to PostgreSQL: http://www.postgresql.org/about/donate
+From cbbrowne at ca.afilias.info  Fri Sep 21 12:14:36 2007
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Fri Sep 21 12:14:55 2007
+Subject: [Slony1-hackers] XID in PG core/contrib
+In-Reply-To: <e51f66da0709211144l47f02402j35092d0ef58cd44b@mail.gmail.com>
+	(Marko Kreen's message of "Fri, 21 Sep 2007 21:44:59 +0300")
+References: <F0296FDB-72BA-46FD-B921-EA622DF1C89C@decibel.org>
+	<e51f66da0709211144l47f02402j35092d0ef58cd44b@mail.gmail.com>
+Message-ID: <608x6z25lv.fsf_-_@dba2.int.libertyrms.com>
+
+"Marko Kreen" <markokr@gmail.com> writes:
+> Only question is - Are Slony-I devs interested in common module?
+> And do they want some changes in it?
+
+This seems generally like a good idea, in much the same way that it
+was a really nice thing to get the trigger changes into PostgreSQL
+8.3, as that will end the need for "catalogue mangling" in PostgreSQL.
+
+I'd rather see it in "core" than in "contrib," as that increases the
+probability (to unity :-)) that it'll be included, by default, in
+PostgreSQL distributions.
+
+The only thing that might (or mightn't!) be controversial is that it's
+pretty vital that the implementation remains consistent.
+
+-> Having it in "core" pushes the probability of that towards unity
+
+-> Ditto for "contrib"
+
+-> If it's an external third party thing, then it seems to me that it
+   makes sense for projects that need it to consciously grab the code
+   and include it, so that they're not adding a little nagging
+   extra 3rd party external module that users will have to manage.
+
+   (That's one of the problems with CPAN, in the Perl world; I tried
+   adding a CPAN module last night, only to discover it referenced
+   something like half a dozen weirdly interlinking other CPAN
+   modules.)
+-- 
+let name="cbbrowne" and tld="linuxdatabases.info" in String.concat "@" [name;tld];;
+http://linuxfinances.info/info/emacs.html
+"Love is like a snowmobile flying over the frozen tundra that suddenly
+flips, pinning you underneath.  At night, the ice weasels come."
+-- Matt Groening
+From markokr at gmail.com  Fri Sep 21 12:43:13 2007
+From: markokr at gmail.com (Marko Kreen)
+Date: Fri Sep 21 12:43:24 2007
+Subject: [Slony1-hackers] Re: XID in PG core/contrib
+In-Reply-To: <608x6z25lv.fsf_-_@dba2.int.libertyrms.com>
+References: <F0296FDB-72BA-46FD-B921-EA622DF1C89C@decibel.org>
+	<e51f66da0709211144l47f02402j35092d0ef58cd44b@mail.gmail.com>
+	<608x6z25lv.fsf_-_@dba2.int.libertyrms.com>
+Message-ID: <e51f66da0709211243s6ea1bf22i40b1e681e7434537@mail.gmail.com>
+
+On 9/21/07, Christopher Browne <cbbrowne@ca.afilias.info> wrote:
+> "Marko Kreen" <markokr@gmail.com> writes:
+> > Only question is - Are Slony-I devs interested in common module?
+> > And do they want some changes in it?
+>
+> This seems generally like a good idea, in much the same way that it
+> was a really nice thing to get the trigger changes into PostgreSQL
+> 8.3, as that will end the need for "catalogue mangling" in PostgreSQL.
+
+Good!
+
+> I'd rather see it in "core" than in "contrib," as that increases the
+> probability (to unity :-)) that it'll be included, by default, in
+> PostgreSQL distributions.
+
+I just thought that maybe proposing to contrib first makes it
+more edible to Postgres -core (also easier to me).  If the
+interface is stable and agreed on, we can move it to core.
+
+It may even happen in 8.4 timeframe, just that doing the first
+proposal to /contrib seems more safe.
+
+> The only thing that might (or mightn't!) be controversial is that it's
+> pretty vital that the implementation remains consistent.
+
+What inconsistencies are you thinking of?
+
+> -> Having it in "core" pushes the probability of that towards unity
+>
+> -> Ditto for "contrib"
+>
+> -> If it's an external third party thing, then it seems to me that it
+>    makes sense for projects that need it to consciously grab the code
+>    and include it, so that they're not adding a little nagging
+>    extra 3rd party external module that users will have to manage.
+>
+>    (That's one of the problems with CPAN, in the Perl world; I tried
+>    adding a CPAN module last night, only to discover it referenced
+>    something like half a dozen weirdly interlinking other CPAN
+>    modules.)
+
+Yes, the copying around is silly.  Also, the module may be small
+and straightforward, but the usage can be tricky, as you should
+know well ;)  It's would be good if all the usage documentation
+and examples are in one place.  otherwise anyone using the module
+will need to re-invent same things.
+
+-- 
+marko
+From cbbrowne at ca.afilias.info  Fri Sep 21 13:19:53 2007
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Fri Sep 21 13:20:02 2007
+Subject: [Slony1-hackers] Re: XID in PG core/contrib
+In-Reply-To: <e51f66da0709211243s6ea1bf22i40b1e681e7434537@mail.gmail.com>
+	(Marko Kreen's message of "Fri, 21 Sep 2007 22:43:13 +0300")
+References: <F0296FDB-72BA-46FD-B921-EA622DF1C89C@decibel.org>
+	<e51f66da0709211144l47f02402j35092d0ef58cd44b@mail.gmail.com>
+	<608x6z25lv.fsf_-_@dba2.int.libertyrms.com>
+	<e51f66da0709211243s6ea1bf22i40b1e681e7434537@mail.gmail.com>
+Message-ID: <60y7ezzs7q.fsf@dba2.int.libertyrms.com>
+
+Marko Kreen wrote:
+> On 9/21/07, Christopher Browne <cbbrowne@ca.afilias.info> wrote:
+>> "Marko Kreen" <markokr@gmail.com> writes:
+>>> Only question is - Are Slony-I devs interested in common module?
+>>> And do they want some changes in it?
+>> This seems generally like a good idea, in much the same way that it
+>> was a really nice thing to get the trigger changes into PostgreSQL
+>> 8.3, as that will end the need for "catalogue mangling" in PostgreSQL.
+>
+> Good!
+>
+>> I'd rather see it in "core" than in "contrib," as that increases the
+>> probability (to unity :-)) that it'll be included, by default, in
+>> PostgreSQL distributions.
+>
+> I just thought that maybe proposing to contrib first makes it
+> more edible to Postgres -core (also easier to me).  If the
+> interface is stable and agreed on, we can move it to core.
+>
+> It may even happen in 8.4 timeframe, just that doing the first
+> proposal to /contrib seems more safe.
+>
+>> The only thing that might (or mightn't!) be controversial is that it's
+>> pretty vital that the implementation remains consistent.
+>
+> What inconsistencies are you thinking of?
+
+Anything that might cause one implementation to differ from another.
+(e.g. - where Skytools and Slony-I might have differing code)
+
+I have no particular inconsistency in mind; I don't expect any.
+
+I don't think there's any *good* reason for them to differ; I'd hope
+they wouldn't differ.  They can't, otherwise the separate versions
+would need to be retained.
+
+>> -> Having it in "core" pushes the probability of that towards unity
+>>
+>> -> Ditto for "contrib"
+>>
+>> -> If it's an external third party thing, then it seems to me that it
+>>    makes sense for projects that need it to consciously grab the code
+>>    and include it, so that they're not adding a little nagging
+>>    extra 3rd party external module that users will have to manage.
+>>
+>>    (That's one of the problems with CPAN, in the Perl world; I tried
+>>    adding a CPAN module last night, only to discover it referenced
+>>    something like half a dozen weirdly interlinking other CPAN
+>>    modules.)
+>
+> Yes, the copying around is silly.  Also, the module may be small
+> and straightforward, but the usage can be tricky, as you should
+> know well ;)  It's would be good if all the usage documentation
+> and examples are in one place.  otherwise anyone using the module
+> will need to re-invent same things.
+
+I can think of a third possibility, actually...  If it's not to be
+"core," it might be a good idea to use the "pgxs" facility for it.
+
+I was thinking of looking at changing Slony-I to use PGXS,
+unfortunately it's effort that I just don't have time for at the
+moment.  That would seem a slick idea for 2.1 or so...
+-- 
+output = ("cbbrowne" "@" "linuxdatabases.info")
+http://linuxdatabases.info/info/nonrdbms.html
+"The only ``intuitive'' interface is the nipple. After that, it's all
+learned."  -- Bruce Ediger, bediger@teal.csn.org on X interfaces.
+From decibel at decibel.org  Fri Sep 21 15:40:01 2007
+From: decibel at decibel.org (Decibel!)
+Date: Fri Sep 21 15:40:18 2007
+Subject: [Skytools-users] [Slony1-hackers] Is everyone on the
+	replica-hooks-discuss mailing list?
+In-Reply-To: <20070921185040.GF17506@fetter.org>
+References: <F0296FDB-72BA-46FD-B921-EA622DF1C89C@decibel.org>
+	<e51f66da0709211144l47f02402j35092d0ef58cd44b@mail.gmail.com>
+	<20070921185040.GF17506@fetter.org>
+Message-ID: <20070921224001.GB95343@decibel.org>
+
+On Fri, Sep 21, 2007 at 11:50:41AM -0700, David Fetter wrote:
+> On Fri, Sep 21, 2007 at 09:44:59PM +0300, Marko Kreen wrote:
+> > On 9/20/07, Decibel! <decibel@decibel.org> wrote:
+> > > Seeing the complete duplication of txid.sql between Slony and
+> > > londiste bugs me, so I'm hoping we can come up with a replacement
+> > > for that in core, and the replica-hooks list seems the logical way
+> > > to discuss that...
+> > 
+> > You forgot to give link to list:
+> > 
+> >  http://pgfoundry.org/mailman/listinfo/replica-hooks-discuss
+> > 
+> > 
+> > Compared of to rest of replica-hooks discussion, this is pretty
+> > straightforward affair, not much to discuss here.
+
+Actually, what I'm really wondering is if a "commit ID" analogous to a
+transaction ID but set at commit time (and in order of commits) would
+vastly simplify things...
+
+> > Only question is - Are Slony-I devs interested in common module?
+> > And do they want some changes in it?
+> 
+> What say we ask the rest of the Slony-I people, whom I'm CC'ing here :)
+
+We want to have the discussion across 3 lists? :)
+-- 
+Decibel!, aka Jim C. Nasby, Database Architect  decibel@decibel.org 
+Give your computer some brain candy! www.distributed.net Team #1828
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: not available
+Type: application/pgp-signature
+Size: 187 bytes
+Desc: not available
+Url : http://lists.slony.info/pipermail/slony1-hackers/attachments/20070921/35e8343f/attachment.pgp
+From david at fetter.org  Fri Sep 21 16:05:59 2007
+From: david at fetter.org (David Fetter)
+Date: Fri Sep 21 16:06:13 2007
+Subject: [Skytools-users] [Slony1-hackers] Is everyone on the
+	replica-hooks-discuss mailing list?
+In-Reply-To: <20070921224001.GB95343@decibel.org>
+References: <F0296FDB-72BA-46FD-B921-EA622DF1C89C@decibel.org>
+	<e51f66da0709211144l47f02402j35092d0ef58cd44b@mail.gmail.com>
+	<20070921185040.GF17506@fetter.org>
+	<20070921224001.GB95343@decibel.org>
+Message-ID: <20070921230559.GI17506@fetter.org>
+
+On Fri, Sep 21, 2007 at 05:40:01PM -0500, Decibel! wrote:
+> On Fri, Sep 21, 2007 at 11:50:41AM -0700, David Fetter wrote:
+> > On Fri, Sep 21, 2007 at 09:44:59PM +0300, Marko Kreen wrote:
+> > > On 9/20/07, Decibel! <decibel@decibel.org> wrote:
+> > > > Seeing the complete duplication of txid.sql between Slony and
+> > > > londiste bugs me, so I'm hoping we can come up with a replacement
+> > > > for that in core, and the replica-hooks list seems the logical way
+> > > > to discuss that...
+> > > 
+> > > You forgot to give link to list:
+> > > 
+> > >  http://pgfoundry.org/mailman/listinfo/replica-hooks-discuss
+> > > 
+> > > 
+> > > Compared of to rest of replica-hooks discussion, this is pretty
+> > > straightforward affair, not much to discuss here.
+> 
+> Actually, what I'm really wondering is if a "commit ID" analogous to a
+> transaction ID but set at commit time (and in order of commits) would
+> vastly simplify things...
+> 
+> > > Only question is - Are Slony-I devs interested in common module?
+> > > And do they want some changes in it?
+> > 
+> > What say we ask the rest of the Slony-I people, whom I'm CC'ing here :)
+> 
+> We want to have the discussion across 3 lists? :)
+
+Better all at once now than a giant mess later :)
+
+Cheers,
+D
+-- 
+David Fetter <david@fetter.org> http://fetter.org/
+phone: +1 415 235 3778        AIM: dfetter666
+                              Skype: davidfetter
+
+Remember to vote!
+Consider donating to PostgreSQL: http://www.postgresql.org/about/donate
+From decibel at decibel.org  Fri Sep 21 16:08:03 2007
+From: decibel at decibel.org (Decibel!)
+Date: Fri Sep 21 16:08:22 2007
+Subject: [Skytools-users] [Slony1-hackers] Is everyone on the
+	replica-hooks-discuss mailing list?
+In-Reply-To: <20070921230559.GI17506@fetter.org>
+References: <F0296FDB-72BA-46FD-B921-EA622DF1C89C@decibel.org>
+	<e51f66da0709211144l47f02402j35092d0ef58cd44b@mail.gmail.com>
+	<20070921185040.GF17506@fetter.org>
+	<20070921224001.GB95343@decibel.org>
+	<20070921230559.GI17506@fetter.org>
+Message-ID: <20070921230803.GC95343@decibel.org>
+
+On Fri, Sep 21, 2007 at 04:05:59PM -0700, David Fetter wrote:
+> On Fri, Sep 21, 2007 at 05:40:01PM -0500, Decibel! wrote:
+> > On Fri, Sep 21, 2007 at 11:50:41AM -0700, David Fetter wrote:
+> > > On Fri, Sep 21, 2007 at 09:44:59PM +0300, Marko Kreen wrote:
+> > > > On 9/20/07, Decibel! <decibel@decibel.org> wrote:
+> > > > > Seeing the complete duplication of txid.sql between Slony and
+> > > > > londiste bugs me, so I'm hoping we can come up with a replacement
+> > > > > for that in core, and the replica-hooks list seems the logical way
+> > > > > to discuss that...
+> > > > 
+> > > > You forgot to give link to list:
+> > > > 
+> > > >  http://pgfoundry.org/mailman/listinfo/replica-hooks-discuss
+> > > > 
+> > > > 
+> > > > Compared of to rest of replica-hooks discussion, this is pretty
+> > > > straightforward affair, not much to discuss here.
+> > 
+> > Actually, what I'm really wondering is if a "commit ID" analogous to a
+> > transaction ID but set at commit time (and in order of commits) would
+> > vastly simplify things...
+> > 
+> > > > Only question is - Are Slony-I devs interested in common module?
+> > > > And do they want some changes in it?
+> > > 
+> > > What say we ask the rest of the Slony-I people, whom I'm CC'ing here :)
+> > 
+> > We want to have the discussion across 3 lists? :)
+> 
+> Better all at once now than a giant mess later :)
+
+Well, I figured it'd be better to discuss it on replica-hooks, but if
+people'd rather crosspost to 3 lists I'm fine with that...
+-- 
+Decibel!, aka Jim C. Nasby, Database Architect  decibel@decibel.org 
+Give your computer some brain candy! www.distributed.net Team #1828
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: not available
+Type: application/pgp-signature
+Size: 187 bytes
+Desc: not available
+Url : http://lists.slony.info/pipermail/slony1-hackers/attachments/20070921/0f8f2845/attachment.pgp
+From markokr at gmail.com  Sat Sep 22 00:07:54 2007
+From: markokr at gmail.com (Marko Kreen)
+Date: Sat Sep 22 00:08:14 2007
+Subject: [Skytools-users] [Slony1-hackers] Is everyone on the
+	replica-hooks-discuss mailing list?
+In-Reply-To: <20070921230803.GC95343@decibel.org>
+References: <F0296FDB-72BA-46FD-B921-EA622DF1C89C@decibel.org>
+	<e51f66da0709211144l47f02402j35092d0ef58cd44b@mail.gmail.com>
+	<20070921185040.GF17506@fetter.org>
+	<20070921224001.GB95343@decibel.org>
+	<20070921230559.GI17506@fetter.org>
+	<20070921230803.GC95343@decibel.org>
+Message-ID: <e51f66da0709220007g7f817525pf840064132f54581@mail.gmail.com>
+
+On 9/22/07, Decibel! <decibel@decibel.org> wrote:
+> Well, I figured it'd be better to discuss it on replica-hooks, but if
+> people'd rather crosspost to 3 lists I'm fine with that...
+
+I'm already discussing it in slony-hackers, and I think the discussion
+belongs to there rather than replica-hooks as it is pretty concrete
+near-term affair that mostly affects slony and nobody else as other
+replication solutions use other event transport mechanisms.
+
+But thanks for bringing the topic up!
+
+-- 
+marko
+From JanWieck at Yahoo.com  Mon Sep 24 08:22:42 2007
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Mon Sep 24 08:22:58 2007
+Subject: [Slony1-general] Re: [Skytools-users] [Slony1-hackers] Is everyone
+	on the replica-hooks-discuss mailing list?
+In-Reply-To: <20070921224001.GB95343@decibel.org>
+References: <F0296FDB-72BA-46FD-B921-EA622DF1C89C@decibel.org>	<e51f66da0709211144l47f02402j35092d0ef58cd44b@mail.gmail.com>	<20070921185040.GF17506@fetter.org>
+	<20070921224001.GB95343@decibel.org>
+Message-ID: <46F7D642.9@Yahoo.com>
+
+On 9/21/2007 6:40 PM, Decibel! wrote:
+> On Fri, Sep 21, 2007 at 11:50:41AM -0700, David Fetter wrote:
+>> On Fri, Sep 21, 2007 at 09:44:59PM +0300, Marko Kreen wrote:
+>> > On 9/20/07, Decibel! <decibel@decibel.org> wrote:
+>> > > Seeing the complete duplication of txid.sql between Slony and
+>> > > londiste bugs me, so I'm hoping we can come up with a replacement
+>> > > for that in core, and the replica-hooks list seems the logical way
+>> > > to discuss that...
+>> > 
+>> > You forgot to give link to list:
+>> > 
+>> >  http://pgfoundry.org/mailman/listinfo/replica-hooks-discuss
+>> > 
+>> > 
+>> > Compared of to rest of replica-hooks discussion, this is pretty
+>> > straightforward affair, not much to discuss here.
+> 
+> Actually, what I'm really wondering is if a "commit ID" analogous to a
+> transaction ID but set at commit time (and in order of commits) would
+> vastly simplify things...
+
+It would simplify things for a single master, multiple slaves system. 
+But a pure ID won't help a multimaster system at all. If you are 
+proposing that this "ID" does make use of a clock value in addition to 
+methods that ensure global uniqueness of ID's in order to provide the 
+base for time line based conflict resolution in a multimaster system 
+(which is what I last proposed together with the pg_trigger and 
+pg_rewrite changes), then I'm all ears.
+
+But be careful! Do not use words like "timestamp" or "clock" when you 
+describe your mechanism. Everyone with some half knowledge gained from 
+reading IT-World will jump down your throat if you do.
+
+
+Jan
+
+-- 
+#======================================================================#
+# It's easier to get forgiveness for being wrong than for being right. #
+# Let's break this rule - forgive me.                                  #
+#================================================== JanWieck@Yahoo.com #
+From decibel at decibel.org  Mon Sep 24 09:18:57 2007
+From: decibel at decibel.org (Decibel!)
+Date: Mon Sep 24 09:19:14 2007
+Subject: [Slony1-general] Re: [Skytools-users] [Slony1-hackers] Is
+	everyone on the replica-hooks-discuss mailing list?
+In-Reply-To: <46F7D642.9@Yahoo.com>
+References: <F0296FDB-72BA-46FD-B921-EA622DF1C89C@decibel.org>
+	<e51f66da0709211144l47f02402j35092d0ef58cd44b@mail.gmail.com>
+	<20070921185040.GF17506@fetter.org>
+	<20070921224001.GB95343@decibel.org> <46F7D642.9@Yahoo.com>
+Message-ID: <20070924161855.GJ95343@decibel.org>
+
+On Mon, Sep 24, 2007 at 11:22:42AM -0400, Jan Wieck wrote:
+> On 9/21/2007 6:40 PM, Decibel! wrote:
+> >On Fri, Sep 21, 2007 at 11:50:41AM -0700, David Fetter wrote:
+> >>On Fri, Sep 21, 2007 at 09:44:59PM +0300, Marko Kreen wrote:
+> >>> On 9/20/07, Decibel! <decibel@decibel.org> wrote:
+> >>> > Seeing the complete duplication of txid.sql between Slony and
+> >>> > londiste bugs me, so I'm hoping we can come up with a replacement
+> >>> > for that in core, and the replica-hooks list seems the logical way
+> >>> > to discuss that...
+> >>> 
+> >>> You forgot to give link to list:
+> >>> 
+> >>>  http://pgfoundry.org/mailman/listinfo/replica-hooks-discuss
+> >>> 
+> >>> 
+> >>> Compared of to rest of replica-hooks discussion, this is pretty
+> >>> straightforward affair, not much to discuss here.
+> >
+> >Actually, what I'm really wondering is if a "commit ID" analogous to a
+> >transaction ID but set at commit time (and in order of commits) would
+> >vastly simplify things...
+> 
+> It would simplify things for a single master, multiple slaves system. 
+> But a pure ID won't help a multimaster system at all. If you are 
+
+Well, we currently don't have any multi-master systems that aren't
+statement-based, so I'd be happy for just having a commit ID right
+now... I suspect that a future multi-master system could still make use
+of a plain commit ID as well (though it'd obviously need something more
+than that).
+-- 
+Decibel!, aka Jim C. Nasby, Database Architect  decibel@decibel.org 
+Give your computer some brain candy! www.distributed.net Team #1828
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: not available
+Type: application/pgp-signature
+Size: 187 bytes
+Desc: not available
+Url : http://lists.slony.info/pipermail/slony1-hackers/attachments/20070924/03e266d7/attachment.pgp
+From JanWieck at Yahoo.com  Mon Sep 24 10:10:31 2007
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Mon Sep 24 10:10:41 2007
+Subject: [Slony1-general] Re: [Skytools-users] [Slony1-hackers] Is	everyone
+	on the replica-hooks-discuss mailing list?
+In-Reply-To: <20070924161855.GJ95343@decibel.org>
+References: <F0296FDB-72BA-46FD-B921-EA622DF1C89C@decibel.org>	<e51f66da0709211144l47f02402j35092d0ef58cd44b@mail.gmail.com>	<20070921185040.GF17506@fetter.org>	<20070921224001.GB95343@decibel.org>
+	<46F7D642.9@Yahoo.com> <20070924161855.GJ95343@decibel.org>
+Message-ID: <46F7EF87.4070900@Yahoo.com>
+
+On 9/24/2007 12:18 PM, Decibel! wrote:
+> On Mon, Sep 24, 2007 at 11:22:42AM -0400, Jan Wieck wrote:
+>> On 9/21/2007 6:40 PM, Decibel! wrote:
+>> >On Fri, Sep 21, 2007 at 11:50:41AM -0700, David Fetter wrote:
+>> >>On Fri, Sep 21, 2007 at 09:44:59PM +0300, Marko Kreen wrote:
+>> >>> On 9/20/07, Decibel! <decibel@decibel.org> wrote:
+>> >>> > Seeing the complete duplication of txid.sql between Slony and
+>> >>> > londiste bugs me, so I'm hoping we can come up with a replacement
+>> >>> > for that in core, and the replica-hooks list seems the logical way
+>> >>> > to discuss that...
+>> >>> 
+>> >>> You forgot to give link to list:
+>> >>> 
+>> >>>  http://pgfoundry.org/mailman/listinfo/replica-hooks-discuss
+>> >>> 
+>> >>> 
+>> >>> Compared of to rest of replica-hooks discussion, this is pretty
+>> >>> straightforward affair, not much to discuss here.
+>> >
+>> >Actually, what I'm really wondering is if a "commit ID" analogous to a
+>> >transaction ID but set at commit time (and in order of commits) would
+>> >vastly simplify things...
+>> 
+>> It would simplify things for a single master, multiple slaves system. 
+>> But a pure ID won't help a multimaster system at all. If you are 
+> 
+> Well, we currently don't have any multi-master systems that aren't
+> statement-based, so I'd be happy for just having a commit ID right
+> now... I suspect that a future multi-master system could still make use
+> of a plain commit ID as well (though it'd obviously need something more
+> than that).
+
+Unless you have a particular use case in mind, I'd be against such plain 
+commit ID right now.
+
+The point is that if we have "something" now, we have to support and 
+continue having "that something" in the future. Which will be what? A 
+thing that theoretically can make life easier for existing replication 
+systems, that already have a solution for not having it in the first 
+place. But it will also be a thing that is *in the way* of something 
+that might be useful for replication systems we don't have yet, like a 
+row based multimaster. The argument then being "we already have x, y and 
+z that we need to support; how much more things have to be added to core?".
+
+For Slony-I specifically, we are currently developing version 2.0. This 
+version will not be backwards compatible to any Postgres version before 
+8.3 because it makes use of the pg_trigger and pg_rewrite changes that 
+happened there. This is required because the system catalog mucking done 
+in earlier Slony versions had caused endless pain. However, the benefits 
+of any kind of "commit ID" that might be coming in 8.4 will not warrant 
+such backwards incompatibility again. So I doubt that Slony-I would make 
+use of such feature any sooner than when we drop support for 8.3 
+somewhere in the distant future.
+
+
+Jan
+
+-- 
+#======================================================================#
+# It's easier to get forgiveness for being wrong than for being right. #
+# Let's break this rule - forgive me.                                  #
+#================================================== JanWieck@Yahoo.com #
+From markokr at gmail.com  Tue Sep 25 01:21:46 2007
+From: markokr at gmail.com (Marko Kreen)
+Date: Tue Sep 25 01:22:07 2007
+Subject: [Skytools-users] [Slony1-hackers] Is everyone on the
+	replica-hooks-discuss mailing list?
+In-Reply-To: <20070921224001.GB95343@decibel.org>
+References: <F0296FDB-72BA-46FD-B921-EA622DF1C89C@decibel.org>
+	<e51f66da0709211144l47f02402j35092d0ef58cd44b@mail.gmail.com>
+	<20070921185040.GF17506@fetter.org>
+	<20070921224001.GB95343@decibel.org>
+Message-ID: <e51f66da0709250121i4123b46of503601bb793fc2c@mail.gmail.com>
+
+On 9/22/07, Decibel! <decibel@decibel.org> wrote:
+> Actually, what I'm really wondering is if a "commit ID" analogous to a
+> transaction ID but set at commit time (and in order of commits) would
+> vastly simplify things...
+
+Could you clarify?  I don't get it.  Assuming we keep the trigger
+based event logging, the event storage happens at the time of
+insert/update/delete statement, how can anything determined at
+commit time be useful?
+
+The xxid/txid usage may be slightly unobvious, but it is direct
+1:1 mapping to PostgreSQL internal MVCC logic, so you can be
+certain that if postgres works then this also works.
+
+I see no need to replace it with something else.
+
+-- 
+marko
+From markokr at gmail.com  Tue Sep 25 01:43:28 2007
+From: markokr at gmail.com (Marko Kreen)
+Date: Tue Sep 25 01:43:50 2007
+Subject: [Slony1-general] Re: [Skytools-users] [Slony1-hackers] Is
+	everyone on the replica-hooks-discuss mailing list?
+In-Reply-To: <46F7EF87.4070900@Yahoo.com>
+References: <F0296FDB-72BA-46FD-B921-EA622DF1C89C@decibel.org>
+	<e51f66da0709211144l47f02402j35092d0ef58cd44b@mail.gmail.com>
+	<20070921185040.GF17506@fetter.org>
+	<20070921224001.GB95343@decibel.org> <46F7D642.9@Yahoo.com>
+	<20070924161855.GJ95343@decibel.org> <46F7EF87.4070900@Yahoo.com>
+Message-ID: <e51f66da0709250143l84383f4r59053979fa254916@mail.gmail.com>
+
+On 9/24/07, Jan Wieck <JanWieck@yahoo.com> wrote:
+> For Slony-I specifically, we are currently developing version 2.0. This
+> version will not be backwards compatible to any Postgres version before
+> 8.3 because it makes use of the pg_trigger and pg_rewrite changes that
+> happened there. This is required because the system catalog mucking done
+> in earlier Slony versions had caused endless pain. However, the benefits
+> of any kind of "commit ID" that might be coming in 8.4 will not warrant
+> such backwards incompatibility again. So I doubt that Slony-I would make
+> use of such feature any sooner than when we drop support for 8.3
+> somewhere in the distant future.
+
+To clarify the topic - the txid module in Skytools is 8byte,
+non-wrapping version of xxid module in SlonyI.  Upper 4 bytes
+are filled with the 'wraparound epoch' which is already in core.
+
+First question - Are you interested in common module for this?
+Eg, if it would be available in core, would you convert SlonyI 3.0
+over to it?  Or, if it had been included in 8.3, would you convert
+Slony 2.0 over to it?
+
+Basically I ask this because if you say "no, never", the code
+quite likely won't get accepted into core.
+
+
+Secondly, if you _are_ interested, maybe we can agree what the
+common module will look like and ship with both SlonyI 2.0 and
+Skytools?  Then the Slony 2.0 could come prepared for it? You
+can then drop it whenever you drop support for 8.3.
+
+Ofcourse this depends on schedules you have set for yourselves
+and there is no problem if you say no to that idea.
+
+-- 
+marko
+From markokr at gmail.com  Tue Sep 25 02:51:07 2007
+From: markokr at gmail.com (Marko Kreen)
+Date: Tue Sep 25 02:51:29 2007
+Subject: [Slony1-hackers] Re: XID in PG core/contrib
+In-Reply-To: <60y7ezzs7q.fsf@dba2.int.libertyrms.com>
+References: <F0296FDB-72BA-46FD-B921-EA622DF1C89C@decibel.org>
+	<e51f66da0709211144l47f02402j35092d0ef58cd44b@mail.gmail.com>
+	<608x6z25lv.fsf_-_@dba2.int.libertyrms.com>
+	<e51f66da0709211243s6ea1bf22i40b1e681e7434537@mail.gmail.com>
+	<60y7ezzs7q.fsf@dba2.int.libertyrms.com>
+Message-ID: <e51f66da0709250251t51e8f7eam24f919fdee154503@mail.gmail.com>
+
+On 9/21/07, Christopher Browne <cbbrowne@ca.afilias.info> wrote:
+> Marko Kreen wrote:
+> > On 9/21/07, Christopher Browne <cbbrowne@ca.afilias.info> wrote:
+> >> The only thing that might (or mightn't!) be controversial is that it's
+> >> pretty vital that the implementation remains consistent.
+> >
+> > What inconsistencies are you thinking of?
+>
+> Anything that might cause one implementation to differ from another.
+> (e.g. - where Skytools and Slony-I might have differing code)
+>
+> I have no particular inconsistency in mind; I don't expect any.
+>
+> I don't think there's any *good* reason for them to differ; I'd hope
+> they wouldn't differ.  They can't, otherwise the separate versions
+> would need to be retained.
+
+Yes, I also don't see any need for differences.
+
+Only question that may need discussion is the question of naming.
+
+Current APi is following:
+
+ type: txid_snapshot
+
+ get_current_txid(): int8
+ get_current_snapshot(): txid_snapshot
+ get_snapshot_xmin(sn): int8
+ get_snapshot_xmax(sn): int8
+ get_snapshot_active(sn): setof int8
+ txid_in_snapshot(int8, sn): bool
+
+But it seems kind of random, considering it is targeted to be core
+functinality in the future.  I'd prefer something more concise:
+
+ type: snapshot
+
+ current_txid(): int8
+ current_snapshot(): snapshot
+ snapshot_xmin()
+ snapshot_xmax()
+ snapshot_uncommitted()  ??
+ snapshot_contains()     ??
+
+Somewhat better but the last 2 functions are still dubious.
+Do you have better names?
+
+Another thing - maybe they should be prefixed with pg_ considering
+they are pretty lowlevel things?  But this call should probably
+made by pg-hackers.  If we have some consensus here, then we
+should probably ping them also.
+
+It would be good to get the final API soon, so that whenever
+the final merge happens, it would not mean API breakage.  Then
+we can start coding against final API immidiately.
+
+-- 
+marko
+From JanWieck at Yahoo.com  Tue Sep 25 07:33:46 2007
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Tue Sep 25 07:33:59 2007
+Subject: [Slony1-general] Re: [Skytools-users] [Slony1-hackers] Is everyone
+	on the replica-hooks-discuss mailing list?
+In-Reply-To: <e51f66da0709250121i4123b46of503601bb793fc2c@mail.gmail.com>
+References: <F0296FDB-72BA-46FD-B921-EA622DF1C89C@decibel.org>	<e51f66da0709211144l47f02402j35092d0ef58cd44b@mail.gmail.com>	<20070921185040.GF17506@fetter.org>	<20070921224001.GB95343@decibel.org>
+	<e51f66da0709250121i4123b46of503601bb793fc2c@mail.gmail.com>
+Message-ID: <46F91C4A.9090601@Yahoo.com>
+
+On 9/25/2007 4:21 AM, Marko Kreen wrote:
+> On 9/22/07, Decibel! <decibel@decibel.org> wrote:
+>> Actually, what I'm really wondering is if a "commit ID" analogous to a
+>> transaction ID but set at commit time (and in order of commits) would
+>> vastly simplify things...
+> 
+> Could you clarify?  I don't get it.  Assuming we keep the trigger
+> based event logging, the event storage happens at the time of
+> insert/update/delete statement, how can anything determined at
+> commit time be useful?
+
+I think his theory is about a replication protocol that applies changes 
+on slaves in the commit order of the master. Using such protocol would 
+certainly simplify things, since all the slave has to do is to remember 
+the last commit ID applied, then select all changes with a higher commit 
+ID next time.
+
+The flaw in that theory is that such protocol would assume an index over 
+the commit ID. Without that index, the entire log would have to be 
+sequentially scanned and sorted each round, so there would not be any 
+benefit to that. But such index cannot be maintained easily because the 
+commit ID isn't known at insert time, so the tuples would have to be 
+revisited after the transaction committed.
+
+
+Jan
+
+-- 
+#======================================================================#
+# It's easier to get forgiveness for being wrong than for being right. #
+# Let's break this rule - forgive me.                                  #
+#================================================== JanWieck@Yahoo.com #
+From JanWieck at Yahoo.com  Tue Sep 25 07:45:15 2007
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Tue Sep 25 07:45:27 2007
+Subject: [Slony1-general] Re: [Skytools-users] [Slony1-hackers] Is	everyone
+	on the replica-hooks-discuss mailing list?
+In-Reply-To: <e51f66da0709250143l84383f4r59053979fa254916@mail.gmail.com>
+References: <F0296FDB-72BA-46FD-B921-EA622DF1C89C@decibel.org>	<e51f66da0709211144l47f02402j35092d0ef58cd44b@mail.gmail.com>	<20070921185040.GF17506@fetter.org>	<20070921224001.GB95343@decibel.org>
+	<46F7D642.9@Yahoo.com>	<20070924161855.GJ95343@decibel.org>
+	<46F7EF87.4070900@Yahoo.com>
+	<e51f66da0709250143l84383f4r59053979fa254916@mail.gmail.com>
+Message-ID: <46F91EFB.6080409@Yahoo.com>
+
+On 9/25/2007 4:43 AM, Marko Kreen wrote:
+> On 9/24/07, Jan Wieck <JanWieck@yahoo.com> wrote:
+>> For Slony-I specifically, we are currently developing version 2.0. This
+>> version will not be backwards compatible to any Postgres version before
+>> 8.3 because it makes use of the pg_trigger and pg_rewrite changes that
+>> happened there. This is required because the system catalog mucking done
+>> in earlier Slony versions had caused endless pain. However, the benefits
+>> of any kind of "commit ID" that might be coming in 8.4 will not warrant
+>> such backwards incompatibility again. So I doubt that Slony-I would make
+>> use of such feature any sooner than when we drop support for 8.3
+>> somewhere in the distant future.
+> 
+> To clarify the topic - the txid module in Skytools is 8byte,
+> non-wrapping version of xxid module in SlonyI.  Upper 4 bytes
+> are filled with the 'wraparound epoch' which is already in core.
+
+The above was in response to Jim's "commit ID".
+
+> 
+> First question - Are you interested in common module for this?
+> Eg, if it would be available in core, would you convert SlonyI 3.0
+> over to it?  Or, if it had been included in 8.3, would you convert
+> Slony 2.0 over to it?
+> 
+> Basically I ask this because if you say "no, never", the code
+> quite likely won't get accepted into core.
+> 
+> 
+> Secondly, if you _are_ interested, maybe we can agree what the
+> common module will look like and ship with both SlonyI 2.0 and
+> Skytools?  Then the Slony 2.0 could come prepared for it? You
+> can then drop it whenever you drop support for 8.3.
+
+Does that module also provide support for the xxid_snapshot type and 
+associated functions like xxid_lt_snapshot()? If that is the case then 
+there would be value in using and shipping it with Slony-I 2.0, assuming 
+that widespread use of a common module makes adoption into core more likely.
+
+> 
+> Ofcourse this depends on schedules you have set for yourselves
+> and there is no problem if you say no to that idea.
+> 
+
+Slony-I 2.0 is supposed to be available very close to the 8.3 release.
+
+
+Jan
+
+-- 
+#======================================================================#
+# It's easier to get forgiveness for being wrong than for being right. #
+# Let's break this rule - forgive me.                                  #
+#================================================== JanWieck@Yahoo.com #
+From decibel at decibel.org  Tue Sep 25 08:06:55 2007
+From: decibel at decibel.org (Decibel!)
+Date: Tue Sep 25 08:07:10 2007
+Subject: [Slony1-general] Re: [Skytools-users] [Slony1-hackers] Is
+	everyone on the replica-hooks-discuss mailing list?
+In-Reply-To: <46F91C4A.9090601@Yahoo.com>
+References: <F0296FDB-72BA-46FD-B921-EA622DF1C89C@decibel.org>
+	<e51f66da0709211144l47f02402j35092d0ef58cd44b@mail.gmail.com>
+	<20070921185040.GF17506@fetter.org>
+	<20070921224001.GB95343@decibel.org>
+	<e51f66da0709250121i4123b46of503601bb793fc2c@mail.gmail.com>
+	<46F91C4A.9090601@Yahoo.com>
+Message-ID: <20070925150654.GK95343@decibel.org>
+
+On Tue, Sep 25, 2007 at 10:33:46AM -0400, Jan Wieck wrote:
+> On 9/25/2007 4:21 AM, Marko Kreen wrote:
+> >On 9/22/07, Decibel! <decibel@decibel.org> wrote:
+> >>Actually, what I'm really wondering is if a "commit ID" analogous to a
+> >>transaction ID but set at commit time (and in order of commits) would
+> >>vastly simplify things...
+> >
+> >Could you clarify?  I don't get it.  Assuming we keep the trigger
+> >based event logging, the event storage happens at the time of
+> >insert/update/delete statement, how can anything determined at
+> >commit time be useful?
+> 
+> I think his theory is about a replication protocol that applies changes 
+> on slaves in the commit order of the master. Using such protocol would 
+> certainly simplify things, since all the slave has to do is to remember 
+> the last commit ID applied, then select all changes with a higher commit 
+> ID next time.
+> 
+> The flaw in that theory is that such protocol would assume an index over 
+> the commit ID. Without that index, the entire log would have to be 
+> sequentially scanned and sorted each round, so there would not be any 
+> benefit to that. But such index cannot be maintained easily because the 
+> commit ID isn't known at insert time, so the tuples would have to be 
+> revisited after the transaction committed.
+
+Yes, my vision was to have a separate table that tracked what a
+transaction's commit ID was; it wouldn't make any sense to go screwing
+around in the log table once you got the CID. While not as easy as if
+you could just grab a range of XIDs out of the log, it'd still be much
+simpler than how syncs currently work.
+
+Another thought occurs to me... I know that folks have asked for commit
+triggers in the past for other purposes; if we had that it would be easy
+to build your own commit ID with a sequence.
+-- 
+Decibel!, aka Jim C. Nasby, Database Architect  decibel@decibel.org 
+Give your computer some brain candy! www.distributed.net Team #1828
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: not available
+Type: application/pgp-signature
+Size: 187 bytes
+Desc: not available
+Url : http://lists.slony.info/pipermail/slony1-hackers/attachments/20070925/11c5eed0/attachment.pgp
+From markokr at gmail.com  Tue Sep 25 08:15:02 2007
+From: markokr at gmail.com (Marko Kreen)
+Date: Tue Sep 25 08:15:09 2007
+Subject: [Slony1-general] Re: [Skytools-users] [Slony1-hackers] Is
+	everyone on the replica-hooks-discuss mailing list?
+In-Reply-To: <46F91EFB.6080409@Yahoo.com>
+References: <F0296FDB-72BA-46FD-B921-EA622DF1C89C@decibel.org>
+	<e51f66da0709211144l47f02402j35092d0ef58cd44b@mail.gmail.com>
+	<20070921185040.GF17506@fetter.org>
+	<20070921224001.GB95343@decibel.org> <46F7D642.9@Yahoo.com>
+	<20070924161855.GJ95343@decibel.org> <46F7EF87.4070900@Yahoo.com>
+	<e51f66da0709250143l84383f4r59053979fa254916@mail.gmail.com>
+	<46F91EFB.6080409@Yahoo.com>
+Message-ID: <e51f66da0709250815p21e4365ao9ea5fe5e93ab5bc3@mail.gmail.com>
+
+On 9/25/07, Jan Wieck <JanWieck@yahoo.com> wrote:
+> On 9/25/2007 4:43 AM, Marko Kreen wrote:
+> > Secondly, if you _are_ interested, maybe we can agree what the
+> > common module will look like and ship with both SlonyI 2.0 and
+> > Skytools?  Then the Slony 2.0 could come prepared for it? You
+> > can then drop it whenever you drop support for 8.3.
+>
+> Does that module also provide support for the xxid_snapshot type and
+> associated functions like xxid_lt_snapshot()? If that is the case then
+> there would be value in using and shipping it with Slony-I 2.0, assuming
+> that widespread use of a common module makes adoption into core more likely.
+
+yes, both type and "lt" is supported.  I sent a mail about the
+module API to slony1-hackers where you can get the overview:
+
+ http://lists.slony.info/pipermail/slony1-hackers/2007-September/000069.html
+
+I think it would be really good if we could settle on single
+module.  That makes getting it into core quite likely, especially
+considering that it's useful not only for replication, but for
+anybody who wants to implement queue-like things in database.
+
+> > Ofcourse this depends on schedules you have set for yourselves
+> > and there is no problem if you say no to that idea.
+>
+> Slony-I 2.0 is supposed to be available very close to the 8.3 release.
+
+Not too soon but not too far off too.
+
+Main change would be to replace the 4-byte xxid with 8-byte bigint
+type.  Does not sound very bad, but I'm not familiar with SlonyI
+code, you need to decide for yourself.
+
+-- 
+marko
+From JanWieck at Yahoo.com  Tue Sep 25 08:19:36 2007
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Tue Sep 25 08:19:51 2007
+Subject: [Slony1-hackers] Re: XID in PG core/contrib
+In-Reply-To: <e51f66da0709250251t51e8f7eam24f919fdee154503@mail.gmail.com>
+References: <F0296FDB-72BA-46FD-B921-EA622DF1C89C@decibel.org>	<e51f66da0709211144l47f02402j35092d0ef58cd44b@mail.gmail.com>	<608x6z25lv.fsf_-_@dba2.int.libertyrms.com>	<e51f66da0709211243s6ea1bf22i40b1e681e7434537@mail.gmail.com>	<60y7ezzs7q.fsf@dba2.int.libertyrms.com>
+	<e51f66da0709250251t51e8f7eam24f919fdee154503@mail.gmail.com>
+Message-ID: <46F92708.2000603@Yahoo.com>
+
+On 9/25/2007 5:51 AM, Marko Kreen wrote:
+> On 9/21/07, Christopher Browne <cbbrowne@ca.afilias.info> wrote:
+>> Marko Kreen wrote:
+>> > On 9/21/07, Christopher Browne <cbbrowne@ca.afilias.info> wrote:
+>> >> The only thing that might (or mightn't!) be controversial is that it's
+>> >> pretty vital that the implementation remains consistent.
+>> >
+>> > What inconsistencies are you thinking of?
+>>
+>> Anything that might cause one implementation to differ from another.
+>> (e.g. - where Skytools and Slony-I might have differing code)
+>>
+>> I have no particular inconsistency in mind; I don't expect any.
+>>
+>> I don't think there's any *good* reason for them to differ; I'd hope
+>> they wouldn't differ.  They can't, otherwise the separate versions
+>> would need to be retained.
+> 
+> Yes, I also don't see any need for differences.
+> 
+> Only question that may need discussion is the question of naming.
+> 
+> Current APi is following:
+> 
+>  type: txid_snapshot
+> 
+>  get_current_txid(): int8
+>  get_current_snapshot(): txid_snapshot
+>  get_snapshot_xmin(sn): int8
+>  get_snapshot_xmax(sn): int8
+>  get_snapshot_active(sn): setof int8
+>  txid_in_snapshot(int8, sn): bool
+> 
+> But it seems kind of random, considering it is targeted to be core
+> functinality in the future.  I'd prefer something more concise:
+> 
+>  type: snapshot
+> 
+>  current_txid(): int8
+>  current_snapshot(): snapshot
+>  snapshot_xmin()
+>  snapshot_xmax()
+>  snapshot_uncommitted()  ??
+>  snapshot_contains()     ??
+
+Eventually all functions should have the txid_ prefix?
+
+   int8          txid_current()
+   txid_snapshot txid_current_snapshot()
+   int8          txid_snapshot_xmin(sn)
+   int8          txid_snapshot_xmax(sn)
+   setof int8    txid_snapshot_xip(sn)
+   bool          txid_in_snapshot_xip(int8, sn)
+   bool          txid_lt_snapshot(int8, sn)
+   bool          txid_le_snapshot(int8, sn)
+   bool          txid_ge_snapshot(int8, sn)
+   bool          txid_gt_snapshot(int8, sn)
+
+
+> Somewhat better but the last 2 functions are still dubious.
+> Do you have better names?
+
+xip means "transactions in progress", and is used that way inside the 
+backend. So that should be clear enough.
+
+> It would be good to get the final API soon, so that whenever
+> the final merge happens, it would not mean API breakage.  Then
+> we can start coding against final API immidiately.
+
+Agreed.
+
+
+Jan
+
+-- 
+#======================================================================#
+# It's easier to get forgiveness for being wrong than for being right. #
+# Let's break this rule - forgive me.                                  #
+#================================================== JanWieck@Yahoo.com #
+From markokr at gmail.com  Tue Sep 25 09:21:38 2007
+From: markokr at gmail.com (Marko Kreen)
+Date: Tue Sep 25 09:21:46 2007
+Subject: [Slony1-hackers] Re: XID in PG core/contrib
+In-Reply-To: <46F92708.2000603@Yahoo.com>
+References: <F0296FDB-72BA-46FD-B921-EA622DF1C89C@decibel.org>
+	<e51f66da0709211144l47f02402j35092d0ef58cd44b@mail.gmail.com>
+	<608x6z25lv.fsf_-_@dba2.int.libertyrms.com>
+	<e51f66da0709211243s6ea1bf22i40b1e681e7434537@mail.gmail.com>
+	<60y7ezzs7q.fsf@dba2.int.libertyrms.com>
+	<e51f66da0709250251t51e8f7eam24f919fdee154503@mail.gmail.com>
+	<46F92708.2000603@Yahoo.com>
+Message-ID: <e51f66da0709250921n6cb2f781h327433fa452365c4@mail.gmail.com>
+
+On 9/25/07, Jan Wieck <JanWieck@yahoo.com> wrote:
+> On 9/25/2007 5:51 AM, Marko Kreen wrote:
+> > Only question that may need discussion is the question of naming.
+> >
+> > Current APi is following:
+> >
+> >  type: txid_snapshot
+> >
+> >  get_current_txid(): int8
+> >  get_current_snapshot(): txid_snapshot
+> >  get_snapshot_xmin(sn): int8
+> >  get_snapshot_xmax(sn): int8
+> >  get_snapshot_active(sn): setof int8
+> >  txid_in_snapshot(int8, sn): bool
+> >
+> > But it seems kind of random, considering it is targeted to be core
+> > functinality in the future.  I'd prefer something more concise:
+> >
+> >  type: snapshot
+> >
+> >  current_txid(): int8
+> >  current_snapshot(): snapshot
+> >  snapshot_xmin()
+> >  snapshot_xmax()
+> >  snapshot_uncommitted()  ??
+> >  snapshot_contains()     ??
+>
+> Eventually all functions should have the txid_ prefix?
+
+Ok, sounds reasonable too.
+
+>    int8          txid_current()
+>    txid_snapshot txid_current_snapshot()
+>    int8          txid_snapshot_xmin(sn)
+>    int8          txid_snapshot_xmax(sn)
+>    setof int8    txid_snapshot_xip(sn)
+
+Ok.
+
+>    bool          txid_in_snapshot_xip(int8, sn)
+
+Is it really a often used function?  Otherwise
+txid_snapshot_xip() should be enough?
+
+>    bool          txid_lt_snapshot(int8, sn)
+>    bool          txid_le_snapshot(int8, sn)
+>    bool          txid_ge_snapshot(int8, sn)
+>    bool          txid_gt_snapshot(int8, sn)
+
+Why so many variants?  Isn't one enough?
+
+And I think that should be with clearer name like
+txid_is_visible() or txid_is_committed().
+
+> > Somewhat better but the last 2 functions are still dubious.
+> > Do you have better names?
+>
+> xip means "transactions in progress", and is used that way inside the
+> backend. So that should be clear enough.
+
+Indeed, it's backend vocabulary.
+
+-- 
+marko
+From JanWieck at Yahoo.com  Tue Sep 25 10:29:40 2007
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Tue Sep 25 10:29:56 2007
+Subject: [Slony1-hackers] Re: XID in PG core/contrib
+In-Reply-To: <e51f66da0709250921n6cb2f781h327433fa452365c4@mail.gmail.com>
+References: <F0296FDB-72BA-46FD-B921-EA622DF1C89C@decibel.org>	
+	<e51f66da0709211144l47f02402j35092d0ef58cd44b@mail.gmail.com>	
+	<608x6z25lv.fsf_-_@dba2.int.libertyrms.com>	
+	<e51f66da0709211243s6ea1bf22i40b1e681e7434537@mail.gmail.com>	
+	<60y7ezzs7q.fsf@dba2.int.libertyrms.com>	
+	<e51f66da0709250251t51e8f7eam24f919fdee154503@mail.gmail.com>	
+	<46F92708.2000603@Yahoo.com>
+	<e51f66da0709250921n6cb2f781h327433fa452365c4@mail.gmail.com>
+Message-ID: <46F94584.5040107@Yahoo.com>
+
+On 9/25/2007 12:21 PM, Marko Kreen wrote:
+> On 9/25/07, Jan Wieck <JanWieck@yahoo.com> wrote:
+>> On 9/25/2007 5:51 AM, Marko Kreen wrote:
+>> > Only question that may need discussion is the question of naming.
+>> >
+>> > Current APi is following:
+>> >
+>> >  type: txid_snapshot
+>> >
+>> >  get_current_txid(): int8
+>> >  get_current_snapshot(): txid_snapshot
+>> >  get_snapshot_xmin(sn): int8
+>> >  get_snapshot_xmax(sn): int8
+>> >  get_snapshot_active(sn): setof int8
+>> >  txid_in_snapshot(int8, sn): bool
+>> >
+>> > But it seems kind of random, considering it is targeted to be core
+>> > functinality in the future.  I'd prefer something more concise:
+>> >
+>> >  type: snapshot
+>> >
+>> >  current_txid(): int8
+>> >  current_snapshot(): snapshot
+>> >  snapshot_xmin()
+>> >  snapshot_xmax()
+>> >  snapshot_uncommitted()  ??
+>> >  snapshot_contains()     ??
+>>
+>> Eventually all functions should have the txid_ prefix?
+> 
+> Ok, sounds reasonable too.
+> 
+>>    int8          txid_current()
+>>    txid_snapshot txid_current_snapshot()
+>>    int8          txid_snapshot_xmin(sn)
+>>    int8          txid_snapshot_xmax(sn)
+>>    setof int8    txid_snapshot_xip(sn)
+> 
+> Ok.
+> 
+>>    bool          txid_in_snapshot_xip(int8, sn)
+> 
+> Is it really a often used function?  Otherwise
+> txid_snapshot_xip() should be enough?
+
+Right, it is obsolete.
+
+> 
+>>    bool          txid_lt_snapshot(int8, sn)
+>>    bool          txid_le_snapshot(int8, sn)
+>>    bool          txid_ge_snapshot(int8, sn)
+>>    bool          txid_gt_snapshot(int8, sn)
+> 
+> Why so many variants?  Isn't one enough?
+
+Right again, only _lt_ and _gt_ make sense, because the snapshot itself 
+doesn't have a particular xid associated with it, so there is no 
+definition of an xid being equal to a snapshot.
+
+> 
+> And I think that should be with clearer name like
+> txid_is_visible() or txid_is_committed().
+
+txid_lt_snapshot() would then be txid_committed_before(int8, sn) and 
+txid_gt_snapshot() respectively txid_committed_after(int8, sn).
+
+
+Jan
+
+> 
+>> > Somewhat better but the last 2 functions are still dubious.
+>> > Do you have better names?
+>>
+>> xip means "transactions in progress", and is used that way inside the
+>> backend. So that should be clear enough.
+> 
+> Indeed, it's backend vocabulary.
+> 
+
+
+-- 
+#======================================================================#
+# It's easier to get forgiveness for being wrong than for being right. #
+# Let's break this rule - forgive me.                                  #
+#================================================== JanWieck@Yahoo.com #
+From markokr at gmail.com  Tue Sep 25 10:58:43 2007
+From: markokr at gmail.com (Marko Kreen)
+Date: Tue Sep 25 10:58:52 2007
+Subject: [Slony1-hackers] Re: XID in PG core/contrib
+In-Reply-To: <46F94584.5040107@Yahoo.com>
+References: <F0296FDB-72BA-46FD-B921-EA622DF1C89C@decibel.org>
+	<e51f66da0709211144l47f02402j35092d0ef58cd44b@mail.gmail.com>
+	<608x6z25lv.fsf_-_@dba2.int.libertyrms.com>
+	<e51f66da0709211243s6ea1bf22i40b1e681e7434537@mail.gmail.com>
+	<60y7ezzs7q.fsf@dba2.int.libertyrms.com>
+	<e51f66da0709250251t51e8f7eam24f919fdee154503@mail.gmail.com>
+	<46F92708.2000603@Yahoo.com>
+	<e51f66da0709250921n6cb2f781h327433fa452365c4@mail.gmail.com>
+	<46F94584.5040107@Yahoo.com>
+Message-ID: <e51f66da0709251058x129f5553hfa45996d87244ef@mail.gmail.com>
+
+On 9/25/07, Jan Wieck <JanWieck@yahoo.com> wrote:
+> On 9/25/2007 12:21 PM, Marko Kreen wrote:
+> > On 9/25/07, Jan Wieck <JanWieck@yahoo.com> wrote:
+> >>    bool          txid_lt_snapshot(int8, sn)
+> >>    bool          txid_le_snapshot(int8, sn)
+> >>    bool          txid_ge_snapshot(int8, sn)
+> >>    bool          txid_gt_snapshot(int8, sn)
+> >
+> > Why so many variants?  Isn't one enough?
+>
+> Right again, only _lt_ and _gt_ make sense, because the snapshot itself
+> doesn't have a particular xid associated with it, so there is no
+> definition of an xid being equal to a snapshot.
+>
+> > And I think that should be with clearer name like
+> > txid_is_visible() or txid_is_committed().
+>
+> txid_lt_snapshot() would then be txid_committed_before(int8, sn) and
+> txid_gt_snapshot() respectively txid_committed_after(int8, sn).
+
+Considering one is NOT other, are both needed?
+
+I just think it's preferable to avoid duplications and
+keep the API minimal.
+
+-- 
+marko
+From JanWieck at Yahoo.com  Tue Sep 25 11:24:35 2007
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Tue Sep 25 11:24:51 2007
+Subject: [Slony1-hackers] Re: XID in PG core/contrib
+In-Reply-To: <e51f66da0709251058x129f5553hfa45996d87244ef@mail.gmail.com>
+References: <F0296FDB-72BA-46FD-B921-EA622DF1C89C@decibel.org>	
+	<e51f66da0709211144l47f02402j35092d0ef58cd44b@mail.gmail.com>	
+	<608x6z25lv.fsf_-_@dba2.int.libertyrms.com>	
+	<e51f66da0709211243s6ea1bf22i40b1e681e7434537@mail.gmail.com>	
+	<60y7ezzs7q.fsf@dba2.int.libertyrms.com>	
+	<e51f66da0709250251t51e8f7eam24f919fdee154503@mail.gmail.com>	
+	<46F92708.2000603@Yahoo.com>	
+	<e51f66da0709250921n6cb2f781h327433fa452365c4@mail.gmail.com>	
+	<46F94584.5040107@Yahoo.com>
+	<e51f66da0709251058x129f5553hfa45996d87244ef@mail.gmail.com>
+Message-ID: <46F95263.7030603@Yahoo.com>
+
+On 9/25/2007 1:58 PM, Marko Kreen wrote:
+> On 9/25/07, Jan Wieck <JanWieck@yahoo.com> wrote:
+>> On 9/25/2007 12:21 PM, Marko Kreen wrote:
+>> > On 9/25/07, Jan Wieck <JanWieck@yahoo.com> wrote:
+>> >>    bool          txid_lt_snapshot(int8, sn)
+>> >>    bool          txid_le_snapshot(int8, sn)
+>> >>    bool          txid_ge_snapshot(int8, sn)
+>> >>    bool          txid_gt_snapshot(int8, sn)
+>> >
+>> > Why so many variants?  Isn't one enough?
+>>
+>> Right again, only _lt_ and _gt_ make sense, because the snapshot itself
+>> doesn't have a particular xid associated with it, so there is no
+>> definition of an xid being equal to a snapshot.
+>>
+>> > And I think that should be with clearer name like
+>> > txid_is_visible() or txid_is_committed().
+>>
+>> txid_lt_snapshot() would then be txid_committed_before(int8, sn) and
+>> txid_gt_snapshot() respectively txid_committed_after(int8, sn).
+> 
+> Considering one is NOT other, are both needed?
+> 
+> I just think it's preferable to avoid duplications and
+> keep the API minimal.
+
+The same would apply to comparison operators. > is the same as NOT <= 
+... yet we prefer to have both available as it makes code more readable.
+
+
+Jan
+
+-- 
+#======================================================================#
+# It's easier to get forgiveness for being wrong than for being right. #
+# Let's break this rule - forgive me.                                  #
+#================================================== JanWieck@Yahoo.com #
+From markokr at gmail.com  Tue Sep 25 12:23:17 2007
+From: markokr at gmail.com (Marko Kreen)
+Date: Tue Sep 25 12:23:31 2007
+Subject: [Slony1-hackers] Re: XID in PG core/contrib
+In-Reply-To: <46F95263.7030603@Yahoo.com>
+References: <F0296FDB-72BA-46FD-B921-EA622DF1C89C@decibel.org>
+	<608x6z25lv.fsf_-_@dba2.int.libertyrms.com>
+	<e51f66da0709211243s6ea1bf22i40b1e681e7434537@mail.gmail.com>
+	<60y7ezzs7q.fsf@dba2.int.libertyrms.com>
+	<e51f66da0709250251t51e8f7eam24f919fdee154503@mail.gmail.com>
+	<46F92708.2000603@Yahoo.com>
+	<e51f66da0709250921n6cb2f781h327433fa452365c4@mail.gmail.com>
+	<46F94584.5040107@Yahoo.com>
+	<e51f66da0709251058x129f5553hfa45996d87244ef@mail.gmail.com>
+	<46F95263.7030603@Yahoo.com>
+Message-ID: <e51f66da0709251223p191fa3b9i473b2ed2d9d122f2@mail.gmail.com>
+
+On 9/25/07, Jan Wieck <JanWieck@yahoo.com> wrote:
+> On 9/25/2007 1:58 PM, Marko Kreen wrote:
+> > On 9/25/07, Jan Wieck <JanWieck@yahoo.com> wrote:
+> >> txid_lt_snapshot() would then be txid_committed_before(int8, sn) and
+> >> txid_gt_snapshot() respectively txid_committed_after(int8, sn).
+> >
+> > Considering one is NOT other, are both needed?
+> >
+> > I just think it's preferable to avoid duplications and
+> > keep the API minimal.
+>
+> The same would apply to comparison operators. > is the same as NOT <=
+> ... yet we prefer to have both available as it makes code more readable.
+
+Ok, if you insist.
+
+Still, how about better names?  'lt' and 'gt' are rather unfit
+about the meaning of the operation.  I think something like
+txid_is_visible() is better.  Plus txid_is_not_visible() then.
+
+Also txid_is_committed seems fine, but not as good.
+
+-- 
+marko
+From JanWieck at Yahoo.com  Tue Sep 25 13:53:22 2007
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Tue Sep 25 13:53:42 2007
+Subject: [Slony1-hackers] Re: XID in PG core/contrib
+In-Reply-To: <e51f66da0709251223p191fa3b9i473b2ed2d9d122f2@mail.gmail.com>
+References: <F0296FDB-72BA-46FD-B921-EA622DF1C89C@decibel.org>	
+	<608x6z25lv.fsf_-_@dba2.int.libertyrms.com>	
+	<e51f66da0709211243s6ea1bf22i40b1e681e7434537@mail.gmail.com>	
+	<60y7ezzs7q.fsf@dba2.int.libertyrms.com>	
+	<e51f66da0709250251t51e8f7eam24f919fdee154503@mail.gmail.com>	
+	<46F92708.2000603@Yahoo.com>	
+	<e51f66da0709250921n6cb2f781h327433fa452365c4@mail.gmail.com>	
+	<46F94584.5040107@Yahoo.com>	
+	<e51f66da0709251058x129f5553hfa45996d87244ef@mail.gmail.com>	
+	<46F95263.7030603@Yahoo.com>
+	<e51f66da0709251223p191fa3b9i473b2ed2d9d122f2@mail.gmail.com>
+Message-ID: <46F97542.1080908@Yahoo.com>
+
+On 9/25/2007 3:23 PM, Marko Kreen wrote:
+> On 9/25/07, Jan Wieck <JanWieck@yahoo.com> wrote:
+>> On 9/25/2007 1:58 PM, Marko Kreen wrote:
+>> > On 9/25/07, Jan Wieck <JanWieck@yahoo.com> wrote:
+>> >> txid_lt_snapshot() would then be txid_committed_before(int8, sn) and
+>> >> txid_gt_snapshot() respectively txid_committed_after(int8, sn).
+>> >
+>> > Considering one is NOT other, are both needed?
+>> >
+>> > I just think it's preferable to avoid duplications and
+>> > keep the API minimal.
+>>
+>> The same would apply to comparison operators. > is the same as NOT <=
+>> ... yet we prefer to have both available as it makes code more readable.
+> 
+> Ok, if you insist.
+> 
+> Still, how about better names?  'lt' and 'gt' are rather unfit
+> about the meaning of the operation.  I think something like
+> txid_is_visible() is better.  Plus txid_is_not_visible() then.
+> 
+> Also txid_is_committed seems fine, but not as good.
+> 
+
+If you don't like txid_committed_before/after, how about
+
+     txid_visible_in_snapshot(int8,snap)
+     txid_not_visible_in_snapshot(int8,snap)
+
+It's only names of functions that are very likely coded into programs 
+rather than used interactively. So the length of the function name 
+doesn't really matter.
+
+
+Jan
+
+-- 
+#======================================================================#
+# It's easier to get forgiveness for being wrong than for being right. #
+# Let's break this rule - forgive me.                                  #
+#================================================== JanWieck@Yahoo.com #
+From markokr at gmail.com  Wed Sep 26 03:29:49 2007
+From: markokr at gmail.com (Marko Kreen)
+Date: Wed Sep 26 03:30:16 2007
+Subject: [Slony1-hackers] Re: XID in PG core/contrib
+In-Reply-To: <46F97542.1080908@Yahoo.com>
+References: <F0296FDB-72BA-46FD-B921-EA622DF1C89C@decibel.org>
+	<60y7ezzs7q.fsf@dba2.int.libertyrms.com>
+	<e51f66da0709250251t51e8f7eam24f919fdee154503@mail.gmail.com>
+	<46F92708.2000603@Yahoo.com>
+	<e51f66da0709250921n6cb2f781h327433fa452365c4@mail.gmail.com>
+	<46F94584.5040107@Yahoo.com>
+	<e51f66da0709251058x129f5553hfa45996d87244ef@mail.gmail.com>
+	<46F95263.7030603@Yahoo.com>
+	<e51f66da0709251223p191fa3b9i473b2ed2d9d122f2@mail.gmail.com>
+	<46F97542.1080908@Yahoo.com>
+Message-ID: <e51f66da0709260329h2ec0db63jaf3a3329512551f9@mail.gmail.com>
+
+On 9/25/07, Jan Wieck <JanWieck@yahoo.com> wrote:
+> On 9/25/2007 3:23 PM, Marko Kreen wrote:
+> > On 9/25/07, Jan Wieck <JanWieck@yahoo.com> wrote:
+> >> On 9/25/2007 1:58 PM, Marko Kreen wrote:
+> >> > On 9/25/07, Jan Wieck <JanWieck@yahoo.com> wrote:
+> >> >> txid_lt_snapshot() would then be txid_committed_before(int8, sn) and
+> >> >> txid_gt_snapshot() respectively txid_committed_after(int8, sn).
+
+Agh.   I was bit in hurry as missed that you already suggested
+better names.
+
+> If you don't like txid_committed_before/after, how about
+>
+>      txid_visible_in_snapshot(int8,snap)
+>      txid_not_visible_in_snapshot(int8,snap)
+>
+> It's only names of functions that are very likely coded into programs
+> rather than used interactively. So the length of the function name
+> doesn't really matter.
+
+Now thinking about it, I like 'visible' better than 'committed'
+as latter suggest knowledge about transaction result which is
+weird, especially for committed_after.
+
+Lets go with txid_visible_in_snapshot() then.
+
+
+What now?  We should run this thru -hackers too.  I could
+even prepare patch for /contrib, to show the code too and maybe
+the hell will froze for a moment and this will get into 8.3 ;)
+
+-- 
+marko
+From cbbrowne at ca.afilias.info  Wed Sep 26 06:39:43 2007
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Wed Sep 26 06:39:50 2007
+Subject: [Slony1-hackers] Re: XID in PG core/contrib
+In-Reply-To: <e51f66da0709260329h2ec0db63jaf3a3329512551f9@mail.gmail.com>
+	(Marko Kreen's message of "Wed, 26 Sep 2007 13:29:49 +0300")
+References: <F0296FDB-72BA-46FD-B921-EA622DF1C89C@decibel.org>
+	<60y7ezzs7q.fsf@dba2.int.libertyrms.com>
+	<e51f66da0709250251t51e8f7eam24f919fdee154503@mail.gmail.com>
+	<46F92708.2000603@Yahoo.com>
+	<e51f66da0709250921n6cb2f781h327433fa452365c4@mail.gmail.com>
+	<46F94584.5040107@Yahoo.com>
+	<e51f66da0709251058x129f5553hfa45996d87244ef@mail.gmail.com>
+	<46F95263.7030603@Yahoo.com>
+	<e51f66da0709251223p191fa3b9i473b2ed2d9d122f2@mail.gmail.com>
+	<46F97542.1080908@Yahoo.com>
+	<e51f66da0709260329h2ec0db63jaf3a3329512551f9@mail.gmail.com>
+Message-ID: <60hclhmtpc.fsf@dba2.int.libertyrms.com>
+
+"Marko Kreen" <markokr@gmail.com> writes:
+> On 9/25/07, Jan Wieck <JanWieck@yahoo.com> wrote:
+>> On 9/25/2007 3:23 PM, Marko Kreen wrote:
+>> > On 9/25/07, Jan Wieck <JanWieck@yahoo.com> wrote:
+>> >> On 9/25/2007 1:58 PM, Marko Kreen wrote:
+>> >> > On 9/25/07, Jan Wieck <JanWieck@yahoo.com> wrote:
+>> >> >> txid_lt_snapshot() would then be txid_committed_before(int8, sn) and
+>> >> >> txid_gt_snapshot() respectively txid_committed_after(int8, sn).
+>
+> Agh.   I was bit in hurry as missed that you already suggested
+> better names.
+>
+>> If you don't like txid_committed_before/after, how about
+>>
+>>      txid_visible_in_snapshot(int8,snap)
+>>      txid_not_visible_in_snapshot(int8,snap)
+>>
+>> It's only names of functions that are very likely coded into programs
+>> rather than used interactively. So the length of the function name
+>> doesn't really matter.
+>
+> Now thinking about it, I like 'visible' better than 'committed'
+> as latter suggest knowledge about transaction result which is
+> weird, especially for committed_after.
+>
+> Lets go with txid_visible_in_snapshot() then.
+>
+>
+> What now?  We should run this thru -hackers too.  I could
+> even prepare patch for /contrib, to show the code too and maybe
+> the hell will froze for a moment and this will get into 8.3 ;)
+
+If this were to get into 8.3, as /contrib, that would be incredibly
+sweet...  No need for workarounds to detect whether or not it's
+available...
+-- 
+output = reverse("ofni.secnanifxunil" "@" "enworbbc")
+http://cbbrowne.com/info/wp.html
+"You know, in the rare instance that you abstain from daft conspiracy
+theories, you can be quite entertaining." -- Donovan Rebbechi
+From mux at oxado.com  Wed Sep 26 09:09:23 2007
+From: mux at oxado.com (Maxime Henrion)
+Date: Wed Sep 26 09:10:13 2007
+Subject: [Slony1-hackers] EXECUTE SCRIPT and deadlocks
+Message-ID: <1190822963.1328.109.camel@localhost>
+
+	Hello all,
+
+
+I've been encountering problems when trying to run a simple schema
+change through the EXECUTE SCRIPT command, because it resulted in a
+deadlock avoided by PostgreSQL.  This wasn't unexpected since the
+documentation clearly states that EXECUTE SCRIPT involves locking all
+the tables of the specified set, and that such problems may arise.
+
+We know how to work around this, either by temporarily shutting down the
+application connecting to the database, or by removing the table from
+the replication set, running the changes on it, creating a new set,
+adding the said table to this set, subscribe it to slaves, and merge it
+back in the main set.  Both ways are however impractical for us, and
+we're trying to find a better solution, that doesn't involve splitting
+the sets either.
+
+So far, we have considered a few options that I'm going to list below.
+
+Solution 1) Adding the possibility to provide another locking order,
+that is more likely to succeed than the one given by the object id
+(tab_id) in sl_table.  This can be done in two different ways.
+
+1.a) Adding a new column, say, tab_prio (NOT NULL DEFAULT tab_id) to the
+sl_table table, that specifies a priority to use for locking in EXECUTE
+SCRIPT.  In SQL terms, this means changing an "ORDER BY tab_id" into
+"ORDER BY tab_prio, tab_id", when getting the list of the tables to
+lock / deal with.
+
+1.b) Add a new option to the EXECUTE SCRIPT slonik command, allowing to
+pass a list of table IDs for specifying the locking order.
+
+Pros:
+      * Both ways of implementing this option are fairly simple and
+        don't involve a lot of changes in the source code as far as I
+        can see, although option 1.b requires modifying slonik while
+        option 1.a doesn't.
+
+Cons:
+      * While I can't give an example, I believe that specifying an
+        alternative locking order is not sufficient to solve the problem
+        in all cases, plus it may be too complex to determine for
+        databases containing lots of tables.
+
+Solution 2) Expanding on the previous idea, we could add an optional
+parameter to the EXECUTE SCRIPT command, for instance "ONLY FOR = <IDs
+list>".  This subsumes option 1 because it allows to reorder the locking
+(tables would be locked in the order their IDs are passed), but also
+allows to avoid locking and calling of the alterTableForReplication()
+and alterTableRestore() functions, for those tables where we know for
+sure that it isn't required.
+
+Pros:
+      * This is more generic than option 1, and I believe it should
+        allow people to solve situations where determining a correct
+        locking order is very complex, or even impossible (can that
+        happen?).
+
+Cons:
+      * This is an unsafe option, that could potentially lead to
+        breakage of the replication setup if used incorrectly.  I
+        reckon, however, that it certainly wouldn't be the only slonik
+        command where this is possible, and slonik is a fairly low-level
+        interface anyways.  It should however be clearly documented as
+        such.
+
+Solution 3) I believe that in many "simple" cases (think adding a column
+on a table without even a DEFAULT), all the locking done by Slony-1
+isn't really required.  So we could imagine having a simplified EXECUTE
+SCRIPT command, that would only allow "simple" SQL queries, that don't
+require the whole locking dance.
+
+Pros:
+      * If this is doable, it would probably be very practical for many
+        users who mostly need to propagate such simple schema changes.
+
+Cons:
+      * It may prove very hard to implement correctly.
+
+A variation on solution 3 would be to implement this simplified
+behaviour of EXECUTE SCRIPT by letting the user decide whether it is
+reasonable to do it this way or not.  Needless to say, this makes the
+implementation of it much easier, but it also makes the command more
+dangerous.
+
+I am of course interested in hearing about the opinions of the Slony-1
+developers and users, in order to determine if these suggestions are
+reasonable or not.  If there's a super easy way to do what I want that I
+missed, I am interested too :-).
+
+I am willing to work on this stuff on behalf of my company, if the
+Slony-1 developers agree that implementing one of these options is a
+good idea.
+
+Cheers,
+Maxime
+
+From mux at oxado.com  Thu Sep 27 02:36:08 2007
+From: mux at oxado.com (Maxime Henrion)
+Date: Thu Sep 27 02:37:14 2007
+Subject: [Slony1-hackers] EXECUTE SCRIPT and deadlocks
+In-Reply-To: <1190822963.1328.109.camel@localhost>
+References: <1190822963.1328.109.camel@localhost>
+Message-ID: <1190885768.1332.4.camel@localhost>
+
+Replying to myself:
+
+We've noticed that Slony-1 locks the tables in access exclusive mode
+when handling an EXECUTE SCRIPT command, thus preventing anyone from
+reading the tables.  I can't figure out why a simple exclusive lock
+wouldn't be sufficient; can someone enlighten me?
+
+Thanks,
+Maxime 
+
+From cbbrowne at ca.afilias.info  Thu Sep 27 07:42:41 2007
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Thu Sep 27 07:42:46 2007
+Subject: [Slony1-hackers] EXECUTE SCRIPT and deadlocks
+In-Reply-To: <1190885768.1332.4.camel@localhost>
+References: <1190822963.1328.109.camel@localhost>
+	<1190885768.1332.4.camel@localhost>
+Message-ID: <46FBC161.5030104@ca.afilias.info>
+
+Maxime Henrion wrote:
+> Replying to myself:
+>
+> We've noticed that Slony-1 locks the tables in access exclusive mode
+> when handling an EXECUTE SCRIPT command, thus preventing anyone from
+> reading the tables.  I can't figure out why a simple exclusive lock
+> wouldn't be sufficient; can someone enlighten me?
+>   
+Very simple: Because it must.
+
+All of the tables are altered, twice:
+ - once, to remove the Slony-created triggers, and restore the table to 
+a "Slony-less form"
+ - a second time, to add the triggers back, and return it to replication.
+
+ALTER TABLE requires an AccessExclusiveLock to be requested, twice, as 
+the natural result.
+From JanWieck at Yahoo.com  Thu Sep 27 10:37:30 2007
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Thu Sep 27 10:37:43 2007
+Subject: [Slony1-hackers] Re: XID in PG core/contrib
+In-Reply-To: <e51f66da0709260329h2ec0db63jaf3a3329512551f9@mail.gmail.com>
+References: <F0296FDB-72BA-46FD-B921-EA622DF1C89C@decibel.org>	
+	<60y7ezzs7q.fsf@dba2.int.libertyrms.com>	
+	<e51f66da0709250251t51e8f7eam24f919fdee154503@mail.gmail.com>	
+	<46F92708.2000603@Yahoo.com>	
+	<e51f66da0709250921n6cb2f781h327433fa452365c4@mail.gmail.com>	
+	<46F94584.5040107@Yahoo.com>	
+	<e51f66da0709251058x129f5553hfa45996d87244ef@mail.gmail.com>	
+	<46F95263.7030603@Yahoo.com>	
+	<e51f66da0709251223p191fa3b9i473b2ed2d9d122f2@mail.gmail.com>	
+	<46F97542.1080908@Yahoo.com>
+	<e51f66da0709260329h2ec0db63jaf3a3329512551f9@mail.gmail.com>
+Message-ID: <46FBEA5A.2060001@Yahoo.com>
+
+On 9/26/2007 6:29 AM, Marko Kreen wrote:
+> On 9/25/07, Jan Wieck <JanWieck@yahoo.com> wrote:
+>> On 9/25/2007 3:23 PM, Marko Kreen wrote:
+>> > On 9/25/07, Jan Wieck <JanWieck@yahoo.com> wrote:
+>> >> On 9/25/2007 1:58 PM, Marko Kreen wrote:
+>> >> > On 9/25/07, Jan Wieck <JanWieck@yahoo.com> wrote:
+>> >> >> txid_lt_snapshot() would then be txid_committed_before(int8, sn) and
+>> >> >> txid_gt_snapshot() respectively txid_committed_after(int8, sn).
+> 
+> Agh.   I was bit in hurry as missed that you already suggested
+> better names.
+> 
+>> If you don't like txid_committed_before/after, how about
+>>
+>>      txid_visible_in_snapshot(int8,snap)
+>>      txid_not_visible_in_snapshot(int8,snap)
+>>
+>> It's only names of functions that are very likely coded into programs
+>> rather than used interactively. So the length of the function name
+>> doesn't really matter.
+> 
+> Now thinking about it, I like 'visible' better than 'committed'
+> as latter suggest knowledge about transaction result which is
+> weird, especially for committed_after.
+> 
+> Lets go with txid_visible_in_snapshot() then.
+> 
+> 
+> What now?  We should run this thru -hackers too.  I could
+> even prepare patch for /contrib, to show the code too and maybe
+> the hell will froze for a moment and this will get into 8.3 ;)
+
+I've talked to Tom briefly on -core. What we need to do is to agree on a 
+module name, the naming conventions (I think we got those already) and 
+get the final code done within the next 2 weeks. I'll be in Hong Kong 
+October 10-11, so that week is almost gone with meetings, travel and 
+fighting jet lag. I will review the code when I'm back, test it using 
+Slony-I HEAD by actually porting Slony to it, and add it to contrib.
+
+
+Jan
+
+-- 
+#======================================================================#
+# It's easier to get forgiveness for being wrong than for being right. #
+# Let's break this rule - forgive me.                                  #
+#================================================== JanWieck@Yahoo.com #
+From markokr at gmail.com  Fri Sep 28 04:45:23 2007
+From: markokr at gmail.com (Marko Kreen)
+Date: Fri Sep 28 04:45:47 2007
+Subject: [Slony1-hackers] Re: XID in PG core/contrib
+In-Reply-To: <46FBEA5A.2060001@Yahoo.com>
+References: <F0296FDB-72BA-46FD-B921-EA622DF1C89C@decibel.org>
+	<46F92708.2000603@Yahoo.com>
+	<e51f66da0709250921n6cb2f781h327433fa452365c4@mail.gmail.com>
+	<46F94584.5040107@Yahoo.com>
+	<e51f66da0709251058x129f5553hfa45996d87244ef@mail.gmail.com>
+	<46F95263.7030603@Yahoo.com>
+	<e51f66da0709251223p191fa3b9i473b2ed2d9d122f2@mail.gmail.com>
+	<46F97542.1080908@Yahoo.com>
+	<e51f66da0709260329h2ec0db63jaf3a3329512551f9@mail.gmail.com>
+	<46FBEA5A.2060001@Yahoo.com>
+Message-ID: <e51f66da0709280445xb738b98k47eb8013416ce72a@mail.gmail.com>
+
+On 9/27/07, Jan Wieck <JanWieck@yahoo.com> wrote:
+> On 9/26/2007 6:29 AM, Marko Kreen wrote:
+> > What now?  We should run this thru -hackers too.  I could
+> > even prepare patch for /contrib, to show the code too and maybe
+> > the hell will froze for a moment and this will get into 8.3 ;)
+>
+> I've talked to Tom briefly on -core. What we need to do is to agree on a
+> module name, the naming conventions (I think we got those already) and
+> get the final code done within the next 2 weeks. I'll be in Hong Kong
+> October 10-11, so that week is almost gone with meetings, travel and
+> fighting jet lag. I will review the code when I'm back, test it using
+> Slony-I HEAD by actually porting Slony to it, and add it to contrib.
+
+Great news!
+
+Here is first draft of the contrib/txid then.
+
+Final API:
+
+int8          txid_current()
+txid_snapshot txid_current_snapshot()
+int8          txid_snapshot_xmin(snap)
+int8          txid_snapshot_xmax(snap)
+setof int8    txid_snapshot_xip(snap)
+bool          txid_visible_in_snapshot(int8, snap)
+bool          txid_not_visible_in_snapshot(int8, snap)
+
+
+Changes to the code in Skytools:
+
+- renamed the functions
+- dropped the epoch-in-table code
+- tagged the txid_current/txid_current_snapshot as STABLE
+  (they were SECURITY DEFINERs because of the epoch-in-table)
+- simplified the txid_snapshot_xip by use of fctx->call_cnt
+- removed use of "unsigned long long" in txid_snapshot_out,
+  instead I try to guess the correct fromat string for uint64
+  from HAVE_LONG_INT_64
+
+TODO:
+- flesh out the README
+- review/testing by somebody who knows arches with strict
+  alignment requirements.
+- some more testing, to see if i did not broke anything...
+
+-- =
+
+marko
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: txid-v1.diff.gz
+Type: application/x-gzip
+Size: 6957 bytes
+Desc: not available
+Url : http://lists.slony.info/pipermail/slony1-hackers/attachments/20070928=
+/1770a8b3/txid-v1.diff.bin
+From markokr at gmail.com  Fri Sep 28 07:33:12 2007
+From: markokr at gmail.com (Marko Kreen)
+Date: Fri Sep 28 07:33:20 2007
+Subject: [Slony1-hackers] Re: XID in PG core/contrib
+In-Reply-To: <604.1190988448@sss.pgh.pa.us>
+References: <F0296FDB-72BA-46FD-B921-EA622DF1C89C@decibel.org>
+	<46F94584.5040107@Yahoo.com>
+	<e51f66da0709251058x129f5553hfa45996d87244ef@mail.gmail.com>
+	<46F95263.7030603@Yahoo.com>
+	<e51f66da0709251223p191fa3b9i473b2ed2d9d122f2@mail.gmail.com>
+	<46F97542.1080908@Yahoo.com>
+	<e51f66da0709260329h2ec0db63jaf3a3329512551f9@mail.gmail.com>
+	<46FBEA5A.2060001@Yahoo.com>
+	<e51f66da0709280445xb738b98k47eb8013416ce72a@mail.gmail.com>
+	<604.1190988448@sss.pgh.pa.us>
+Message-ID: <e51f66da0709280733v512773ddwd7ae4d88ad3da9cc@mail.gmail.com>
+
+On 9/28/07, Tom Lane <tgl@sss.pgh.pa.us> wrote:
+> "Marko Kreen" <markokr@gmail.com> writes:
+> > bool          txid_not_visible_in_snapshot(int8, snap)
+>
+> The last seems pretty thoroughly redundant?
+
+Ehhee.  Jan, it's 2:1 now.  I also think it unecessary.
+
+> > - removed use of "unsigned long long" in txid_snapshot_out,
+> >   instead I try to guess the correct fromat string for uint64
+> >   from HAVE_LONG_INT_64
+>
+> What's to guess?  Use UINT64_FORMAT
+
+Thanks, I failed to notice it for some reason.
+
+New patch attached, both things fixed.
+
+-- =
+
+marko
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: txid-v2.diff.gz
+Type: application/x-gzip
+Size: 6772 bytes
+Desc: not available
+Url : http://lists.slony.info/pipermail/slony1-hackers/attachments/20070928=
+/7fce3464/txid-v2.diff.bin
+From JanWieck at Yahoo.com  Fri Sep 28 08:36:26 2007
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Fri Sep 28 08:36:34 2007
+Subject: [Slony1-hackers] Re: XID in PG core/contrib
+In-Reply-To: <e51f66da0709280733v512773ddwd7ae4d88ad3da9cc@mail.gmail.com>
+References: <F0296FDB-72BA-46FD-B921-EA622DF1C89C@decibel.org>	
+	<46F94584.5040107@Yahoo.com>	
+	<e51f66da0709251058x129f5553hfa45996d87244ef@mail.gmail.com>	
+	<46F95263.7030603@Yahoo.com>	
+	<e51f66da0709251223p191fa3b9i473b2ed2d9d122f2@mail.gmail.com>	
+	<46F97542.1080908@Yahoo.com>	
+	<e51f66da0709260329h2ec0db63jaf3a3329512551f9@mail.gmail.com>	
+	<46FBEA5A.2060001@Yahoo.com>	
+	<e51f66da0709280445xb738b98k47eb8013416ce72a@mail.gmail.com>	
+	<604.1190988448@sss.pgh.pa.us>
+	<e51f66da0709280733v512773ddwd7ae4d88ad3da9cc@mail.gmail.com>
+Message-ID: <46FD1F7A.5000405@Yahoo.com>
+
+On 9/28/2007 10:33 AM, Marko Kreen wrote:
+> On 9/28/07, Tom Lane <tgl@sss.pgh.pa.us> wrote:
+>> "Marko Kreen" <markokr@gmail.com> writes:
+>> > bool          txid_not_visible_in_snapshot(int8, snap)
+>>
+>> The last seems pretty thoroughly redundant?
+> 
+> Ehhee.  Jan, it's 2:1 now.  I also think it unecessary.
+
+Yeah, yeah ... I can live without it. It's just, from that point of view 
+half of all comparison operators are redundant ;-)
+
+> 
+>> > - removed use of "unsigned long long" in txid_snapshot_out,
+>> >   instead I try to guess the correct fromat string for uint64
+>> >   from HAVE_LONG_INT_64
+>>
+>> What's to guess?  Use UINT64_FORMAT
+> 
+> Thanks, I failed to notice it for some reason.
+> 
+> New patch attached, both things fixed.
+
+I'll look at it later today, if I find a free minute to breathe!
+
+
+Jan
+
+-- 
+#======================================================================#
+# It's easier to get forgiveness for being wrong than for being right. #
+# Let's break this rule - forgive me.                                  #
+#================================================== JanWieck@Yahoo.com #
+From markokr at gmail.com  Fri Sep 28 09:01:16 2007
+From: markokr at gmail.com (Marko Kreen)
+Date: Fri Sep 28 09:01:25 2007
+Subject: [Slony1-hackers] Re: XID in PG core/contrib
+In-Reply-To: <46FD1F7A.5000405@Yahoo.com>
+References: <F0296FDB-72BA-46FD-B921-EA622DF1C89C@decibel.org>
+	<46F95263.7030603@Yahoo.com>
+	<e51f66da0709251223p191fa3b9i473b2ed2d9d122f2@mail.gmail.com>
+	<46F97542.1080908@Yahoo.com>
+	<e51f66da0709260329h2ec0db63jaf3a3329512551f9@mail.gmail.com>
+	<46FBEA5A.2060001@Yahoo.com>
+	<e51f66da0709280445xb738b98k47eb8013416ce72a@mail.gmail.com>
+	<604.1190988448@sss.pgh.pa.us>
+	<e51f66da0709280733v512773ddwd7ae4d88ad3da9cc@mail.gmail.com>
+	<46FD1F7A.5000405@Yahoo.com>
+Message-ID: <e51f66da0709280901ue27a399qaf62dea3b49d5b67@mail.gmail.com>
+
+On 9/28/07, Jan Wieck <JanWieck@yahoo.com> wrote:
+> On 9/28/2007 10:33 AM, Marko Kreen wrote:
+> > On 9/28/07, Tom Lane <tgl@sss.pgh.pa.us> wrote:
+> >> "Marko Kreen" <markokr@gmail.com> writes:
+> >> > bool          txid_not_visible_in_snapshot(int8, snap)
+> >>
+> >> The last seems pretty thoroughly redundant?
+> >
+> > Ehhee.  Jan, it's 2:1 now.  I also think it unecessary.
+>
+> Yeah, yeah ... I can live without it. It's just, from that point of view
+> half of all comparison operators are redundant ;-)
+
+I think the point is that this is relatively complex operation.
+So having separate function in a small API that is just a NOT
+of a complex operation seems "unbalanced".
+
+-- 
+marko
+From tgl at sss.pgh.pa.us  Fri Sep 28 07:07:28 2007
+From: tgl at sss.pgh.pa.us (Tom Lane)
+Date: Fri Sep 28 09:25:51 2007
+Subject: [Slony1-hackers] Re: XID in PG core/contrib 
+In-Reply-To: <e51f66da0709280445xb738b98k47eb8013416ce72a@mail.gmail.com> 
+References: <F0296FDB-72BA-46FD-B921-EA622DF1C89C@decibel.org>
+	<46F92708.2000603@Yahoo.com>
+	<e51f66da0709250921n6cb2f781h327433fa452365c4@mail.gmail.com>
+	<46F94584.5040107@Yahoo.com>
+	<e51f66da0709251058x129f5553hfa45996d87244ef@mail.gmail.com>
+	<46F95263.7030603@Yahoo.com>
+	<e51f66da0709251223p191fa3b9i473b2ed2d9d122f2@mail.gmail.com>
+	<46F97542.1080908@Yahoo.com>
+	<e51f66da0709260329h2ec0db63jaf3a3329512551f9@mail.gmail.com>
+	<46FBEA5A.2060001@Yahoo.com>
+	<e51f66da0709280445xb738b98k47eb8013416ce72a@mail.gmail.com>
+Message-ID: <604.1190988448@sss.pgh.pa.us>
+
+"Marko Kreen" <markokr@gmail.com> writes:
+> Final API:
+
+> int8          txid_current()
+> txid_snapshot txid_current_snapshot()
+> int8          txid_snapshot_xmin(snap)
+> int8          txid_snapshot_xmax(snap)
+> setof int8    txid_snapshot_xip(snap)
+> bool          txid_visible_in_snapshot(int8, snap)
+> bool          txid_not_visible_in_snapshot(int8, snap)
+
+The last seems pretty thoroughly redundant?
+
+> - removed use of "unsigned long long" in txid_snapshot_out,
+>   instead I try to guess the correct fromat string for uint64
+>   from HAVE_LONG_INT_64
+
+What's to guess?  Use UINT64_FORMAT
+
+			regards, tom lane
+From JanWieck at Yahoo.com  Fri Sep 28 09:49:02 2007
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Fri Sep 28 09:49:12 2007
+Subject: [Slony1-hackers] Re: XID in PG core/contrib
+In-Reply-To: <e51f66da0709280901ue27a399qaf62dea3b49d5b67@mail.gmail.com>
+References: <F0296FDB-72BA-46FD-B921-EA622DF1C89C@decibel.org>	
+	<46F95263.7030603@Yahoo.com>	
+	<e51f66da0709251223p191fa3b9i473b2ed2d9d122f2@mail.gmail.com>	
+	<46F97542.1080908@Yahoo.com>	
+	<e51f66da0709260329h2ec0db63jaf3a3329512551f9@mail.gmail.com>	
+	<46FBEA5A.2060001@Yahoo.com>	
+	<e51f66da0709280445xb738b98k47eb8013416ce72a@mail.gmail.com>	
+	<604.1190988448@sss.pgh.pa.us>	
+	<e51f66da0709280733v512773ddwd7ae4d88ad3da9cc@mail.gmail.com>	
+	<46FD1F7A.5000405@Yahoo.com>
+	<e51f66da0709280901ue27a399qaf62dea3b49d5b67@mail.gmail.com>
+Message-ID: <46FD307E.5030606@Yahoo.com>
+
+On 9/28/2007 12:01 PM, Marko Kreen wrote:
+> On 9/28/07, Jan Wieck <JanWieck@yahoo.com> wrote:
+>> On 9/28/2007 10:33 AM, Marko Kreen wrote:
+>> > On 9/28/07, Tom Lane <tgl@sss.pgh.pa.us> wrote:
+>> >> "Marko Kreen" <markokr@gmail.com> writes:
+>> >> > bool          txid_not_visible_in_snapshot(int8, snap)
+>> >>
+>> >> The last seems pretty thoroughly redundant?
+>> >
+>> > Ehhee.  Jan, it's 2:1 now.  I also think it unecessary.
+>>
+>> Yeah, yeah ... I can live without it. It's just, from that point of view
+>> half of all comparison operators are redundant ;-)
+> 
+> I think the point is that this is relatively complex operation.
+> So having separate function in a small API that is just a NOT
+> of a complex operation seems "unbalanced".
+
+Ignore my wiggling and drop that function already, will ya ;-)
+
+
+Jan
+
+-- 
+#======================================================================#
+# It's easier to get forgiveness for being wrong than for being right. #
+# Let's break this rule - forgive me.                                  #
+#================================================== JanWieck@Yahoo.com #
+From JanWieck at Yahoo.com  Sun Sep 30 09:22:49 2007
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Sun Sep 30 09:23:07 2007
+Subject: [Slony1-hackers] Re: XID in PG core/contrib
+In-Reply-To: <46FD1F7A.5000405@Yahoo.com>
+References: <F0296FDB-72BA-46FD-B921-EA622DF1C89C@decibel.org>		<46F94584.5040107@Yahoo.com>		<e51f66da0709251058x129f5553hfa45996d87244ef@mail.gmail.com>		<46F95263.7030603@Yahoo.com>		<e51f66da0709251223p191fa3b9i473b2ed2d9d122f2@mail.gmail.com>		<46F97542.1080908@Yahoo.com>		<e51f66da0709260329h2ec0db63jaf3a3329512551f9@mail.gmail.com>		<46FBEA5A.2060001@Yahoo.com>		<e51f66da0709280445xb738b98k47eb8013416ce72a@mail.gmail.com>		<604.1190988448@sss.pgh.pa.us>	<e51f66da0709280733v512773ddwd7ae4d88ad3da9cc@mail.gmail.com>
+	<46FD1F7A.5000405@Yahoo.com>
+Message-ID: <46FFCD59.70203@Yahoo.com>
+
+On 9/28/2007 11:36 AM, Jan Wieck wrote:
+> On 9/28/2007 10:33 AM, Marko Kreen wrote:
+>> On 9/28/07, Tom Lane <tgl@sss.pgh.pa.us> wrote:
+>>> "Marko Kreen" <markokr@gmail.com> writes:
+>>> > bool          txid_not_visible_in_snapshot(int8, snap)
+>>>
+>>> The last seems pretty thoroughly redundant?
+>> =
+
+>> Ehhee.  Jan, it's 2:1 now.  I also think it unecessary.
+> =
+
+> Yeah, yeah ... I can live without it. It's just, from that point of view =
+
+> half of all comparison operators are redundant ;-)
+> =
+
+>> =
+
+>>> > - removed use of "unsigned long long" in txid_snapshot_out,
+>>> >   instead I try to guess the correct fromat string for uint64
+>>> >   from HAVE_LONG_INT_64
+>>>
+>>> What's to guess?  Use UINT64_FORMAT
+>> =
+
+>> Thanks, I failed to notice it for some reason.
+>> =
+
+>> New patch attached, both things fixed.
+> =
+
+> I'll look at it later today, if I find a free minute to breathe!
+
+Well, found some time today. I have not checked the module by using it =
+
+in Slony yet. I'll have some quiet 3 hours later. But I made a couple of =
+
+changes as follows:
+
+   - Adjusted Copyright to 2003-2007
+
+   - Renamed USE_BSEARCH_IF_MORE to USE_BSEARCH_IF_NXIP_GREATER
+
+   - Compare nxip > ...NXIP_GREATER (instead of >=3D)
+
+   - Removed #ifndef SET_VARSIZE (must have been xxid artifact for
+     pre-8.3 compatibility)
+
+   - Removed qsort() wrapper function. Only referenced once.
+
+   - Don't sort the xip vector if bsearch is never used on it.
+
+   - Use $(MAKE) in Makefile to invoke installcheck (FreeBSD's make is
+     not gmake).
+
+Question:
+
+   - Should we also move the txid_snapshot parsing functionality directly
+     into the public function? Like the qsort wrapper, it is only used
+     once throughout the code and a non-inline function call is not a
+     zero-cost operation.
+
+Other than that this looks good to me. Curious how Slony will like it.
+
+New patch txid-v3.diff.gz attached.
+
+
+Jan
+
+-- =
+
+#=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D#
+# It's easier to get forgiveness for being wrong than for being right. #
+# Let's break this rule - forgive me.                                  #
+#=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D JanWieck@Yahoo.com #
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: txid-v3.diff.gz
+Type: application/x-gzip
+Size: 6677 bytes
+Desc: not available
+Url : http://lists.slony.info/pipermail/slony1-hackers/attachments/20070930=
+/72226db4/txid-v3.diff.bin
+From markokr at gmail.com  Sun Sep 30 13:45:25 2007
+From: markokr at gmail.com (Marko Kreen)
+Date: Sun Sep 30 13:45:36 2007
+Subject: [Slony1-hackers] Re: XID in PG core/contrib
+In-Reply-To: <46FFCD59.70203@Yahoo.com>
+References: <F0296FDB-72BA-46FD-B921-EA622DF1C89C@decibel.org>
+	<e51f66da0709251223p191fa3b9i473b2ed2d9d122f2@mail.gmail.com>
+	<46F97542.1080908@Yahoo.com>
+	<e51f66da0709260329h2ec0db63jaf3a3329512551f9@mail.gmail.com>
+	<46FBEA5A.2060001@Yahoo.com>
+	<e51f66da0709280445xb738b98k47eb8013416ce72a@mail.gmail.com>
+	<604.1190988448@sss.pgh.pa.us>
+	<e51f66da0709280733v512773ddwd7ae4d88ad3da9cc@mail.gmail.com>
+	<46FD1F7A.5000405@Yahoo.com> <46FFCD59.70203@Yahoo.com>
+Message-ID: <e51f66da0709301345jbc3cd4fv5b72e64f251c5d01@mail.gmail.com>
+
+On 9/30/07, Jan Wieck <JanWieck@yahoo.com> wrote:
+> Well, found some time today. I have not checked the module by using it
+> in Slony yet. I'll have some quiet 3 hours later. But I made a couple of
+> changes as follows:
+>
+>    - Adjusted Copyright to 2003-2007
+
+Ok.
+
+>    - Renamed USE_BSEARCH_IF_MORE to USE_BSEARCH_IF_NXIP_GREATER
+
+Ok.
+
+>    - Compare nxip > ...NXIP_GREATER (instead of >=3D)
+
+Ok.
+
+>    - Removed #ifndef SET_VARSIZE (must have been xxid artifact for
+>      pre-8.3 compatibility)
+
+I actually tested the code mostly under 8.2.  But for final
+code it should be removed, yes.
+
+>    - Removed qsort() wrapper function. Only referenced once.
+
+Although I don't object the change, I liked the wrapper function.
+That way all the is_visible/cmp_txid/sort code was visually
+close together and easy to get overview.
+
+Also the qsort() takes lot of parameters, having it in the middle
+of a tricky function feels messy.
+
+You later mentioned call overhead for called-once static functions,
+but I think you are incorrect.  Any sane compiler should inline
+such functions automatically.  Even if not, this is not a hot-path
+for txid code (txid_is_visible_in_snapshot() is.)
+
+>    - Don't sort the xip vector if bsearch is never used on it.
+
+No, this is a bad idea.  That creates two binary incompatible
+on-disk formats, that cannot be converted even with dump/restore.
+(note that the input function enforces sorting thus avoiding the
+need for sort)
+
+Also, the "if (nxip > USE_BSEARCH_IF_NXIP_GREATER)" before
+sort makes it impossible to later tune the cutoff point.
+
+I'd like to keep to sortedness as hardwired to format, that
+also allow later move to storing only deltas from xmin, thus
+halving the storage requirements.
+
+Only check that fits there is (nxip > 1)
+
+>    - Use $(MAKE) in Makefile to invoke installcheck (FreeBSD's make is
+>      not gmake).
+
+Ok.  The 'test' and 'ack' targets are useful shortcuts for
+dev/testing, but they could be removed altogether as they are
+not needed for end-user.
+
+> Question:
+>
+>    - Should we also move the txid_snapshot parsing functionality directly
+>      into the public function? Like the qsort wrapper, it is only used
+>      once throughout the code and a non-inline function call is not a
+>      zero-cost operation.
+
+No, I'd prefer to have the code in smaller pieces.  Even if
+compiler won't inline the code automatically, the overhead is
+minor.
+
+Unless it's totally critical hot-path, I think possible call
+overhead should not make us write messy code, especially for
+cases where the compiler can very well avoid the overhead.
+
+
+For reference I attached v4 of patch, with your changes except
+sorting related applied.  Also fixed a typo in sql.in and put
+the if (nxip > 1) to sort_snapshot().  Now its not so simple
+anymore :)
+
+-- =
+
+marko
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: txid-v4.diff.gz
+Type: application/x-gzip
+Size: 6662 bytes
+Desc: not available
+Url : http://lists.slony.info/pipermail/slony1-hackers/attachments/20070930=
+/046dce35/txid-v4.diff.bin
+From JanWieck at Yahoo.com  Sun Sep 30 15:22:38 2007
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Sun Sep 30 15:22:56 2007
+Subject: [Slony1-hackers] Re: XID in PG core/contrib
+In-Reply-To: <e51f66da0709301345jbc3cd4fv5b72e64f251c5d01@mail.gmail.com>
+References: <F0296FDB-72BA-46FD-B921-EA622DF1C89C@decibel.org>	
+	<e51f66da0709251223p191fa3b9i473b2ed2d9d122f2@mail.gmail.com>	
+	<46F97542.1080908@Yahoo.com>	
+	<e51f66da0709260329h2ec0db63jaf3a3329512551f9@mail.gmail.com>	
+	<46FBEA5A.2060001@Yahoo.com>	
+	<e51f66da0709280445xb738b98k47eb8013416ce72a@mail.gmail.com>	
+	<604.1190988448@sss.pgh.pa.us>	
+	<e51f66da0709280733v512773ddwd7ae4d88ad3da9cc@mail.gmail.com>	
+	<46FD1F7A.5000405@Yahoo.com> <46FFCD59.70203@Yahoo.com>
+	<e51f66da0709301345jbc3cd4fv5b72e64f251c5d01@mail.gmail.com>
+Message-ID: <470021AE.3060701@Yahoo.com>
+
+On 9/30/2007 4:45 PM, Marko Kreen wrote:
+> On 9/30/07, Jan Wieck <JanWieck@yahoo.com> wrote:
+>> Well, found some time today. I have not checked the module by using it
+>> in Slony yet. I'll have some quiet 3 hours later. But I made a couple of
+>> changes as follows:
+>>
+>>    - Adjusted Copyright to 2003-2007
+> 
+> Ok.
+> 
+>>    - Renamed USE_BSEARCH_IF_MORE to USE_BSEARCH_IF_NXIP_GREATER
+> 
+> Ok.
+> 
+>>    - Compare nxip > ...NXIP_GREATER (instead of >=)
+> 
+> Ok.
+> 
+>>    - Removed #ifndef SET_VARSIZE (must have been xxid artifact for
+>>      pre-8.3 compatibility)
+> 
+> I actually tested the code mostly under 8.2.  But for final
+> code it should be removed, yes.
+> 
+>>    - Removed qsort() wrapper function. Only referenced once.
+> 
+> Although I don't object the change, I liked the wrapper function.
+> That way all the is_visible/cmp_txid/sort code was visually
+> close together and easy to get overview.
+> 
+> Also the qsort() takes lot of parameters, having it in the middle
+> of a tricky function feels messy.
+> 
+> You later mentioned call overhead for called-once static functions,
+> but I think you are incorrect.  Any sane compiler should inline
+> such functions automatically.  Even if not, this is not a hot-path
+> for txid code (txid_is_visible_in_snapshot() is.)
+
+Why not declare it inline?
+
+> 
+>>    - Don't sort the xip vector if bsearch is never used on it.
+> 
+> No, this is a bad idea.  That creates two binary incompatible
+> on-disk formats, that cannot be converted even with dump/restore.
+> (note that the input function enforces sorting thus avoiding the
+> need for sort)
+> 
+> Also, the "if (nxip > USE_BSEARCH_IF_NXIP_GREATER)" before
+> sort makes it impossible to later tune the cutoff point.
+> 
+> I'd like to keep to sortedness as hardwired to format, that
+> also allow later move to storing only deltas from xmin, thus
+> halving the storage requirements.
+
+Makes sense.
+
+> 
+> Only check that fits there is (nxip > 1)
+> 
+>>    - Use $(MAKE) in Makefile to invoke installcheck (FreeBSD's make is
+>>      not gmake).
+> 
+> Ok.  The 'test' and 'ack' targets are useful shortcuts for
+> dev/testing, but they could be removed altogether as they are
+> not needed for end-user.
+> 
+>> Question:
+>>
+>>    - Should we also move the txid_snapshot parsing functionality directly
+>>      into the public function? Like the qsort wrapper, it is only used
+>>      once throughout the code and a non-inline function call is not a
+>>      zero-cost operation.
+> 
+> No, I'd prefer to have the code in smaller pieces.  Even if
+> compiler won't inline the code automatically, the overhead is
+> minor.
+
+Same question about declaring it inline then.
+
+> 
+> Unless it's totally critical hot-path, I think possible call
+> overhead should not make us write messy code, especially for
+> cases where the compiler can very well avoid the overhead.
+> 
+> 
+> For reference I attached v4 of patch, with your changes except
+> sorting related applied.  Also fixed a typo in sql.in and put
+> the if (nxip > 1) to sort_snapshot().  Now its not so simple
+> anymore :)
+> 
+
+Good. If I can get Slony actually working with this, I will add it to 
+the CVS and we can do the final polishing there.
+
+
+Jan
+
+-- 
+#======================================================================#
+# It's easier to get forgiveness for being wrong than for being right. #
+# Let's break this rule - forgive me.                                  #
+#================================================== JanWieck@Yahoo.com #
+From markokr at gmail.com  Sun Sep 30 19:58:59 2007
+From: markokr at gmail.com (Marko Kreen)
+Date: Sun Sep 30 19:59:14 2007
+Subject: [Slony1-hackers] Re: XID in PG core/contrib
+In-Reply-To: <470021AE.3060701@Yahoo.com>
+References: <F0296FDB-72BA-46FD-B921-EA622DF1C89C@decibel.org>
+	<e51f66da0709260329h2ec0db63jaf3a3329512551f9@mail.gmail.com>
+	<46FBEA5A.2060001@Yahoo.com>
+	<e51f66da0709280445xb738b98k47eb8013416ce72a@mail.gmail.com>
+	<604.1190988448@sss.pgh.pa.us>
+	<e51f66da0709280733v512773ddwd7ae4d88ad3da9cc@mail.gmail.com>
+	<46FD1F7A.5000405@Yahoo.com> <46FFCD59.70203@Yahoo.com>
+	<e51f66da0709301345jbc3cd4fv5b72e64f251c5d01@mail.gmail.com>
+	<470021AE.3060701@Yahoo.com>
+Message-ID: <e51f66da0709301958j2b275a52n2d33c7374851d2ac@mail.gmail.com>
+
+On 10/1/07, Jan Wieck <JanWieck@yahoo.com> wrote:
+> On 9/30/2007 4:45 PM, Marko Kreen wrote:
+> >>    - Removed qsort() wrapper function. Only referenced once.
+> >
+> > Although I don't object the change, I liked the wrapper function.
+> > That way all the is_visible/cmp_txid/sort code was visually
+> > close together and easy to get overview.
+> >
+> > Also the qsort() takes lot of parameters, having it in the middle
+> > of a tricky function feels messy.
+> >
+> > You later mentioned call overhead for called-once static functions,
+> > but I think you are incorrect.  Any sane compiler should inline
+> > such functions automatically.  Even if not, this is not a hot-path
+> > for txid code (txid_is_visible_in_snapshot() is.)
+>
+> Why not declare it inline?
+
+Because it should no be needed and does not matter much.  But yes,
+if possible call overhead annoys you, this is what should be done.
+
+> Good. If I can get Slony actually working with this, I will add it to
+> the CVS and we can do the final polishing there.
+
+Ok.  Awaiting your results then.
+
+-- 
+marko
+From tgl at sss.pgh.pa.us  Sun Sep 30 23:39:38 2007
+From: tgl at sss.pgh.pa.us (Tom Lane)
+Date: Sun Sep 30 23:39:57 2007
+Subject: [Slony1-hackers] Re: XID in PG core/contrib 
+In-Reply-To: <e51f66da0709301345jbc3cd4fv5b72e64f251c5d01@mail.gmail.com> 
+References: <F0296FDB-72BA-46FD-B921-EA622DF1C89C@decibel.org>
+	<e51f66da0709251223p191fa3b9i473b2ed2d9d122f2@mail.gmail.com>
+	<46F97542.1080908@Yahoo.com>
+	<e51f66da0709260329h2ec0db63jaf3a3329512551f9@mail.gmail.com>
+	<46FBEA5A.2060001@Yahoo.com>
+	<e51f66da0709280445xb738b98k47eb8013416ce72a@mail.gmail.com>
+	<604.1190988448@sss.pgh.pa.us>
+	<e51f66da0709280733v512773ddwd7ae4d88ad3da9cc@mail.gmail.com>
+	<46FD1F7A.5000405@Yahoo.com> <46FFCD59.70203@Yahoo.com>
+	<e51f66da0709301345jbc3cd4fv5b72e64f251c5d01@mail.gmail.com>
+Message-ID: <14629.1191220778@sss.pgh.pa.us>
+
+"Marko Kreen" <markokr@gmail.com> writes:
+> For reference I attached v4 of patch, with your changes except
+> sorting related applied.
+
+A few random comments:
+
++++ b/contrib/txid/Makefile
++
++
++test: install
++	$(MAKE) installcheck || { less regression.diffs; exit 1; }
++
++ack:
++	cp results/* expected/
+
+Please drop these random, unportable makefile targets.
+
++++ b/contrib/txid/README.txid
+
+Needs some spellchecking...
+
++++ b/contrib/txid/txid.c
+
++convert_xid(TransactionId xid, const TxidEpoch *state)
++{
++	uint64 epoch;
++
++	/* avoid issues with the the special meaning of 0 */
++	if (xid == InvalidTransactionId)
++		return MAX_TXID;
++
++	/* return special xid's as-is */
++	if (xid < FirstNormalTransactionId)
++		return xid;
+
+I'm having quite a bit of a problem with the above.  Why is
+InvalidTransactionId mapped to MAX_TXID, which presumably is part of the
+normal XID rotation and hence only larger than half of the universe,
+when the other special XIDs map as themselves?
+
++/*
++ * helper functions to use StringInfo for TxidSnapshot creation.
++ */
+
+I'm kind of wondering where this idea came from at all --- it seems
+like the very worst sort of impedance mismatch.  StringInfo really
+is not intended for non-textual data...
+
+			regards, tom lane
+From markokr at gmail.com  Sun Sep 30 23:56:12 2007
+From: markokr at gmail.com (Marko Kreen)
+Date: Sun Sep 30 23:56:32 2007
+Subject: [Slony1-hackers] Re: XID in PG core/contrib
+In-Reply-To: <14629.1191220778@sss.pgh.pa.us>
+References: <F0296FDB-72BA-46FD-B921-EA622DF1C89C@decibel.org>
+	<e51f66da0709260329h2ec0db63jaf3a3329512551f9@mail.gmail.com>
+	<46FBEA5A.2060001@Yahoo.com>
+	<e51f66da0709280445xb738b98k47eb8013416ce72a@mail.gmail.com>
+	<604.1190988448@sss.pgh.pa.us>
+	<e51f66da0709280733v512773ddwd7ae4d88ad3da9cc@mail.gmail.com>
+	<46FD1F7A.5000405@Yahoo.com> <46FFCD59.70203@Yahoo.com>
+	<e51f66da0709301345jbc3cd4fv5b72e64f251c5d01@mail.gmail.com>
+	<14629.1191220778@sss.pgh.pa.us>
+Message-ID: <e51f66da0709302356scc36062o19178c01a8e81b27@mail.gmail.com>
+
+On 10/1/07, Tom Lane <tgl@sss.pgh.pa.us> wrote:
+> "Marko Kreen" <markokr@gmail.com> writes:
+> > For reference I attached v4 of patch, with your changes except
+> > sorting related applied.
+>
+> A few random comments:
+>
+> +++ b/contrib/txid/Makefile
+> +
+> +
+> +test: install
+> +       $(MAKE) installcheck || { less regression.diffs; exit 1; }
+> +
+> +ack:
+> +       cp results/* expected/
+>
+> Please drop these random, unportable makefile targets.
+
+Ok.
+
+> +++ b/contrib/txid/README.txid
+>
+> Needs some spellchecking...
+
+Some more explanations too.  But I hope we can work on README
+after merge?
+
+> +++ b/contrib/txid/txid.c
+>
+> +convert_xid(TransactionId xid, const TxidEpoch *state)
+> +{
+> +       uint64 epoch;
+> +
+> +       /* avoid issues with the the special meaning of 0 */
+> +       if (xid == InvalidTransactionId)
+> +               return MAX_TXID;
+> +
+> +       /* return special xid's as-is */
+> +       if (xid < FirstNormalTransactionId)
+> +               return xid;
+>
+> I'm having quite a bit of a problem with the above.  Why is
+> InvalidTransactionId mapped to MAX_TXID, which presumably is part of the
+> normal XID rotation and hence only larger than half of the universe,
+> when the other special XIDs map as themselves?
+
+Because InvalidTransactionId is supposed to be always invisible,
+but others always visible?  And we don't want to add epoch to
+any of them.
+
+MAX_TXID - the txid's are externally signed int8-s, so it's the
+largest value in our universe.  I really like to avoid creating
+special unsigned type for txid's.  I don't see the need for that.
+
+I don't expect that txid.c code ever sees special xid's, but
+I added the support for then anyway, just to be safe.
+
+> +/*
+> + * helper functions to use StringInfo for TxidSnapshot creation.
+> + */
+>
+> I'm kind of wondering where this idea came from at all --- it seems
+> like the very worst sort of impedance mismatch.  StringInfo really
+> is not intended for non-textual data...
+
+Just to get rid of inline buffer management code mixed with
+string parsing.  Although, as I have now factored out the buffer
+handling code into separate functions, we could do it by hand
+again in the special functions.  Do you want such change?
+
+I used StringInfo as it was only buffer tool available from backend...
+
+-- 
+marko

@@ -1,0 +1,285 @@
+From sachin.srivastava at enterprisedb.com  Tue Jul 14 04:37:25 2009
+From: sachin.srivastava at enterprisedb.com (Sachin Srivastava)
+Date: Tue Jul 14 04:39:37 2009
+Subject: [Slony1-bugs] SlonyI-2.0.2 giving warning for PostgreSQL 8.4
+Message-ID: <4A5C6DF5.4020704@enterprisedb.com>
+
+When i run the slonik command i get this warning:
+
+/Possible unsupported PostgreSQL version (80400) 8.4, defaulting to 8.3 =
+
+support.
+
+Did we miss something like this:
+
+/=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D
+RCS file: /slony1/slony1-engine/src/slonik/slonik.c,v
+retrieving revision 1.92
+diff -c -r1.92 slonik.c
+*** src/slonik/slonik.c    11 Jun 2009 19:03:45 -0000    1.92
+--- src/slonik/slonik.c    14 Jul 2009 11:37:01 -0000
+***************
+*** 1799,1810 ****
+           use_major =3D 8;
+           use_minor =3D 3;
+       }
+!     else    /* above 8.3 ??? */
+       {
+           use_major =3D 8;
+!         use_minor =3D 3;
+           printf("%s:%d: Possible unsupported PostgreSQL "
+!             "version (%d) %d.%d, defaulting to 8.3 support\n",
+                           stmt->stmt_filename, stmt->stmt_lno, =
+
+adminfo->pg_version,
+               (adminfo->pg_version/10000), =
+
+((adminfo->pg_version%10000)/100));
+       }
+--- 1799,1815 ----
+           use_major =3D 8;
+           use_minor =3D 3;
+       }
+!     else if ((adminfo->pg_version >=3D 80400) && (adminfo->pg_version < =
+
+80500)) /* 8.4 */
+       {
+           use_major =3D 8;
+!         use_minor =3D 4;
+!     }
+!     else    /* above 8.4 ??? */
+!     {
+!         use_major =3D 8;
+!         use_minor =3D 4;
+           printf("%s:%d: Possible unsupported PostgreSQL "
+!             "version (%d) %d.%d, defaulting to 8.4 support\n",
+                           stmt->stmt_filename, stmt->stmt_lno, =
+
+adminfo->pg_version,
+               (adminfo->pg_version/10000), =
+
+((adminfo->pg_version%10000)/100));
+       }
+
+-- =
+
+Regards,
+Sachin Srivastava
+www.enterprisedb.com
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-bugs/attachments/20090714/360=
+e3052/attachment.htm
+From cbbrowne at ca.afilias.info  Tue Jul 14 11:51:16 2009
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Tue Jul 14 11:51:32 2009
+Subject: [Slony1-bugs] SlonyI-2.0.2 giving warning for PostgreSQL 8.4
+In-Reply-To: <4A5C6DF5.4020704@enterprisedb.com> (Sachin Srivastava's message
+	of "Tue, 14 Jul 2009 17:07:25 +0530")
+References: <4A5C6DF5.4020704@enterprisedb.com>
+Message-ID: <87prc3xfmj.fsf@dba2.int.libertyrms.com>
+
+Sachin Srivastava <sachin.srivastava@enterprisedb.com> writes:
+> When i run the slonik command i get this warning:
+> Possible unsupported PostgreSQL version (80400) 8.4, defaulting to 8.3 support.
+
+The patch is close to right...  I'd rather go with...
+
+Index: slonik/slonik.c
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/src/slonik/slonik.c,v
+retrieving revision 1.91.2.2
+diff -c -u -r1.91.2.2 slonik.c
+cvs diff: conflicting specifications of output style
+--- slonik/slonik.c     17 Jun 2009 21:37:38 -0000      1.91.2.2
++++ slonik/slonik.c     14 Jul 2009 18:47:20 -0000
+@@ -1799,7 +1799,12 @@
+                use_major = 8;
+                use_minor = 3;
+        }
+-       else    /* above 8.3 ??? */
++       else if ((adminfo->pg_version >= 80400) && (adminfo->pg_version < 80500)) /* 8.4 */
++       {
++               use_major = 8;
++               use_minor = 3;   /* at this point, there's nothing specifically different in 8.4 from 8.3 */
++       }
++       else    /* above 8.4 ??? */
+        {
+                use_major = 8;
+                use_minor = 3;
+
+The point of use_major/use_minor is to pick which additional schema
+files to load.
+
+We haven't had any 8.4-specific variances, so we can safely use the
+8.3 schema files, hence I identify 8.4 as being "the same as 8.3."
+-- 
+let name="cbbrowne" and tld="ca.afilias.info" in name ^ "@" ^ tld;;
+<http://dba2.int.libertyrms.com/>
+Christopher Browne
+(416) 673-4124 (land)
+"Bother,"  said Pooh,  "Eeyore, ready  two photon  torpedoes  and lock
+phasers on the Heffalump, Piglet, meet me in transporter room three"
+From slony1-bugs at lists.slony.info  Sun Jul 19 20:20:50 2009
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Sun Jul 19 20:20:51 2009
+Subject: [Slony1-bugs] [Bug 93] New:
+ compress_actionseq converting large log_actionseq values incorrectly
+Message-ID: <bug-93-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=93
+
+           Summary: compress_actionseq converting large log_actionseq values
+                    incorrectly
+           Product: Slony-I
+           Version: devel
+          Platform: Other
+        OS/Version: Linux
+            Status: NEW
+          Severity: major
+          Priority: urgent
+         Component: slon
+        AssignedTo: slony1-bugs@lists.slony.info
+        ReportedBy: gordon@collectiveintellect.com
+                CC: slony1-bugs@lists.slony.info
+   Estimated Hours: 0.0
+
+
+The "log_actionseq" column in the sl_log_1/2 tables is a bigint.  The
+compress_actionseq() function in remote_worker.c is converting a list of these
+8-byte bigints in string form to 4-byte integers, which hold a maximum of
+2,147,483,647. Larger values are losing precision. 
+
+Sample log snippet:
+
+14 0719 18:33:27 DEBUG4 compress_actionseq(list,subquery) Action list:
+'4832430056','4832430057' ...
+14 0719 18:33:27 DEBUG4 Finished number: 537462760
+14 0719 18:33:27 DEBUG4 Finished number: 537462761
+...
+
+>From remote_worker.c, lines 5516-5518:
+
+        int                     curr_number,
+                                curr_min,
+                                curr_max;
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Wed Jul 29 11:00:10 2009
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Wed Jul 29 11:00:12 2009
+Subject: [Slony1-bugs] [Bug 94] New: slon logs database password at start-up
+Message-ID: <bug-94-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=94
+
+           Summary: slon logs database password at start-up
+           Product: Slony-I
+           Version: devel
+          Platform: PC
+        OS/Version: Linux
+            Status: NEW
+          Severity: normal
+          Priority: medium
+         Component: slon
+        AssignedTo: slony1-bugs@lists.slony.info
+        ReportedBy: david.winter@zeec.biz
+                CC: slony1-bugs@lists.slony.info
+   Estimated Hours: 0.0
+
+
+When slon starts up, it logs the database connection setting - including the
+password in plain text - to the log file and/or syslog.
+
+INFO   syncThread: thread starts
+INFO   remoteListenThread_2: thread starts
+INFO   remoteWorkerThread_2: thread starts
+CONFIG cleanupThread: thread starts
+CONFIG cleanupThread: bias = 35383
+CONFIG version for "host=myhost dbname=mydb user=myuser port=5432
+password=mypass" is 80400
+CONFIG version for "host=myhost dbname=mydb user=myuser port=5432
+password=mypass" is 80400
+CONFIG version for "host=myhost dbname=mydb user=myuser port=5432
+password=mypass" is 80400
+CONFIG remoteWorkerThread_2: update provider configuration
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Wed Jul 29 11:53:51 2009
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Wed Jul 29 11:53:53 2009
+Subject: [Slony1-bugs] [Bug 93]
+ compress_actionseq converting large log_actionseq values incorrectly
+In-Reply-To: <bug-93-4@http.www.slony.info/bugzilla/>
+Message-ID: <20090729185351.87F47290C13@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=93
+
+
+Christopher Browne <cbbrowne@ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+             Status|NEW                         |RESOLVED
+         Resolution|                            |FIXED
+
+
+
+
+--- Comment #1 from Christopher Browne <cbbrowne@ca.afilias.info>  2009-07-29 11:53:51 ---
+Fixed in HEAD, 1.2, and 2.0
+http://lists.slony.info/pipermail/slony1-commit/2009-July/002589.html
+http://lists.slony.info/pipermail/slony1-commit/2009-July/002590.html
+http://lists.slony.info/pipermail/slony1-commit/2009-July/002591.html
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Wed Jul 29 11:57:45 2009
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Wed Jul 29 11:57:47 2009
+Subject: [Slony1-bugs] [Bug 94] slon logs database password at start-up
+In-Reply-To: <bug-94-4@http.www.slony.info/bugzilla/>
+Message-ID: <20090729185745.34884290C13@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=94
+
+
+Christopher Browne <cbbrowne@ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+             Status|NEW                         |RESOLVED
+         Resolution|                            |WONTFIX
+
+
+
+
+--- Comment #1 from Christopher Browne <cbbrowne@ca.afilias.info>  2009-07-29 11:57:45 ---
+"Best practice" is to store passwords in .pgpass, so that they are not
+vulnerable to capture in this fashion.
+
+http://www.postgresql.org/docs/8.3/interactive/libpq-pgpass.html
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.

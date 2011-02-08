@@ -1,0 +1,116 @@
+From dquiroga at integratech.com.ar  Fri Jun 13 12:37:56 2008
+From: dquiroga at integratech.com.ar (damian quiroga)
+Date: Thu Sep 25 08:30:52 2008
+Subject: [Slony1-hackers] Memory leak in slony1-1.2.10?
+Message-ID: <1213385730.19043.10.camel@localhost>
+
+Hi
+
+I'm using slony1-1.2.10, Linux spec-2 2.6.22-gentoo-r5,
+postgresql-8.2.4-r1, libpq-8.2.4, libpqxx-2.6.8
+
+If I follow the steps in "Replicating Your First Database", and then
+check for the memory usage of the slon processes using ps I notice that
+the RSS of each one (the worker process for pgbench and the worker
+process for pgbenchslave) increases in 4 kilobytes about every 2
+minutes.
+
+I ran the test again with valgrind and the results show in the summary
+for the slon process for the "master" node:
+(...)
+==00:00:02:02.047 2024== 2,280 bytes in 19 blocks are definitely lost in
+loss record 16 of 17
+==00:00:02:02.047 2024==    at 0x4022998: malloc
+(in /usr/lib/valgrind/x86-linux/vgpreload_memcheck.so)
+==00:00:02:02.047 2024==    by 0x403158A: PQmakeEmptyPGresult
+(in /usr/lib/libpq.so.5.0)
+==00:00:02:02.047 2024==    by 0x403A1EC: (within /usr/lib/libpq.so.5.0)
+==00:00:02:02.047 2024==    by 0x4030623: (within /usr/lib/libpq.so.5.0)
+==00:00:02:02.047 2024==    by 0x40321B5: PQgetResult
+(in /usr/lib/libpq.so.5.0)
+==00:00:02:02.047 2024==    by 0x403235A: (within /usr/lib/libpq.so.5.0)
+==00:00:02:02.047 2024==    by 0x804F936: remoteListenThread_main
+(remote_listen.c:262)
+==00:00:02:02.047 2024==    by 0x4051FFA: start_thread
+(in /lib/libpthread-2.5.so)
+==00:00:02:02.047 2024==    by 0x412195D: clone (in /lib/libc-2.5.so)
+
+In the summary for the slon process for the "slave" node:
+(...)
+==00:00:02:02.080 2036== 30,824 (4,200 direct, 26,624 indirect) bytes in
+35 blocks are definitely lost in loss record 19 of 20
+==00:00:02:02.080 2036==    at 0x4022998: malloc
+(in /usr/lib/valgrind/x86-linux/vgpreload_memcheck.so)
+==00:00:02:02.080 2036==    by 0x403158A: PQmakeEmptyPGresult
+(in /usr/lib/libpq.so.5.0)
+==00:00:02:02.081 2036==    by 0x403A21A: (within /usr/lib/libpq.so.5.0)
+==00:00:02:02.081 2036==    by 0x4030623: (within /usr/lib/libpq.so.5.0)
+==00:00:02:02.081 2036==    by 0x40321B5: PQgetResult
+(in /usr/lib/libpq.so.5.0)
+==00:00:02:02.081 2036==    by 0x403235A: (within /usr/lib/libpq.so.5.0)
+==00:00:02:02.081 2036==    by 0x8058E4F: remoteWorkerThread_main
+(remote_worker.c:2938)
+==00:00:02:02.081 2036==    by 0x4051FFA: start_thread
+(in /lib/libpthread-2.5.so)
+==00:00:02:02.081 2036==    by 0x412195D: clone (in /lib/libc-2.5.so)
+
+The line remote_listen.c:262 is
+	res = PQexec(dbconn, dstring_data(&query1));
+for which PQclear() is only called if (PQresultStatus(res) !=
+PGRES_COMMAND_OK)
+
+And the line remote_worker.c:2938 is
+	res4 = PQexec(loc_dbconn, dstring_data(&query2));
+for which again PQclear() is only called if (PQresultStatus(res4) !=
+PGRES_COMMAND_OK)
+
+Shouldn't PQClear() be also called when the query is successful?
+
+I tried adding the PQClear() calls and running the test again. The
+results were that the 4 kilobytes increases in memory usage are now more
+unfrequent (about every 10 minutes). But I don't know whether doing that
+is correct or not. So my doubts are:
+a) Are those really a memory leaks?
+b) Is that the correct way to fix them?
+
+Thanks in advance,
+
+-- 
+Dami?n Quiroga
+Integratech S.A
+
+From dquiroga at integratech.com.ar  Fri Jun 13 12:39:01 2008
+From: dquiroga at integratech.com.ar (damian quiroga)
+Date: Thu Sep 25 08:30:53 2008
+Subject: [Slony1-hackers] High memory usage when using high table id
+Message-ID: <1213385802.19043.13.camel@localhost>
+
+Hi
+
+I'm replicating a database with about a hundred tables using slony. I have a
+master node and a slave node.
+
+The memory usage of the slon processes are normally only a few MB. I have
+noticed however that adding a table named cdr.cdr_20080611 to the
+replication causes the memory use of the slon process for the slave node to
+raise to about 161 MB. even if the table is empty.
+
+After many tests I realized that the reason for this behavior is that I am
+using table id 20080611 when I add this table to a set. If I use a smaller
+table id, say 1000 this doesn't happen.
+
+According to my tests, the higher the table id the higher the memory usage
+on the slon process for the slave node. I think this is a bug since by
+choosing a high enough table id the memory consumption can become *very*
+large.
+
+I would appreciate it if you tell me what you think about that.
+
+By the way, I'm using slony 1.2.10 (but I haven't seen anything about this
+topic in the release notes for newer versions)
+
+Thanks
+
+Dami?n Quiroga
+Integratech S.A
+

@@ -1,0 +1,1770 @@
+From ssinger at ca.afilias.info  Fri May  7 07:16:01 2010
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Fri, 07 May 2010 10:16:01 -0400
+Subject: [Slony1-hackers] PATCH more memory leaks
+In-Reply-To: <4BDACE17.6000403@astaro.com>
+References: <4BDACE17.6000403@astaro.com>
+Message-ID: <4BE420A1.2090307@ca.afilias.info>
+
+Ulrich Weber wrote:
+> -----BEGIN PGP SIGNED MESSAGE-----
+> Hash: SHA1
+> 
+> Hi all,
+> 
+> finally I found the memory leak I was searching for:
+
+Thanks for the patch.
+
+> 
+> The remoteListenThread is subscribed to notifications events,
+> however the events are never removed from the queue.
+> 
+> Don't know if the postgresql notifications are still needed,
+> because they got removed in slony1-2. I added a simple
+> +       while ((notification = PQnotifies(conn->dbconn)) != NULL)
+> +               PQfreemem(notification);
+> but maybe the whole listen/unlisten statements can be removed anyway ??
+
+Maybe Jan can confirm on this but I think they still needed in 1.2
+
+Both patches 'look' okay to me, but with our recent history of memory 
+leak fixes causing issues (ie 2.0.3) I'd feel more confident if another 
+set of eyes also gave it a +1 before committing.
+
+
+
+
+> 
+> I also removed the "SlonDString lsquery" variable in
+> remoteWorkerThread_main,
+> seems not to be used.
+> 
+> 
+> @Steve Singer: Thanks for your feedback, moved the dstring_free()
+> call after the while loop.
+> 
+> 
+> In 2.0.3 I found some other memory leaks. Also there seems to be a
+> typo in cleanupThread_main():
+> - -                               vrc = PQresultStatus(res);
+> +                               vrc = PQresultStatus(res2);
+> 
+> Best regards,
+>  Ulrich
+> 
+> - --
+> Ulrich Weber | uweber at astaro.com | Software Engineer
+> Astaro GmbH & Co. KG | www.astaro.com | Phone +49-721-25516-0 | Fax ?200
+> An der RaumFabrik 33a | 76227 Karlsruhe | Germany
+> -----BEGIN PGP SIGNATURE-----
+> Version: GnuPG v1.4.9 (GNU/Linux)
+> Comment: Using GnuPG with Mozilla - http://enigmail.mozdev.org
+> 
+> iEYEARECAAYFAkvazhcACgkQ22t2oTuElzoePACeNUcsLSGPZYIMIX1vtnBqyj3H
+> kD4AoK3nVO8/Mnp1p2TY1wDOjWhZ1fqj
+> =I3Uk
+> -----END PGP SIGNATURE-----
+> 
+> 
+> 
+> ------------------------------------------------------------------------
+> 
+> _______________________________________________
+> Slony1-hackers mailing list
+> Slony1-hackers at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-hackers
+
+
+-- 
+Steve Singer
+Afilias Canada
+Data Services Developer
+416-673-1142
+
+From singh.gurjeet at gmail.com  Wed May 12 07:31:06 2010
+From: singh.gurjeet at gmail.com (Gurjeet Singh)
+Date: Wed, 12 May 2010 10:31:06 -0400
+Subject: [Slony1-hackers] An old event not confirmed: A possible bug?
+Message-ID: <AANLkTikflK7G1bHIJjQLynJ-VZIwhAvAWazUNqyFQm5i@mail.gmail.com>
+
+Hi All,
+
+    I have two Slony test beds which show the exact same symptoms!
+
+select * from sl_event order by ev_seqno;
+
+ ev_origin |  ev_seqno  |        ev_timestamp        |
+ev_snapshot         | ev_type |
+-----------+------------+----------------------------+----------------------------+---------+-
+         2 | 5000000002 | 2010-04-30 08:32:38.622928 |
+458:458:                   | SYNC    |
+         1 | 5000525721 | 2010-05-12 13:30:22.79626  |
+72685915:72685915:         | SYNC    |
+         1 | 5000525722 | 2010-05-12 13:30:24.800943 |
+72686139:72686139:         | SYNC    |
+         1 | 5000525723 | 2010-05-12 13:30:26.804862 |
+72686224:72686224:         | SYNC    |
+...
+
+The reason I think this _might_ be a bug is that on both clusters, slave
+node's sl_event has the exact same record for ev_seqno=5000000002 except for
+the timestamp; same origin, and same snapshot!
+
+The head of sl_confirm has:
+
+ select * from sl_confirm order by con_seqno;
+
+ con_origin | con_received | con_seqno  |       con_timestamp
+------------+--------------+------------+----------------------------
+          2 |            1 | 5000000002 | 2010-04-30 08:32:53.974021
+          1 |            2 | 5000527075 | 2010-05-12 14:15:41.192279
+          1 |            2 | 5000527076 | 2010-05-12 14:15:43.193607
+          1 |            2 | 5000527077 | 2010-05-12 14:15:45.196291
+          1 |            2 | 5000527078 | 2010-05-12 14:15:47.197005
+...
+
+Can someone comment on the health of the cluster? All events, except for
+that on, are being confirmed and purged from the system regularly, so my
+assumption is that the cluster is healthy and that the slave is in sync with
+the master.
+
+Thanks in advance.
+-- 
+gurjeet.singh
+@ EnterpriseDB - The Enterprise Postgres Company
+http://www.enterprisedb.com
+
+singh.gurjeet@{ gmail | yahoo }.com
+Twitter/Skype: singh_gurjeet
+
+Mail sent from my BlackLaptop device
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-hackers/attachments/20100512/38abcc81/attachment.htm 
+
+From JanWieck at Yahoo.com  Wed May 12 07:56:04 2010
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Wed, 12 May 2010 10:56:04 -0400
+Subject: [Slony1-hackers] [Slony1-general] An old event not confirmed: A
+	possible bug?
+In-Reply-To: <AANLkTikflK7G1bHIJjQLynJ-VZIwhAvAWazUNqyFQm5i@mail.gmail.com>
+References: <AANLkTikflK7G1bHIJjQLynJ-VZIwhAvAWazUNqyFQm5i@mail.gmail.com>
+Message-ID: <4BEAC184.1000702@Yahoo.com>
+
+On 5/12/2010 10:31 AM, Gurjeet Singh wrote:
+> Hi All,
+> 
+>     I have two Slony test beds which show the exact same symptoms!
+> 
+> select * from sl_event order by ev_seqno;
+> 
+>  ev_origin |  ev_seqno  |        ev_timestamp        |        
+> ev_snapshot         | ev_type |
+> -----------+------------+----------------------------+----------------------------+---------+-
+>          2 | 5000000002 | 2010-04-30 08:32:38.622928 | 
+> 458:458:                   | SYNC    |
+>          1 | 5000525721 | 2010-05-12 13:30:22.79626  | 
+> 72685915:72685915:         | SYNC    |
+>          1 | 5000525722 | 2010-05-12 13:30:24.800943 | 
+> 72686139:72686139:         | SYNC    |
+>          1 | 5000525723 | 2010-05-12 13:30:26.804862 | 
+> 72686224:72686224:         | SYNC    |
+> ...
+> 
+
+Slony always keeps at least the last event per origin around. Otherwise 
+the view sl_status would not work.
+
+What should worry you is that there are no newer SYNC events from node 2 
+available. Slony does create a sporadic SYNC every now and then even if 
+there is no activity or the node isn't an origin anyway.
+
+Is it possible that node 2's clock is way off?
+
+
+Jan
+
+> The reason I think this _might_ be a bug is that on both clusters, slave 
+> node's sl_event has the exact same record for ev_seqno=5000000002 except 
+> for the timestamp; same origin, and same snapshot!
+> 
+> The head of sl_confirm has:
+> 
+>  select * from sl_confirm order by con_seqno;
+> 
+>  con_origin | con_received | con_seqno  |       con_timestamp
+> ------------+--------------+------------+----------------------------
+>           2 |            1 | 5000000002 | 2010-04-30 08:32:53.974021
+>           1 |            2 | 5000527075 | 2010-05-12 14:15:41.192279
+>           1 |            2 | 5000527076 | 2010-05-12 14:15:43.193607
+>           1 |            2 | 5000527077 | 2010-05-12 14:15:45.196291
+>           1 |            2 | 5000527078 | 2010-05-12 14:15:47.197005
+> ...
+> 
+> Can someone comment on the health of the cluster? All events, except for 
+> that on, are being confirmed and purged from the system regularly, so my 
+> assumption is that the cluster is healthy and that the slave is in sync 
+> with the master.
+> 
+> Thanks in advance.
+> -- 
+> gurjeet.singh
+> @ EnterpriseDB - The Enterprise Postgres Company
+> http://www.enterprisedb.com
+> 
+> singh.gurjeet@{ gmail | yahoo }.com
+> Twitter/Skype: singh_gurjeet
+> 
+> Mail sent from my BlackLaptop device
+> 
+> 
+> ------------------------------------------------------------------------
+> 
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+
+
+-- 
+Anyone who trades liberty for security deserves neither
+liberty nor security. -- Benjamin Franklin
+
+From singh.gurjeet at gmail.com  Wed May 12 09:44:52 2010
+From: singh.gurjeet at gmail.com (Gurjeet Singh)
+Date: Wed, 12 May 2010 12:44:52 -0400
+Subject: [Slony1-hackers] [Slony1-general] An old event not confirmed: A
+	possible bug?
+In-Reply-To: <4BEAC184.1000702@Yahoo.com>
+References: <AANLkTikflK7G1bHIJjQLynJ-VZIwhAvAWazUNqyFQm5i@mail.gmail.com> 
+	<4BEAC184.1000702@Yahoo.com>
+Message-ID: <AANLkTinH3vK-4jAEWMaXvROXkJ0ThTQCBxmRzmxvfjco@mail.gmail.com>
+
+On Wed, May 12, 2010 at 10:56 AM, Jan Wieck <JanWieck at yahoo.com> wrote:
+
+> On 5/12/2010 10:31 AM, Gurjeet Singh wrote:
+>
+>> Hi All,
+>>
+>>    I have two Slony test beds which show the exact same symptoms!
+>>
+>> select * from sl_event order by ev_seqno;
+>>
+>>  ev_origin |  ev_seqno  |        ev_timestamp        |        ev_snapshot
+>>         | ev_type |
+>>
+>> -----------+------------+----------------------------+----------------------------+---------+-
+>>         2 | 5000000002 | 2010-04-30 08:32:38.622928 | 458:458:
+>>       | SYNC    |
+>>         1 | 5000525721 | 2010-05-12 13:30:22.79626  | 72685915:72685915:
+>>       | SYNC    |
+>>         1 | 5000525722 | 2010-05-12 13:30:24.800943 | 72686139:72686139:
+>>       | SYNC    |
+>>         1 | 5000525723 | 2010-05-12 13:30:26.804862 | 72686224:72686224:
+>>       | SYNC    |
+>> ...
+>>
+>>
+> Slony always keeps at least the last event per origin around. Otherwise the
+> view sl_status would not work.
+>
+> What should worry you is that there are no newer SYNC events from node 2
+> available. Slony does create a sporadic SYNC every now and then even if
+> there is no activity or the node isn't an origin anyway.
+>
+> Is it possible that node 2's clock is way off?
+>
+
+# ssh root at 10.32.169.215 date; ssh root at 10.32.169.216 date
+Wed May 12 16:38:20 UTC 2010
+Wed May 12 16:38:20 UTC 2010
+
+Above the difference of times on the two nodes; 215 has the origin and 216
+has the subscriber. They seem to be perfectly in sync.
+
+I think I forgot to paste the test_slony_state.pl output before. This is
+waht raised the concern
+<snip>
+Node: 2 Confirmations not propagating from 2 to 1
+================================================
+Confirmations not propagating quickly in sl_confirm -
+
+For origin node 2, receiver node 1, earliest propagated
+confirmation has age 12 days > 00:30:00
+
+Are slons running for both nodes?
+
+Could listen paths be missing so that confirmations are not propagating?
+
+
+Node: 2 Events not propagating to node 2
+================================================
+Events not propagating quickly in sl_event -
+For origin node 2, earliest propagated event of age 12 days 00:01:00 >
+00:30:00
+
+Are slons running for both nodes?
+
+Could listen paths be missing so that events are not propagating?
+</snip>
+
+And the path and listen configs:
+
+system.db=# select * from sl_path;
+ pa_server | pa_client |                    pa_conninfo                    |
+pa_connretry
+-----------+-----------+---------------------------------------------------+--------------
+         2 |         1 | dbname=system.db host=10.32.169.216 user=postgres
+|           10
+         1 |         2 | dbname=system.db host=10.32.169.215 user=postgres
+|           10
+(2 rows)
+system.db=# select * from sl_listen ;
+ li_origin | li_provider | li_receiver
+-----------+-------------+-------------
+         2 |           2 |           1
+         1 |           1 |           2
+(2 rows)
+
+
+Thanks and best regards,
+
+
+>
+>
+> Jan
+>
+>  The reason I think this _might_ be a bug is that on both clusters, slave
+>> node's sl_event has the exact same record for ev_seqno=5000000002 except for
+>> the timestamp; same origin, and same snapshot!
+>>
+>> The head of sl_confirm has:
+>>
+>>  select * from sl_confirm order by con_seqno;
+>>
+>>  con_origin | con_received | con_seqno  |       con_timestamp
+>> ------------+--------------+------------+----------------------------
+>>          2 |            1 | 5000000002 | 2010-04-30 08:32:53.974021
+>>          1 |            2 | 5000527075 | 2010-05-12 14:15:41.192279
+>>          1 |            2 | 5000527076 | 2010-05-12 14:15:43.193607
+>>          1 |            2 | 5000527077 | 2010-05-12 14:15:45.196291
+>>          1 |            2 | 5000527078 | 2010-05-12 14:15:47.197005
+>> ...
+>>
+>> Can someone comment on the health of the cluster? All events, except for
+>> that on, are being confirmed and purged from the system regularly, so my
+>> assumption is that the cluster is healthy and that the slave is in sync with
+>> the master.
+>>
+>> Thanks in advance.
+>> --
+>> gurjeet.singh
+>> @ EnterpriseDB - The Enterprise Postgres Company
+>> http://www.enterprisedb.com
+>>
+>> singh.gurjeet@{ gmail | yahoo }.com
+>> Twitter/Skype: singh_gurjeet
+>>
+>> Mail sent from my BlackLaptop device
+>>
+>>
+>> ------------------------------------------------------------------------
+>>
+>> _______________________________________________
+>> Slony1-general mailing list
+>> Slony1-general at lists.slony.info
+>> http://lists.slony.info/mailman/listinfo/slony1-general
+>>
+>
+>
+> --
+> Anyone who trades liberty for security deserves neither
+> liberty nor security. -- Benjamin Franklin
+>
+
+
+
+-- 
+gurjeet.singh
+@ EnterpriseDB - The Enterprise Postgres Company
+http://www.enterprisedb.com
+
+singh.gurjeet@{ gmail | yahoo }.com
+Twitter/Skype: singh_gurjeet
+
+Mail sent from my BlackLaptop device
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-hackers/attachments/20100512/ba6812db/attachment-0001.htm 
+
+From singh.gurjeet at gmail.com  Thu May 13 07:24:12 2010
+From: singh.gurjeet at gmail.com (Gurjeet Singh)
+Date: Thu, 13 May 2010 10:24:12 -0400
+Subject: [Slony1-hackers] License info hard to find
+Message-ID: <AANLkTimeR2mmc_fAexDoTfY5gGiurThGVvkyEcjal1UT@mail.gmail.com>
+
+I understand that Slony is BSD licensed, but it has been pretty difficult
+for me to find a statement declaring that. I could _somehow_ get to this:
+http://www.slony.info/documentation/LEGALNOTICE.html but it starts with
+'PostgreSQL is ...'!
+
+Google shows that some Slony1-www  index.html files in the CVS have a note
+about the BSD license, but nothing actually on the website! And I couldn't
+find a LICENSE file in the source distro either. What's the official stand
+of the developers anbd where can the customers' legal departments ratify the
+usage of Slony?
+
+http://main.slony.info/viewcvs/viewvc.cgi/slony1-www/index.html?view=co
+
+Best regards,
+-- 
+gurjeet.singh
+@ EnterpriseDB - The Enterprise Postgres Company
+http://www.enterprisedb.com
+
+singh.gurjeet@{ gmail | yahoo }.com
+Twitter/Skype: singh_gurjeet
+
+Mail sent from my BlackLaptop device
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-hackers/attachments/20100513/547bebf9/attachment.html 
+
+From dpage at pgadmin.org  Thu May 13 07:50:03 2010
+From: dpage at pgadmin.org (Dave Page)
+Date: Thu, 13 May 2010 15:50:03 +0100
+Subject: [Slony1-hackers] License info hard to find
+In-Reply-To: <AANLkTimeR2mmc_fAexDoTfY5gGiurThGVvkyEcjal1UT@mail.gmail.com>
+References: <AANLkTimeR2mmc_fAexDoTfY5gGiurThGVvkyEcjal1UT@mail.gmail.com>
+Message-ID: <AANLkTinGLZbil87Eyd5_BfON5okVlSS6CnhKtB7Oy-SU@mail.gmail.com>
+
+On Thu, May 13, 2010 at 3:24 PM, Gurjeet Singh <singh.gurjeet at gmail.com> wrote:
+> I understand that Slony is BSD licensed, but it has been pretty difficult
+> for me to find a statement declaring that. I could _somehow_ get to this:
+> http://www.slony.info/documentation/LEGALNOTICE.html but it starts with
+> 'PostgreSQL is ...'!
+>
+> Google shows that some Slony1-www? index.html files in the CVS have a note
+> about the BSD license, but nothing actually on the website! And I couldn't
+> find a LICENSE file in the source distro either. What's the official stand
+> of the developers anbd where can the customers' legal departments ratify the
+> usage of Slony?
+
+FYI, that licence is officially "The PostgreSQL Licence". It is not
+BSD, which has numbered clauses.
+
+
+-- 
+Dave Page
+EnterpriseDB UK: http://www.enterprisedb.com
+The Enterprise Postgres Company
+
+From singh.gurjeet at gmail.com  Thu May 13 08:34:05 2010
+From: singh.gurjeet at gmail.com (Gurjeet Singh)
+Date: Thu, 13 May 2010 11:34:05 -0400
+Subject: [Slony1-hackers] License info hard to find
+In-Reply-To: <AANLkTinGLZbil87Eyd5_BfON5okVlSS6CnhKtB7Oy-SU@mail.gmail.com>
+References: <AANLkTimeR2mmc_fAexDoTfY5gGiurThGVvkyEcjal1UT@mail.gmail.com> 
+	<AANLkTinGLZbil87Eyd5_BfON5okVlSS6CnhKtB7Oy-SU@mail.gmail.com>
+Message-ID: <AANLkTimPNL8_C_CEvgVyLfGe9bbFFDb2N08l-IxPPn6h@mail.gmail.com>
+
+Thanks. I'll let the client know the difference (or the similarity).
+
+Any place where I can find this license in source code, or on website which
+specifically says Slony-I is licensed as...
+
+Or should I rely on the
+http://www.slony.info/documentation/LEGALNOTICE.html? Which is linked
+from the 'Copyright' link on
+http://www.slony.info/documentation/index.html .
+
+Regards,
+
+On Thu, May 13, 2010 at 10:50 AM, Dave Page <dpage at pgadmin.org> wrote:
+
+> On Thu, May 13, 2010 at 3:24 PM, Gurjeet Singh <singh.gurjeet at gmail.com>
+> wrote:
+> > I understand that Slony is BSD licensed, but it has been pretty difficult
+> > for me to find a statement declaring that. I could _somehow_ get to this:
+> > http://www.slony.info/documentation/LEGALNOTICE.html but it starts with
+> > 'PostgreSQL is ...'!
+> >
+> > Google shows that some Slony1-www  index.html files in the CVS have a
+> note
+> > about the BSD license, but nothing actually on the website! And I
+> couldn't
+> > find a LICENSE file in the source distro either. What's the official
+> stand
+> > of the developers anbd where can the customers' legal departments ratify
+> the
+> > usage of Slony?
+>
+> FYI, that licence is officially "The PostgreSQL Licence". It is not
+> BSD, which has numbered clauses.
+>
+>
+> --
+> Dave Page
+> EnterpriseDB UK: http://www.enterprisedb.com
+> The Enterprise Postgres Company
+>
+
+
+
+-- 
+gurjeet.singh
+@ EnterpriseDB - The Enterprise Postgres Company
+http://www.enterprisedb.com
+
+singh.gurjeet@{ gmail | yahoo }.com
+Twitter/Skype: singh_gurjeet
+
+Mail sent from my BlackLaptop device
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-hackers/attachments/20100513/e4769dd0/attachment.htm 
+
+From dpage at pgadmin.org  Thu May 13 08:37:52 2010
+From: dpage at pgadmin.org (Dave Page)
+Date: Thu, 13 May 2010 16:37:52 +0100
+Subject: [Slony1-hackers] License info hard to find
+In-Reply-To: <AANLkTimPNL8_C_CEvgVyLfGe9bbFFDb2N08l-IxPPn6h@mail.gmail.com>
+References: <AANLkTimeR2mmc_fAexDoTfY5gGiurThGVvkyEcjal1UT@mail.gmail.com>
+	<AANLkTinGLZbil87Eyd5_BfON5okVlSS6CnhKtB7Oy-SU@mail.gmail.com>
+	<AANLkTimPNL8_C_CEvgVyLfGe9bbFFDb2N08l-IxPPn6h@mail.gmail.com>
+Message-ID: <AANLkTinVo_ezy4-P0ulHtYlkaa_UdtE3qpWHUbKXpDvA@mail.gmail.com>
+
+On Thu, May 13, 2010 at 4:34 PM, Gurjeet Singh <singh.gurjeet at gmail.com> wrote:
+> Thanks. I'll let the client know the difference (or the similarity).
+>
+> Any place where I can find this license in source code, or on website which
+> specifically says Slony-I is licensed as...
+>
+> Or should I rely on the http://www.slony.info/documentation/LEGALNOTICE.html
+> ? Which is linked from the 'Copyright' link on
+> http://www.slony.info/documentation/index.html .
+
+Rely on the licence text that ship with the package (in the docs, by
+the look of it), not the name.
+
+
+-- 
+Dave Page
+EnterpriseDB UK: http://www.enterprisedb.com
+The Enterprise Postgres Company
+
+From singh.gurjeet at gmail.com  Fri May 14 09:19:17 2010
+From: singh.gurjeet at gmail.com (Gurjeet Singh)
+Date: Fri, 14 May 2010 12:19:17 -0400
+Subject: [Slony1-hackers] License info hard to find
+In-Reply-To: <AANLkTinVo_ezy4-P0ulHtYlkaa_UdtE3qpWHUbKXpDvA@mail.gmail.com>
+References: <AANLkTimeR2mmc_fAexDoTfY5gGiurThGVvkyEcjal1UT@mail.gmail.com> 
+	<AANLkTinGLZbil87Eyd5_BfON5okVlSS6CnhKtB7Oy-SU@mail.gmail.com> 
+	<AANLkTimPNL8_C_CEvgVyLfGe9bbFFDb2N08l-IxPPn6h@mail.gmail.com> 
+	<AANLkTinVo_ezy4-P0ulHtYlkaa_UdtE3qpWHUbKXpDvA@mail.gmail.com>
+Message-ID: <AANLkTilRG6CPdf5lC2eSQW09GnovKfwcluy-TApgnnHI@mail.gmail.com>
+
+On Thu, May 13, 2010 at 11:37 AM, Dave Page <dpage at pgadmin.org> wrote:
+
+> On Thu, May 13, 2010 at 4:34 PM, Gurjeet Singh <singh.gurjeet at gmail.com>
+> wrote:
+> > Thanks. I'll let the client know the difference (or the similarity).
+> >
+> > Any place where I can find this license in source code, or on website
+> which
+> > specifically says Slony-I is licensed as...
+> >
+> > Or should I rely on the
+> http://www.slony.info/documentation/LEGALNOTICE.html
+> > ? Which is linked from the 'Copyright' link on
+> > http://www.slony.info/documentation/index.html .
+>
+> Rely on the licence text that ship with the package (in the docs, by
+> the look of it), not the name
+
+
+Hackers,
+
+I looked around in the 2.0.3 code a bit and couldn't find LEGALNOTICE.html
+or any other file explicitly stating that Slony uses the same license as
+PostgreSQL. IMHO, having PostgreSQL license copied in LEGALNOTICE.html is
+not helpful either as that text does not mention the word Slony anywhere,
+and Slony is not part of Postgres.
+
+Dave and I had a small chat, and we are of the opinion that having a LICENSE
+file in the top-level directory might be helpful for anyone looking for this
+info.
+
+Postgres has the COPYRIGHT file, which is much easier to find and read than
+Slony's doc/adminguide/legal.sgml
+
+Regards,
+-- 
+gurjeet.singh
+@ EnterpriseDB - The Enterprise Postgres Company
+http://www.enterprisedb.com
+
+singh.gurjeet@{ gmail | yahoo }.com
+Twitter/Skype: singh_gurjeet
+
+Mail sent from my BlackLaptop device
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-hackers/attachments/20100514/4bd3f9eb/attachment.htm 
+
+From singh.gurjeet at gmail.com  Sun May 16 05:22:38 2010
+From: singh.gurjeet at gmail.com (Gurjeet Singh)
+Date: Sun, 16 May 2010 08:22:38 -0400
+Subject: [Slony1-hackers] Slony triggers included in pg_dump
+Message-ID: <AANLkTik3kuhrTf7xiy5ylZi-N4AprDvtBP831Il6oxhS@mail.gmail.com>
+
+Hi All,
+
+    The docs here http://www.slony.info/documentation/triggers.html says
+that post Postgres 8.3 version
+
+<snip>
+
+   - If you take a pg_dump of a Slony-I node, and drop out the
+Slony-Inamespace, this now cleanly removes
+   *all* Slony-I components, leaving the database, *including its schema,*in a
+   "pristine", consistent fashion, ready for whatever use may be desired.
+
+</snip>
+
+But I see that when dumping a schema containing tables monitored by Slony,
+the dump still shows the log triggers on those tables.
+
+postgres=# select version();
+
+version
+----------------------------------------------------------------------------------------------------
+ PostgreSQL 8.3.10 on i686-pc-linux-gnu, compiled by GCC gcc (GCC) 4.3.2
+20081105 (Red Hat 4.3.2-7)
+
+# pg_dump --schema-only --schema pgbench -p 5433 -U postgres | grep "CREATE
+TRIGGER"
+CREATE TRIGGER _pgbench_logtrigger_1
+CREATE TRIGGER _pgbench_logtrigger_2
+CREATE TRIGGER _pgbench_logtrigger_3
+
+So is that statement in the docs incorrect, or is this a regression?
+
+Best regards,
+-- 
+gurjeet.singh
+@ EnterpriseDB - The Enterprise Postgres Company
+http://www.enterprisedb.com
+
+singh.gurjeet@{ gmail | yahoo }.com
+Twitter/Skype: singh_gurjeet
+
+Mail sent from my BlackLaptop device
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-hackers/attachments/20100516/fabd4530/attachment.htm 
+
+From singh.gurjeet at gmail.com  Sun May 16 05:39:46 2010
+From: singh.gurjeet at gmail.com (Gurjeet Singh)
+Date: Sun, 16 May 2010 08:39:46 -0400
+Subject: [Slony1-hackers] A small patch for Slony
+Message-ID: <AANLkTileEeTrQUT-8-2j_c4e3xTb1k7j6zyER29g645_@mail.gmail.com>
+
+Hi All,
+
+    Attached is a patch of 2.0.3 with the following:
+
+1) New script slonik_add_node. This adds the capability to add a node to the
+cluster. This node could be from the fact that the config file was edited to
+add new node's info, or maybe it was previously dropped from the cluster.
+
+2) An enhancement to the slonik_drop_node script. The original version
+assumed that $MASTERNODE is available for this operation to complete, but
+that might not always be the case. Now one needs to specify an event_node#
+which should be capable of sending the event notification to other nodes in
+the cluster.
+
+    For backward compatibility the new parameter can be made optional.
+
+3) A minor improvement to the message emitted by slon_kill, to differentiate
+between when the Slon processes are being killed vs. when the watchdog
+processes are being killed.
+
+Regards,
+-- 
+gurjeet.singh
+@ EnterpriseDB - The Enterprise Postgres Company
+http://www.enterprisedb.com
+
+singh.gurjeet@{ gmail | yahoo }.com
+Twitter/Skype: singh_gurjeet
+
+Mail sent from my BlackLaptop device
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-hackers/attachments/20100516/2d332c33/attachment.htm 
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: slony1-2.0.3.patch
+Type: application/octet-stream
+Size: 6213 bytes
+Desc: not available
+Url : http://lists.slony.info/pipermail/slony1-hackers/attachments/20100516/2d332c33/attachment.obj 
+
+From ssinger_pg at sympatico.ca  Sun May 16 18:41:34 2010
+From: ssinger_pg at sympatico.ca (Steve Singer)
+Date: Sun, 16 May 2010 21:41:34 -0400 (EDT)
+Subject: [Slony1-hackers] Subscribe set question
+Message-ID: <BLU0-SMTP6E7463FC30C4F59034C44ACE00@phx.gbl>
+
+
+I've been looking into the behaviour of subscribe set for something and I'm 
+a bit confused.
+
+I was under the impression that the proper way of subscribing to a set is
+
+subscribe set(id=1,provider=1,receiver=2);
+wait for event(id=1, origin=1,confirmed=all);
+sync(id=1);
+wait for event(id=1, origin=1,confirmed=all);
+
+(The documentation uses this sequence 
+http://www.slony.info/documentation/addthings.html)
+
+I thought that the 'wait for event' after the subscribe was to ensure that 
+the sync happens after the enable subscription event has been generated. 
+The documentation (on the SUBSCRIBE SET page in the admin docs) says
+
+'subscription involves two events; the SUBSCRIBE_SET, initiated from the 
+provider node, and an ENABLE_SUBSCRIPTION, which is initiated on the 
+subscriber node'
+
+which is consistent with why would need that first wait.  The problem I am 
+having is that I don't think this is right.  In 2.0.x, if I subscribe to a 
+set with no slons running I see both the SUBSCRIBE SET and the ENABLE 
+SUBSCRIPTION events in the sl_event table of the provider (and looking at 
+the code this makes sense).
+
+Looking at the code, I it seems that the SUBSCRIBE SET and the ENABLE 
+SUBSCRIPTION are both inserted into sl_event as part of the same 
+transaction. The ENABLE SUBSCRPTION get processed on the receiver but it 
+gets inserted into the event queue BEFORE slonik finishes with the 
+'subscribe set' line.  So why the need to do that first WAIT FOR?
+
+Am I misunderstanding something or did the location where the ENABLE 
+SUBSCRIPTION event is created get changed and the documentation not get 
+updated?
+
+
+Steve
+
+
+From jose.arthur at gmail.com  Tue May 18 09:46:32 2010
+From: jose.arthur at gmail.com (=?ISO-8859-1?Q?Jos=E9_Arthur_Benetasso_Villanova?=)
+Date: Tue, 18 May 2010 13:46:32 -0300
+Subject: [Slony1-hackers] init.d script for CentOS
+Message-ID: <AANLkTimE5iwn0-toj8-OaFyUTKLMW2QtkIMQF7To3fNx@mail.gmail.com>
+
+Hi all.
+
+I'm replicating 2 sets on the same cluster, but each set uses its own
+database.
+
+With the current /etc/init.d/slon script I had some issues, like killing all
+my slon daemons on the same machine instead of just the daemon that the
+script started.
+
+How can I submit this script for revision and maybe to replace the current
+one? Just attach it here?
+
+Thanks in advance.
+
+-- 
+Jos? Arthur Benetasso Villanova
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-hackers/attachments/20100518/0fa11a23/attachment.htm 
+
+From ssinger at ca.afilias.info  Tue May 18 10:04:57 2010
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Tue, 18 May 2010 13:04:57 -0400
+Subject: [Slony1-hackers] init.d script for CentOS
+In-Reply-To: <AANLkTimE5iwn0-toj8-OaFyUTKLMW2QtkIMQF7To3fNx@mail.gmail.com>
+References: <AANLkTimE5iwn0-toj8-OaFyUTKLMW2QtkIMQF7To3fNx@mail.gmail.com>
+Message-ID: <4BF2C8B9.5040301@ca.afilias.info>
+
+Jos? Arthur Benetasso Villanova wrote:
+> Hi all.
+> 
+> I'm replicating 2 sets on the same cluster, but each set uses its own 
+> database.
+> 
+> With the current /etc/init.d/slon script I had some issues, like killing 
+> all my slon daemons on the same machine instead of just the daemon that 
+> the script started.
+> 
+> How can I submit this script for revision and maybe to replace the 
+> current one? Just attach it here?
+
+
+An email to slony1-patches at lists.slony.info would be best.
+
+But if you attached it here we would also see it, same if you created a 
+bug in the slony bugzilla and attached it there.
+
+
+
+> 
+> Thanks in advance.
+> 
+> -- 
+> Jos? Arthur Benetasso Villanova
+> 
+> 
+> ------------------------------------------------------------------------
+> 
+> _______________________________________________
+> Slony1-hackers mailing list
+> Slony1-hackers at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-hackers
+
+
+-- 
+Steve Singer
+Afilias Canada
+Data Services Developer
+416-673-1142
+
+From devrim at gunduz.org  Tue May 18 11:30:35 2010
+From: devrim at gunduz.org (Devrim =?ISO-8859-1?Q?G=DCND=DCZ?=)
+Date: Tue, 18 May 2010 21:30:35 +0300
+Subject: [Slony1-hackers] init.d script for CentOS
+In-Reply-To: <AANLkTimE5iwn0-toj8-OaFyUTKLMW2QtkIMQF7To3fNx@mail.gmail.com>
+References: <AANLkTimE5iwn0-toj8-OaFyUTKLMW2QtkIMQF7To3fNx@mail.gmail.com>
+Message-ID: <1274207435.2463.1.camel@hp-laptop2.gunduz.org>
+
+Hi,
+
+On Tue, 2010-05-18 at 13:46 -0300, Jos? Arthur Benetasso Villanova
+wrote:
+> With the current /etc/init.d/slon script I had some issues, like
+> killing all my slon daemons on the same machine instead of just the
+> daemon that the script started.
+
+Yeah. I know it is broken, and I could not find a good way to fix it.
+
+> How can I submit this script for revision and maybe to replace the
+> current one? Just attach it here?
+
+Please attach it here. I can commit it to CVS and to RPM repository.
+
+Regards,
+-- 
+Devrim G?ND?Z
+PostgreSQL Dan??man?/Consultant, Red Hat Certified Engineer
+PostgreSQL RPM Repository: http://yum.pgrpms.org
+Community: devrim~PostgreSQL.org, devrim.gunduz~linux.org.tr
+http://www.gunduz.org  Twitter: http://twitter.com/devrimgunduz
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: not available
+Type: application/pgp-signature
+Size: 198 bytes
+Desc: This is a digitally signed message part
+Url : http://lists.slony.info/pipermail/slony1-hackers/attachments/20100518/caa1db06/attachment.pgp 
+
+From JanWieck at Yahoo.com  Tue May 18 19:55:49 2010
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Tue, 18 May 2010 22:55:49 -0400
+Subject: [Slony1-hackers] [Slony1-bugs] Slony triggers included in
+	pg_dump
+In-Reply-To: <AANLkTik3kuhrTf7xiy5ylZi-N4AprDvtBP831Il6oxhS@mail.gmail.com>
+References: <AANLkTik3kuhrTf7xiy5ylZi-N4AprDvtBP831Il6oxhS@mail.gmail.com>
+Message-ID: <4BF35335.7090502@Yahoo.com>
+
+On 5/16/2010 8:22 AM, Gurjeet Singh wrote:
+> Hi All,
+> 
+>     The docs here http://www.slony.info/documentation/triggers.html says 
+> that post Postgres 8.3 version
+> 
+> <snip>
+> 
+>     * If you take a pg_dump of a Slony-I node, and drop out the Slony-I
+>       namespace, this now cleanly removes /all/ Slony-I components,
+>       leaving the database, /including its schema,/ in a "pristine",
+>       consistent fashion, ready for whatever use may be desired. 
+> 
+> </snip>
+> 
+> But I see that when dumping a schema containing tables monitored by 
+> Slony, the dump still shows the log triggers on those tables.
+
+I think you misinterpret the statement.
+
+If you take a complete dump of all schemas, restore that and THEN drop 
+the slony schema, you have a pristine stand alone system as the result.
+
+pg_dump does not exclude cross-schema definitions like those triggers. 
+You will get the same for example with foreign keys. For a table in the 
+schema you are dumping, that references a table in a non-dumped schema, 
+pg_dump will still emit the ALTER TABLE attempting to create the constraint.
+
+
+Jan
+
+> 
+> postgres=# select version();
+>                                               
+> version                                              
+> ----------------------------------------------------------------------------------------------------
+>  PostgreSQL 8.3.10 on i686-pc-linux-gnu, compiled by GCC gcc (GCC) 4.3.2 
+> 20081105 (Red Hat 4.3.2-7)
+> 
+> # pg_dump --schema-only --schema pgbench -p 5433 -U postgres | grep 
+> "CREATE TRIGGER"
+> CREATE TRIGGER _pgbench_logtrigger_1
+> CREATE TRIGGER _pgbench_logtrigger_2
+> CREATE TRIGGER _pgbench_logtrigger_3
+> 
+> So is that statement in the docs incorrect, or is this a regression?
+> 
+> Best regards,
+> -- 
+> gurjeet.singh
+> @ EnterpriseDB - The Enterprise Postgres Company
+> http://www.enterprisedb.com
+> 
+> singh.gurjeet@{ gmail | yahoo }.com
+> Twitter/Skype: singh_gurjeet
+> 
+> Mail sent from my BlackLaptop device
+> 
+> 
+> ------------------------------------------------------------------------
+> 
+> _______________________________________________
+> Slony1-bugs mailing list
+> Slony1-bugs at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-bugs
+
+
+-- 
+Anyone who trades liberty for security deserves neither
+liberty nor security. -- Benjamin Franklin
+
+From JanWieck at Yahoo.com  Tue May 18 20:03:01 2010
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Tue, 18 May 2010 23:03:01 -0400
+Subject: [Slony1-hackers] Subscribe set question
+In-Reply-To: <BLU0-SMTP6E7463FC30C4F59034C44ACE00@phx.gbl>
+References: <BLU0-SMTP6E7463FC30C4F59034C44ACE00@phx.gbl>
+Message-ID: <4BF354E5.9090403@Yahoo.com>
+
+On 5/16/2010 9:41 PM, Steve Singer wrote:
+> I've been looking into the behaviour of subscribe set for something and I'm 
+> a bit confused.
+> 
+> I was under the impression that the proper way of subscribing to a set is
+> 
+> subscribe set(id=1,provider=1,receiver=2);
+> wait for event(id=1, origin=1,confirmed=all);
+> sync(id=1);
+> wait for event(id=1, origin=1,confirmed=all);
+> 
+> (The documentation uses this sequence 
+> http://www.slony.info/documentation/addthings.html)
+> 
+> I thought that the 'wait for event' after the subscribe was to ensure that 
+> the sync happens after the enable subscription event has been generated. 
+> The documentation (on the SUBSCRIBE SET page in the admin docs) says
+> 
+> 'subscription involves two events; the SUBSCRIBE_SET, initiated from the 
+> provider node, and an ENABLE_SUBSCRIPTION, which is initiated on the 
+> subscriber node'
+> 
+> which is consistent with why would need that first wait.  The problem I am 
+> having is that I don't think this is right.  In 2.0.x, if I subscribe to a 
+> set with no slons running I see both the SUBSCRIBE SET and the ENABLE 
+> SUBSCRIPTION events in the sl_event table of the provider (and looking at 
+> the code this makes sense).
+> 
+> Looking at the code, I it seems that the SUBSCRIBE SET and the ENABLE 
+> SUBSCRIPTION are both inserted into sl_event as part of the same 
+> transaction. The ENABLE SUBSCRPTION get processed on the receiver but it 
+> gets inserted into the event queue BEFORE slonik finishes with the 
+> 'subscribe set' line.  So why the need to do that first WAIT FOR?
+
+The documentation seems wrong. The ENABLE_SUBSCRPTION is generated on 
+the origin. If the origin happens to be your data provider, then yes, 
+both events are generated within the same transaction and the sync is 
+obsolete. In the case of a cascaded subscribe however it is not.
+
+
+Jan
+
+
+> 
+> Am I misunderstanding something or did the location where the ENABLE 
+> SUBSCRIPTION event is created get changed and the documentation not get 
+> updated?
+> 
+> 
+> Steve
+> 
+> _______________________________________________
+> Slony1-hackers mailing list
+> Slony1-hackers at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-hackers
+
+
+-- 
+Anyone who trades liberty for security deserves neither
+liberty nor security. -- Benjamin Franklin
+
+From cscetbon.ext at orange-ftgroup.com  Thu May 20 06:35:23 2010
+From: cscetbon.ext at orange-ftgroup.com (Cyril Scetbon)
+Date: Thu, 20 May 2010 15:35:23 +0200
+Subject: [Slony1-hackers] [Slony1-general] An old event not confirmed: A
+	possible bug?
+In-Reply-To: <4BEAC184.1000702@Yahoo.com>
+References: <AANLkTikflK7G1bHIJjQLynJ-VZIwhAvAWazUNqyFQm5i@mail.gmail.com>
+	<4BEAC184.1000702@Yahoo.com>
+Message-ID: <4BF53A9B.7020103@orange-ftgroup.com>
+
+
+
+Jan Wieck a ?crit :
+> On 5/12/2010 10:31 AM, Gurjeet Singh wrote:
+>   
+>> Hi All,
+>>
+>>     I have two Slony test beds which show the exact same symptoms!
+>>
+>> select * from sl_event order by ev_seqno;
+>>
+>>  ev_origin |  ev_seqno  |        ev_timestamp        |        
+>> ev_snapshot         | ev_type |
+>> -----------+------------+----------------------------+----------------------------+---------+-
+>>          2 | 5000000002 | 2010-04-30 08:32:38.622928 | 
+>> 458:458:                   | SYNC    |
+>>          1 | 5000525721 | 2010-05-12 13:30:22.79626  | 
+>> 72685915:72685915:         | SYNC    |
+>>          1 | 5000525722 | 2010-05-12 13:30:24.800943 | 
+>> 72686139:72686139:         | SYNC    |
+>>          1 | 5000525723 | 2010-05-12 13:30:26.804862 | 
+>> 72686224:72686224:         | SYNC    |
+>> ...
+>>
+>>     
+>
+> Slony always keeps at least the last event per origin around. Otherwise 
+> the view sl_status would not work.
+>   
+Hi Jan, Can you talk more about it ? I've posted a mail today to 
+slony1-bugs cause test_slony_state.pl is warning us about old events 
+(that's exactly the eldest ones). That's a matter for events generated 
+from the local node. I see events from the local node only when I 
+restart it :
+
+select * from _OURCLUSTER.sl_event where 
+ev_origin=102;                                  
+ ev_origin | ev_seqno |        ev_timestamp        |     
+ev_snapshot      | ev_type | ev_data1 | ev_data2 | ev_data3 | ev_data4 | 
+ev_data5 | ev_data6 | ev_data7 | ev_data8
+-----------+----------+----------------------------+----------------------+---------+----------+----------+----------+----------+----------+----------+----------+----------
+       102 |       51 | 2010-05-20 12:27:00.099562 | 
+338318875:338318875: | SYNC    |          |          |          
+|          |          |          |          |
+(1 row)
+
+select * from _OURCLUSTER.sl_confirm where con_origin=102;
+ con_origin | con_received | con_seqno |       con_timestamp       
+------------+--------------+-----------+----------------------------
+        102 |          101 |        51 | 2010-05-20 12:27:02.78581
+        102 |          103 |        51 | 2010-05-20 12:27:00.118815
+        102 |          104 |        51 | 2010-05-20 12:27:00.253975
+
+the SYNC appears in slony logs as "new sl_action_seq 1 - SYNC %d"
+
+> What should worry you is that there are no newer SYNC events from node 2 
+> available. Slony does create a sporadic SYNC every now and then even if 
+> there is no activity or the node isn't an origin anyway.
+>
+> Is it possible that node 2's clock is way off?
+>
+>
+> Jan
+>
+>   
+>> The reason I think this _might_ be a bug is that on both clusters, slave 
+>> node's sl_event has the exact same record for ev_seqno=5000000002 except 
+>> for the timestamp; same origin, and same snapshot!
+>>
+>> The head of sl_confirm has:
+>>
+>>  select * from sl_confirm order by con_seqno;
+>>
+>>  con_origin | con_received | con_seqno  |       con_timestamp
+>> ------------+--------------+------------+----------------------------
+>>           2 |            1 | 5000000002 | 2010-04-30 08:32:53.974021
+>>           1 |            2 | 5000527075 | 2010-05-12 14:15:41.192279
+>>           1 |            2 | 5000527076 | 2010-05-12 14:15:43.193607
+>>           1 |            2 | 5000527077 | 2010-05-12 14:15:45.196291
+>>           1 |            2 | 5000527078 | 2010-05-12 14:15:47.197005
+>> ...
+>>
+>> Can someone comment on the health of the cluster? All events, except for 
+>> that on, are being confirmed and purged from the system regularly, so my 
+>> assumption is that the cluster is healthy and that the slave is in sync 
+>> with the master.
+>>
+>> Thanks in advance.
+>> -- 
+>> gurjeet.singh
+>> @ EnterpriseDB - The Enterprise Postgres Company
+>> http://www.enterprisedb.com
+>>
+>> singh.gurjeet@{ gmail | yahoo }.com
+>> Twitter/Skype: singh_gurjeet
+>>
+>> Mail sent from my BlackLaptop device
+>>
+>>
+>> ------------------------------------------------------------------------
+>>
+>> _______________________________________________
+>> Slony1-general mailing list
+>> Slony1-general at lists.slony.info
+>> http://lists.slony.info/mailman/listinfo/slony1-general
+>>     
+>
+>
+>   
+
+-- 
+Cyril SCETBON
+
+From JanWieck at Yahoo.com  Wed May 19 19:58:41 2010
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Wed, 19 May 2010 22:58:41 -0400
+Subject: [Slony1-hackers] [Slony1-bugs] [Slony1-general] An old event
+ not confirmed: A possible bug?
+In-Reply-To: <4BF53A9B.7020103@orange-ftgroup.com>
+References: <AANLkTikflK7G1bHIJjQLynJ-VZIwhAvAWazUNqyFQm5i@mail.gmail.com>	<4BEAC184.1000702@Yahoo.com>
+	<4BF53A9B.7020103@orange-ftgroup.com>
+Message-ID: <4BF4A561.2050909@Yahoo.com>
+
+On 5/20/2010 9:35 AM, Cyril Scetbon wrote:
+> 
+> Jan Wieck a ?crit :
+>> On 5/12/2010 10:31 AM, Gurjeet Singh wrote:
+>>   
+>>> Hi All,
+>>>
+>>>     I have two Slony test beds which show the exact same symptoms!
+>>>
+>>> select * from sl_event order by ev_seqno;
+>>>
+>>>  ev_origin |  ev_seqno  |        ev_timestamp        |        
+>>> ev_snapshot         | ev_type |
+>>> -----------+------------+----------------------------+----------------------------+---------+-
+>>>          2 | 5000000002 | 2010-04-30 08:32:38.622928 | 
+>>> 458:458:                   | SYNC    |
+>>>          1 | 5000525721 | 2010-05-12 13:30:22.79626  | 
+>>> 72685915:72685915:         | SYNC    |
+>>>          1 | 5000525722 | 2010-05-12 13:30:24.800943 | 
+>>> 72686139:72686139:         | SYNC    |
+>>>          1 | 5000525723 | 2010-05-12 13:30:26.804862 | 
+>>> 72686224:72686224:         | SYNC    |
+>>> ...
+>>>
+>>>     
+>>
+>> Slony always keeps at least the last event per origin around. Otherwise 
+>> the view sl_status would not work.
+>>   
+> Hi Jan, Can you talk more about it ? I've posted a mail today to 
+> slony1-bugs cause test_slony_state.pl is warning us about old events 
+> (that's exactly the eldest ones). That's a matter for events generated 
+> from the local node. I see events from the local node only when I 
+> restart it :
+
+I presume that you have set sync_interval_timeout to zero on the 
+subscribers, which will prevent the generation of SYNC events on those 
+nodes because no actual replication work is ever generated there. Looks 
+like test_slony_state.pl depends on that parameter no be non-zero 
+(default is -t 10000, meaning every 10 seconds).
+
+
+Jan
+
+> 
+> select * from _OURCLUSTER.sl_event where 
+> ev_origin=102;                                  
+>  ev_origin | ev_seqno |        ev_timestamp        |     
+> ev_snapshot      | ev_type | ev_data1 | ev_data2 | ev_data3 | ev_data4 | 
+> ev_data5 | ev_data6 | ev_data7 | ev_data8
+> -----------+----------+----------------------------+----------------------+---------+----------+----------+----------+----------+----------+----------+----------+----------
+>        102 |       51 | 2010-05-20 12:27:00.099562 | 
+> 338318875:338318875: | SYNC    |          |          |          
+> |          |          |          |          |
+> (1 row)
+> 
+> select * from _OURCLUSTER.sl_confirm where con_origin=102;
+>  con_origin | con_received | con_seqno |       con_timestamp       
+> ------------+--------------+-----------+----------------------------
+>         102 |          101 |        51 | 2010-05-20 12:27:02.78581
+>         102 |          103 |        51 | 2010-05-20 12:27:00.118815
+>         102 |          104 |        51 | 2010-05-20 12:27:00.253975
+> 
+> the SYNC appears in slony logs as "new sl_action_seq 1 - SYNC %d"
+> 
+>> What should worry you is that there are no newer SYNC events from node 2 
+>> available. Slony does create a sporadic SYNC every now and then even if 
+>> there is no activity or the node isn't an origin anyway.
+>>
+>> Is it possible that node 2's clock is way off?
+>>
+>>
+>> Jan
+>>
+>>   
+>>> The reason I think this _might_ be a bug is that on both clusters, slave 
+>>> node's sl_event has the exact same record for ev_seqno=5000000002 except 
+>>> for the timestamp; same origin, and same snapshot!
+>>>
+>>> The head of sl_confirm has:
+>>>
+>>>  select * from sl_confirm order by con_seqno;
+>>>
+>>>  con_origin | con_received | con_seqno  |       con_timestamp
+>>> ------------+--------------+------------+----------------------------
+>>>           2 |            1 | 5000000002 | 2010-04-30 08:32:53.974021
+>>>           1 |            2 | 5000527075 | 2010-05-12 14:15:41.192279
+>>>           1 |            2 | 5000527076 | 2010-05-12 14:15:43.193607
+>>>           1 |            2 | 5000527077 | 2010-05-12 14:15:45.196291
+>>>           1 |            2 | 5000527078 | 2010-05-12 14:15:47.197005
+>>> ...
+>>>
+>>> Can someone comment on the health of the cluster? All events, except for 
+>>> that on, are being confirmed and purged from the system regularly, so my 
+>>> assumption is that the cluster is healthy and that the slave is in sync 
+>>> with the master.
+>>>
+>>> Thanks in advance.
+>>> -- 
+>>> gurjeet.singh
+>>> @ EnterpriseDB - The Enterprise Postgres Company
+>>> http://www.enterprisedb.com
+>>>
+>>> singh.gurjeet@{ gmail | yahoo }.com
+>>> Twitter/Skype: singh_gurjeet
+>>>
+>>> Mail sent from my BlackLaptop device
+>>>
+>>>
+>>> ------------------------------------------------------------------------
+>>>
+>>> _______________________________________________
+>>> Slony1-general mailing list
+>>> Slony1-general at lists.slony.info
+>>> http://lists.slony.info/mailman/listinfo/slony1-general
+>>>     
+>>
+>>
+>>   
+> 
+
+
+-- 
+Anyone who trades liberty for security deserves neither
+liberty nor security. -- Benjamin Franklin
+
+From cscetbon.ext at orange-ftgroup.com  Thu May 20 07:48:26 2010
+From: cscetbon.ext at orange-ftgroup.com (Cyril Scetbon)
+Date: Thu, 20 May 2010 16:48:26 +0200
+Subject: [Slony1-hackers] [Slony1-bugs] [Slony1-general] An old event
+ not confirmed: A possible bug?
+In-Reply-To: <4BF4A561.2050909@Yahoo.com>
+References: <AANLkTikflK7G1bHIJjQLynJ-VZIwhAvAWazUNqyFQm5i@mail.gmail.com>	<4BEAC184.1000702@Yahoo.com>	<4BF53A9B.7020103@orange-ftgroup.com>
+	<4BF4A561.2050909@Yahoo.com>
+Message-ID: <4BF54BBA.2050101@orange-ftgroup.com>
+
+
+
+Jan Wieck a ?crit :
+> On 5/20/2010 9:35 AM, Cyril Scetbon wrote:
+>   
+>> Jan Wieck a ?crit :
+>>     
+>>> On 5/12/2010 10:31 AM, Gurjeet Singh wrote:
+>>>   
+>>>       
+>>>> Hi All,
+>>>>
+>>>>     I have two Slony test beds which show the exact same symptoms!
+>>>>
+>>>> select * from sl_event order by ev_seqno;
+>>>>
+>>>>  ev_origin |  ev_seqno  |        ev_timestamp        |        
+>>>> ev_snapshot         | ev_type |
+>>>> -----------+------------+----------------------------+----------------------------+---------+-
+>>>>          2 | 5000000002 | 2010-04-30 08:32:38.622928 | 
+>>>> 458:458:                   | SYNC    |
+>>>>          1 | 5000525721 | 2010-05-12 13:30:22.79626  | 
+>>>> 72685915:72685915:         | SYNC    |
+>>>>          1 | 5000525722 | 2010-05-12 13:30:24.800943 | 
+>>>> 72686139:72686139:         | SYNC    |
+>>>>          1 | 5000525723 | 2010-05-12 13:30:26.804862 | 
+>>>> 72686224:72686224:         | SYNC    |
+>>>> ...
+>>>>
+>>>>     
+>>>>         
+>>> Slony always keeps at least the last event per origin around. Otherwise 
+>>> the view sl_status would not work.
+>>>   
+>>>       
+>> Hi Jan, Can you talk more about it ? I've posted a mail today to 
+>> slony1-bugs cause test_slony_state.pl is warning us about old events 
+>> (that's exactly the eldest ones). That's a matter for events generated 
+>> from the local node. I see events from the local node only when I 
+>> restart it :
+>>     
+>
+> I presume that you have set sync_interval_timeout to zero on the 
+> subscribers, which will prevent the generation of SYNC events on those 
+> nodes because no actual replication work is ever generated there. Looks 
+> like test_slony_state.pl depends on that parameter no be non-zero 
+> (default is -t 10000, meaning every 10 seconds).
+>   
+No as you can see :
+
+2010-05-20 15:31:55 CEST CONFIG slon: watchdog ready - pid = 23457
+2010-05-20 15:31:55 CEST CONFIG main: Integer option vac_frequency = 3
+2010-05-20 15:31:55 CEST CONFIG main: Integer option log_level = 2
+2010-05-20 15:31:55 CEST CONFIG main: Integer option sync_interval = 500
+2010-05-20 15:31:55 CEST CONFIG main: Integer option 
+sync_interval_timeout = 10000
+2010-05-20 15:31:55 CEST CONFIG main: Integer option sync_group_maxsize = 20
+2010-05-20 15:31:55 CEST CONFIG main: Integer option desired_sync_time = 
+60000
+2010-05-20 15:31:55 CEST CONFIG main: Integer option syslog = 0
+2010-05-20 15:31:55 CEST CONFIG main: Integer option quit_sync_provider = 0
+2010-05-20 15:31:55 CEST CONFIG main: Integer option quit_sync_finalsync = 0
+2010-05-20 15:31:55 CEST CONFIG main: Integer option sync_max_rowsize = 8192
+2010-05-20 15:31:55 CEST CONFIG main: Integer option sync_max_largemem = 
+5242880
+2010-05-20 15:31:55 CEST CONFIG main: Integer option 
+remote_listen_timeout = 300
+2010-05-20 15:31:55 CEST CONFIG main: Boolean option log_pid = 0
+2010-05-20 15:31:55 CEST CONFIG main: Boolean option log_timestamp = 1
+2010-05-20 15:31:55 CEST CONFIG main: Boolean option cleanup_deletelogs = 0
+2010-05-20 15:31:55 CEST CONFIG main: Real option real_placeholder = 
+0.000000
+
+But this is a receiver and I saw in the code of  function 
+generate_sync_event that it does not generate sync interval on a node 
+which is not the origin of a set. That's why I presume there is no sync 
+created except the one created at startup (mandatory) in syncThread_main :
+
+/*
+         * We don't initialize the last known action sequence to the 
+actual value.
+         * This causes that we create a SYNC event allways on startup, 
+just in
+         * case.
+         */
+        last_actseq_buf[0] = '\0';
+
+        /*
+         * Build the query that starts a transaction and retrieves the 
+last value
+         * from the action sequence.
+         */
+        dstring_init(&query1);
+        slon_mkquery(&query1,
+                                 "start transaction;"
+                                 "set transaction isolation level 
+serializable;"
+                                 "select last_value from %s.sl_action_seq;",
+                                 rtcfg_namespace);
+
+        /*
+         * Build the query that calls createEvent() for the SYNC
+         */
+        dstring_init(&query2);
+        slon_mkquery(&query2,
+                     "select %s.createEvent('_%s', 'SYNC', NULL)"
+                     " from %s.sl_node where no_id = 
+%s.getLocalNodeId('_%s') "
+                     " and exists (select 1 from %s.sl_set where 
+set_origin= no_id);",
+                     rtcfg_namespace, rtcfg_cluster_name,
+                     rtcfg_namespace, rtcfg_namespace, 
+rtcfg_cluster_name, rtcfg_namespace);
+
+
+>
+> Jan
+>
+>   
+>> select * from _OURCLUSTER.sl_event where 
+>> ev_origin=102;                                  
+>>  ev_origin | ev_seqno |        ev_timestamp        |     
+>> ev_snapshot      | ev_type | ev_data1 | ev_data2 | ev_data3 | ev_data4 | 
+>> ev_data5 | ev_data6 | ev_data7 | ev_data8
+>> -----------+----------+----------------------------+----------------------+---------+----------+----------+----------+----------+----------+----------+----------+----------
+>>        102 |       51 | 2010-05-20 12:27:00.099562 | 
+>> 338318875:338318875: | SYNC    |          |          |          
+>> |          |          |          |          |
+>> (1 row)
+>>
+>> select * from _OURCLUSTER.sl_confirm where con_origin=102;
+>>  con_origin | con_received | con_seqno |       con_timestamp       
+>> ------------+--------------+-----------+----------------------------
+>>         102 |          101 |        51 | 2010-05-20 12:27:02.78581
+>>         102 |          103 |        51 | 2010-05-20 12:27:00.118815
+>>         102 |          104 |        51 | 2010-05-20 12:27:00.253975
+>>
+>> the SYNC appears in slony logs as "new sl_action_seq 1 - SYNC %d"
+>>
+>>     
+>>> What should worry you is that there are no newer SYNC events from node 2 
+>>> available. Slony does create a sporadic SYNC every now and then even if 
+>>> there is no activity or the node isn't an origin anyway.
+>>>
+>>> Is it possible that node 2's clock is way off?
+>>>
+>>>
+>>> Jan
+>>>
+>>>   
+>>>       
+>>>> The reason I think this _might_ be a bug is that on both clusters, slave 
+>>>> node's sl_event has the exact same record for ev_seqno=5000000002 except 
+>>>> for the timestamp; same origin, and same snapshot!
+>>>>
+>>>> The head of sl_confirm has:
+>>>>
+>>>>  select * from sl_confirm order by con_seqno;
+>>>>
+>>>>  con_origin | con_received | con_seqno  |       con_timestamp
+>>>> ------------+--------------+------------+----------------------------
+>>>>           2 |            1 | 5000000002 | 2010-04-30 08:32:53.974021
+>>>>           1 |            2 | 5000527075 | 2010-05-12 14:15:41.192279
+>>>>           1 |            2 | 5000527076 | 2010-05-12 14:15:43.193607
+>>>>           1 |            2 | 5000527077 | 2010-05-12 14:15:45.196291
+>>>>           1 |            2 | 5000527078 | 2010-05-12 14:15:47.197005
+>>>> ...
+>>>>
+>>>> Can someone comment on the health of the cluster? All events, except for 
+>>>> that on, are being confirmed and purged from the system regularly, so my 
+>>>> assumption is that the cluster is healthy and that the slave is in sync 
+>>>> with the master.
+>>>>
+>>>> Thanks in advance.
+>>>> -- 
+>>>> gurjeet.singh
+>>>> @ EnterpriseDB - The Enterprise Postgres Company
+>>>> http://www.enterprisedb.com
+>>>>
+>>>> singh.gurjeet@{ gmail | yahoo }.com
+>>>> Twitter/Skype: singh_gurjeet
+>>>>
+>>>> Mail sent from my BlackLaptop device
+>>>>
+>>>>
+>>>> ------------------------------------------------------------------------
+>>>>
+>>>> _______________________________________________
+>>>> Slony1-general mailing list
+>>>> Slony1-general at lists.slony.info
+>>>> http://lists.slony.info/mailman/listinfo/slony1-general
+>>>>     
+>>>>         
+>>>   
+>>>       
+>
+>
+>   
+
+-- 
+Cyril SCETBON
+
+From JanWieck at Yahoo.com  Wed May 19 22:00:19 2010
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Thu, 20 May 2010 01:00:19 -0400
+Subject: [Slony1-hackers] [Slony1-bugs] [Slony1-general] An old event
+ not confirmed: A possible bug?
+In-Reply-To: <4BF54BBA.2050101@orange-ftgroup.com>
+References: <AANLkTikflK7G1bHIJjQLynJ-VZIwhAvAWazUNqyFQm5i@mail.gmail.com>	<4BEAC184.1000702@Yahoo.com>	<4BF53A9B.7020103@orange-ftgroup.com>
+	<4BF4A561.2050909@Yahoo.com> <4BF54BBA.2050101@orange-ftgroup.com>
+Message-ID: <4BF4C1E3.1050206@Yahoo.com>
+
+On 5/20/2010 10:48 AM, Cyril Scetbon wrote:
+> But this is a receiver and I saw in the code of  function 
+> generate_sync_event that it does not generate sync interval on a node 
+> which is not the origin of a set. That's why I presume there is no sync 
+> created except the one created at startup (mandatory) in syncThread_main :
+
+ From the CVS log:
+
+> ----------------------------
+> revision 1.19
+> date: 2007-03-14 15:59:32 +0000;  author: cbbrowne;  state: Exp;  lines: +20 -6;
+> Reduce the quantity of spurious events generated:
+> 
+> 1.  generate_sync_event() only needs to generate a SYNC on a node
+>     that is the origin for a set
+> 
+> 2.  sync thread generates a SYNC when it starts; in later iterations,
+>     it will only generate a SYNC for its node if that node is the origin
+>     for a replication set
+> 
+> Per discussions with Jan Wieck on 2007-02-09; this seemed an experiment
+> worth trying.  I tried it, and the tests run fine, so I'm committing this.
+> ----------------------------
+
+Seems we finally found a reason why this isn't such a good idea after 
+all. Question now is do we want to revert back to the default, where 
+slon's of pure receivers create useless SYNC events or not?
+
+
+Jan
+
+-- 
+Anyone who trades liberty for security deserves neither
+liberty nor security. -- Benjamin Franklin
+
+From ssinger at ca.afilias.info  Thu May 20 12:17:07 2010
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Thu, 20 May 2010 15:17:07 -0400
+Subject: [Slony1-hackers] License info hard to find
+In-Reply-To: <AANLkTilRG6CPdf5lC2eSQW09GnovKfwcluy-TApgnnHI@mail.gmail.com>
+References: <AANLkTimeR2mmc_fAexDoTfY5gGiurThGVvkyEcjal1UT@mail.gmail.com>
+	<AANLkTinGLZbil87Eyd5_BfON5okVlSS6CnhKtB7Oy-SU@mail.gmail.com>
+	<AANLkTimPNL8_C_CEvgVyLfGe9bbFFDb2N08l-IxPPn6h@mail.gmail.com>
+	<AANLkTinVo_ezy4-P0ulHtYlkaa_UdtE3qpWHUbKXpDvA@mail.gmail.com>
+	<AANLkTilRG6CPdf5lC2eSQW09GnovKfwcluy-TApgnnHI@mail.gmail.com>
+Message-ID: <4BF58AB3.6050605@ca.afilias.info>
+
+Gurjeet Singh wrote:
+> I looked around in the 2.0.3 code a bit and couldn't find 
+> LEGALNOTICE.html or any other file explicitly stating that Slony uses 
+> the same license as PostgreSQL. IMHO, having PostgreSQL license copied 
+> in LEGALNOTICE.html is not helpful either as that text does not mention 
+> the word Slony anywhere, and Slony is not part of Postgres.
+> 
+> Dave and I had a small chat, and we are of the opinion that having a 
+> LICENSE file in the top-level directory might be helpful for anyone 
+> looking for this info.
+
+There should be a 'COPYRIGHT' at the top level of the slony tree (I see 
+this in both cvs for 1.2 and 2.0).  It should also be in the tarball (or 
+am I mistaken on this?)
+
+> 
+> Postgres has the COPYRIGHT file, which is much easier to find and read 
+> than Slony's doc/adminguide/legal.sgml
+> 
+> Regards,
+> -- 
+> gurjeet.singh
+> @ EnterpriseDB - The Enterprise Postgres Company
+> http://www.enterprisedb.com
+> 
+> singh.gurjeet@{ gmail | yahoo }.com
+> Twitter/Skype: singh_gurjeet
+> 
+> Mail sent from my BlackLaptop device
+> 
+> 
+> ------------------------------------------------------------------------
+> 
+> _______________________________________________
+> Slony1-hackers mailing list
+> Slony1-hackers at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-hackers
+
+
+-- 
+Steve Singer
+Afilias Canada
+Data Services Developer
+416-673-1142
+
+From singh.gurjeet at gmail.com  Mon May 24 11:04:34 2010
+From: singh.gurjeet at gmail.com (Gurjeet Singh)
+Date: Mon, 24 May 2010 14:04:34 -0400
+Subject: [Slony1-hackers] [Slony1-bugs] Slony triggers included in
+	pg_dump
+In-Reply-To: <4BF35335.7090502@Yahoo.com>
+References: <AANLkTik3kuhrTf7xiy5ylZi-N4AprDvtBP831Il6oxhS@mail.gmail.com> 
+	<4BF35335.7090502@Yahoo.com>
+Message-ID: <AANLkTinKm6PwIpLppG5ZBW_pk-67Rwxhju-BdSjBBvsc@mail.gmail.com>
+
+On Tue, May 18, 2010 at 10:55 PM, Jan Wieck <JanWieck at yahoo.com> wrote:
+
+> On 5/16/2010 8:22 AM, Gurjeet Singh wrote:
+>
+>> Hi All,
+>>
+>>    The docs here http://www.slony.info/documentation/triggers.html says
+>> that post Postgres 8.3 version
+>>
+>> <snip>
+>>
+>>    * If you take a pg_dump of a Slony-I node, and drop out the Slony-I
+>>      namespace, this now cleanly removes /all/ Slony-I components,
+>>      leaving the database, /including its schema,/ in a "pristine",
+>>      consistent fashion, ready for whatever use may be desired.
+>> </snip>
+>>
+>> But I see that when dumping a schema containing tables monitored by Slony,
+>> the dump still shows the log triggers on those tables.
+>>
+>
+> I think you misinterpret the statement.
+>
+> If you take a complete dump of all schemas, restore that and THEN drop the
+> slony schema, you have a pristine stand alone system as the result.
+>
+> pg_dump does not exclude cross-schema definitions like those triggers. You
+> will get the same for example with foreign keys. For a table in the schema
+> you are dumping, that references a table in a non-dumped schema, pg_dump
+> will still emit the ALTER TABLE attempting to create the constraint.
+>
+>
+Makes sense now. But I guess the statement should have read like this:
+
+<snip>
+
+   * If you restore a backup of a Slony-I node (taken by pg_dump or any
+other method), and drop the Slony-I
+     namespace, this now cleanly removes /all/ Slony-I components,
+     leaving the database, /including its schema,/ in a "pristine",
+     consistent fashion, ready for whatever use may be desired.
+</snip>
+
+
+Regards,
+
+-- 
+gurjeet.singh
+@ EnterpriseDB - The Enterprise Postgres Company
+http://www.enterprisedb.com
+
+singh.gurjeet@{ gmail | yahoo }.com
+Twitter/Skype: singh_gurjeet
+
+Mail sent from my BlackLaptop device
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-hackers/attachments/20100524/90492445/attachment.htm 
+
+From ssinger at ca.afilias.info  Tue May 25 06:30:02 2010
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Tue, 25 May 2010 09:30:02 -0400
+Subject: [Slony1-hackers] [Slony1-general] [Slony1-bugs] Slony triggers
+	included in	pg_dump
+In-Reply-To: <AANLkTinKm6PwIpLppG5ZBW_pk-67Rwxhju-BdSjBBvsc@mail.gmail.com>
+References: <AANLkTik3kuhrTf7xiy5ylZi-N4AprDvtBP831Il6oxhS@mail.gmail.com>
+	<4BF35335.7090502@Yahoo.com>
+	<AANLkTinKm6PwIpLppG5ZBW_pk-67Rwxhju-BdSjBBvsc@mail.gmail.com>
+Message-ID: <4BFBD0DA.5040504@ca.afilias.info>
+
+Gurjeet Singh wrote:
+
+> Makes sense now. But I guess the statement should have read like this:
+> 
+> <snip>
+> 
+>    * If you restore a backup of a Slony-I node (taken by pg_dump or any 
+> other method), and drop the Slony-I
+>      namespace, this now cleanly removes /all/ Slony-I components,
+>      leaving the database, /including its schema,/ in a "pristine",
+>      consistent fashion, ready for whatever use may be desired.
+> </snip>
+> 
+> 
+
+Documentation patch applied.
+
+
+> Regards,
+> 
+> -- 
+> gurjeet.singh
+> @ EnterpriseDB - The Enterprise Postgres Company
+> http://www.enterprisedb.com
+> 
+> singh.gurjeet@{ gmail | yahoo }.com
+> Twitter/Skype: singh_gurjeet
+> 
+> Mail sent from my BlackLaptop device
+> 
+> 
+> ------------------------------------------------------------------------
+> 
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+
+
+-- 
+Steve Singer
+Afilias Canada
+Data Services Developer
+416-673-1142
+
+From singh.gurjeet at gmail.com  Tue May 25 13:18:14 2010
+From: singh.gurjeet at gmail.com (Gurjeet Singh)
+Date: Tue, 25 May 2010 16:18:14 -0400
+Subject: [Slony1-hackers] [Slony1-general] [Slony1-bugs] Slony triggers
+	included in pg_dump
+In-Reply-To: <4BFBD0DA.5040504@ca.afilias.info>
+References: <AANLkTik3kuhrTf7xiy5ylZi-N4AprDvtBP831Il6oxhS@mail.gmail.com> 
+	<4BF35335.7090502@Yahoo.com>
+	<AANLkTinKm6PwIpLppG5ZBW_pk-67Rwxhju-BdSjBBvsc@mail.gmail.com> 
+	<4BFBD0DA.5040504@ca.afilias.info>
+Message-ID: <AANLkTik9_Iu0yros8UHdsWecnzJORF6mhfkBf290Yr5m@mail.gmail.com>
+
+On Tue, May 25, 2010 at 9:30 AM, Steve Singer <ssinger at ca.afilias.info>wrote:
+
+> Gurjeet Singh wrote:
+>
+>  Makes sense now. But I guess the statement should have read like this:
+>>
+>> <snip>
+>>
+>>   * If you restore a backup of a Slony-I node (taken by pg_dump or any
+>> other method), and drop the Slony-I
+>>     namespace, this now cleanly removes /all/ Slony-I components,
+>>     leaving the database, /including its schema,/ in a "pristine",
+>>     consistent fashion, ready for whatever use may be desired.
+>> </snip>
+>>
+>>
+>>
+> Documentation patch applied.
+>
+
+Thanks.
+
+-- 
+gurjeet.singh
+@ EnterpriseDB - The Enterprise Postgres Company
+http://www.enterprisedb.com
+
+singh.gurjeet@{ gmail | yahoo }.com
+Twitter/Skype: singh_gurjeet
+
+Mail sent from my BlackLaptop device
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-hackers/attachments/20100525/53487b84/attachment.htm 
+

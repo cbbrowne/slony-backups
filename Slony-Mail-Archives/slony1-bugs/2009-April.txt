@@ -1,0 +1,1996 @@
+From slony1-bugs at lists.slony.info  Wed Apr  1 10:04:40 2009
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Wed Apr  1 10:04:42 2009
+Subject: [Slony1-bugs] [Bug 71] OpenSolaris segmentation fault slony1-2.0.0
+In-Reply-To: <bug-71-4@http.www.slony.info/bugzilla/>
+Message-ID: <20090401170440.4D01029026D@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=71
+
+
+Christopher Browne <cbbrowne@ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         AssignedTo|slony1-bugs@lists.slony.info|cbbrowne@ca.afilias.info
+             Status|NEW                         |ASSIGNED
+
+
+
+
+--- Comment #4 from Christopher Browne <cbbrowne@ca.afilias.info>  2009-04-01 10:04:39 ---
+Created an attachment (id=30)
+ --> (http://www.slony.info/bugzilla/attachment.cgi?id=30)
+Fix to confoptions.c
+
+Thanks *very* much for the additional info...
+
+The problem is almost certainly that the Solaris printf() is "barfing" when it
+tries to process via %s a NULL string.
+
+The attached patch should resolve this problem; it checks to see if it's got a
+NULL, and prints the string "[NULL]" instead, if that is the case.
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Wed Apr  1 10:30:40 2009
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Wed Apr  1 10:30:43 2009
+Subject: [Slony1-bugs] [Bug 71] OpenSolaris segmentation fault slony1-2.0.0
+In-Reply-To: <bug-71-4@http.www.slony.info/bugzilla/>
+Message-ID: <20090401173040.53CB5290257@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=71
+
+
+Christopher Browne <cbbrowne@ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         Resolution|                            |FIXED
+             Status|ASSIGNED                    |RESOLVED
+
+
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+From slony1-bugs at lists.slony.info  Wed Apr  1 11:56:59 2009
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Wed Apr  1 11:57:02 2009
+Subject: [Slony1-bugs] [Bug 71] OpenSolaris segmentation fault slony1-2.0.0
+In-Reply-To: <bug-71-4@http.www.slony.info/bugzilla/>
+Message-ID: <20090401185659.AFA9F290041@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=71
+
+
+
+
+
+--- Comment #5 from C?sar Acu?a <cjacuna@gmail.com>  2009-04-01 11:56:59 ---
+Thanks a lot Chris. I have just tested the fix. Everything OK.
+
+
+(In reply to comment #4)
+> Created an attachment (id=30)
+ --> (http://www.slony.info/bugzilla/attachment.cgi?id=30) [details]
+> Fix to confoptions.c
+> 
+> Thanks *very* much for the additional info...
+> 
+> The problem is almost certainly that the Solaris printf() is "barfing" when it
+> tries to process via %s a NULL string.
+> 
+> The attached patch should resolve this problem; it checks to see if it's got a
+> NULL, and prints the string "[NULL]" instead, if that is the case.
+> 
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+From slony1-bugs at lists.slony.info  Wed Apr  1 13:14:00 2009
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Wed Apr  1 13:14:02 2009
+Subject: [Slony1-bugs] [Bug 78] Vacuum of sl_log_2 with 42M rows is blocking
+	replication
+In-Reply-To: <bug-78-4@http.www.slony.info/bugzilla/>
+Message-ID: <20090401201400.9F9362902D1@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=78
+
+
+
+
+
+--- Comment #2 from Christopher Browne <cbbrowne@ca.afilias.info>  2009-04-01 13:14:00 ---
+We oughtn't be heavily vacuuming (or needing to vacuum) sl_log_{1,2} in v2.0
+anymore, because part of the logic of the cleanup thread (see pl/pgsql function
+logswitch_finish()) involves using TRUNCATE to regularly clear the data out of
+the unused partition of the sl_log_* tables.
+
+That's a change new to 2.0...
+
+A couple of thoughts...
+
+1.  You could make sl_log_* "less vacuumed" by removing them from
+pg_autovacuum, so that autovac *would* do the vacuuming on them.
+
+As of 2.0, there shouldn't be DELETEs going in (if the Slony-I config value
+cleanup_deletelogs is set to FALSE, as is its default), so autovac shouldn't
+want to do much work on them.
+
+Note that the Slony-I cleanup thread checks the table pg_autovacuum to see what
+tables it shouldn't manage, so deleting sl_log_1/2 from pg_autovacuum would
+take effect on Slony-I's behaviour immediately.
+
+This is a little counterintuitive...  You may get better behaviour by having
+the log tables be handled by autovac :-).
+
+2.  The apparent trouble is that logswitch_finish() isn't running TRUNCATE on
+sl_log_2.
+
+You can run logswitch_finish directly; one of the changes in 2.0 was to take
+the logic that had been pretty tightly embedded into C code in cleanup_thread.c
+and factored it out into the pl/pgsql code.
+
+select _myschema.logswitch_finish();
+
+should raise some notifications indicating what work it's doing.
+
+"Belt & suspenders" would suggest prefixing it with a BEGIN; to stick it in a
+transaction so that if there *was* some unexpected result, you could roll it
+back ;-).
+
+But it should be pretty safe...
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Fri Apr  3 15:23:18 2009
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Fri Apr  3 15:23:19 2009
+Subject: [Slony1-bugs] [Bug 79] New: --prefix and --exec-prefix options
+ don't function as expected
+Message-ID: <bug-79-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=79
+
+           Summary: --prefix and --exec-prefix options don't function as
+                    expected
+           Product: Slony-I
+           Version: devel
+          Platform: PC
+        OS/Version: Linux
+            Status: NEW
+          Severity: normal
+          Priority: medium
+         Component: core scripts
+        AssignedTo: slony1-bugs@lists.slony.info
+        ReportedBy: tom.lippincott@gmail.com
+                CC: slony1-bugs@lists.slony.info
+   Estimated Hours: 0.0
+
+
+The makefile doesn't respect the prefix variables correctly:
+
+mkdir ~/temp
+./configure --prefix=/usr/local --exec-prefix=/usr/local
+make
+make install DESTDIR=~/temp
+ls ~/temp/usr
+  lib64  local  share
+
+This is important functionality to get right, for those of us looking to keep
+custom software under a single hierarchy, since its not included in official
+repositories.
+
+
+
+On an unrelated note, the spec-file in the release fails with:
+
+configure.ac:89: error: AC_SUBST: `2.0.1' is not a valid shell variable name
+configure.ac:89: the top level
+autom4te: /usr/bin/m4 failed with exit status: 1
+error: Bad exit status from /var/tmp/rpm-tmp.CLmZ2P (%build)
+
+
+RPM build errors:
+    Bad exit status from /var/tmp/rpm-tmp.CLmZ2P (%build)
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Mon Apr  6 15:33:44 2009
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Mon Apr  6 15:33:46 2009
+Subject: [Slony1-bugs] [Bug 76] repair config can fail
+In-Reply-To: <bug-76-4@http.www.slony.info/bugzilla/>
+Message-ID: <20090406223344.E10E0290250@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=76
+
+
+Christopher Browne <cbbrowne@ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         Resolution|                            |FIXED
+             Status|NEW                         |RESOLVED
+
+
+
+
+--- Comment #1 from Christopher Browne <cbbrowne@ca.afilias.info>  2009-04-06 15:33:44 ---
+Quite correct...
+
+Change committed to CVS including a regression test that makes sure that REPAIR
+CONFIG gets run.
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Tue Apr  7 03:08:20 2009
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Tue Apr  7 03:08:22 2009
+Subject: [Slony1-bugs] [Bug 80] New: slon daemon restarts itself in a loop
+	after failover()
+Message-ID: <bug-80-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=80
+
+           Summary: slon daemon restarts itself in a loop after failover()
+           Product: Slony-I
+           Version: 1.2
+          Platform: All
+        OS/Version: All
+            Status: NEW
+          Severity: normal
+          Priority: medium
+         Component: core scripts
+        AssignedTo: slony1-bugs@lists.slony.info
+        ReportedBy: pfote@ypsilon.net
+                CC: slony1-bugs@lists.slony.info
+   Estimated Hours: 0.0
+
+
+Created an attachment (id=31)
+ --> (http://www.slony.info/bugzilla/attachment.cgi?id=31)
+log and slonik scripts
+
+when dropping the "failed" node immediately after the failover() command, it
+might happen that a node gets the dropNode_int() command while the failed node
+is still referenced in the sl_set table. the dropNode_int() then fails because
+the foreign key contraint "set_origin-no_id-ref" fails. 
+The slon deamon then restarts itself and tries again to drop the node (which
+fails) and restarts itself in a endless loop, rendering the node unusable;
+
+If you wait a bit after the failover() before dropping the node, everything
+works fine.
+
+attached are the slonik scripts to setup the test and to (hopefully) reproduce
+the problem, and some of the slon daemon log of the node that went wild.
+
+The setup was as follow: 4 nodes 1-4, 1 as master, 2-4 as slaves directly
+subscribing on the master. then the master is assumed to be broken and 4 should
+become the new master, so nodes 2 and 3 are re-subscribed to node 4, then the
+failover is executed, waited and then the "failed" old master dropped.
+
+i have to apologize i forgot to switch languages on me dev machine so some of
+the error messages in the slon log are in german.
+
+Cheers
+Andreas
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Tue Apr  7 15:30:07 2009
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Tue Apr  7 15:30:09 2009
+Subject: [Slony1-bugs] [Bug 79] --prefix and --exec-prefix options don't
+ function as expected
+In-Reply-To: <bug-79-4@http.www.slony.info/bugzilla/>
+Message-ID: <20090407223007.BE30D2900F0@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=79
+
+
+Christopher Browne <cbbrowne@ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+             Status|NEW                         |ASSIGNED
+
+
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Thu Apr  9 14:58:12 2009
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Thu Apr  9 14:58:13 2009
+Subject: [Slony1-bugs] [Bug 79] --prefix and --exec-prefix options don't
+ function as expected
+In-Reply-To: <bug-79-4@http.www.slony.info/bugzilla/>
+Message-ID: <20090409215812.47167290363@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=79
+
+
+
+
+
+--- Comment #1 from Christopher Browne <cbbrowne@ca.afilias.info>  2009-04-09 14:58:11 ---
+I presume that you were running autoconf 2.63?  It appears that there was a
+change to autoconf recently that induces this.  It is eminently unclear, from
+the bug reports out there, what the *real* issue is.
+
+It's complaining about the substitution of AC_SUBST(SLONREL_VERSION), and I
+don't see any references to SLONREL_VERSION outside of configure.ac, so it
+appears safe to drop out that substitution.
+
+I have committed that change to 2.0 + HEAD.
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Thu Apr  9 15:01:23 2009
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Thu Apr  9 15:01:25 2009
+Subject: [Slony1-bugs] [Bug 80] slon daemon restarts itself in a loop after
+	failover()
+In-Reply-To: <bug-80-4@http.www.slony.info/bugzilla/>
+Message-ID: <20090409220123.B51BF2901D1@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=80
+
+
+Christopher Browne <cbbrowne@ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+             Status|NEW                         |ASSIGNED
+
+
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Thu Apr  9 15:10:59 2009
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Thu Apr  9 15:11:01 2009
+Subject: [Slony1-bugs] [Bug 80] slon daemon restarts itself in a loop after
+	failover()
+In-Reply-To: <bug-80-4@http.www.slony.info/bugzilla/>
+Message-ID: <20090409221059.4E5802902E6@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=80
+
+
+
+
+
+--- Comment #1 from Christopher Browne <cbbrowne@ca.afilias.info>  2009-04-09 15:10:59 ---
+I'll think about this over the weekend; my first reaction is to treat this as a
+documentation patch, and to recommend not rushing to drop the node out of the
+cluster until you actually get the failover completed.
+
+As a first response, that's definitely what I'd recommend.
+
+When you drop it "too quickly," that introduces the risk, which you ran into,
+that some later node gets the DROP NODE event before receiving the FAILOVER
+event.
+
+There's no easy way to evade that problem!
+
+However, second reaction is that it's not particularly reasonable for this
+mistake to be allowed to break the cluster.
+
+As a first thought on a solution, we might check to see if there's a pending
+FAILOVER_SET event pending, and somehow defer/ignore the DROP NODE.
+
+Gonna have to sleep on that...
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Fri Apr 10 09:02:26 2009
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Fri Apr 10 09:02:29 2009
+Subject: [Slony1-bugs] [Bug 62] Initial subscription blocks with "sequence
+ ID <xxx> has already been assigned"
+In-Reply-To: <bug-62-4@http.www.slony.info/bugzilla/>
+Message-ID: <20090410160226.3A8D0290439@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=62
+
+
+Devrim GUNDUZ <devrim@commandprompt.com> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+                 CC|                            |devrim@commandprompt.com
+
+
+
+
+--- Comment #5 from Devrim GUNDUZ <devrim@commandprompt.com>  2009-04-10 09:02:25 ---
+I think I hit something similar today.
+
+I added a new set/table to existing replication. First edited slon_tools.conf,
+and then ran slonik_create set and slonik_subscribe_set . 
+
+It worked fine. 
+
+The next step was merging set 999 (existing set) with set 3 (the one that I
+just created). After merging set, replication stopped.
+
+Here is a part of the log:
+
+=======================
+2009-04-10 03:00:46 PDT [11553] DEBUG2 remoteWorkerThread_2: all tables for set
+3 found on subscriber
+2009-04-10 03:00:46 PDT [11553] DEBUG2 remoteWorkerThread_2: copy sequence
+"public"."rev_marketmap_pk_marketmap_id_seq"
+2009-04-10 03:00:46 PDT [11553] ERROR  remoteWorkerThread_2: "select
+"_replica".setAddSequence_int(3, 2015,
+'"public"."rev_marketmap_pk_marketmap_id_seq"', 'Sequence
+public.rev_marketmap_pk_marketmap_id_seq')" PGRES_FATAL_ERROR ERROR:  Slony-I:
+setAddSequence_int(): sequence ID 2015 has already been assigned
+2009-04-10 03:00:46 PDT [11553] WARN   remoteWorkerThread_2: data copy for set
+3 failed - sleep 60 seconds
+
+=======================
+
+...and we are currently far behind replication.
+
+This is Slony-I 1.2.10 on Linux.
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Mon Apr 13 07:47:05 2009
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Mon Apr 13 07:47:06 2009
+Subject: [Slony1-bugs] [Bug 81] New: duplicate key sl_nodelock-pkey and
+ duplicate slon(8) processes not detected
+Message-ID: <bug-81-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=81
+
+           Summary: duplicate key sl_nodelock-pkey and duplicate slon(8)
+                    processes not detected
+           Product: Slony-I
+           Version: 1.2
+          Platform: PC
+        OS/Version: FreeBSD
+            Status: NEW
+          Severity: normal
+          Priority: medium
+         Component: slon
+        AssignedTo: slony1-bugs@lists.slony.info
+        ReportedBy: bseklecki@collaborativefusion.com
+                CC: slony1-bugs@lists.slony.info
+   Estimated Hours: 0.0
+
+
+First reported 08/2008 by Shahaf Abileah, then found by Bill Moran at CFI.
+
+
+http://www.mail-archive.com/slony1-general@lists.slony.info/msg02754.html
+
+http://www.nabble.com/duplicate-key-sl_nodelock-pkey-td22246434.html
+
+--------
+
+In both cases, the users report that duplicate running SLON processes seem to
+be the cause (hence, duplicate "node locks").  
+
+Error #1 is the PgSQL error.
+
+In our case, during a switchover drill, the SWITCHOVER command fails silently,
+eventually timing out.
+
+No errors from Slon/PgSQL are reported back to the user, which is problem #2.
+
+-------------------
+
+2009 Feb 27 06:32:04 -05:00 localslavedb [slon][27776] [local2] [err] 
+slon[27776]: [20-1] [27776] FATAL localListenThread: "select 
+"_database_name_prod".cleanupNodelock(); insert into
+2009 Feb 27 06:32:04 -05:00 localslavedb [slon][27776] [local2] [err] 
+slon[27776]: [20-2] "_database_name_prod".sl_nodelock values ( 2, 0, 
+"pg_catalog".pg_backend_pid()); " - ERROR: duplicate key value violates
+2009 Feb 27 06:32:04 -05:00 localslavedb [slon][27776] [local2] [err] 
+slon[27776]: [20-3] unique constraint "sl_nodelock-pkey"
+
+---------------------
+
+duplicate key sl_nodelock-pkey and suplicate slon(8) processes not detected
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Tue Apr 14 02:23:59 2009
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Tue Apr 14 02:24:01 2009
+Subject: [Slony1-bugs] [Bug 82] New: Comma in excess in example
+Message-ID: <bug-82-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=82
+
+           Summary: Comma in excess in example
+           Product: Slony-I
+           Version: 1.2
+          Platform: All
+               URL: http://slony.info/documentation/stmtsetdropsequence.html
+        OS/Version: All
+            Status: NEW
+          Severity: trivial
+          Priority: medium
+         Component: docs
+        AssignedTo: slony1-bugs@lists.slony.info
+        ReportedBy: stephane.schildknecht@postgresqlfr.org
+                CC: slony1-bugs@lists.slony.info
+   Estimated Hours: 0.5
+
+
+There is a comme in excess in the example of "slonik set drop sequence"
+command:
+
+SET DROP SEQUENCE (
+     ORIGIN = 1,
+     ID = 20,  <-- This one
+     );
+
+
+The example should be:
+
+SET DROP SEQUENCE (
+     ORIGIN = 1,
+     ID = 20
+     );
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From cscetbon.ext at orange-ftgroup.com  Tue Apr 14 08:15:30 2009
+From: cscetbon.ext at orange-ftgroup.com (Cyril Scetbon)
+Date: Tue Apr 14 08:15:41 2009
+Subject: [Slony1-bugs] [Slony1 2.0.1]
+Message-ID: <49E4A892.3060001@orange-ftgroup.com>
+
+Hi guys,
+
+you should
+
+- change SLONY_I_VERSION_STRING in config.h to reflect the current version
+- update tools/altperl/slon-tools.pm cause you're using 2 different 
+variables (in start_slon function) for the log level as you can see in 
+the current version :
+
+  $DEBUG_INTERVAL ||= 0;
+  system("mkdir -p $LOGDIR/slony1/node$nodenum");
+  my $cmd = "@@SLONBINDIR@@/slon -s $SYNC_CHECK_INTERVAL -d$DEBUGLEVEL 
+$CLUSTER_NAME '$dsn' ";
+
+==> (correct version)
+
+  $DEBUGLEVEL ||= 0;
+  system("mkdir -p $LOGDIR/slony1/node$nodenum");
+  my $cmd = "@@SLONBINDIR@@/slon -s $SYNC_CHECK_INTERVAL -d$DEBUGLEVEL 
+$CLUSTER_NAME '$dsn' ";
+
+besides this, I met an issue with slonik that is trying to load the file :
+
+<stdin>:6: could not open file /usr/share/postgresql/8.3/slony1_base.sql
+
+however slonik is compiled with -DPGSHARE="\"/usr/share/slony1\"" as you 
+can see below :
+
+make[3]: Entering directory 
+`/home/cscetbon/packaging/slony1-2.0.1/src/slonik'
+cc -g -Wall -O2 -Wall -Wmissing-prototypes -Wmissing-declarations 
+-I../.. -DPGSHARE="\"/usr/share/slony1\""  -I/usr/include/postgresql/ 
+-I/usr/include/postg
+resql/8.3/server/  -c -o slonik.o slonik.c
+cc -g -Wall -O2 -Wall -Wmissing-prototypes -Wmissing-declarations 
+-I../.. -DPGSHARE="\"/usr/share/slony1\""  -I/usr/include/postgresql/ 
+-I/usr/include/postgresql/8.3/server/  -c -o dbutil.o dbutil.c
+cc -g -Wall -O2 -Wall -Wmissing-prototypes -Wmissing-declarations 
+-I../.. -DPGSHARE="\"/usr/share/slony1\""  -I/usr/include/postgresql/ 
+-I/usr/include/postgresql/8.3/server/  -c -o parser.o parser.c
+In file included from parser.y:1879:
+scan.c:2293: warning: no previous prototype for 'yyget_lineno'
+scan.c:2302: warning: no previous prototype for 'yyget_in'
+scan.c:2310: warning: no previous prototype for 'yyget_out'
+scan.c:2318: warning: no previous prototype for 'yyget_leng'
+scan.c:2327: warning: no previous prototype for 'yyget_text'
+scan.c:2336: warning: no previous prototype for 'yyset_lineno'
+scan.c:2348: warning: no previous prototype for 'yyset_in'
+scan.c:2353: warning: no previous prototype for 'yyset_out'
+scan.c:2358: warning: no previous prototype for 'yyget_debug'
+scan.c:2363: warning: no previous prototype for 'yyset_debug'
+scan.c:2400: warning: no previous prototype for 'yylex_destroy'
+cc -g -Wall -O2 -Wall -Wmissing-prototypes -Wmissing-declarations 
+-I../.. -DPGSHARE="\"/usr/share/slony1\""  slonik.o dbutil.o parser.o  
+../parsestatements/
+scanner.o -L/usr/lib/ -L/usr/lib/postgresql/8.3/lib -lpq  
+-Wl,-rpath,/usr/lib/ -lpgport -o slonik
+
+why does it chooses to load slony1_base.sql from 
+/usr/share/postgresql/8.3/ ?
+
+Regards
+-- 
+Cyril SCETBON
+From slony1-bugs at lists.slony.info  Wed Apr 15 02:40:52 2009
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Wed Apr 15 02:40:54 2009
+Subject: [Slony1-bugs] [Bug 83] New: bugzilla has no version entry for
+	version 2.0
+Message-ID: <bug-83-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=83
+
+           Summary: bugzilla has no version entry for version 2.0
+           Product: Slony-I
+           Version: devel
+          Platform: Other
+        OS/Version: Linux
+            Status: NEW
+          Severity: normal
+          Priority: medium
+         Component: website
+        AssignedTo: slony1-bugs@lists.slony.info
+        ReportedBy: peter_e@gmx.net
+                CC: slony1-bugs@lists.slony.info
+   Estimated Hours: 0.0
+
+
+Bugzilla only allows
+
+1.1
+1.2
+devel
+
+as versions.  2.0 should probably be added.
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Wed Apr 15 02:43:43 2009
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Wed Apr 15 02:43:44 2009
+Subject: [Slony1-bugs] [Bug 84] New: INSTALL file in 2.0 is outdated
+Message-ID: <bug-84-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=84
+
+           Summary: INSTALL file in 2.0 is outdated
+           Product: Slony-I
+           Version: devel
+          Platform: Other
+        OS/Version: Linux
+            Status: NEW
+          Severity: normal
+          Priority: medium
+         Component: docs
+        AssignedTo: slony1-bugs@lists.slony.info
+        ReportedBy: peter_e@gmx.net
+                CC: slony1-bugs@lists.slony.info
+   Estimated Hours: 0.0
+
+
+The INSTALL file in 2.0.1 claims
+
+"""
+Slony-I currently supports PostgreSQL 7.4.0 (and higher), 8.0.x, and
+8.1.x.  There have also been changes made to support features expected
+in 8.2.
+
+Note that earlier versions supported versions in the 7.3.x series; as
+of Slony-I 1.2.0, 7.3 support has been dropped.
+"""
+
+This should be updated, as only 8.3 and up are now supported.
+
+Also, later in the file, the installed file list and a few other things that
+refer to 7.4 and such should be removed or revised.
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Wed Apr 15 02:52:41 2009
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Wed Apr 15 02:52:42 2009
+Subject: [Slony1-bugs] [Bug 85] New: PGLIBDIR/perlsharedir confusion reloaded
+Message-ID: <bug-85-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=85
+
+           Summary: PGLIBDIR/perlsharedir confusion reloaded
+           Product: Slony-I
+           Version: devel
+          Platform: Other
+        OS/Version: Linux
+            Status: NEW
+          Severity: normal
+          Priority: medium
+         Component: altperl
+        AssignedTo: slony1-bugs@lists.slony.info
+        ReportedBy: peter_e@gmx.net
+                CC: slony1-bugs@lists.slony.info
+   Estimated Hours: 0.0
+
+
+Created an attachment (id=32)
+ --> (http://www.slony.info/bugzilla/attachment.cgi?id=32)
+patch to fix
+
+In the fix to bug #31 you replaced PGLIBDIR with PERLSHAREDIR in tools/altperl,
+but slonik_drop_sequence.pl still uses PGLIBDIR, which then won't get
+substituted during the build process, so that script is broken.
+
+See attached patch to fix it.
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Wed Apr 15 06:20:10 2009
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Wed Apr 15 06:20:12 2009
+Subject: [Slony1-bugs] [Bug 86] New: doc installation fails when man pages
+	are not built
+Message-ID: <bug-86-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=86
+
+           Summary: doc installation fails when man pages are not built
+           Product: Slony-I
+           Version: devel
+          Platform: Other
+        OS/Version: Linux
+            Status: NEW
+          Severity: normal
+          Priority: medium
+         Component: docs
+        AssignedTo: slony1-bugs@lists.slony.info
+        ReportedBy: peter_e@gmx.net
+                CC: slony1-bugs@lists.slony.info
+   Estimated Hours: 0.0
+
+
+Man pages are only built if you manually set the make variable D2MDIR.  The
+install target in the adminguide directory, however, tries to install them
+anyway:
+
+        for file in man1/*.1; do \
+           $(INSTALL_DATA) $$file $(DESTDIR)$(mandir)/man1/$$file || exit;\
+        done
+
+etc., which fails with
+
+install:  man1/*.1 does not exist
+
+In 1.2, it used to work because the code looked like this:
+
+        for file in $(wildcard man1/*) ; do \
+           $(INSTALL_DATA) $$file $(DESTDIR)$(mandir)/man1 || exit;\
+        done
+
+and so nothing was installed.
+
+I see in the CVS logs that there was a point to making this change.  So then
+perhaps you could put an ifdef D2MDIR or something like that around the man
+page installation parts.
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Wed Apr 15 07:31:25 2009
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Wed Apr 15 07:31:28 2009
+Subject: [Slony1-bugs] [Bug 87] New: some examples are missing event node
+	parameter
+Message-ID: <bug-87-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=87
+
+           Summary: some examples are missing event node parameter
+           Product: Slony-I
+           Version: devel
+          Platform: Other
+        OS/Version: Linux
+            Status: NEW
+          Severity: normal
+          Priority: medium
+         Component: docs
+        AssignedTo: slony1-bugs@lists.slony.info
+        ReportedBy: peter_e@gmx.net
+                CC: slony1-bugs@lists.slony.info
+   Estimated Hours: 0.0
+
+
+The event node parameter became mandatory for some slonik commands in 2.0.  But
+the reference pages for STORE NODE and DROP NODE, at least, contain examples
+that don't specify the event node and that will therefore fail.
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Wed Apr 15 07:47:09 2009
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Wed Apr 15 07:47:12 2009
+Subject: [Slony1-bugs] [Bug 88] New: slonik command reference titles
+	inconsistent
+Message-ID: <bug-88-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=88
+
+           Summary: slonik command reference titles inconsistent
+           Product: Slony-I
+           Version: devel
+          Platform: Other
+        OS/Version: Linux
+            Status: NEW
+          Severity: normal
+          Priority: medium
+         Component: docs
+        AssignedTo: slony1-bugs@lists.slony.info
+        ReportedBy: peter_e@gmx.net
+                CC: slony1-bugs@lists.slony.info
+   Estimated Hours: 0.0
+
+
+Created an attachment (id=33)
+ --> (http://www.slony.info/bugzilla/attachment.cgi?id=33)
+patch to fix
+
+The refentrytitles (= man page names) of the slonik command man pages all
+received a SLONIK prefix, except some didn't, which doesn't seem consistent. 
+Here is a patch to fix that for the rest.
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Thu Apr 16 01:35:52 2009
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Thu Apr 16 01:35:54 2009
+Subject: [Slony1-bugs] [Bug 89] New: man page installation completely broken
+ in multiple ways
+Message-ID: <bug-89-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=89
+
+           Summary: man page installation completely broken in multiple ways
+           Product: Slony-I
+           Version: devel
+          Platform: Other
+        OS/Version: Linux
+            Status: NEW
+          Severity: normal
+          Priority: medium
+         Component: docs
+        AssignedTo: slony1-bugs@lists.slony.info
+        ReportedBy: peter_e@gmx.net
+                CC: slony1-bugs@lists.slony.info
+   Estimated Hours: 0.0
+
+
+The slonik man pages installation doesn't work.
+
+The first reason is that the makefile rule looks like this:
+
+        for file in man7/*.7; do \
+           echo $$file \
+           $(INSTALL_DATA) $$file $(DESTDIR)$(mandir)/man7/$$file || exit;\
+        done
+
+which just echoes the install command, but doesn't execute it.  There is a
+semicolon missing on the echo line.
+
+The second problem is that the man page file names contain spaces, so you need
+to add some quoting, like
+
+$(INSTALL_DATA) "$$file" $(DESTDIR)$(mandir)/man7/"$$file"
+
+The third problem is that install-sh doesn't support installing files with
+spaces in their names at all.  So either you need to get a new or different
+install program or generate man pages without spaces in their names.
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Thu Apr 16 03:09:42 2009
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Thu Apr 16 03:09:44 2009
+Subject: [Slony1-bugs] [Bug 89] man page installation completely broken in
+	multiple ways
+In-Reply-To: <bug-89-4@http.www.slony.info/bugzilla/>
+Message-ID: <20090416100942.908EB2903B6@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=89
+
+
+
+
+
+--- Comment #1 from Peter Eisentraut <peter_e@gmx.net>  2009-04-16 03:09:42 ---
+In addition, you need to make the following change to both the man1 and man7
+rules:
+
+-$(INSTALL_DATA) $$file $(DESTDIR)$(mandir)/man7/$$file
++$(INSTALL_DATA) $$file $(DESTDIR)$(mandir)/$$file
+
+Otherwise it ends up installing into, say, /usr/share/man/man7/man7/foo.7 .
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Thu Apr 16 08:46:15 2009
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Thu Apr 16 08:46:18 2009
+Subject: [Slony1-bugs] [Bug 84] INSTALL file in 2.0 is outdated
+In-Reply-To: <bug-84-4@http.www.slony.info/bugzilla/>
+Message-ID: <20090416154615.DCD99290176@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=84
+
+
+Christopher Browne <cbbrowne@ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+             Status|NEW                         |ASSIGNED
+
+
+
+
+--- Comment #1 from Christopher Browne <cbbrowne@ca.afilias.info>  2009-04-16 08:46:15 ---
+Yup, need to revise this.
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Thu Apr 16 08:47:50 2009
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Thu Apr 16 08:47:51 2009
+Subject: [Slony1-bugs] [Bug 84] INSTALL file in 2.0 is outdated
+In-Reply-To: <bug-84-4@http.www.slony.info/bugzilla/>
+Message-ID: <20090416154750.120CA290089@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=84
+
+
+Christopher Browne <cbbrowne@ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+             Status|ASSIGNED                    |RESOLVED
+         Resolution|                            |FIXED
+
+
+
+
+--- Comment #2 from Christopher Browne <cbbrowne@ca.afilias.info>  2009-04-16 08:47:50 ---
+Committed change to install notes.
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Thu Apr 16 08:50:26 2009
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Thu Apr 16 08:50:28 2009
+Subject: [Slony1-bugs] [Bug 82] Comma in excess in example
+In-Reply-To: <bug-82-4@http.www.slony.info/bugzilla/>
+Message-ID: <20090416155026.198972903DB@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=82
+
+
+Christopher Browne <cbbrowne@ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+             Status|NEW                         |ASSIGNED
+
+
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Thu Apr 16 08:51:43 2009
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Thu Apr 16 08:51:45 2009
+Subject: [Slony1-bugs] [Bug 82] Comma in excess in example
+In-Reply-To: <bug-82-4@http.www.slony.info/bugzilla/>
+Message-ID: <20090416155143.199CB290089@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=82
+
+
+Christopher Browne <cbbrowne@ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+             Status|ASSIGNED                    |RESOLVED
+         Resolution|                            |FIXED
+    Remaining Hours|0.5                         |0.0
+
+
+
+
+--- Comment #1 from Christopher Browne <cbbrowne@ca.afilias.info>  2009-04-16 08:51:43 ---
+Fixed & committed to 2.0
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Thu Apr 16 08:53:19 2009
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Thu Apr 16 08:53:20 2009
+Subject: [Slony1-bugs] [Bug 85] PGLIBDIR/perlsharedir confusion reloaded
+In-Reply-To: <bug-85-4@http.www.slony.info/bugzilla/>
+Message-ID: <20090416155319.431FC2903DB@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=85
+
+
+Christopher Browne <cbbrowne@ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+             Status|NEW                         |ASSIGNED
+
+
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Thu Apr 16 08:55:42 2009
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Thu Apr 16 08:55:44 2009
+Subject: [Slony1-bugs] [Bug 85] PGLIBDIR/perlsharedir confusion reloaded
+In-Reply-To: <bug-85-4@http.www.slony.info/bugzilla/>
+Message-ID: <20090416155542.DCA03290176@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=85
+
+
+Christopher Browne <cbbrowne@ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+             Status|ASSIGNED                    |RESOLVED
+         Resolution|                            |FIXED
+
+
+
+
+--- Comment #1 from Christopher Browne <cbbrowne@ca.afilias.info>  2009-04-16 08:55:43 ---
+Fixed.
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Thu Apr 16 08:57:06 2009
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Thu Apr 16 08:57:08 2009
+Subject: [Slony1-bugs] [Bug 86] doc installation fails when man pages are
+	not built
+In-Reply-To: <bug-86-4@http.www.slony.info/bugzilla/>
+Message-ID: <20090416155706.CF9D329043C@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=86
+
+
+Christopher Browne <cbbrowne@ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+             Status|NEW                         |ASSIGNED
+
+
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Thu Apr 16 09:12:26 2009
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Thu Apr 16 09:12:27 2009
+Subject: [Slony1-bugs] [Bug 86] doc installation fails when man pages are
+	not built
+In-Reply-To: <bug-86-4@http.www.slony.info/bugzilla/>
+Message-ID: <20090416161226.15B1E290089@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=86
+
+
+Christopher Browne <cbbrowne@ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+             Status|ASSIGNED                    |RESOLVED
+         Resolution|                            |FIXED
+
+
+
+
+--- Comment #1 from Christopher Browne <cbbrowne@ca.afilias.info>  2009-04-16 09:12:26 ---
+Fixed, I trust...
+
+I enclosed the installation with "ifdef D2MSCRIPT/endif"
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Thu Apr 16 09:45:48 2009
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Thu Apr 16 09:45:50 2009
+Subject: [Slony1-bugs] [Bug 87] some examples are missing event node
+	parameter
+In-Reply-To: <bug-87-4@http.www.slony.info/bugzilla/>
+Message-ID: <20090416164548.DBFA229044A@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=87
+
+
+Christopher Browne <cbbrowne@ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+             Status|NEW                         |RESOLVED
+         Resolution|                            |FIXED
+
+
+
+
+--- Comment #1 from Christopher Browne <cbbrowne@ca.afilias.info>  2009-04-16 09:45:49 ---
+Reviewed slonik.c versus slonik_ref.sgml and added EVENT NODE parameter to all
+of the Slonik commands where they were missing.
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Thu Apr 16 09:47:46 2009
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Thu Apr 16 09:47:48 2009
+Subject: [Slony1-bugs] [Bug 88] slonik command reference titles inconsistent
+In-Reply-To: <bug-88-4@http.www.slony.info/bugzilla/>
+Message-ID: <20090416164746.822FD29044A@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=88
+
+
+Christopher Browne <cbbrowne@ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+             Status|NEW                         |RESOLVED
+         Resolution|                            |FIXED
+
+
+
+
+--- Comment #1 from Christopher Browne <cbbrowne@ca.afilias.info>  2009-04-16 09:47:46 ---
+Patch applied to 2.0
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Thu Apr 16 09:49:56 2009
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Thu Apr 16 09:50:00 2009
+Subject: [Slony1-bugs] [Bug 89] man page installation completely broken in
+	multiple ways
+In-Reply-To: <bug-89-4@http.www.slony.info/bugzilla/>
+Message-ID: <20090416164956.5717E290058@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=89
+
+
+Christopher Browne <cbbrowne@ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+             Status|NEW                         |ASSIGNED
+
+
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From cscetbon.ext at orange-ftgroup.com  Fri Apr 17 07:33:35 2009
+From: cscetbon.ext at orange-ftgroup.com (Cyril Scetbon)
+Date: Fri Apr 17 07:33:42 2009
+Subject: [Slony1-bugs] [Slony1 2.0.1]
+In-Reply-To: <49E4A892.3060001@orange-ftgroup.com>
+References: <49E4A892.3060001@orange-ftgroup.com>
+Message-ID: <49E8933F.9040505@orange-ftgroup.com>
+
+The error comes from the following code :
+
+if (find_my_exec(argv[0],myfull_path) < 0)
+{
+    strcpy(share_path, PGSHARE);
+}
+else
+{
+    get_share_path(myfull_path, share_path);
+}
+
+that is if I use "slonik_init_cluster|/usr/bin/slonik" or 
+"slonik_init_cluster|slonik" it finds the exec file and does not use 
+PGSHARE as a share_path for slony1xxx.sql file. It should not use 
+get_share_path if PGSHARE is defined !
+
+to remember the issue : I compile slonik with 
+-DPGSHARE="\"/usr/share/slony1\"" but slonik searches for 
+slony1_base.sql (and other files) in /usr/share/postgresql/8.3/ and not 
+in PGSHARE
+
+Regards
+
+Cyril Scetbon wrote:
+> Hi guys,
+>
+> you should
+>
+> - change SLONY_I_VERSION_STRING in config.h to reflect the current 
+> version
+> - update tools/altperl/slon-tools.pm cause you're using 2 different 
+> variables (in start_slon function) for the log level as you can see in 
+> the current version :
+>
+>  $DEBUG_INTERVAL ||= 0;
+>  system("mkdir -p $LOGDIR/slony1/node$nodenum");
+>  my $cmd = "@@SLONBINDIR@@/slon -s $SYNC_CHECK_INTERVAL -d$DEBUGLEVEL 
+> $CLUSTER_NAME '$dsn' ";
+>
+> ==> (correct version)
+>
+>  $DEBUGLEVEL ||= 0;
+>  system("mkdir -p $LOGDIR/slony1/node$nodenum");
+>  my $cmd = "@@SLONBINDIR@@/slon -s $SYNC_CHECK_INTERVAL -d$DEBUGLEVEL 
+> $CLUSTER_NAME '$dsn' ";
+>
+> besides this, I met an issue with slonik that is trying to load the 
+> file :
+>
+> <stdin>:6: could not open file /usr/share/postgresql/8.3/slony1_base.sql
+>
+> however slonik is compiled with -DPGSHARE="\"/usr/share/slony1\"" as 
+> you can see below :
+>
+> make[3]: Entering directory 
+> `/home/cscetbon/packaging/slony1-2.0.1/src/slonik'
+> cc -g -Wall -O2 -Wall -Wmissing-prototypes -Wmissing-declarations 
+> -I../.. -DPGSHARE="\"/usr/share/slony1\""  -I/usr/include/postgresql/ 
+> -I/usr/include/postg
+> resql/8.3/server/  -c -o slonik.o slonik.c
+> cc -g -Wall -O2 -Wall -Wmissing-prototypes -Wmissing-declarations 
+> -I../.. -DPGSHARE="\"/usr/share/slony1\""  -I/usr/include/postgresql/ 
+> -I/usr/include/postgresql/8.3/server/  -c -o dbutil.o dbutil.c
+> cc -g -Wall -O2 -Wall -Wmissing-prototypes -Wmissing-declarations 
+> -I../.. -DPGSHARE="\"/usr/share/slony1\""  -I/usr/include/postgresql/ 
+> -I/usr/include/postgresql/8.3/server/  -c -o parser.o parser.c
+> In file included from parser.y:1879:
+> scan.c:2293: warning: no previous prototype for 'yyget_lineno'
+> scan.c:2302: warning: no previous prototype for 'yyget_in'
+> scan.c:2310: warning: no previous prototype for 'yyget_out'
+> scan.c:2318: warning: no previous prototype for 'yyget_leng'
+> scan.c:2327: warning: no previous prototype for 'yyget_text'
+> scan.c:2336: warning: no previous prototype for 'yyset_lineno'
+> scan.c:2348: warning: no previous prototype for 'yyset_in'
+> scan.c:2353: warning: no previous prototype for 'yyset_out'
+> scan.c:2358: warning: no previous prototype for 'yyget_debug'
+> scan.c:2363: warning: no previous prototype for 'yyset_debug'
+> scan.c:2400: warning: no previous prototype for 'yylex_destroy'
+> cc -g -Wall -O2 -Wall -Wmissing-prototypes -Wmissing-declarations 
+> -I../.. -DPGSHARE="\"/usr/share/slony1\""  slonik.o dbutil.o parser.o  
+> ../parsestatements/
+> scanner.o -L/usr/lib/ -L/usr/lib/postgresql/8.3/lib -lpq  
+> -Wl,-rpath,/usr/lib/ -lpgport -o slonik
+>
+> why does it chooses to load slony1_base.sql from 
+> /usr/share/postgresql/8.3/ ?
+>
+> Regards
+
+-- 
+Cyril SCETBON
+From cscetbon.ext at orange-ftgroup.com  Wed Apr 22 04:30:33 2009
+From: cscetbon.ext at orange-ftgroup.com (Cyril Scetbon)
+Date: Wed Apr 22 04:31:07 2009
+Subject: [Slony1-bugs] [Slony1 2.0.1]
+In-Reply-To: <49E8933F.9040505@orange-ftgroup.com>
+References: <49E4A892.3060001@orange-ftgroup.com>
+	<49E8933F.9040505@orange-ftgroup.com>
+Message-ID: <49EEFFD9.20700@orange-ftgroup.com>
+
+Do I have to open bugs for these errors ?
+
+Cyril Scetbon wrote:
+> The error comes from the following code :
+>
+> if (find_my_exec(argv[0],myfull_path) < 0)
+> {
+>    strcpy(share_path, PGSHARE);
+> }
+> else
+> {
+>    get_share_path(myfull_path, share_path);
+> }
+>
+> that is if I use "slonik_init_cluster|/usr/bin/slonik" or 
+> "slonik_init_cluster|slonik" it finds the exec file and does not use 
+> PGSHARE as a share_path for slony1xxx.sql file. It should not use 
+> get_share_path if PGSHARE is defined !
+>
+> to remember the issue : I compile slonik with 
+> -DPGSHARE="\"/usr/share/slony1\"" but slonik searches for 
+> slony1_base.sql (and other files) in /usr/share/postgresql/8.3/ and 
+> not in PGSHARE
+>
+> Regards
+>
+> Cyril Scetbon wrote:
+>> Hi guys,
+>>
+>> you should
+>>
+>> - change SLONY_I_VERSION_STRING in config.h to reflect the current 
+>> version
+>> - update tools/altperl/slon-tools.pm cause you're using 2 different 
+>> variables (in start_slon function) for the log level as you can see 
+>> in the current version :
+>>
+>>  $DEBUG_INTERVAL ||= 0;
+>>  system("mkdir -p $LOGDIR/slony1/node$nodenum");
+>>  my $cmd = "@@SLONBINDIR@@/slon -s $SYNC_CHECK_INTERVAL -d$DEBUGLEVEL 
+>> $CLUSTER_NAME '$dsn' ";
+>>
+>> ==> (correct version)
+>>
+>>  $DEBUGLEVEL ||= 0;
+>>  system("mkdir -p $LOGDIR/slony1/node$nodenum");
+>>  my $cmd = "@@SLONBINDIR@@/slon -s $SYNC_CHECK_INTERVAL -d$DEBUGLEVEL 
+>> $CLUSTER_NAME '$dsn' ";
+>>
+>> besides this, I met an issue with slonik that is trying to load the 
+>> file :
+>>
+>> <stdin>:6: could not open file /usr/share/postgresql/8.3/slony1_base.sql
+>>
+>> however slonik is compiled with -DPGSHARE="\"/usr/share/slony1\"" as 
+>> you can see below :
+>>
+>> make[3]: Entering directory 
+>> `/home/cscetbon/packaging/slony1-2.0.1/src/slonik'
+>> cc -g -Wall -O2 -Wall -Wmissing-prototypes -Wmissing-declarations 
+>> -I../.. -DPGSHARE="\"/usr/share/slony1\""  -I/usr/include/postgresql/ 
+>> -I/usr/include/postg
+>> resql/8.3/server/  -c -o slonik.o slonik.c
+>> cc -g -Wall -O2 -Wall -Wmissing-prototypes -Wmissing-declarations 
+>> -I../.. -DPGSHARE="\"/usr/share/slony1\""  -I/usr/include/postgresql/ 
+>> -I/usr/include/postgresql/8.3/server/  -c -o dbutil.o dbutil.c
+>> cc -g -Wall -O2 -Wall -Wmissing-prototypes -Wmissing-declarations 
+>> -I../.. -DPGSHARE="\"/usr/share/slony1\""  -I/usr/include/postgresql/ 
+>> -I/usr/include/postgresql/8.3/server/  -c -o parser.o parser.c
+>> In file included from parser.y:1879:
+>> scan.c:2293: warning: no previous prototype for 'yyget_lineno'
+>> scan.c:2302: warning: no previous prototype for 'yyget_in'
+>> scan.c:2310: warning: no previous prototype for 'yyget_out'
+>> scan.c:2318: warning: no previous prototype for 'yyget_leng'
+>> scan.c:2327: warning: no previous prototype for 'yyget_text'
+>> scan.c:2336: warning: no previous prototype for 'yyset_lineno'
+>> scan.c:2348: warning: no previous prototype for 'yyset_in'
+>> scan.c:2353: warning: no previous prototype for 'yyset_out'
+>> scan.c:2358: warning: no previous prototype for 'yyget_debug'
+>> scan.c:2363: warning: no previous prototype for 'yyset_debug'
+>> scan.c:2400: warning: no previous prototype for 'yylex_destroy'
+>> cc -g -Wall -O2 -Wall -Wmissing-prototypes -Wmissing-declarations 
+>> -I../.. -DPGSHARE="\"/usr/share/slony1\""  slonik.o dbutil.o 
+>> parser.o  ../parsestatements/
+>> scanner.o -L/usr/lib/ -L/usr/lib/postgresql/8.3/lib -lpq  
+>> -Wl,-rpath,/usr/lib/ -lpgport -o slonik
+>>
+>> why does it chooses to load slony1_base.sql from 
+>> /usr/share/postgresql/8.3/ ?
+>>
+>> Regards
+>
+
+-- 
+Cyril SCETBON
+From cbbrowne at ca.afilias.info  Wed Apr 22 09:46:29 2009
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Wed Apr 22 09:46:41 2009
+Subject: [Slony1-bugs] [Slony1 2.0.1]
+In-Reply-To: <49E4A892.3060001@orange-ftgroup.com> (Cyril Scetbon's message of
+	"Tue, 14 Apr 2009 17:15:30 +0200")
+References: <49E4A892.3060001@orange-ftgroup.com>
+Message-ID: <87vdowiql6.fsf@dba2.int.libertyrms.com>
+
+Cyril Scetbon <cscetbon.ext@orange-ftgroup.com> writes:
+> you should
+>
+> - change SLONY_I_VERSION_STRING in config.h to reflect the current version
+
+That's automatically generated by autoconf, and config.h.in contains
+the right value.  Perhaps autoconf hadn't been run recently?
+
+> - update tools/altperl/slon-tools.pm cause you're using 2 different
+> variables (in start_slon function) for the log level as you can see in
+> the current version :
+>
+>  $DEBUG_INTERVAL ||= 0;
+>  system("mkdir -p $LOGDIR/slony1/node$nodenum");
+>  my $cmd = "@@SLONBINDIR@@/slon -s $SYNC_CHECK_INTERVAL -d$DEBUGLEVEL
+> $CLUSTER_NAME '$dsn' ";
+>
+> ==> (correct version)
+>
+>  $DEBUGLEVEL ||= 0;
+>  system("mkdir -p $LOGDIR/slony1/node$nodenum");
+>  my $cmd = "@@SLONBINDIR@@/slon -s $SYNC_CHECK_INTERVAL -d$DEBUGLEVEL
+> $CLUSTER_NAME '$dsn' ";
+
+Good call...  Changed...
+-- 
+output = ("cbbrowne" "@" "ca.afilias.info")
+<http://dba2.int.libertyrms.com/>
+Christopher Browne
+(416) 673-4124 (land)
+"Bother,"  said Pooh,  "Eeyore, ready  two photon  torpedoes  and lock
+phasers on the Heffalump, Piglet, meet me in transporter room three"
+From cbbrowne at ca.afilias.info  Wed Apr 22 09:55:51 2009
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Wed Apr 22 09:55:59 2009
+Subject: [Slony1-bugs] [Slony1 2.0.1]
+In-Reply-To: <49E8933F.9040505@orange-ftgroup.com> (Cyril Scetbon's message of
+	"Fri, 17 Apr 2009 16:33:35 +0200")
+References: <49E4A892.3060001@orange-ftgroup.com>
+	<49E8933F.9040505@orange-ftgroup.com>
+Message-ID: <87r5zkiq5k.fsf@dba2.int.libertyrms.com>
+
+Cyril Scetbon <cscetbon.ext@orange-ftgroup.com> writes:
+> The error comes from the following code :
+>
+> if (find_my_exec(argv[0],myfull_path) < 0)
+> {
+>    strcpy(share_path, PGSHARE);
+> }
+> else
+> {
+>    get_share_path(myfull_path, share_path);
+> }
+>
+> that is if I use "slonik_init_cluster|/usr/bin/slonik" or
+> "slonik_init_cluster|slonik" it finds the exec file and does not use
+> PGSHARE as a share_path for slony1xxx.sql file. It should not use
+> get_share_path if PGSHARE is defined !
+>
+> to remember the issue : I compile slonik with
+> -DPGSHARE="\"/usr/share/slony1\"" but slonik searches for
+> slony1_base.sql (and other files) in /usr/share/postgresql/8.3/ and
+> not in PGSHARE
+
+Yes, that seems right...
+
+It looks to me as though the value provided by -DPGSHARE should
+*always* be used, so src/slonik/slonik.c should be patched thus:
+
+Index: slonik/slonik.c
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/src/slonik/slonik.c,v
+retrieving revision 1.91
+diff -c -u -r1.91 slonik.c
+cvs diff: conflicting specifications of output style
+--- slonik/slonik.c	28 May 2008 18:23:13 -0000	1.91
++++ slonik/slonik.c	22 Apr 2009 16:54:51 -0000
+@@ -43,7 +43,6 @@
+ int			parser_errors = 0;
+ int			current_try_level;
+ 
+-static char myfull_path[MAXPGPATH];
+ static char share_path[MAXPGPATH];
+ 
+ /*
+@@ -107,14 +106,7 @@
+ 	/*
+ 	 * We need to find a share directory like PostgreSQL. 
+ 	 */
+-	if (find_my_exec(argv[0],myfull_path) < 0)
+-	{
+-		strcpy(share_path, PGSHARE);
+-	}
+-	else
+-	{
+-		get_share_path(myfull_path, share_path);
+-	}
++	strcpy(share_path, PGSHARE);
+ 
+ 	if (optind < argc)
+ 	{
+
+Does anyone see a reason to consider looking elsewhere than the
+autoconf-specified PGSHARE directory?
+-- 
+output = ("cbbrowne" "@" "ca.afilias.info")
+<http://dba2.int.libertyrms.com/>
+Christopher Browne
+(416) 673-4124 (land)
+"Bother,"  said Pooh,  "Eeyore, ready  two photon  torpedoes  and lock
+phasers on the Heffalump, Piglet, meet me in transporter room three"
+From cscetbon.ext at orange-ftgroup.com  Wed Apr 22 12:57:21 2009
+From: cscetbon.ext at orange-ftgroup.com (Cyril Scetbon)
+Date: Wed Apr 22 12:57:40 2009
+Subject: [Slony1-bugs] [Slony1 2.0.1]
+In-Reply-To: <87r5zkiq5k.fsf@dba2.int.libertyrms.com>
+References: <49E4A892.3060001@orange-ftgroup.com><49E8933F.9040505@orange-ftgroup.com>
+	<87r5zkiq5k.fsf@dba2.int.libertyrms.com>
+Message-ID: <49EF76A1.8020607@orange-ftgroup.com>
+
+I think you should check if PGSHARE is defined, and if not use postgresql share directory as follows :
+
+	if (strlen(PGSHARE)>0)
+	{
+		strcpy(share_path, PGSHARE);
+	}
+	else
+	{
+		get_share_path(myfull_path, share_path);
+	}
+
+Just in case of PGSHARE is set to ""
+
+
+
+Christopher Browne wrote:
+> Cyril Scetbon <cscetbon.ext@orange-ftgroup.com> writes:
+>   
+>> The error comes from the following code :
+>>
+>> if (find_my_exec(argv[0],myfull_path) < 0)
+>> {
+>>    strcpy(share_path, PGSHARE);
+>> }
+>> else
+>> {
+>>    get_share_path(myfull_path, share_path);
+>> }
+>>
+>> that is if I use "slonik_init_cluster|/usr/bin/slonik" or
+>> "slonik_init_cluster|slonik" it finds the exec file and does not use
+>> PGSHARE as a share_path for slony1xxx.sql file. It should not use
+>> get_share_path if PGSHARE is defined !
+>>
+>> to remember the issue : I compile slonik with
+>> -DPGSHARE="\"/usr/share/slony1\"" but slonik searches for
+>> slony1_base.sql (and other files) in /usr/share/postgresql/8.3/ and
+>> not in PGSHARE
+>>     
+>
+> Yes, that seems right...
+>
+> It looks to me as though the value provided by -DPGSHARE should
+> *always* be used, so src/slonik/slonik.c should be patched thus:
+>
+> Index: slonik/slonik.c
+> ===================================================================
+> RCS file: /home/cvsd/slony1/slony1-engine/src/slonik/slonik.c,v
+> retrieving revision 1.91
+> diff -c -u -r1.91 slonik.c
+> cvs diff: conflicting specifications of output style
+> --- slonik/slonik.c	28 May 2008 18:23:13 -0000	1.91
+> +++ slonik/slonik.c	22 Apr 2009 16:54:51 -0000
+> @@ -43,7 +43,6 @@
+>  int			parser_errors = 0;
+>  int			current_try_level;
+>  
+> -static char myfull_path[MAXPGPATH];
+>  static char share_path[MAXPGPATH];
+>  
+>  /*
+> @@ -107,14 +106,7 @@
+>  	/*
+>  	 * We need to find a share directory like PostgreSQL. 
+>  	 */
+> -	if (find_my_exec(argv[0],myfull_path) < 0)
+> -	{
+> -		strcpy(share_path, PGSHARE);
+> -	}
+> -	else
+> -	{
+> -		get_share_path(myfull_path, share_path);
+> -	}
+> +	strcpy(share_path, PGSHARE);
+>  
+>  	if (optind < argc)
+>  	{
+>
+> Does anyone see a reason to consider looking elsewhere than the
+> autoconf-specified PGSHARE directory?
+>   
+
+-- 
+Cyril SCETBON
+From cbbrowne at ca.afilias.info  Wed Apr 22 13:06:26 2009
+From: cbbrowne at ca.afilias.info (cbbrowne)
+Date: Wed Apr 22 13:06:45 2009
+Subject: [Slony1-bugs] [Slony1 2.0.1]
+In-Reply-To: <49EF76A1.8020607@orange-ftgroup.com>
+References: <49E4A892.3060001@orange-ftgroup.com><49E8933F.9040505@orange-ftgroup.com>
+	<87r5zkiq5k.fsf@dba2.int.libertyrms.com>
+	<49EF76A1.8020607@orange-ftgroup.com>
+Message-ID: <49EF78C2.3000108@ca.afilias.info>
+
+Cyril Scetbon wrote:
+> I think you should check if PGSHARE is defined, and if not use 
+> postgresql share directory as follows :
+>
+>     if (strlen(PGSHARE)>0)
+>     {
+>         strcpy(share_path, PGSHARE);
+>     }
+>     else
+>     {
+>         get_share_path(myfull_path, share_path);
+>     }
+>
+> Just in case of PGSHARE is set to ""
+Ah, yes, that seems apropos!
+
+Thanks, I'll change that momentarily.
+
+-- 
+(reverse (concatenate 'string "ofni.sailifa.ac" "@" "enworbbc"))
+<http://dba2.int.libertyrms.com/>
+Christopher Browne
+(416) 673-4124 (land)
+"Bother,"  said Pooh,  "Eeyore, ready  two photon  torpedoes  and lock
+phasers on the Heffalump, Piglet, meet me in transporter room three"
+
+From slony1-bugs at lists.slony.info  Mon Apr 27 17:59:32 2009
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Mon Apr 27 17:59:34 2009
+Subject: [Slony1-bugs] [Bug 90] New: Error while running "make" for Slony
+ 2.0 on Solaris 2.11
+Message-ID: <bug-90-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=90
+
+           Summary: Error while running "make" for Slony 2.0 on Solaris 2.11
+           Product: Slony-I
+           Version: devel
+          Platform: Other
+        OS/Version: Other
+            Status: NEW
+          Severity: normal
+          Priority: medium
+         Component: core scripts
+        AssignedTo: slony1-bugs@lists.slony.info
+        ReportedBy: deep@zuberance.com
+                CC: slony1-bugs@lists.slony.info
+   Estimated Hours: 0.0
+
+
+I'm trying to compile Slony 2.0 on Solaris 2.11 with Postgres 8.3. I'm getting
+following error while running "make" statement. Please let me know whats the
+issue. 
+
+
+Using GNU make found at /opt/local/bin/gmake
+gmake[1]: Entering directory `/home/eng/slony1-2.0.0'
+gmake[2]: Entering directory `/home/eng/slony1-2.0.0/src'
+gmake[3]: Entering directory `/home/eng/slony1-2.0.0/src/parsestatements'
+./test-scanner < /dev/null > emptytestresult.log
+cmp ./emptytestresult.log emptytestresult.expected
+./test-scanner < ./test_sql.sql > test_sql.log
+cmp ./test_sql.log ./test_sql.expected
+./test-scanner < ./cstylecomments.sql > cstylecomments.log
+cmp ./cstylecomments.log ./cstylecomments.expected
+gmake[3]: Leaving directory `/home/eng/slony1-2.0.0/src/parsestatements'
+gmake[3]: Entering directory `/home/eng/slony1-2.0.0/src/slon'
+gmake[3]: Nothing to be done for `all'.
+gmake[3]: Leaving directory `/home/eng/slony1-2.0.0/src/slon'
+gmake[3]: Entering directory `/home/eng/slony1-2.0.0/src/slonik'
+gcc -g -O2 -Wall -Wmissing-prototypes -Wmissing-declarations -I../..
+-DPGSHARE="\"/opt/local/share/postgresql/\""  slonik.o dbutil.o parser.o 
+../parsestatements/scanner.o -L/opt/local/lib/ -L/opt/local/lib/postgresql/
+-lpq  -R/opt/local/lib/ -lpgport -o slonik
+Undefined                       first referenced
+ symbol                             in file
+libintl_gettext                     /opt/local/lib//libpgport.a(exec.o) 
+(symbol belongs to implicit dependency /opt/local/lib//libintl.so.3)
+libintl_textdomain                  /opt/local/lib//libpgport.a(exec.o) 
+(symbol belongs to implicit dependency /opt/local/lib//libintl.so.3)
+libintl_bindtextdomain              /opt/local/lib//libpgport.a(exec.o) 
+(symbol belongs to implicit dependency /opt/local/lib//libintl.so.3)
+ld: fatal: Symbol referencing errors. No output written to slonik
+collect2: ld returned 1 exit status
+gmake[3]: *** [slonik] Error 1
+gmake[3]: Leaving directory `/home/eng/slony1-2.0.0/src/slonik'
+gmake[2]: *** [all] Error 2
+gmake[2]: Leaving directory `/home/eng/slony1-2.0.0/src'
+gmake[1]: *** [all] Error 2
+gmake[1]: Leaving directory `/home/eng/slony1-2.0.0'
+*** Error code 2
+The following command caused the error:
+IFS=':' ; \
+        for dir in $PATH; do \
+                for prog in gmake gnumake make; do \
+                        if [ -f $dir/$prog ] && ( $dir/$prog -f /dev/null
+--version 2>/dev/null | grep GNU >/dev/null 2>&1 ) ; then \
+                                GMAKE=$dir/$prog; \
+                                break 2; \
+                        fi; \
+                done; \
+        done; \
+\
+if [ x"${GMAKE+set}" = xset ]; then \
+        echo "Using GNU make found at ${GMAKE}"; \
+        ${GMAKE} all ; \
+else \
+        echo "You must use GNU make to build slony-I." ; \
+        false; \
+fi
+make: Fatal error: Command failed for target `all'
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Tue Apr 28 12:33:35 2009
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Tue Apr 28 12:33:37 2009
+Subject: [Slony1-bugs] [Bug 90] Error while running "make" for Slony 2.0 on
+	Solaris 2.11
+In-Reply-To: <bug-90-4@http.www.slony.info/bugzilla/>
+Message-ID: <20090428193335.7C697290450@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=90
+
+
+
+
+
+--- Comment #1 from Christopher Browne <cbbrowne@ca.afilias.info>  2009-04-28 12:33:35 ---
+It seems likely that this results from the pgport library having an
+internationalization library that looks like it's called "libintl" linked into
+it.
+
+Perhaps you need an extra '-lintl" or "-llibintl" flag added in.
+
+You could add this at configure time by setting:
+
+LIBS="-lintl" ./configure [various other args you were passing to configure]
+
+It may be useful to see the output of "pg_config --configure"; that might show
+off oddities...
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Wed Apr 29 15:01:37 2009
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Wed Apr 29 15:01:40 2009
+Subject: [Slony1-bugs] [Bug 89] man page installation completely broken in
+	multiple ways
+In-Reply-To: <bug-89-4@http.www.slony.info/bugzilla/>
+Message-ID: <20090429220137.C9BEE290BFA@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=89
+
+
+Christopher Browne <cbbrowne@ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+             Status|ASSIGNED                    |RESOLVED
+         Resolution|                            |FIXED
+
+
+
+
+--- Comment #2 from Christopher Browne <cbbrowne@ca.afilias.info>  2009-04-29 15:01:37 ---
+Change committed.
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Thu Apr 30 06:29:10 2009
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Thu Apr 30 06:29:13 2009
+Subject: [Slony1-bugs] [Bug 91] New: share/slon.conf-sample does not contain
+	all parameters
+Message-ID: <bug-91-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=91
+
+           Summary: share/slon.conf-sample does not contain all parameters
+           Product: Slony-I
+           Version: devel
+          Platform: PC
+        OS/Version: Linux
+            Status: NEW
+          Severity: normal
+          Priority: medium
+         Component: slon
+        AssignedTo: slony1-bugs@lists.slony.info
+        ReportedBy: cyril.scetbon@free.fr
+                CC: slony1-bugs@lists.slony.info
+   Estimated Hours: 0.0
+
+
+somme parameters are missing in slon.conf-sample as you can see :
+
+grep '^#[a-z]' ./share/slon.conf-sample|sed -e 's/#//'|awk -F= '{print $1}'
+vac_frequency
+cleanup_interval
+log_level
+sync_interval
+sync_interval_timeout
+sync_group_maxsize
+sync_max_rowsize
+sync_max_largemem
+syslog
+log_pid
+log_timestamp
+log_timestamp_format
+pid_file
+syslog_facility
+syslog_ident
+cluster_name
+conn_info
+desired_sync_time
+sql_on_connection
+command_on_logarchive
+
+For example, cleanup_deletelogs is missing.
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+From slony1-bugs at lists.slony.info  Thu Apr 30 08:24:46 2009
+From: slony1-bugs at lists.slony.info (slony1-bugs@lists.slony.info)
+Date: Thu Apr 30 08:24:47 2009
+Subject: [Slony1-bugs] [Bug 91] share/slon.conf-sample does not contain all
+	parameters
+In-Reply-To: <bug-91-4@http.www.slony.info/bugzilla/>
+Message-ID: <20090430152446.4B3C5290464@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=91
+
+
+Christopher Browne <cbbrowne@ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+             Status|NEW                         |RESOLVED
+         Resolution|                            |FIXED
+
+
+
+
+--- Comment #1 from Christopher Browne <cbbrowne@ca.afilias.info>  2009-04-30 08:24:45 ---
+Committed change to CVS rectifying this...
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
