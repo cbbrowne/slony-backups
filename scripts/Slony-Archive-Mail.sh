@@ -2,8 +2,8 @@
 ARCHIVEHOME=${HOME}/PostgreSQL/slony-backups/Slony-Mail-Archives
 mkdir -p $ARCHIVEHOME
 cd $ARCHIVEHOME
-git fetch
-git pull
+git fetch origin
+git pull origin master
 
 for l in bugs commit general hackers patches; do
     list=slony1-${l}
@@ -29,3 +29,4 @@ for l in bugs commit general hackers patches; do
 done
 
 git commit -m "Check in mail archive updates - run of scripts/Slony-Archive-Mail.sh"
+git push origin master
