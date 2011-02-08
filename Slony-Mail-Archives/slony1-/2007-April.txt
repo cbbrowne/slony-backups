@@ -1,0 +1,2916 @@
+From cbbrowne at ca.afilias.info  Thu Apr  5 12:13:50 2007
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Thu Apr  5 12:13:56 2007
+Subject: [Slony1-patches] Removal of TABLE ADD KEY
+Message-ID: <603b3eeis1.fsf@dba2.int.libertyrms.com>
+
+Here's a preliminary patch for removal of TABLE ADD KEY functionality, against CVS HEAD.
+
+Index: src/backend/slony1_funcs.c
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/src/backend/slony1_funcs.c,v
+retrieving revision 1.57
+diff -c -u -r1.57 slony1_funcs.c
+--- src/backend/slony1_funcs.c	16 Jan 2007 21:40:19 -0000	1.57
++++ src/backend/slony1_funcs.c	5 Apr 2007 19:10:19 -0000
+@@ -40,6 +40,11 @@
+ PG_MODULE_MAGIC;
+ #endif
+ 
++/* -- Change from PostgreSQL Ver 8.3 -- */
++#ifndef VARATT_SIZEP
++#define VARATT_SIZEP VARATT_SIZEP_DEPRECATED
++#endif
++
+ PG_FUNCTION_INFO_V1(_Slony_I_createEvent);
+ PG_FUNCTION_INFO_V1(_Slony_I_getLocalNodeId);
+ PG_FUNCTION_INFO_V1(_Slony_I_getModuleVersion);
+Index: src/backend/slony1_funcs.sql
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/src/backend/slony1_funcs.sql,v
+retrieving revision 1.106
+diff -c -u -r1.106 slony1_funcs.sql
+--- src/backend/slony1_funcs.sql	16 Mar 2007 14:43:29 -0000	1.106
++++ src/backend/slony1_funcs.sql	5 Apr 2007 19:10:20 -0000
+@@ -4648,144 +4648,6 @@
+ that are confirmed by all nodes in the whole cluster up to the last
+ SYNC.  ';
+ 
+--- ----------------------------------------------------------------------
+--- FUNCTION tableAddKey (tab_fqname)
+---
+---	If the specified table does not have a column 
+---	"_Slony-I_<clustername>_rowID", then add it as a bigint
+---	with default nextval('"_<clustername>".sl_rowid_seq').
+--- ----------------------------------------------------------------------
+-create or replace function @NAMESPACE@.tableAddKey(text) returns text
+-as '
+-declare
+-	p_tab_fqname	alias for $1;
+-	v_tab_fqname_quoted	text default '''';
+-	v_attkind		text default '''';
+-	v_attrow		record;
+-	v_have_serial	bool default ''f'';
+-begin
+-	v_tab_fqname_quoted := @NAMESPACE@.slon_quote_input(p_tab_fqname);
+-	--
+-	-- Loop over the attributes of this relation
+-	-- and add a "v" for every user column, and a "k"
+-	-- if we find the Slony-I special serial column.
+-	--
+-	for v_attrow in select PGA.attnum, PGA.attname
+-			from "pg_catalog".pg_class PGC,
+-			    "pg_catalog".pg_namespace PGN,
+-				"pg_catalog".pg_attribute PGA
+-			where @NAMESPACE@.slon_quote_brute(PGN.nspname) || ''.'' ||
+-			    @NAMESPACE@.slon_quote_brute(PGC.relname) = v_tab_fqname_quoted
+-				and PGN.oid = PGC.relnamespace
+-				and PGA.attrelid = PGC.oid
+-				and not PGA.attisdropped
+-				and PGA.attnum > 0
+-			order by attnum
+-	loop
+-		if v_attrow.attname = ''_Slony-I_@CLUSTERNAME@_rowID'' then
+-		    v_attkind := v_attkind || ''k'';
+-			v_have_serial := ''t'';
+-		else
+-			v_attkind := v_attkind || ''v'';
+-		end if;
+-	end loop;
+-	
+-	--
+-	-- A table must have at least one attribute, so not finding
+-	-- anything means the table does not exist.
+-	--
+-	if not found then
+-		raise exception ''Slony-I: tableAddKey(): table % not found'', v_tab_fqname_quoted;
+-	end if;
+-
+-	--
+-	-- If it does not have the special serial column, we
+-	-- have to add it. This will be only half way done.
+-	-- The function to add the table to the set must finish
+-	-- these definitions with NOT NULL and UNIQUE after
+-	-- updating all existing rows.
+-	--
+-	if not v_have_serial then
+-		execute ''lock table '' || v_tab_fqname_quoted ||
+-			'' in access exclusive mode'';
+-		execute ''alter table only '' || v_tab_fqname_quoted ||
+-			'' add column "_Slony-I_@CLUSTERNAME@_rowID" bigint;'';
+-		execute ''alter table only '' || v_tab_fqname_quoted ||
+-			'' alter column "_Slony-I_@CLUSTERNAME@_rowID" '' ||
+-			'' set default "pg_catalog".nextval(''''@NAMESPACE@.sl_rowid_seq'''');'';
+-
+-		v_attkind := v_attkind || ''k'';
+-	end if;
+-
+-	--
+-	-- Return the resulting Slony-I attkind
+-	--
+-	return v_attkind;
+-end;
+-' language plpgsql;
+-
+-comment on function @NAMESPACE@.tableAddKey(text) is
+-
+-'tableAddKey (tab_fqname) - if the table has not got a column of the
+-form _Slony-I_<clustername>_rowID, then add it as a bigint, defaulted
+-to nextval() for a sequence created for the cluster.';
+-
+--- ----------------------------------------------------------------------
+--- FUNCTION tableDropKey (tab_id)
+---
+---	If the specified table has a column 
+---	"_Slony-I_<clustername>_rowID", then drop it.
+--- ----------------------------------------------------------------------
+-create or replace function @NAMESPACE@.tableDropKey(int4) returns int4
+-as '
+-declare
+-	p_tab_id		alias for $1;
+-	v_tab_fqname	text;
+-	v_tab_oid		oid;
+-begin
+-	-- ----
+-	-- Grab the central configuration lock
+-	-- ----
+-	lock table @NAMESPACE@.sl_config_lock;
+-
+-	-- ----
+-	-- Construct the tables fully qualified name and get its oid
+-	-- ----
+-	select @NAMESPACE@.slon_quote_brute(PGN.nspname) || ''.'' ||
+-				@NAMESPACE@.slon_quote_brute(PGC.relname),
+-				PGC.oid into v_tab_fqname, v_tab_oid
+-			from @NAMESPACE@.sl_table T,
+-				"pg_catalog".pg_class PGC,
+-				"pg_catalog".pg_namespace PGN
+-			where T.tab_id = p_tab_id
+-				and T.tab_reloid = PGC.oid
+-				and PGC.relnamespace = PGN.oid;
+-	if not found then
+-		raise exception ''Slony-I: tableDropKey(): table with ID % not found'', p_tab_id;
+-	end if;
+-
+-	-- ----
+-	-- Drop the special serial ID column if the table has it
+-	-- ----
+-	if exists (select true from "pg_catalog".pg_attribute
+-			where attrelid = v_tab_oid
+-				and attname = ''_Slony-I_@CLUSTERNAME@_rowID'')
+-	then
+-		execute ''lock table '' || v_tab_fqname ||
+-				'' in access exclusive mode'';
+-		execute ''alter table '' || v_tab_fqname ||
+-				'' drop column "_Slony-I_@CLUSTERNAME@_rowID"'';
+-	end if;
+-
+-	return p_tab_id;
+-end;
+-' language plpgsql;
+-
+-comment on function @NAMESPACE@.tableDropKey(int4) is
+-'tableDropKey (tab_id)
+-
+-If the specified table has a column "_Slony-I_<clustername>_rowID",
+-then drop it.';
+ 
+ -- ----------------------------------------------------------------------
+ -- FUNCTION determineIdxnameUnique (tab_fqname, indexname)
+@@ -5021,90 +4883,6 @@
+ log trigger) of the table. Use the specified unique index or the
+ primary key (if indexname is NULL).';
+ 
+--- ----------------------------------------------------------------------
+--- FUNCTION determineAttKindSerial (tab_fqname)
+---
+---	A table was that was specified without a primary key is added
+---	to the replication. Assume that tableAddKey() was called before
+---	and finish the creation of the serial column. The return an
+---	attkind according to that.
+--- ----------------------------------------------------------------------
+-create or replace function @NAMESPACE@.determineAttkindSerial(text)
+-returns text
+-as '
+-declare
+-	p_tab_fqname	alias for $1;
+-	v_tab_fqname_quoted	text default '''';
+-	v_attkind		text default '''';
+-	v_attrow		record;
+-	v_have_serial	bool default ''f'';
+-begin
+-	v_tab_fqname_quoted := @NAMESPACE@.slon_quote_input(p_tab_fqname);
+-	--
+-	-- Loop over the attributes of this relation
+-	-- and add a "v" for every user column, and a "k"
+-	-- if we find the Slony-I special serial column.
+-	--
+-	for v_attrow in select PGA.attnum, PGA.attname
+-			from "pg_catalog".pg_class PGC,
+-			    "pg_catalog".pg_namespace PGN,
+-				"pg_catalog".pg_attribute PGA
+-			where @NAMESPACE@.slon_quote_brute(PGN.nspname) || ''.'' ||
+-			    @NAMESPACE@.slon_quote_brute(PGC.relname) = v_tab_fqname_quoted
+-				and PGN.oid = PGC.relnamespace
+-				and PGA.attrelid = PGC.oid
+-				and not PGA.attisdropped
+-				and PGA.attnum > 0
+-			order by attnum
+-	loop
+-		if v_attrow.attname = ''_Slony-I_@CLUSTERNAME@_rowID'' then
+-		    v_attkind := v_attkind || ''k'';
+-			v_have_serial := ''t'';
+-		else
+-			v_attkind := v_attkind || ''v'';
+-		end if;
+-	end loop;
+-	
+-	--
+-	-- A table must have at least one attribute, so not finding
+-	-- anything means the table does not exist.
+-	--
+-	if not found then
+-		raise exception ''Slony-I: table % not found'', v_tab_fqname_quoted;
+-	end if;
+-
+-	--
+-	-- If it does not have the special serial column, we
+-	-- should not have been called in the first place.
+-	--
+-	if not v_have_serial then
+-		raise exception ''Slony-I: table % does not have the serial key'',
+-				v_tab_fqname_quoted;
+-	end if;
+-
+-	execute ''update '' || v_tab_fqname_quoted ||
+-		'' set "_Slony-I_@CLUSTERNAME@_rowID" ='' ||
+-		'' "pg_catalog".nextval(''''@NAMESPACE@.sl_rowid_seq'''');'';
+-	execute ''alter table only '' || v_tab_fqname_quoted ||
+-		'' add unique ("_Slony-I_@CLUSTERNAME@_rowID");'';
+-	execute ''alter table only '' || v_tab_fqname_quoted ||
+-		'' alter column "_Slony-I_@CLUSTERNAME@_rowID" '' ||
+-		'' set not null;'';
+-
+-	--
+-	-- Return the resulting Slony-I attkind
+-	--
+-	return v_attkind;
+-end;
+-' language plpgsql;
+-
+-comment on function @NAMESPACE@.determineAttkindSerial(text) is
+-'determineAttKindSerial (tab_fqname)
+-
+-A table was that was specified without a primary key is added to the
+-replication. Assume that tableAddKey() was called before and finish
+-the creation of the serial column. The return an attkind according to
+-that.';
+ 
+ -- ----------------------------------------------------------------------
+ -- FUNCTION RebuildListenEntries ()
+@@ -5236,41 +5014,6 @@
+   'Generate a sync event if there has not been one in the requested interval, and this is a provider node.';
+ 
+ -- ----------------------------------------------------------------------
+--- FUNCTION tableHasSerialKey (tab_fqname)
+---
+---	Checks if a table has our special serial key column that is
+---	used if the table has no natural unique constraint.
+--- ----------------------------------------------------------------------
+-create or replace function @NAMESPACE@.tableHasSerialKey(text) 
+-returns bool
+-as '
+-declare
+-	p_tab_fqname	alias for $1;
+-	v_tab_fqname_quoted	text default '''';
+-	v_attnum		int2;
+-begin
+-	v_tab_fqname_quoted := @NAMESPACE@.slon_quote_input(p_tab_fqname);
+-	select PGA.attnum into v_attnum
+-			from "pg_catalog".pg_class PGC,
+-				"pg_catalog".pg_namespace PGN,
+-				"pg_catalog".pg_attribute PGA
+-			where @NAMESPACE@.slon_quote_brute(PGN.nspname) || ''.'' ||
+-				@NAMESPACE@.slon_quote_brute(PGC.relname) = v_tab_fqname_quoted
+-				and PGC.relnamespace = PGN.oid
+-				and PGA.attrelid = PGC.oid
+-				and PGA.attname = ''_Slony-I_@CLUSTERNAME@_rowID''
+-				and not PGA.attisdropped;
+-	return found;
+-end;
+-' language plpgsql;
+-
+-comment on function @NAMESPACE@.tableHasSerialKey(text) is
+-'tableHasSerialKey (tab_fqname)
+-
+-Checks if a table has our special serial key column that is used if
+-the table has no natural unique constraint.';
+-
+--- ----------------------------------------------------------------------
+ -- FUNCTION updateRelname (set_id, only_on_node)
+ --
+ --      Reset the relnames          
+@@ -5808,7 +5551,7 @@
+ 	-- ----
+ 	-- Changes for 1.2
+ 	-- ----
+-	if p_old IN (''1.0.2'', ''1.0.5'', ''1.0.6'', ''1.1.0'', ''1.1.1'', ''1.1.2'', ''1.1.3'', ''1.1.5'', ''1.1.6'', "1.1.7", "1.1.8") then
++	if p_old IN (''1.0.2'', ''1.0.5'', ''1.0.6'', ''1.1.0'', ''1.1.1'', ''1.1.2'', ''1.1.3'', ''1.1.5'', ''1.1.6'', ''1.1.7'', ''1.1.8'', ''1.1.9'') then
+ 		-- Add new table sl_registry
+ 		execute ''create table @NAMESPACE@.sl_registry (
+ 						reg_key			text primary key,
+Index: src/slon/confoptions.c
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/src/slon/confoptions.c,v
+retrieving revision 1.21
+diff -c -u -r1.21 confoptions.c
+--- src/slon/confoptions.c	2 Feb 2007 20:24:16 -0000	1.21
++++ src/slon/confoptions.c	5 Apr 2007 19:10:20 -0000
+@@ -21,7 +21,316 @@
+ double		real_placeholder;
+ char	   *string_placeholder;
+ 
++static struct config_int ConfigureNamesInt[] =
++{
++	{
++		{
++			(const char *)"vac_frequency",		/* conf name */
++			gettext_noop("Sets how many cleanup cycles to run before a vacuum is done"),		/* short desc */
++			gettext_noop("Sets how many cleanup cycles to run before a vacuum is done"),		/* long desc */
++			SLON_C_INT			/* config type */
++		},
++		&vac_frequency,			/* var name */
++		3,						/* default val */
++		0,						/* min val */
++		100						/* max val */
++	},
++	{
++		{
++			(const char *)"log_level",
++			gettext_noop("debug log level"),
++			gettext_noop("debug log level"),
++			SLON_C_INT
++		},
++		&slon_log_level,
++		2,
++		0,
++		4
++	},
++	{
++		{
++			(const char *)"sync_interval",
++			gettext_noop("sync event interval"),
++			gettext_noop("sync event interval in ms"),
++			SLON_C_INT
++		},
++		&sync_interval,
++		2000,
++		10,
++		60000
++	},
++	{
++		{
++			(const char *)"sync_interval_timeout",
++			gettext_noop("sync interval time out"),
++			gettext_noop("sync interval time out"),
++			SLON_C_INT
++		},
++		&sync_interval_timeout,
++		10000,
++		0,
++		1200000
++	},
++	{
++		{
++			(const char *)"sync_group_maxsize",
++			gettext_noop("sync group"),
++			gettext_noop("sync group"),
++			SLON_C_INT
++		},
++		&sync_group_maxsize,
++		20,
++		0,
++		10000
++	},
++	{
++		{
++			(const char *)"desired_sync_time",
++			gettext_noop("maximum time planned for grouped SYNCs"),
++			gettext_noop("If replication is behind, slon will try to increase numbers of "
++			  "syncs done targetting that they should take this quantity of "
++						 "time to process"),
++			SLON_C_INT
++		},
++		&desired_sync_time,
++		60000,
++		0,
++		6000000
++	},
++#ifdef HAVE_SYSLOG
++	{
++		{
++			(const char *)"syslog",
++			gettext_noop("Uses syslog for logging."),
++			gettext_noop("If this parameter is 1, messages go both to syslog "
++						 "and the standard output. A value of 2 sends output only to syslog. "
++			"(Some messages will still go to the standard output/error.) The "
++						 "default is 0, which means syslog is off."),
++			SLON_C_INT
++		},
++		&Use_syslog,
++		0,
++		0,
++		2
++	},
++#endif
++	{
++		{
++			(const char *)"quit_sync_provider",
++			gettext_noop("Node to watch for a final SYNC"),
++			gettext_noop("We want to terminate slon when the worker thread reaches a certain SYNC number "
++					"against a certain provider.  This is the provider... "),
++			SLON_C_INT
++		},
++		&quit_sync_provider,
++		0,
++		0,
++		2147483647
++	},
++	{
++		{
++			(const char *)"quit_sync_finalsync",
++			gettext_noop("SYNC number at which slon should abort"),
++			gettext_noop("We want to terminate slon when the worker thread reaches a certain SYNC number "
++				 "against a certain provider.  This is the SYNC number... "),
++			SLON_C_INT
++		},
++		&quit_sync_finalsync,
++		0,
++		0,
++		2147483647
++	},
++	{
++		{
++			(const char *)"sync_max_rowsize",		/* conf name */
++			gettext_noop("sl_log_? rows larger than that are read separately"),		/* short desc */
++			gettext_noop("sl_log_? rows larger than that are read separately"),		/* long desc */
++			SLON_C_INT			/* config type */
++		},
++		&sync_max_rowsize,			/* var name */
++		8192,						/* default val */
++		1024,						/* min val */
++		32768						/* max val */
++	},
++	{
++		{
++			(const char *)"sync_max_largemem",		/* conf name */
++			gettext_noop("How much memory to allow for sl_log_? rows exceeding sync_max_rowsize"),		/* short desc */
++			gettext_noop("How much memory to allow for sl_log_? rows exceeding sync_max_rowsize"),		/* long desc */
++			SLON_C_INT			/* config type */
++		},
++		&sync_max_largemem,			/* var name */
++		5242880,					/* default val */
++		1048576,					/* min val */
++		1073741824					/* max val */
++	},
++	{{0}}
++};
+ 
++static struct config_bool ConfigureNamesBool[] =
++{
++	{
++		{
++			(const char *)"log_pid",	/* conf name */
++			gettext_noop("place holder"),		/* short desc */
++			gettext_noop("place holder"),		/* long desc */
++			SLON_C_BOOL			/* config type */
++		},
++		&logpid,				/* var_name */
++		false					/* default_value */
++	},
++	{
++		{
++			(const char *)"log_timestamp",
++			gettext_noop("place holder"),
++			gettext_noop("place holder"),
++			SLON_C_BOOL
++		},
++		&logtimestamp,
++		true
++	},
++
++	{{0}}
++};
++
++static struct config_real ConfigureNamesReal[] =
++{
++	{
++		{
++			(const char *)"real_placeholder",	/* conf name */
++			gettext_noop("place holder"),		/* short desc */
++			gettext_noop("place holder"),		/* long desc */
++			SLON_C_REAL			/* config type */
++		},
++		&real_placeholder,		/* var_name */
++		0.0,					/* default val */
++		0.0,					/* min_value */
++		1.0						/* max value */
++	},
++	{{0}}
++};
++
++static struct config_string ConfigureNamesString[] =
++{
++	{
++		{
++			(const char *)"cluster_name",		/* conf name */
++			gettext_noop("Name of the replication cluster"),	/* short desc */
++			NULL,				/* long desc */
++			SLON_C_STRING		/* config type */
++		},
++		&rtcfg_cluster_name,	/* var_name */
++		NULL					/* default value */
++	},
++	{
++		{
++			(const char *)"conn_info",
++			gettext_noop("connection info string"),
++			NULL,
++			SLON_C_STRING
++		},
++		&rtcfg_conninfo,
++		NULL
++	},
++	{
++		{
++			(const char *)"pid_file",
++			gettext_noop("Where to write the pid file"),
++			NULL,
++			SLON_C_STRING
++		},
++		&pid_file,
++		NULL
++	},
++	{
++		{
++			(const char *)"log_timestamp_format",
++			gettext_noop("A strftime()-style log timestamp format string."),
++			NULL,
++			SLON_C_STRING
++		},
++		&log_timestamp_format,
++		"%Y-%m-%d %H:%M:%S %Z"
++	},
++	{
++		{
++			(const char *)"archive_dir",
++			gettext_noop("Where to drop the sync archive files"),
++			NULL,
++			SLON_C_STRING
++		},
++		&archive_dir,
++		NULL
++	},
++	{
++		{
++			(const char *)"sql_on_connection",
++			gettext_noop("SQL to send to each connected node upon "
++						 "connection establishment, useful to enable "
++						 "duration logging, or to adjust any other "
++						 "connection settable GUC"),
++			NULL,
++			SLON_C_STRING
++		},
++		&sql_on_connection,
++		NULL
++	},
++
++
++	{
++		{
++			(const char *)"lag_interval",
++			gettext_noop("A PostgreSQL value compatible with ::interval "
++						 "which indicates how far behind this node should "
++						 "lag its providers."),
++			NULL,
++			SLON_C_STRING
++		},
++		&lag_interval,
++		NULL
++	},
++
++	{
++		{
++			(const char *)"command_on_logarchive",
++			gettext_noop("Command to run (probably a shell script) "
++				     "every time a log archive is committed. "
++				     "This command will be passed one parameter: "
++				     "The full pathname of the archive file"
++				),
++			NULL,
++			SLON_C_STRING
++		},
++		&command_on_logarchive,
++		NULL
++	},
++
++
++#ifdef HAVE_SYSLOG
++	{
++		{
++			(const char *)"syslog_facility",
++			gettext_noop("Sets the syslog \"facility\" to be used when syslog enabled."),
++			gettext_noop("Valid values are LOCAL0, LOCAL1, LOCAL2, LOCAL3, "
++						 "LOCAL4, LOCAL5, LOCAL6, LOCAL7."),
++			SLON_C_STRING
++		},
++		&Syslog_facility,
++		"LOCAL0"
++	},
++	{
++		{
++			(const char *)"syslog_ident",
++			gettext_noop("Sets the program name used to identify slon messages in syslog."),
++			NULL,
++			SLON_C_STRING
++		},
++		&Syslog_ident,
++		"slon"
++	},
++#endif
++	{{0}}
++};
+ 
+ void
+ build_conf_variables(void)
+Index: src/slon/confoptions.h
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/src/slon/confoptions.h,v
+retrieving revision 1.33
+diff -c -u -r1.33 confoptions.h
+--- src/slon/confoptions.h	6 Feb 2007 21:04:27 -0000	1.33
++++ src/slon/confoptions.h	5 Apr 2007 19:10:20 -0000
+@@ -98,13 +98,6 @@
+ 				const char *default_val;
+ };
+ 
+-
+-
+-static struct config_int ConfigureNamesInt[];
+-static struct config_bool ConfigureNamesBool[];
+-static struct config_real ConfigureNamesReal[];
+-static struct config_string ConfigureNamesString[];
+-
+ #endif
+ /*
+  * Local Variables:
+Index: src/slon/misc.h
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/src/slon/misc.h,v
+retrieving revision 1.8
+diff -c -u -r1.8 misc.h
+--- src/slon/misc.h	27 Oct 2006 20:10:57 -0000	1.8
++++ src/slon/misc.h	5 Apr 2007 19:10:20 -0000
+@@ -34,6 +34,13 @@
+ #undef send
+ #endif
+ 
++/* Adjustment windows */
++#ifdef WIN32
++#define sleep(x) Sleep(x*1000)
++#define strtoll(x,y,z) (__int64) strtol(x,y,z)
++#define strncasecmp(x,y,z)	strnicmp(x,y,z)
++#endif
++
+ /*
+  * Local Variables:
+  *	tab-width: 4
+Index: src/slon/remote_worker.c
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/src/slon/remote_worker.c,v
+retrieving revision 1.135
+diff -c -u -r1.135 remote_worker.c
+--- src/slon/remote_worker.c	14 Mar 2007 15:55:06 -0000	1.135
++++ src/slon/remote_worker.c	5 Apr 2007 19:10:20 -0000
+@@ -2659,90 +2659,22 @@
+ 				 "prepare to copy table %s\n",
+ 				 node->no_id, tab_fqname);
+ 
+-		/*
+-		 * Find out if the table we're copying has the special slony serial
+-		 * number key on the provider DB
+-		 */
+-		slon_mkquery(&query1,
+-					 "select %s.tableHasSerialKey('%q');",
+-					 rtcfg_namespace, tab_fqname);
+-		res2 = PQexec(pro_dbconn, dstring_data(&query1));
++		slon_mkquery(&query3, "select * from %s limit 0;",
++			     tab_fqname);
++		res2 = PQexec(loc_dbconn, dstring_data(&query3));
+ 		if (PQresultStatus(res2) != PGRES_TUPLES_OK)
+ 		{
+-			slon_log(SLON_ERROR, "remoteWorkerThread_%d: \"%s\" %s",
+-					 node->no_id, dstring_data(&query1),
+-					 PQresultErrorMessage(res2));
++			slon_log(SLON_ERROR, "remoteWorkerThread_%d: Could not find table %s "
++				 "on subscriber\n", node->no_id, tab_fqname);
+ 			PQclear(res2);
+ 			PQclear(res1);
+ 			slon_disconnectdb(pro_conn);
+ 			dstring_free(&query1);
+-			dstring_free(&query2);
+ 			dstring_free(&query3);
+-			dstring_free(&lsquery);
+-			dstring_free(&indexregenquery);
+ 			archive_terminate(node);
+ 			return -1;
+ 		}
+-		rc = *PQgetvalue(res2, 0, 0) == 't';
+ 		PQclear(res2);
+-
+-		if (rc)
+-		{
+-			/*
+-			 * It has, check if the table has this on the local DB too.
+-			 */
+-			slon_log(SLON_DEBUG3, "remoteWorkerThread_%d: "
+-					 "table %s will require Slony-I serial key\n",
+-					 node->no_id, tab_fqname);
+-			res2 = PQexec(loc_dbconn, dstring_data(&query1));
+-			if (PQresultStatus(res2) != PGRES_TUPLES_OK)
+-			{
+-				slon_log(SLON_ERROR, "remoteWorkerThread_%d: \"%s\" %s",
+-						 node->no_id, dstring_data(&query1),
+-						 PQresultErrorMessage(res2));
+-				PQclear(res2);
+-				PQclear(res1);
+-				slon_disconnectdb(pro_conn);
+-				dstring_free(&query1);
+-				dstring_free(&query2);
+-				dstring_free(&query3);
+-				dstring_free(&lsquery);
+-				dstring_free(&indexregenquery);
+-				archive_terminate(node);
+-				return -1;
+-			}
+-			rc = *PQgetvalue(res2, 0, 0) == 't';
+-			PQclear(res2);
+-
+-			if (!rc)
+-			{
+-				slon_log(SLON_DEBUG3, "remoteWorkerThread_%d: "
+-						 "table %s Slony-I serial key to be added local\n",
+-						 node->no_id, tab_fqname);
+-			}
+-		}
+-		else
+-		{
+-			slon_log(SLON_DEBUG3, "remoteWorkerThread_%d: "
+-					 "table %s does not require Slony-I serial key\n",
+-					 node->no_id, tab_fqname);
+-			slon_mkquery(&query3, "select * from %s limit 0;",
+-						 tab_fqname);
+-			res2 = PQexec(loc_dbconn, dstring_data(&query3));
+-			if (PQresultStatus(res2) != PGRES_TUPLES_OK)
+-			{
+-				slon_log(SLON_ERROR, "remoteWorkerThread_%d: Could not find table %s "
+-						 "on subscriber\n", node->no_id, tab_fqname);
+-				PQclear(res2);
+-				PQclear(res1);
+-				slon_disconnectdb(pro_conn);
+-				dstring_free(&query1);
+-				dstring_free(&query3);
+-				archive_terminate(node);
+-				return -1;
+-			}
+-			PQclear(res2);
+-		}
+ 		/* Request an exclusive lock on each table
+ 
+ 		   We do this immediately so that we don't get stuck
+@@ -2890,102 +2822,6 @@
+ 				 node->no_id, tab_fqname);
+ 
+ 		/*
+-		 * Find out if the table we're copying has the special slony serial
+-		 * number key on the provider DB
+-		 */
+-		slon_mkquery(&query1,
+-					 "select %s.tableHasSerialKey('%q');",
+-					 rtcfg_namespace, tab_fqname);
+-		res2 = PQexec(pro_dbconn, dstring_data(&query1));
+-		if (PQresultStatus(res2) != PGRES_TUPLES_OK)
+-		{
+-			slon_log(SLON_ERROR, "remoteWorkerThread_%d: \"%s\" %s",
+-					 node->no_id, dstring_data(&query1),
+-					 PQresultErrorMessage(res2));
+-			PQclear(res2);
+-			PQclear(res1);
+-			slon_disconnectdb(pro_conn);
+-			dstring_free(&query1);
+-			dstring_free(&query2);
+-			dstring_free(&query3);
+-			dstring_free(&lsquery);
+-			dstring_free(&indexregenquery);
+-			archive_terminate(node);
+-			return -1;
+-		}
+-		rc = *PQgetvalue(res2, 0, 0) == 't';
+-		PQclear(res2);
+-
+-		if (rc)
+-		{
+-			/*
+-			 * It has, check if the table has this on the local DB too.
+-			 */
+-			slon_log(SLON_DEBUG3, "remoteWorkerThread_%d: "
+-					 "table %s requires Slony-I serial key\n",
+-					 node->no_id, tab_fqname);
+-			res2 = PQexec(loc_dbconn, dstring_data(&query1));
+-			if (PQresultStatus(res2) != PGRES_TUPLES_OK)
+-			{
+-				slon_log(SLON_ERROR, "remoteWorkerThread_%d: \"%s\" %s",
+-						 node->no_id, dstring_data(&query1),
+-						 PQresultErrorMessage(res2));
+-				PQclear(res2);
+-				PQclear(res1);
+-				slon_disconnectdb(pro_conn);
+-				dstring_free(&query1);
+-				dstring_free(&query2);
+-				dstring_free(&query3);
+-				dstring_free(&lsquery);
+-				dstring_free(&indexregenquery);
+-				archive_terminate(node);
+-				return -1;
+-			}
+-			rc = *PQgetvalue(res2, 0, 0) == 't';
+-			PQclear(res2);
+-
+-			if (!rc)
+-			{
+-				/*
+-				 * Nope, so we gotta add the key here.
+-				 */
+-				slon_mkquery(&query1,
+-							 "select %s.tableAddKey('%q'); "
+-							 "select %s.determineAttkindSerial('%q'); ",
+-							 rtcfg_namespace, tab_fqname,
+-							 rtcfg_namespace, tab_fqname);
+-				if (query_execute(node, loc_dbconn, &query1) < 0)
+-				{
+-					PQclear(res1);
+-					slon_disconnectdb(pro_conn);
+-					dstring_free(&query1);
+-					dstring_free(&query2);
+-					dstring_free(&query3);
+-					dstring_free(&lsquery);
+-					dstring_free(&indexregenquery);
+-					archive_terminate(node);
+-					return -1;
+-				}
+-				slon_log(SLON_DEBUG3, "remoteWorkerThread_%d: "
+-						 "table %s Slony-I serial key added local\n",
+-						 node->no_id, tab_fqname);
+-			}
+-			else
+-			{
+-				slon_log(SLON_DEBUG3, "remoteWorkerThread_%d: "
+-						 "local table %s already has Slony-I serial key\n",
+-						 node->no_id, tab_fqname);
+-			}
+-		}
+-		else
+-		{
+-			slon_log(SLON_DEBUG3, "remoteWorkerThread_%d: "
+-					 "table %s does not require Slony-I serial key\n",
+-					 node->no_id, tab_fqname);
+-		}
+-
+-
+-		/*
+ 		 * Call the setAddTable_int() stored procedure. Up to now, while we
+ 		 * have not been subscribed to the set, this should have been
+ 		 * suppressed.
+Index: src/slonik/dbutil.c
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/src/slonik/dbutil.c,v
+retrieving revision 1.12
+diff -c -u -r1.12 dbutil.c
+--- src/slonik/dbutil.c	28 Jun 2006 04:47:14 -0000	1.12
++++ src/slonik/dbutil.c	5 Apr 2007 19:10:20 -0000
+@@ -11,10 +11,10 @@
+  */
+ 
+ 
++#ifndef WIN32
+ #include <stdio.h>
+ #include <stdlib.h>
+ #include <stdarg.h>
+-#ifndef WIN32
+ #include <unistd.h>
+ #include <sys/types.h>
+ #include <sys/wait.h>
+Index: src/slonik/parser.y
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/src/slonik/parser.y,v
+retrieving revision 1.27
+diff -c -u -r1.27 parser.y
+--- src/slonik/parser.y	31 Oct 2006 22:09:40 -0000	1.27
++++ src/slonik/parser.y	5 Apr 2007 19:10:20 -0000
+@@ -41,7 +41,6 @@
+ 	O_RECEIVER,
+ 	O_SECONDS,
+ 	O_SERVER,
+-	O_SER_KEY,
+ 	O_SET_ID,
+ 	O_SPOOLNODE,
+ 	O_TAB_ID,
+@@ -148,7 +147,6 @@
+ %type <statement>	stmt_set_drop_sequence
+ %type <statement>	stmt_set_move_table
+ %type <statement>	stmt_set_move_sequence
+-%type <statement>	stmt_table_add_key
+ %type <statement>	stmt_store_trigger
+ %type <statement>	stmt_drop_trigger
+ %type <statement>	stmt_subscribe_set
+@@ -226,7 +224,6 @@
+ %token	K_SCRIPT
+ %token  K_SECONDS
+ %token	K_SEQUENCE
+-%token	K_SERIAL
+ %token	K_SERVER
+ %token	K_SET
+ %token	K_SPOOLNODE
+@@ -448,8 +445,6 @@
+ 						{ $$ = $1; }
+ 					| stmt_merge_set
+ 						{ $$ = $1; }
+-					| stmt_table_add_key
+-						{ $$ = $1; }
+ 					| stmt_set_add_table
+ 						{ $$ = $1; }
+ 					| stmt_set_add_sequence
+@@ -919,33 +914,6 @@
+ 					}
+ 					;
+ 
+-stmt_table_add_key	: lno K_TABLE K_ADD K_KEY option_list
+-					{
+-						SlonikStmt_table_add_key *new;
+-						statement_option opt[] = {
+-							STMT_OPTION_INT( O_NODE_ID, -1 ),
+-							STMT_OPTION_STR( O_FQNAME, NULL ),
+-							STMT_OPTION_END
+-						};
+-
+-						new = (SlonikStmt_table_add_key *)
+-								malloc(sizeof(SlonikStmt_table_add_key));
+-						memset(new, 0, sizeof(SlonikStmt_table_add_key));
+-						new->hdr.stmt_type		= STMT_TABLE_ADD_KEY;
+-						new->hdr.stmt_filename	= current_file;
+-						new->hdr.stmt_lno		= $1;
+-
+-						if (assign_options(opt, $5) == 0)
+-						{
+-							new->no_id			= opt[0].ival;
+-							new->tab_fqname		= opt[1].str;
+-						}
+-						else
+-							parser_errors++;
+-
+-						$$ = (SlonikStmt *)new;
+-					}
+-					;
+ 
+ stmt_set_add_table	: lno K_SET K_ADD K_TABLE option_list
+ 					{
+@@ -956,7 +924,6 @@
+ 							STMT_OPTION_INT( O_ID, -1 ),
+ 							STMT_OPTION_STR( O_FQNAME, NULL ),
+ 							STMT_OPTION_STR( O_USE_KEY, NULL ),
+-							STMT_OPTION_INT( O_SER_KEY, 0 ),
+ 							STMT_OPTION_STR( O_COMMENT, NULL ),
+ 							STMT_OPTION_END
+ 						};
+@@ -975,8 +942,7 @@
+ 							new->tab_id			= opt[2].ival;
+ 							new->tab_fqname		= opt[3].str;
+ 							new->use_key		= opt[4].str;
+-							new->use_serial		= opt[5].ival;
+-							new->tab_comment	= opt[6].str;
++							new->tab_comment	= opt[5].str;
+ 						}
+ 						else
+ 							parser_errors++;
+@@ -1653,19 +1619,6 @@
+ 						$3->opt_code	= O_USE_KEY;
+ 						$$ = $3;
+ 					}
+-					| K_KEY '=' K_SERIAL
+-					{
+-						option_list *new;
+-						new = (option_list *)malloc(sizeof(option_list));
+-
+-						new->opt_code	= O_SER_KEY;
+-						new->ival	= 1;
+-						new->str	= NULL;
+-						new->lineno	= yylineno;
+-						new->next	= NULL;
+-
+-						$$ = new;
+-					}
+ 					| K_FORWARD '=' option_item_yn
+ 					{
+ 						$3->opt_code	= O_FORWARD;
+@@ -1867,7 +1820,6 @@
+ 		case O_RECEIVER:		return "receiver";
+     	case O_SECONDS:         return "seconds";
+ 		case O_SERVER:			return "server";
+-		case O_SER_KEY:			return "key";
+ 		case O_SET_ID:			return "set id";
+ 		case O_SPOOLNODE:		return "spoolnode";
+ 		case O_TAB_ID:			return "table id";
+Index: src/slonik/slonik.c
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/src/slonik/slonik.c,v
+retrieving revision 1.74
+diff -c -u -r1.74 slonik.c
+--- src/slonik/slonik.c	16 Mar 2007 22:38:01 -0000	1.74
++++ src/slonik/slonik.c	5 Apr 2007 19:10:21 -0000
+@@ -11,22 +11,21 @@
+  */
+ 
+ 
++#ifndef WIN32
+ #include <stdio.h>
+ #include <stdlib.h>
+ #include <stdarg.h>
+-#ifndef WIN32
+ #include <unistd.h>
+ #include <fcntl.h>
+ #include <ctype.h>
+ #include <sys/types.h>
+ #include <sys/wait.h>
++#include <errno.h>
++#include <time.h>
+ #else
+ #define sleep(x) Sleep(x*1000)
+ #define vsnprintf _vsnprintf
+-#define INT64_FORMAT "%I64d"
+ #endif
+-#include <errno.h>
+-#include <time.h>
+ 
+ #include "postgres.h"
+ #include "libpq-fe.h"
+@@ -554,15 +553,6 @@
+ 							   hdr->stmt_filename, hdr->stmt_lno);
+ 						errors++;
+ 					}
+-					if (stmt->use_serial && stmt->use_key != NULL)
+-					{
+-						printf("%s:%d: Error: "
+-							   "unique key name or SERIAL are "
+-							   "mutually exclusive\n",
+-							   hdr->stmt_filename, hdr->stmt_lno);
+-						errors++;
+-					}
+-
+ 					if (stmt->tab_comment == NULL)
+ 						stmt->tab_comment = strdup(stmt->tab_fqname);
+ 				}
+@@ -777,40 +767,6 @@
+ 				}
+ 				break;
+ 
+-			case STMT_TABLE_ADD_KEY:
+-				{
+-					SlonikStmt_table_add_key *stmt =
+-					(SlonikStmt_table_add_key *) hdr;
+-
+-					/*
+-					 * Check that we have the node id and that we can reach
+-					 * it.
+-					 */
+-					if (stmt->no_id < 0)
+-					{
+-						printf("%s:%d: Error: "
+-							   "node id must be specified\n",
+-							   hdr->stmt_filename, hdr->stmt_lno);
+-						errors++;
+-					}
+-					else
+-					{
+-						if (script_check_adminfo(hdr, stmt->no_id) < 0)
+-							errors++;
+-					}
+-
+-					/*
+-					 * Check that we have the table name
+-					 */
+-					if (stmt->tab_fqname == NULL)
+-					{
+-						printf("%s:%d: Error: "
+-							   "table FQ-name must be specified\n",
+-							   hdr->stmt_filename, hdr->stmt_lno);
+-						errors++;
+-					}
+-				}
+-				break;
+ 
+ 			case STMT_STORE_TRIGGER:
+ 				{
+@@ -1446,16 +1402,6 @@
+ 				}
+ 				break;
+ 
+-			case STMT_TABLE_ADD_KEY:
+-				{
+-					SlonikStmt_table_add_key *stmt =
+-					(SlonikStmt_table_add_key *) hdr;
+-
+-					if (slonik_table_add_key(stmt) < 0)
+-						errors++;
+-				}
+-				break;
+-
+ 			case STMT_STORE_TRIGGER:
+ 				{
+ 					SlonikStmt_store_trigger *stmt =
+@@ -3315,35 +3261,19 @@
+ 
+ 	dstring_init(&query);
+ 
+-	/*
+-	 * Determine the attkind of the table. The stored procedure for KEY =
+-	 * SERIAL might actually add a bigserial column to the table.
+-	 */
+-	if (stmt->use_serial)
++	if (stmt->use_key == NULL)
+ 	{
+ 		slon_mkquery(&query,
+-					 "select \"_%s\".determineIdxnameSerial('%q'), "
+-					 "       \"_%s\".determineAttKindSerial('%q'); ",
+-					 stmt->hdr.script->clustername, stmt->tab_fqname,
+-					 stmt->hdr.script->clustername, stmt->tab_fqname);
++			     "select \"_%s\".determineIdxnameUnique('%q', NULL); ",
++			     stmt->hdr.script->clustername, stmt->tab_fqname);
+ 
+ 	}
+ 	else
+ 	{
+-		if (stmt->use_key == NULL)
+-		{
+-			slon_mkquery(&query,
+-					   "select \"_%s\".determineIdxnameUnique('%q', NULL); ",
+-						 stmt->hdr.script->clustername, stmt->tab_fqname);
+-
+-		}
+-		else
+-		{
+-			slon_mkquery(&query,
+-					   "select \"_%s\".determineIdxnameUnique('%q', '%q'); ",
+-						 stmt->hdr.script->clustername,
+-						 stmt->tab_fqname, stmt->use_key);
+-		}
++		slon_mkquery(&query,
++			     "select \"_%s\".determineIdxnameUnique('%q', '%q'); ",
++			     stmt->hdr.script->clustername,
++			     stmt->tab_fqname, stmt->use_key);
+ 	}
+ 
+ 	db_notice_silent = true;
+@@ -3531,43 +3461,6 @@
+ 	return 0;
+ }
+ 
+-
+-int
+-slonik_table_add_key(SlonikStmt_table_add_key * stmt)
+-{
+-	SlonikAdmInfo *adminfo1;
+-	SlonDString query;
+-
+-	adminfo1 = get_active_adminfo((SlonikStmt *) stmt, stmt->no_id);
+-	if (adminfo1 == NULL)
+-		return -1;
+-
+-	if (db_begin_xact((SlonikStmt *) stmt, adminfo1) < 0)
+-		return -1;
+-
+-	dstring_init(&query);
+-
+-	/*
+-	 * call tableAddKey()
+-	 */
+-	db_notice_silent = true;
+-	slon_mkquery(&query,
+-				 "select \"_%s\".tableAddKey('%q'); ",
+-				 stmt->hdr.script->clustername,
+-				 stmt->tab_fqname);
+-	if (db_exec_command((SlonikStmt *) stmt, adminfo1, &query) < 0)
+-	{
+-		db_notice_silent = false;
+-		dstring_free(&query);
+-		return -1;
+-	}
+-	db_notice_silent = false;
+-
+-	dstring_free(&query);
+-	return 0;
+-}
+-
+-
+ int
+ slonik_store_trigger(SlonikStmt_store_trigger * stmt)
+ {
+Index: src/slonik/slonik.h
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/src/slonik/slonik.h,v
+retrieving revision 1.29
+diff -c -u -r1.29 slonik.h
+--- src/slonik/slonik.h	31 Oct 2006 22:09:40 -0000	1.29
++++ src/slonik/slonik.h	5 Apr 2007 19:10:21 -0000
+@@ -37,7 +37,6 @@
+ typedef struct SlonikStmt_set_drop_sequence_s SlonikStmt_set_drop_sequence;
+ typedef struct SlonikStmt_set_move_table_s SlonikStmt_set_move_table;
+ typedef struct SlonikStmt_set_move_sequence_s SlonikStmt_set_move_sequence;
+-typedef struct SlonikStmt_table_add_key_s SlonikStmt_table_add_key;
+ typedef struct SlonikStmt_store_trigger_s SlonikStmt_store_trigger;
+ typedef struct SlonikStmt_drop_trigger_s SlonikStmt_drop_trigger;
+ typedef struct SlonikStmt_subscribe_set_s SlonikStmt_subscribe_set;
+@@ -82,7 +81,6 @@
+ 	STMT_STORE_PATH,
+ 	STMT_STORE_TRIGGER,
+ 	STMT_SUBSCRIBE_SET,
+-	STMT_TABLE_ADD_KEY,
+ 	STMT_UNINSTALL_NODE,
+ 	STMT_UNLOCK_SET,
+ 	STMT_UNSUBSCRIBE_SET,
+@@ -279,7 +277,6 @@
+ 	int			set_id;
+ 	int			set_origin;
+ 	int			tab_id;
+-	int			use_serial;
+ 	char	   *use_key;
+ 	char	   *tab_fqname;
+ 	char	   *tab_comment;
+@@ -331,14 +328,6 @@
+ };
+ 
+ 
+-struct SlonikStmt_table_add_key_s
+-{
+-	SlonikStmt	hdr;
+-	int			no_id;
+-	char	   *tab_fqname;
+-};
+-
+-
+ struct SlonikStmt_store_trigger_s
+ {
+ 	SlonikStmt	hdr;
+@@ -558,7 +547,6 @@
+ extern int	slonik_set_drop_sequence(SlonikStmt_set_drop_sequence * stmt);
+ extern int	slonik_set_move_table(SlonikStmt_set_move_table * stmt);
+ extern int	slonik_set_move_sequence(SlonikStmt_set_move_sequence * stmt);
+-extern int	slonik_table_add_key(SlonikStmt_table_add_key * stmt);
+ extern int	slonik_store_trigger(SlonikStmt_store_trigger * stmt);
+ extern int	slonik_drop_trigger(SlonikStmt_drop_trigger * stmt);
+ extern int	slonik_subscribe_set(SlonikStmt_subscribe_set * stmt);
+Index: tests/test1/init_add_tables.ik
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/tests/test1/init_add_tables.ik,v
+retrieving revision 1.8
+diff -c -u -r1.8 init_add_tables.ik
+--- tests/test1/init_add_tables.ik	4 Aug 2006 20:06:24 -0000	1.8
++++ tests/test1/init_add_tables.ik	5 Apr 2007 19:10:21 -0000
+@@ -1,16 +1,13 @@
+ set add table (id=1, set id=1, origin=1, fully qualified name = 'public.table1', comment='accounts table');
+ set add table (id=2, set id=1, origin=1, fully qualified name = 'public.table2', key='table2_id_key');
+ 
+-table add key (node id = 1, fully qualified name = 'public.table3');
+-set add table (id=3, set id=1, origin=1, fully qualified name = 'public.table3', key = SERIAL);
+-
+ try {
+-   set add table (id=4, set id=1, origin=1, fully qualified name = 'public.table4', key = 'no_good_candidate_pk', comment='bad table - table 4');
++   set add table (id=3, set id=1, origin=1, fully qualified name = 'public.table3', key = 'no_good_candidate_pk', comment='bad table - table 3');
+ } on error {
+-   echo 'Tried to replicate table4 with no good candidate PK - rejected';
++   echo 'Tried to replicate table3 with no good candidate PK - rejected';
+ } on success {
+-   echo 'Tried to replicate table4 with no good candidate PK - accepted';
++   echo 'Tried to replicate table3 with no good candidate PK - accepted';
+    exit 1;
+ }
+ 
+-set add table (id=4, set id=1, origin=1, fully qualified name = 'public.table5', comment='a table of many types');
+\ No newline at end of file
++set add table (id=4, set id=1, origin=1, fully qualified name = 'public.table4', comment='a table of many types');
+\ No newline at end of file
+Index: tests/test1/init_data.sql
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/tests/test1/init_data.sql,v
+retrieving revision 1.2
+diff -c -u -r1.2 init_data.sql
+--- tests/test1/init_data.sql	4 Aug 2006 20:06:24 -0000	1.2
++++ tests/test1/init_data.sql	5 Apr 2007 19:10:21 -0000
+@@ -2,9 +2,7 @@
+ INSERT INTO table1(data) VALUES ('placeholder 2');
+ INSERT INTO table2(table1_id,data) VALUES (1,'placeholder 1');
+ INSERT INTO table2(table1_id,data) VALUES (2,'placeholder 2');
+-INSERT INTO table3(table2_id) VALUES (1);
+-INSERT INTO table3(table2_id) VALUES (2);
+ 
+-INSERT INTO table5(numcol,realcol,ptcol,pathcol,polycol,circcol,ipcol,maccol,bitcol) values ('74.0','7.40','(7,4)','((7,7),(4,4),(0,0),(7,0))','((7,4),(0,7),(4,0),(0,4))','<(7,4),0>','192.168.7.40','08:00:2d:07:04:00',X'740');
++INSERT INTO table4(numcol,realcol,ptcol,pathcol,polycol,circcol,ipcol,maccol,bitcol) values ('74.0','7.40','(7,4)','((7,7),(4,4),(0,0),(7,0))','((7,4),(0,7),(4,0),(0,4))','<(7,4),0>','192.168.7.40','08:00:2d:07:04:00',X'740');
+ 
+-INSERT INTO table5(numcol,realcol,ptcol,pathcol,polycol,circcol,ipcol,maccol,bitcol) values ('93.1','9.31','(9,3)','((9,9),(3,3),(1,1),(9,1))','((9,3),(1,9),(3,1),(1,3))','<(9,3),1>','192.168.9.31','08:00:2d:09:03:01',X'931');
+\ No newline at end of file
++INSERT INTO table4(numcol,realcol,ptcol,pathcol,polycol,circcol,ipcol,maccol,bitcol) values ('93.1','9.31','(9,3)','((9,9),(3,3),(1,1),(9,1))','((9,3),(1,9),(3,1),(1,3))','<(9,3),1>','192.168.9.31','08:00:2d:09:03:01',X'931');
+\ No newline at end of file
+Index: tests/test1/init_schema.sql
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/tests/test1/init_schema.sql,v
+retrieving revision 1.5
+diff -c -u -r1.5 init_schema.sql
+--- tests/test1/init_schema.sql	4 Aug 2006 20:06:24 -0000	1.5
++++ tests/test1/init_schema.sql	5 Apr 2007 19:10:21 -0000
+@@ -10,23 +10,14 @@
+   data		TEXT
+ );
+ 
+-CREATE TABLE table3(
+-  id		SERIAL,
+-  table2_id	INT4		REFERENCES table2(id)
+-					ON UPDATE SET NULL ON DELETE SET NULL,
+-  mod_date	TIMESTAMPTZ	NOT NULL DEFAULT now(),
+-  data		FLOAT		NOT NULL DEFAULT random()
+-  CONSTRAINT table3_date_check	CHECK (mod_date <= now())
+-); 
+-
+-create table table4 (
++create table table3 (
+   id serial NOT NULL,
+   id2 integer
+ );
+ 
+-create unique index no_good_candidate_pk on table4 (id, id2);
++create unique index no_good_candidate_pk on table3 (id, id2);
+ 
+-create table table5 (
++create table table4 (
+   id serial primary key,
+   numcol numeric(12,4), -- 1.23
+   realcol real,     -- (1.23)
+
+-- 
+select 'cbbrowne' || '@' || 'ca.afilias.info';
+<http://dba2.int.libertyrms.com/>
+Christopher Browne
+(416) 673-4124 (land)
+From cbbrowne at ca.afilias.info  Mon Apr 16 15:17:14 2007
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Mon Apr 16 15:17:22 2007
+Subject: [Slony1-patches] Removing 7.3-ism - support for old usage of
+	PQgetline
+Message-ID: <4623F5EA.4060107@ca.afilias.info>
+
+Now that 7.3 is really and truly not supported, we can get rid of the
+#defined code that would optionally try to use PQgetline() if
+PQgetCopyData() wasn't available (as was true before 7.4).
+
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: remove-73-copy.patch
+Type: text/x-diff
+Size: 4626 bytes
+Desc: not available
+Url : http://lists.slony.info/pipermail/slony1-patches/attachments/20070416=
+/fddbb8c5/remove-73-copy.bin
+From andrew.george.hammond at gmail.com  Tue Apr 17 14:31:26 2007
+From: andrew.george.hammond at gmail.com (Andrew Hammond)
+Date: Tue Apr 17 14:31:35 2007
+Subject: [Slony1-patches] Re: [Slony1-general] Re: updated slon-mkservice
+	(and logrep-mkservice too)
+In-Reply-To: <460D2357.9080103@ca.afilias.info>
+References: <5a0a9d6f0703161158u63edd393rbbef3389ddd31793@mail.gmail.com>
+	<5a0a9d6f0703281401k52bee618md8cf6b60c0f34ed8@mail.gmail.com>
+	<460C3DCE.5040902@ca.afilias.info>
+	<5a0a9d6f0703291558p28e9adb8i20c4872536cfbbd0@mail.gmail.com>
+	<460D2357.9080103@ca.afilias.info>
+Message-ID: <5a0a9d6f0704171431x4adb4b78ubd1cdc13e59d934b@mail.gmail.com>
+
+Skipped content of type multipart/alternative-------------- next part -----=
+---------
+A non-text attachment was scrubbed...
+Name: mkservice_README.patch
+Type: application/octet-stream
+Size: 4525 bytes
+Desc: not available
+Url : http://lists.slony.info/pipermail/slony1-patches/attachments/20070417=
+/abbd2364/mkservice_README.obj
+From andrew.george.hammond at gmail.com  Tue Apr 17 18:24:01 2007
+From: andrew.george.hammond at gmail.com (Andrew Hammond)
+Date: Tue Apr 17 18:24:14 2007
+Subject: [Slony1-patches] Re: [Slony1-general] Re: updated slon-mkservice
+	(and logrep-mkservice too)
+In-Reply-To: <5a0a9d6f0704171517w5970359cic9d12b382627c925@mail.gmail.com>
+References: <5a0a9d6f0703161158u63edd393rbbef3389ddd31793@mail.gmail.com>
+	<5a0a9d6f0703281401k52bee618md8cf6b60c0f34ed8@mail.gmail.com>
+	<460C3DCE.5040902@ca.afilias.info>
+	<5a0a9d6f0703291558p28e9adb8i20c4872536cfbbd0@mail.gmail.com>
+	<460D2357.9080103@ca.afilias.info>
+	<5a0a9d6f0704171431x4adb4b78ubd1cdc13e59d934b@mail.gmail.com>
+	<46254338.1050609@ca.afilias.info>
+	<5a0a9d6f0704171517w5970359cic9d12b382627c925@mail.gmail.com>
+Message-ID: <5a0a9d6f0704171824w456a77e2oabe02f8d332409f2@mail.gmail.com>
+
+Skipped content of type multipart/alternative-------------- next part -----=
+---------
+A non-text attachment was scrubbed...
+Name: mkservice_more_stuff.patch
+Type: application/octet-stream
+Size: 23950 bytes
+Desc: not available
+Url : http://lists.slony.info/pipermail/slony1-patches/attachments/20070417=
+/860e817c/mkservice_more_stuff-0001.obj
+From cbbrowne at ca.afilias.info  Tue Apr 17 14:44:20 2007
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Wed Apr 18 15:53:29 2007
+Subject: [Slony1-patches] Patch to remove TABLE ADD KEY support - Version #2
+Message-ID: <46253FB4.7020807@ca.afilias.info>
+
+Patch that removes TABLE ADD KEY from CVS HEAD.  This supercedes the
+previous patch:
+http://lists.slony.info/pipermail/slony1-patches/2007-April/000008.html
+
+Per Bill Moran's comments, this also drops out usage of sl_rowid_seq.
+http://lists.slony.info/pipermail/slony1-general/2007-April/005883.html
+
+It passes test1, as revised...
+
+----------------------------------------------------
+creating origin DB: cbbrowne -h localhost -U cbbrowne -p 5882 slonyregress1
+add plpgsql to Origin
+loading origin DB with test1/init_schema.sql
+setting up user cbbrowne to have weak access to data
+done
+creating subscriber 2 DB: cbbrowne -h localhost -U cbbrowne -p 5882
+slonyregress2
+add plpgsql to subscriber
+loading subscriber 2 DB from slonyregress1
+done
+creating cluster
+done
+storing nodes
+done
+Granting weak access on Slony-I schema
+done
+storing paths
+done
+launching originnode : /opt/OXRS/dbs/pgsql82/bin/slon -s500 -g10 -d2
+slony_regress1 "dbname=3Dslonyregress1 host=3Dlocalhost user=3Dcbbrowne por=
+t=3D5882"
+launching: /opt/OXRS/dbs/pgsql82/bin/slon -s500 -g10 -d2 slony_regress1
+"dbname=3Dslonyregress2 host=3Dlocalhost user=3Dcbbrowne port=3D5882"
+subscribing
+done
+generating 468 transactions of random data
+0 %
+5 %
+10 %
+15 %
+20 %
+25 %
+30 %
+35 %
+40 %
+45 %
+50 %
+55 %
+60 %
+65 %
+70 %
+75 %
+80 %
+85 %
+90 %
+95 %
+100 %
+done
+launching polling script
+loading data
+data load complete
+completed generate_sync_event() test
+completed make_function_strict() test
+done
+slony is caught up
+getting data from origin DB for diffing
+done
+getting data from node 2 for diffing against origin
+comparing
+subscriber node 2 is the same as origin node 1
+done
+**** killing slon node 1
+**** killing slon node 2
+waiting for slons to die
+done
+dropping database
+slonyregress1
+slonyregress2
+done
+***************************
+test test1 completed successfully
+***************************
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: drop-serial.patch
+Type: text/x-patch
+Size: 54607 bytes
+Desc: not available
+Url : http://lists.slony.info/pipermail/slony1-patches/attachments/20070417=
+/32381467/drop-serial-0001.bin
+From cbbrowne at ca.afilias.info  Wed Apr 18 08:01:42 2007
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Wed Apr 18 15:53:29 2007
+Subject: [Slony1-patches] Patch to remove TABLE ADD KEY functionality - v2
+Message-ID: <462632D6.3030306@ca.afilias.info>
+
+Patch that removes TABLE ADD KEY from CVS HEAD.  This supercedes the
+previous patch:
+http://lists.slony.info/pipermail/slony1-patches/2007-April/000008.html
+
+Per Bill Moran's comments, this also drops out usage of sl_rowid_seq.
+http://lists.slony.info/pipermail/slony1-general/2007-April/005883.html
+
+It passes test1, as revised...
+
+----------------------------------------------------
+creating origin DB: cbbrowne -h localhost -U cbbrowne -p 5882 slonyregress1
+add plpgsql to Origin
+loading origin DB with test1/init_schema.sql
+setting up user cbbrowne to have weak access to data
+done
+creating subscriber 2 DB: cbbrowne -h localhost -U cbbrowne -p 5882
+slonyregress2
+add plpgsql to subscriber
+loading subscriber 2 DB from slonyregress1
+done
+creating cluster
+done
+storing nodes
+done
+Granting weak access on Slony-I schema
+done
+storing paths
+done
+launching originnode : /opt/OXRS/dbs/pgsql82/bin/slon -s500 -g10 -d2
+slony_regress1 "dbname=3Dslonyregress1 host=3Dlocalhost user=3Dcbbrowne por=
+t=3D5882"
+launching: /opt/OXRS/dbs/pgsql82/bin/slon -s500 -g10 -d2 slony_regress1
+"dbname=3Dslonyregress2 host=3Dlocalhost user=3Dcbbrowne port=3D5882"
+subscribing
+done
+generating 468 transactions of random data
+0 %
+5 %
+10 %
+15 %
+20 %
+25 %
+30 %
+35 %
+40 %
+45 %
+50 %
+55 %
+60 %
+65 %
+70 %
+75 %
+80 %
+85 %
+90 %
+95 %
+100 %
+done
+launching polling script
+loading data
+data load complete
+completed generate_sync_event() test
+completed make_function_strict() test
+done
+slony is caught up
+getting data from origin DB for diffing
+done
+getting data from node 2 for diffing against origin
+comparing
+subscriber node 2 is the same as origin node 1
+done
+**** killing slon node 1
+**** killing slon node 2
+waiting for slons to die
+done
+dropping database
+slonyregress1
+slonyregress2
+done
+***************************
+test test1 completed successfully
+***************************
+
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: drop-serial.patch
+Type: text/x-patch
+Size: 54607 bytes
+Desc: not available
+Url : http://lists.slony.info/pipermail/slony1-patches/attachments/20070418=
+/7e7ea459/drop-serial-0001.bin
+From cbbrowne at ca.afilias.info  Wed Apr 25 09:57:15 2007
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Wed Apr 25 09:57:21 2007
+Subject: [Slony1-patches] Patch that allows log shipping to work
+Message-ID: <462F886B.4060600@ca.afilias.info>
+
+Attached is a patch to address the problem noticed with log shipping
+with respect to DDL scripts, where the DDL script would not be properly
+processed in that it is an event a bit out of sequence from the SYNC log
+files.
+
+The approach is to add a new sequence and function to the log shipping
+code; the sequence tracks non-SYNC events.  The function is called for
+any interesting non-SYNC events, and uses/manages that sequence.
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: logship-fix.patch
+Type: text/x-patch
+Size: 6762 bytes
+Desc: not available
+Url : http://lists.slony.info/pipermail/slony1-patches/attachments/20070425=
+/521b1a95/logship-fix.bin
+From dpage at postgresql.org  Thu Apr 26 08:24:23 2007
+From: dpage at postgresql.org (Dave Page)
+Date: Thu Apr 26 08:24:36 2007
+Subject: [Slony1-patches] PostgreSQL 8.3 compatibilty
+Message-ID: <4630C427.6090700@postgresql.org>
+
+As discussed on slony1-hackers, this patch updates -HEAD for =
+
+compatibility with PostgreSQL -HEAD. It's quite simple, so I think it =
+
+should be back patched to 1.2.x so we have something to release with =
+
+PostgreSQL 8.3 - I'll produce another patch if everyone is happy.
+
+Autoconf should be re-run when the patch is applied. I don't have CVS =
+
+write access yet so I can't commit this...
+
+Regards, Dave
+-------------- next part --------------
+Index: Makefile.global.in
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D
+RCS file: /slony1/slony1-engine/Makefile.global.in,v
+retrieving revision 1.35
+diff -c -r1.35 Makefile.global.in
+*** Makefile.global.in	26 Oct 2006 19:07:18 -0000	1.35
+--- Makefile.global.in	26 Apr 2007 15:17:38 -0000
+***************
+*** 9,14 ****
+--- 9,19 ----
+  # $Id: Makefile.global.in,v 1.35 2006-10-26 19:07:18 wieck Exp $
+  # ----------
+  =
+
++ # PostgreSQL Version
++ PG_VERSION_MAJOR=3D       @PG_VERSION_MAJOR@
++ PG_VERSION_MINOR=3D       @PG_VERSION_MINOR@
++ PG_VERSION=3D             @PG_VERSION@
++ =
+
+  #location substitutions
+  =
+
+  pgincludedir=3D		@PGINCLUDEDIR@
+Index: configure.ac
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D
+RCS file: /slony1/slony1-engine/configure.ac,v
+retrieving revision 1.60
+diff -c -r1.60 configure.ac
+*** configure.ac	20 Feb 2007 11:20:44 -0000	1.60
+--- configure.ac	26 Apr 2007 15:17:38 -0000
+***************
+*** 162,167 ****
+--- 162,171 ----
+  ACX_LIBSNMP()
+  ACX_SLONYTOOLS()
+  =
+
++ AC_SUBST(PG_VERSION_MAJOR, $PG_VERSION_MAJOR)
++ AC_SUBST(PG_VERSION_MINOR, $PG_VERSION_MINOR)
++ AC_SUBST(PG_VERSION, $PG_VERSION)
++ =
+
+  AC_SUBST(PGINCLUDEDIR, $PG_INCLUDEDIR)
+  AC_SUBST(PGINCLUDESERVERDIR, $PG_INCLUDESERVERDIR)
+  AC_SUBST(PGLIBDIR, $PG_LIBDIR)
+Index: src/backend/slony1_funcs.c
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D
+RCS file: /slony1/slony1-engine/src/backend/slony1_funcs.c,v
+retrieving revision 1.59
+diff -c -r1.59 slony1_funcs.c
+*** src/backend/slony1_funcs.c	18 Apr 2007 21:20:22 -0000	1.59
+--- src/backend/slony1_funcs.c	26 Apr 2007 15:17:39 -0000
+***************
+*** 44,51 ****
+  #endif
+  =
+
+  /* -- Change from PostgreSQL Ver 8.3 -- */
+! #ifndef VARATT_SIZEP
+! #define VARATT_SIZEP VARATT_SIZEP_DEPRECATED
+  #endif
+  =
+
+  PG_FUNCTION_INFO_V1(_Slony_I_createEvent);
+--- 44,51 ----
+  #endif
+  =
+
+  /* -- Change from PostgreSQL Ver 8.3 -- */
+! #if !((PG_VERSION_MAJOR >=3D 8) || ((PG_VERSION_MAJOR =3D=3D 8) && (PG_VE=
+RSION_MINOR >=3D 3)))
+! #define SET_VARSIZE(datum, size) (VARATT_SIZEP(datum)=3D(size))
+  #endif
+  =
+
+  PG_FUNCTION_INFO_V1(_Slony_I_createEvent);
+***************
+*** 310,316 ****
+  =
+
+  	len =3D strlen(SLONY_I_VERSION_STRING);
+  	retval =3D palloc(VARHDRSZ + len);
+! 	VARATT_SIZEP(retval) =3D VARHDRSZ + len;
+  	memcpy(VARDATA(retval), SLONY_I_VERSION_STRING, len);
+  =
+
+  	PG_RETURN_TEXT_P(retval);
+--- 310,317 ----
+  =
+
+  	len =3D strlen(SLONY_I_VERSION_STRING);
+  	retval =3D palloc(VARHDRSZ + len);
+! =
+
+!         SET_VARSIZE(retval,VARHDRSZ + len);
+  	memcpy(VARDATA(retval), SLONY_I_VERSION_STRING, len);
+  =
+
+  	PG_RETURN_TEXT_P(retval);
+***************
+*** 383,401 ****
+  		case SLON_ROLE_UNSET:
+  			cs->session_role =3D SLON_ROLE_NORMAL;
+  			retval =3D palloc(VARHDRSZ + 6);
+! 			VARATT_SIZEP(retval) =3D VARHDRSZ + 6;
+  			memcpy(VARDATA(retval), "normal", 6);
+  			break;
+  =
+
+  		case SLON_ROLE_NORMAL:
+  			retval =3D palloc(VARHDRSZ + 6);
+! 			VARATT_SIZEP(retval) =3D VARHDRSZ + 6;
+  			memcpy(VARDATA(retval), "normal", 6);
+  			break;
+  =
+
+  		case SLON_ROLE_SLON:
+  			retval =3D palloc(VARHDRSZ + 4);
+! 			VARATT_SIZEP(retval) =3D VARHDRSZ + 4;
+  			memcpy(VARDATA(retval), "slon", 4);
+  			break;
+  	}
+--- 384,402 ----
+  		case SLON_ROLE_UNSET:
+  			cs->session_role =3D SLON_ROLE_NORMAL;
+  			retval =3D palloc(VARHDRSZ + 6);
+! 			SET_VARSIZE(retval, VARHDRSZ + 6);
+  			memcpy(VARDATA(retval), "normal", 6);
+  			break;
+  =
+
+  		case SLON_ROLE_NORMAL:
+  			retval =3D palloc(VARHDRSZ + 6);
+! 			SET_VARSIZE(retval, VARHDRSZ + 6);
+  			memcpy(VARDATA(retval), "normal", 6);
+  			break;
+  =
+
+  		case SLON_ROLE_SLON:
+  			retval =3D palloc(VARHDRSZ + 4);
+! 			SET_VARSIZE(retval, VARHDRSZ + 4);
+  			memcpy(VARDATA(retval), "slon", 4);
+  			break;
+  	}
+***************
+*** 490,496 ****
+  			elog(ERROR, "Slony-I: cannot determine log status");
+  		if (SPI_processed !=3D 1)
+  			elog(ERROR, "Slony-I: cannot determine log status");
+! 		=
+
+  		log_status =3D DatumGetInt32(SPI_getbinval(SPI_tuptable->vals[0],
+  									SPI_tuptable->tupdesc, 1, NULL));
+  		SPI_freetuptable(SPI_tuptable);
+--- 491,497 ----
+  			elog(ERROR, "Slony-I: cannot determine log status");
+  		if (SPI_processed !=3D 1)
+  			elog(ERROR, "Slony-I: cannot determine log status");
+! =
+
+  		log_status =3D DatumGetInt32(SPI_getbinval(SPI_tuptable->vals[0],
+  									SPI_tuptable->tupdesc, 1, NULL));
+  		SPI_freetuptable(SPI_tuptable);
+***************
+*** 636,643 ****
+  		 */
+  		*cp++ =3D ')';
+  		*cp =3D '\0';
+! 		VARATT_SIZEP(cs->cmddata_buf) =3D
+! 			VARHDRSZ + (cp - VARDATA(cs->cmddata_buf));
+  	}
+  	else if (TRIGGER_FIRED_BY_UPDATE(tg->tg_event))
+  	{
+--- 637,644 ----
+  		 */
+  		*cp++ =3D ')';
+  		*cp =3D '\0';
+! 		SET_VARSIZE(cs->cmddata_buf, =
+
+!                         VARHDRSZ + (cp - VARDATA(cs->cmddata_buf)));
+  	}
+  	else if (TRIGGER_FIRED_BY_UPDATE(tg->tg_event))
+  	{
+***************
+*** 874,881 ****
+  			cp +=3D len_value;
+  		}
+  		*cp =3D '\0';
+! 		VARATT_SIZEP(cs->cmddata_buf) =3D
+! 			VARHDRSZ + (cp - VARDATA(cs->cmddata_buf));
+  	}
+  	else if (TRIGGER_FIRED_BY_DELETE(tg->tg_event))
+  	{
+--- 875,882 ----
+  			cp +=3D len_value;
+  		}
+  		*cp =3D '\0';
+! 		SET_VARSIZE(cs->cmddata_buf,
+! 			VARHDRSZ + (cp - VARDATA(cs->cmddata_buf)));
+  	}
+  	else if (TRIGGER_FIRED_BY_DELETE(tg->tg_event))
+  	{
+***************
+*** 941,948 ****
+  			cp +=3D len_value;
+  		}
+  		*cp =3D '\0';
+! 		VARATT_SIZEP(cs->cmddata_buf) =3D
+! 			VARHDRSZ + (cp - VARDATA(cs->cmddata_buf));
+  	}
+  	else
+  		elog(ERROR, "Slony-I: logTrigger() fired for unhandled event");
+--- 942,949 ----
+  			cp +=3D len_value;
+  		}
+  		*cp =3D '\0';
+! 		SET_VARSIZE(cs->cmddata_buf,
+! 			VARHDRSZ + (cp - VARDATA(cs->cmddata_buf)));
+  	}
+  	else
+  		elog(ERROR, "Slony-I: logTrigger() fired for unhandled event");
+***************
+*** 1250,1256 ****
+  =
+
+  	len =3D strlen(qstr);
+  	result =3D (text *) palloc(len + VARHDRSZ);
+! 	VARATT_SIZEP(result) =3D len + VARHDRSZ;
+  	memcpy(VARDATA(result), qstr, len);
+  =
+
+  	PG_RETURN_TEXT_P(result);
+--- 1251,1257 ----
+  =
+
+  	len =3D strlen(qstr);
+  	result =3D (text *) palloc(len + VARHDRSZ);
+! 	SET_VARSIZE(result, len + VARHDRSZ);
+  	memcpy(VARDATA(result), qstr, len);
+  =
+
+  	PG_RETURN_TEXT_P(result);
+***************
+*** 1492,1504 ****
+  		 * parameter and initialize the cmddata_buf.
+  		 */
+  		cs->cmdtype_I =3D malloc(VARHDRSZ + 1);
+! 		VARATT_SIZEP(cs->cmdtype_I) =3D VARHDRSZ + 1;
+  		*VARDATA(cs->cmdtype_I) =3D 'I';
+  		cs->cmdtype_U =3D malloc(VARHDRSZ + 1);
+! 		VARATT_SIZEP(cs->cmdtype_U) =3D VARHDRSZ + 1;
+  		*VARDATA(cs->cmdtype_U) =3D 'U';
+  		cs->cmdtype_D =3D malloc(VARHDRSZ + 1);
+! 		VARATT_SIZEP(cs->cmdtype_D) =3D VARHDRSZ + 1;
+  		*VARDATA(cs->cmdtype_D) =3D 'D';
+  =
+
+  		/*
+--- 1493,1505 ----
+  		 * parameter and initialize the cmddata_buf.
+  		 */
+  		cs->cmdtype_I =3D malloc(VARHDRSZ + 1);
+! 		SET_VARSIZE(cs->cmdtype_I, VARHDRSZ + 1);
+  		*VARDATA(cs->cmdtype_I) =3D 'I';
+  		cs->cmdtype_U =3D malloc(VARHDRSZ + 1);
+! 		SET_VARSIZE(cs->cmdtype_U, VARHDRSZ + 1);
+  		*VARDATA(cs->cmdtype_U) =3D 'U';
+  		cs->cmdtype_D =3D malloc(VARHDRSZ + 1);
+! 		SET_VARSIZE(cs->cmdtype_D, VARHDRSZ + 1);
+  		*VARDATA(cs->cmdtype_D) =3D 'D';
+  =
+
+  		/*
+From cbbrowne at ca.afilias.info  Thu Apr 26 08:49:16 2007
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Thu Apr 26 08:49:21 2007
+Subject: [Slony1-patches] PostgreSQL 8.3 compatibilty
+In-Reply-To: <4630C427.6090700@postgresql.org>
+References: <4630C427.6090700@postgresql.org>
+Message-ID: <4630C9FC.80106@ca.afilias.info>
+
+Dave Page wrote:
+> As discussed on slony1-hackers, this patch updates -HEAD for
+> compatibility with PostgreSQL -HEAD. It's quite simple, so I think it
+> should be back patched to 1.2.x so we have something to release with
+> PostgreSQL 8.3 - I'll produce another patch if everyone is happy.
+>
+> Autoconf should be re-run when the patch is applied. I don't have CVS
+> write access yet so I can't commit this...
+I'll see about applying this today...
+From dpage at postgresql.org  Thu Apr 26 09:11:07 2007
+From: dpage at postgresql.org (Dave Page)
+Date: Thu Apr 26 09:11:18 2007
+Subject: [Slony1-patches] PostgreSQL 8.3 compatibilty
+In-Reply-To: <4630C9FC.80106@ca.afilias.info>
+References: <4630C427.6090700@postgresql.org> <4630C9FC.80106@ca.afilias.info>
+Message-ID: <4630CF1B.8040605@postgresql.org>
+
+Christopher Browne wrote:
+> Dave Page wrote:
+>> As discussed on slony1-hackers, this patch updates -HEAD for
+>> compatibility with PostgreSQL -HEAD. It's quite simple, so I think it
+>> should be back patched to 1.2.x so we have something to release with
+>> PostgreSQL 8.3 - I'll produce another patch if everyone is happy.
+>>
+>> Autoconf should be re-run when the patch is applied. I don't have CVS
+>> write access yet so I can't commit this...
+> I'll see about applying this today...
+
+Thanks - the 1.2 version is attached as well.
+
+Regards, Dave
+-------------- next part --------------
+Index: Makefile.global.in
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D
+RCS file: /slony1/slony1-engine/Makefile.global.in,v
+retrieving revision 1.34.2.1
+diff -c -r1.34.2.1 Makefile.global.in
+*** Makefile.global.in	26 Oct 2006 18:55:05 -0000	1.34.2.1
+--- Makefile.global.in	26 Apr 2007 16:07:07 -0000
+***************
+*** 9,14 ****
+--- 9,19 ----
+  # $Id: Makefile.global.in,v 1.34.2.1 2006-10-26 18:55:05 wieck Exp $
+  # ----------
+  =
+
++ # PostgreSQL Version
++ PG_VERSION_MAJOR=3D       @PG_VERSION_MAJOR@
++ PG_VERSION_MINOR=3D       @PG_VERSION_MINOR@
++ PG_VERSION=3D             @PG_VERSION@
++ =
+
+  #location substitutions
+  =
+
+  pgincludedir=3D		@PGINCLUDEDIR@
+Index: configure.ac
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D
+RCS file: /slony1/slony1-engine/configure.ac,v
+retrieving revision 1.57.2.2
+diff -c -r1.57.2.2 configure.ac
+*** configure.ac	20 Feb 2007 11:29:39 -0000	1.57.2.2
+--- configure.ac	26 Apr 2007 16:07:07 -0000
+***************
+*** 162,167 ****
+--- 162,171 ----
+  ACX_LIBSNMP()
+  ACX_SLONYTOOLS()
+  =
+
++ AC_SUBST(PG_VERSION_MAJOR, $PG_VERSION_MAJOR)
++ AC_SUBST(PG_VERSION_MINOR, $PG_VERSION_MINOR)
++ AC_SUBST(PG_VERSION, $PG_VERSION)
++ =
+
+  AC_SUBST(PGINCLUDEDIR, $PG_INCLUDEDIR)
+  AC_SUBST(PGINCLUDESERVERDIR, $PG_INCLUDESERVERDIR)
+  AC_SUBST(PGLIBDIR, $PG_LIBDIR)
+Index: src/backend/slony1_funcs.c
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D
+RCS file: /slony1/slony1-engine/src/backend/slony1_funcs.c,v
+retrieving revision 1.53.2.1
+diff -c -r1.53.2.1 slony1_funcs.c
+*** src/backend/slony1_funcs.c	18 Apr 2007 19:28:27 -0000	1.53.2.1
+--- src/backend/slony1_funcs.c	26 Apr 2007 16:07:08 -0000
+***************
+*** 41,48 ****
+  #endif
+  =
+
+  /* -- Change from PostgreSQL Ver 8.3 -- */
+! #ifndef VARATT_SIZEP
+! #define VARATT_SIZEP VARATT_SIZEP_DEPRECATED
+  #endif
+  =
+
+  PG_FUNCTION_INFO_V1(_Slony_I_createEvent);
+--- 41,48 ----
+  #endif
+  =
+
+  /* -- Change from PostgreSQL Ver 8.3 -- */
+! #if !((PG_VERSION_MAJOR >=3D 8) || ((PG_VERSION_MAJOR =3D=3D 8) && (PG_VE=
+RSION_MINOR >=3D 3)))
+! #define SET_VARSIZE(datum, size) (VARATT_SIZEP(datum)=3D(size))
+  #endif
+  =
+
+  PG_FUNCTION_INFO_V1(_Slony_I_createEvent);
+***************
+*** 295,301 ****
+  =
+
+  	len =3D strlen(SLONY_I_VERSION_STRING);
+  	retval =3D palloc(VARHDRSZ + len);
+! 	VARATT_SIZEP(retval) =3D VARHDRSZ + len;
+  	memcpy(VARDATA(retval), SLONY_I_VERSION_STRING, len);
+  =
+
+  	PG_RETURN_TEXT_P(retval);
+--- 295,302 ----
+  =
+
+  	len =3D strlen(SLONY_I_VERSION_STRING);
+  	retval =3D palloc(VARHDRSZ + len);
+! =
+
+!         SET_VARSIZE(retval,VARHDRSZ + len);
+  	memcpy(VARDATA(retval), SLONY_I_VERSION_STRING, len);
+  =
+
+  	PG_RETURN_TEXT_P(retval);
+***************
+*** 368,386 ****
+  		case SLON_ROLE_UNSET:
+  			cs->session_role =3D SLON_ROLE_NORMAL;
+  			retval =3D palloc(VARHDRSZ + 6);
+! 			VARATT_SIZEP(retval) =3D VARHDRSZ + 6;
+  			memcpy(VARDATA(retval), "normal", 6);
+  			break;
+  =
+
+  		case SLON_ROLE_NORMAL:
+  			retval =3D palloc(VARHDRSZ + 6);
+! 			VARATT_SIZEP(retval) =3D VARHDRSZ + 6;
+  			memcpy(VARDATA(retval), "normal", 6);
+  			break;
+  =
+
+  		case SLON_ROLE_SLON:
+  			retval =3D palloc(VARHDRSZ + 4);
+! 			VARATT_SIZEP(retval) =3D VARHDRSZ + 4;
+  			memcpy(VARDATA(retval), "slon", 4);
+  			break;
+  	}
+--- 369,387 ----
+  		case SLON_ROLE_UNSET:
+  			cs->session_role =3D SLON_ROLE_NORMAL;
+  			retval =3D palloc(VARHDRSZ + 6);
+! 			SET_VARSIZE(retval, VARHDRSZ + 6);
+  			memcpy(VARDATA(retval), "normal", 6);
+  			break;
+  =
+
+  		case SLON_ROLE_NORMAL:
+  			retval =3D palloc(VARHDRSZ + 6);
+! 			SET_VARSIZE(retval, VARHDRSZ + 6);
+  			memcpy(VARDATA(retval), "normal", 6);
+  			break;
+  =
+
+  		case SLON_ROLE_SLON:
+  			retval =3D palloc(VARHDRSZ + 4);
+! 			SET_VARSIZE(retval, VARHDRSZ + 4);
+  			memcpy(VARDATA(retval), "slon", 4);
+  			break;
+  	}
+***************
+*** 475,481 ****
+  			elog(ERROR, "Slony-I: cannot determine log status");
+  		if (SPI_processed !=3D 1)
+  			elog(ERROR, "Slony-I: cannot determine log status");
+! 		=
+
+  		log_status =3D DatumGetInt32(SPI_getbinval(SPI_tuptable->vals[0],
+  									SPI_tuptable->tupdesc, 1, NULL));
+  		SPI_freetuptable(SPI_tuptable);
+--- 476,482 ----
+  			elog(ERROR, "Slony-I: cannot determine log status");
+  		if (SPI_processed !=3D 1)
+  			elog(ERROR, "Slony-I: cannot determine log status");
+! =
+
+  		log_status =3D DatumGetInt32(SPI_getbinval(SPI_tuptable->vals[0],
+  									SPI_tuptable->tupdesc, 1, NULL));
+  		SPI_freetuptable(SPI_tuptable);
+***************
+*** 621,628 ****
+  		 */
+  		*cp++ =3D ')';
+  		*cp =3D '\0';
+! 		VARATT_SIZEP(cs->cmddata_buf) =3D
+! 			VARHDRSZ + (cp - VARDATA(cs->cmddata_buf));
+  	}
+  	else if (TRIGGER_FIRED_BY_UPDATE(tg->tg_event))
+  	{
+--- 622,629 ----
+  		 */
+  		*cp++ =3D ')';
+  		*cp =3D '\0';
+! 		SET_VARSIZE(cs->cmddata_buf, =
+
+!                         VARHDRSZ + (cp - VARDATA(cs->cmddata_buf)));
+  	}
+  	else if (TRIGGER_FIRED_BY_UPDATE(tg->tg_event))
+  	{
+***************
+*** 859,866 ****
+  			cp +=3D len_value;
+  		}
+  		*cp =3D '\0';
+! 		VARATT_SIZEP(cs->cmddata_buf) =3D
+! 			VARHDRSZ + (cp - VARDATA(cs->cmddata_buf));
+  	}
+  	else if (TRIGGER_FIRED_BY_DELETE(tg->tg_event))
+  	{
+--- 860,867 ----
+  			cp +=3D len_value;
+  		}
+  		*cp =3D '\0';
+! 		SET_VARSIZE(cs->cmddata_buf,
+! 			VARHDRSZ + (cp - VARDATA(cs->cmddata_buf)));
+  	}
+  	else if (TRIGGER_FIRED_BY_DELETE(tg->tg_event))
+  	{
+***************
+*** 926,933 ****
+  			cp +=3D len_value;
+  		}
+  		*cp =3D '\0';
+! 		VARATT_SIZEP(cs->cmddata_buf) =3D
+! 			VARHDRSZ + (cp - VARDATA(cs->cmddata_buf));
+  	}
+  	else
+  		elog(ERROR, "Slony-I: logTrigger() fired for unhandled event");
+--- 927,934 ----
+  			cp +=3D len_value;
+  		}
+  		*cp =3D '\0';
+! 		SET_VARSIZE(cs->cmddata_buf,
+! 			VARHDRSZ + (cp - VARDATA(cs->cmddata_buf)));
+  	}
+  	else
+  		elog(ERROR, "Slony-I: logTrigger() fired for unhandled event");
+***************
+*** 1235,1241 ****
+  =
+
+  	len =3D strlen(qstr);
+  	result =3D (text *) palloc(len + VARHDRSZ);
+! 	VARATT_SIZEP(result) =3D len + VARHDRSZ;
+  	memcpy(VARDATA(result), qstr, len);
+  =
+
+  	PG_RETURN_TEXT_P(result);
+--- 1236,1242 ----
+  =
+
+  	len =3D strlen(qstr);
+  	result =3D (text *) palloc(len + VARHDRSZ);
+! 	SET_VARSIZE(result, len + VARHDRSZ);
+  	memcpy(VARDATA(result), qstr, len);
+  =
+
+  	PG_RETURN_TEXT_P(result);
+***************
+*** 1477,1489 ****
+  		 * parameter and initialize the cmddata_buf.
+  		 */
+  		cs->cmdtype_I =3D malloc(VARHDRSZ + 1);
+! 		VARATT_SIZEP(cs->cmdtype_I) =3D VARHDRSZ + 1;
+  		*VARDATA(cs->cmdtype_I) =3D 'I';
+  		cs->cmdtype_U =3D malloc(VARHDRSZ + 1);
+! 		VARATT_SIZEP(cs->cmdtype_U) =3D VARHDRSZ + 1;
+  		*VARDATA(cs->cmdtype_U) =3D 'U';
+  		cs->cmdtype_D =3D malloc(VARHDRSZ + 1);
+! 		VARATT_SIZEP(cs->cmdtype_D) =3D VARHDRSZ + 1;
+  		*VARDATA(cs->cmdtype_D) =3D 'D';
+  =
+
+  		/*
+--- 1478,1490 ----
+  		 * parameter and initialize the cmddata_buf.
+  		 */
+  		cs->cmdtype_I =3D malloc(VARHDRSZ + 1);
+! 		SET_VARSIZE(cs->cmdtype_I, VARHDRSZ + 1);
+  		*VARDATA(cs->cmdtype_I) =3D 'I';
+  		cs->cmdtype_U =3D malloc(VARHDRSZ + 1);
+! 		SET_VARSIZE(cs->cmdtype_U, VARHDRSZ + 1);
+  		*VARDATA(cs->cmdtype_U) =3D 'U';
+  		cs->cmdtype_D =3D malloc(VARHDRSZ + 1);
+! 		SET_VARSIZE(cs->cmdtype_D, VARHDRSZ + 1);
+  		*VARDATA(cs->cmdtype_D) =3D 'D';
+  =
+
+  		/*
+From cbbrowne at ca.afilias.info  Thu Apr 26 15:01:00 2007
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Thu Apr 26 15:01:08 2007
+Subject: [Slony1-patches] PostgreSQL 8.3 compatibilty
+In-Reply-To: <4630C427.6090700@postgresql.org>
+References: <4630C427.6090700@postgresql.org>
+Message-ID: <4631211C.7080400@ca.afilias.info>
+
+Dave Page wrote:
+> As discussed on slony1-hackers, this patch updates -HEAD for
+> compatibility with PostgreSQL -HEAD. It's quite simple, so I think it
+> should be back patched to 1.2.x so we have something to release with
+> PostgreSQL 8.3 - I'll produce another patch if everyone is happy.
+>
+> Autoconf should be re-run when the patch is applied. I don't have CVS
+> write access yet so I can't commit this...
+>
+> Regards, Dave
+When trying to run a regression test with PG 8.2 on this, I'm seeing a
+problem:
+
+cbbrowne@dba2:Slony-I/CMD/slony1-HEAD/tests> cat 
+/tmp/slony-regress.c12207/slonik.log
+<stdin>:4: PGRES_FATAL_ERROR load '$libdir/slony1_funcs';  - ERROR: 
+could not load library "/opt/OXRS/dbs/pgsql82/lib/slony1_funcs.so":
+/opt/OXRS/dbs/pgsql82/lib/slony1_funcs.so: undefined symbol: SET_VARSIZE
+<stdin>:4: Error: the extension for the Slony-I C functions cannot be
+loaded in database 'dbname=slonyregress1 host=localhost user=cbbrowne
+port=5882'<stdin>:4: ERROR: no admin conninfo for node 134594856
+
+Note: this problem is consistent across both branches (e.g. - HEAD and 1.2).
+
+I suspect that this breaks something about support of older versions. 
+At some point, that may be acceptable for CVS HEAD, but I rather think
+it won't be OK for 1.2 :-).
+
+I don't have time to explore that this afternoon; hopefully our
+timezones differ sufficiently appropriately that you either see this
+tonight or tomorrow morning.
+From dpage at postgresql.org  Fri Apr 27 01:40:02 2007
+From: dpage at postgresql.org (Dave Page)
+Date: Fri Apr 27 01:40:26 2007
+Subject: [Slony1-patches] PostgreSQL 8.3 compatibilty
+In-Reply-To: <4631211C.7080400@ca.afilias.info>
+References: <4630C427.6090700@postgresql.org>
+	<4631211C.7080400@ca.afilias.info>
+Message-ID: <4631B6E2.5050304@postgresql.org>
+
+Christopher Browne wrote:
+ > cbbrowne@dba2:Slony-I/CMD/slony1-HEAD/tests> cat
+ > /tmp/slony-regress.c12207/slonik.log
+ > <stdin>:4: PGRES_FATAL_ERROR load '$libdir/slony1_funcs';  - ERROR:
+ > could not load library "/opt/OXRS/dbs/pgsql82/lib/slony1_funcs.so":
+ > /opt/OXRS/dbs/pgsql82/lib/slony1_funcs.so: undefined symbol: SET_VARSIZE
+ > <stdin>:4: Error: the extension for the Slony-I C functions cannot be
+ > loaded in database 'dbname=3Dslonyregress1 host=3Dlocalhost user=3Dcbbro=
+wne
+ > port=3D5882'<stdin>:4: ERROR: no admin conninfo for node 134594856
+ >
+ > Note: this problem is consistent across both branches (e.g. - HEAD =
+
+and 1.2).
+ >
+ > I suspect that this breaks something about support of older versions.
+ > At some point, that may be acceptable for CVS HEAD, but I rather think
+ > it won't be OK for 1.2 :-).
+ >
+ > I don't have time to explore that this afternoon; hopefully our
+ > timezones differ sufficiently appropriately that you either see this
+ > tonight or tomorrow morning.
+
+Sorry - thinko on my part combined with lack of testing on 8.2 (too =
+
+intent on making 8.3 work :-( )
+
+Updated patches attached, each minus the extra =3D char that they were =
+
+previously sporting!
+
+Regards, Dave
+-------------- next part --------------
+Index: Makefile.global.in
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D
+RCS file: /slony1/slony1-engine/Makefile.global.in,v
+retrieving revision 1.35
+diff -c -r1.35 Makefile.global.in
+*** Makefile.global.in	26 Oct 2006 19:07:18 -0000	1.35
+--- Makefile.global.in	26 Apr 2007 15:17:38 -0000
+***************
+*** 9,14 ****
+--- 9,19 ----
+  # $Id: Makefile.global.in,v 1.35 2006-10-26 19:07:18 wieck Exp $
+  # ----------
+  =
+
++ # PostgreSQL Version
++ PG_VERSION_MAJOR=3D       @PG_VERSION_MAJOR@
++ PG_VERSION_MINOR=3D       @PG_VERSION_MINOR@
++ PG_VERSION=3D             @PG_VERSION@
++ =
+
+  #location substitutions
+  =
+
+  pgincludedir=3D		@PGINCLUDEDIR@
+Index: configure.ac
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D
+RCS file: /slony1/slony1-engine/configure.ac,v
+retrieving revision 1.60
+diff -c -r1.60 configure.ac
+*** configure.ac	20 Feb 2007 11:20:44 -0000	1.60
+--- configure.ac	26 Apr 2007 15:17:38 -0000
+***************
+*** 162,167 ****
+--- 162,171 ----
+  ACX_LIBSNMP()
+  ACX_SLONYTOOLS()
+
++ AC_SUBST(PG_VERSION_MAJOR, $PG_VERSION_MAJOR)
++ AC_SUBST(PG_VERSION_MINOR, $PG_VERSION_MINOR)
++ AC_SUBST(PG_VERSION, $PG_VERSION)
++ =
+
+  AC_SUBST(PGINCLUDEDIR, $PG_INCLUDEDIR)
+  AC_SUBST(PGINCLUDESERVERDIR, $PG_INCLUDESERVERDIR)
+  AC_SUBST(PGLIBDIR, $PG_LIBDIR)
+Index: src/backend/slony1_funcs.c
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D
+RCS file: /slony1/slony1-engine/src/backend/slony1_funcs.c,v
+retrieving revision 1.59
+diff -c -r1.59 slony1_funcs.c
+*** src/backend/slony1_funcs.c	18 Apr 2007 21:20:22 -0000	1.59
+--- src/backend/slony1_funcs.c	26 Apr 2007 15:17:39 -0000
+***************
+*** 44,51 ****
+  #endif
+  =
+
+  /* -- Change from PostgreSQL Ver 8.3 -- */
+! #ifndef VARATT_SIZEP
+! #define VARATT_SIZEP VARATT_SIZEP_DEPRECATED
+  #endif
+  =
+
+  PG_FUNCTION_INFO_V1(_Slony_I_createEvent);
+--- 44,51 ----
+  #endif
+  =
+
+  /* -- Change from PostgreSQL Ver 8.3 -- */
+! #if !((PG_VERSION_MAJOR > 8) || ((PG_VERSION_MAJOR =3D=3D 8) && (PG_VERSI=
+ON_MINOR >=3D 3)))
+! #define SET_VARSIZE(datum, size) (VARATT_SIZEP(datum)=3D(size))
+  #endif
+  =
+
+  PG_FUNCTION_INFO_V1(_Slony_I_createEvent);
+***************
+*** 310,316 ****
+  =
+
+  	len =3D strlen(SLONY_I_VERSION_STRING);
+  	retval =3D palloc(VARHDRSZ + len);
+! 	VARATT_SIZEP(retval) =3D VARHDRSZ + len;
+  	memcpy(VARDATA(retval), SLONY_I_VERSION_STRING, len);
+  =
+
+  	PG_RETURN_TEXT_P(retval);
+--- 310,317 ----
+  =
+
+  	len =3D strlen(SLONY_I_VERSION_STRING);
+  	retval =3D palloc(VARHDRSZ + len);
+! =
+
+!         SET_VARSIZE(retval,VARHDRSZ + len);
+  	memcpy(VARDATA(retval), SLONY_I_VERSION_STRING, len);
+  =
+
+  	PG_RETURN_TEXT_P(retval);
+***************
+*** 383,401 ****
+  		case SLON_ROLE_UNSET:
+  			cs->session_role =3D SLON_ROLE_NORMAL;
+  			retval =3D palloc(VARHDRSZ + 6);
+! 			VARATT_SIZEP(retval) =3D VARHDRSZ + 6;
+  			memcpy(VARDATA(retval), "normal", 6);
+  			break;
+  =
+
+  		case SLON_ROLE_NORMAL:
+  			retval =3D palloc(VARHDRSZ + 6);
+! 			VARATT_SIZEP(retval) =3D VARHDRSZ + 6;
+  			memcpy(VARDATA(retval), "normal", 6);
+  			break;
+  =
+
+  		case SLON_ROLE_SLON:
+  			retval =3D palloc(VARHDRSZ + 4);
+! 			VARATT_SIZEP(retval) =3D VARHDRSZ + 4;
+  			memcpy(VARDATA(retval), "slon", 4);
+  			break;
+  	}
+--- 384,402 ----
+  		case SLON_ROLE_UNSET:
+  			cs->session_role =3D SLON_ROLE_NORMAL;
+  			retval =3D palloc(VARHDRSZ + 6);
+! 			SET_VARSIZE(retval, VARHDRSZ + 6);
+  			memcpy(VARDATA(retval), "normal", 6);
+  			break;
+  =
+
+  		case SLON_ROLE_NORMAL:
+  			retval =3D palloc(VARHDRSZ + 6);
+! 			SET_VARSIZE(retval, VARHDRSZ + 6);
+  			memcpy(VARDATA(retval), "normal", 6);
+  			break;
+  =
+
+  		case SLON_ROLE_SLON:
+  			retval =3D palloc(VARHDRSZ + 4);
+! 			SET_VARSIZE(retval, VARHDRSZ + 4);
+  			memcpy(VARDATA(retval), "slon", 4);
+  			break;
+  	}
+***************
+*** 490,496 ****
+  			elog(ERROR, "Slony-I: cannot determine log status");
+  		if (SPI_processed !=3D 1)
+  			elog(ERROR, "Slony-I: cannot determine log status");
+! 		=
+
+  		log_status =3D DatumGetInt32(SPI_getbinval(SPI_tuptable->vals[0],
+  									SPI_tuptable->tupdesc, 1, NULL));
+  		SPI_freetuptable(SPI_tuptable);
+--- 491,497 ----
+  			elog(ERROR, "Slony-I: cannot determine log status");
+  		if (SPI_processed !=3D 1)
+  			elog(ERROR, "Slony-I: cannot determine log status");
+! =
+
+  		log_status =3D DatumGetInt32(SPI_getbinval(SPI_tuptable->vals[0],
+  									SPI_tuptable->tupdesc, 1, NULL));
+  		SPI_freetuptable(SPI_tuptable);
+***************
+*** 636,643 ****
+  		 */
+  		*cp++ =3D ')';
+  		*cp =3D '\0';
+! 		VARATT_SIZEP(cs->cmddata_buf) =3D
+! 			VARHDRSZ + (cp - VARDATA(cs->cmddata_buf));
+  	}
+  	else if (TRIGGER_FIRED_BY_UPDATE(tg->tg_event))
+  	{
+--- 637,644 ----
+  		 */
+  		*cp++ =3D ')';
+  		*cp =3D '\0';
+! 		SET_VARSIZE(cs->cmddata_buf, =
+
+!                         VARHDRSZ + (cp - VARDATA(cs->cmddata_buf)));
+  	}
+  	else if (TRIGGER_FIRED_BY_UPDATE(tg->tg_event))
+  	{
+***************
+*** 874,881 ****
+  			cp +=3D len_value;
+  		}
+  		*cp =3D '\0';
+! 		VARATT_SIZEP(cs->cmddata_buf) =3D
+! 			VARHDRSZ + (cp - VARDATA(cs->cmddata_buf));
+  	}
+  	else if (TRIGGER_FIRED_BY_DELETE(tg->tg_event))
+  	{
+--- 875,882 ----
+  			cp +=3D len_value;
+  		}
+  		*cp =3D '\0';
+! 		SET_VARSIZE(cs->cmddata_buf,
+! 			VARHDRSZ + (cp - VARDATA(cs->cmddata_buf)));
+  	}
+  	else if (TRIGGER_FIRED_BY_DELETE(tg->tg_event))
+  	{
+***************
+*** 941,948 ****
+  			cp +=3D len_value;
+  		}
+  		*cp =3D '\0';
+! 		VARATT_SIZEP(cs->cmddata_buf) =3D
+! 			VARHDRSZ + (cp - VARDATA(cs->cmddata_buf));
+  	}
+  	else
+  		elog(ERROR, "Slony-I: logTrigger() fired for unhandled event");
+--- 942,949 ----
+  			cp +=3D len_value;
+  		}
+  		*cp =3D '\0';
+! 		SET_VARSIZE(cs->cmddata_buf,
+! 			VARHDRSZ + (cp - VARDATA(cs->cmddata_buf)));
+  	}
+  	else
+  		elog(ERROR, "Slony-I: logTrigger() fired for unhandled event");
+***************
+*** 1250,1256 ****
+  =
+
+  	len =3D strlen(qstr);
+  	result =3D (text *) palloc(len + VARHDRSZ);
+! 	VARATT_SIZEP(result) =3D len + VARHDRSZ;
+  	memcpy(VARDATA(result), qstr, len);
+  =
+
+  	PG_RETURN_TEXT_P(result);
+--- 1251,1257 ----
+  =
+
+  	len =3D strlen(qstr);
+  	result =3D (text *) palloc(len + VARHDRSZ);
+! 	SET_VARSIZE(result, len + VARHDRSZ);
+  	memcpy(VARDATA(result), qstr, len);
+  =
+
+  	PG_RETURN_TEXT_P(result);
+***************
+*** 1492,1504 ****
+  		 * parameter and initialize the cmddata_buf.
+  		 */
+  		cs->cmdtype_I =3D malloc(VARHDRSZ + 1);
+! 		VARATT_SIZEP(cs->cmdtype_I) =3D VARHDRSZ + 1;
+  		*VARDATA(cs->cmdtype_I) =3D 'I';
+  		cs->cmdtype_U =3D malloc(VARHDRSZ + 1);
+! 		VARATT_SIZEP(cs->cmdtype_U) =3D VARHDRSZ + 1;
+  		*VARDATA(cs->cmdtype_U) =3D 'U';
+  		cs->cmdtype_D =3D malloc(VARHDRSZ + 1);
+! 		VARATT_SIZEP(cs->cmdtype_D) =3D VARHDRSZ + 1;
+  		*VARDATA(cs->cmdtype_D) =3D 'D';
+  =
+
+  		/*
+--- 1493,1505 ----
+  		 * parameter and initialize the cmddata_buf.
+  		 */
+  		cs->cmdtype_I =3D malloc(VARHDRSZ + 1);
+! 		SET_VARSIZE(cs->cmdtype_I, VARHDRSZ + 1);
+  		*VARDATA(cs->cmdtype_I) =3D 'I';
+  		cs->cmdtype_U =3D malloc(VARHDRSZ + 1);
+! 		SET_VARSIZE(cs->cmdtype_U, VARHDRSZ + 1);
+  		*VARDATA(cs->cmdtype_U) =3D 'U';
+  		cs->cmdtype_D =3D malloc(VARHDRSZ + 1);
+! 		SET_VARSIZE(cs->cmdtype_D, VARHDRSZ + 1);
+  		*VARDATA(cs->cmdtype_D) =3D 'D';
+  =
+
+  		/*
+-------------- next part --------------
+Index: Makefile.global.in
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D
+RCS file: /slony1/slony1-engine/Makefile.global.in,v
+retrieving revision 1.34.2.1
+diff -c -r1.34.2.1 Makefile.global.in
+*** Makefile.global.in	26 Oct 2006 18:55:05 -0000	1.34.2.1
+--- Makefile.global.in	26 Apr 2007 16:07:07 -0000
+***************
+*** 9,14 ****
+--- 9,19 ----
+  # $Id: Makefile.global.in,v 1.34.2.1 2006-10-26 18:55:05 wieck Exp $
+  # ----------
+  =
+
++ # PostgreSQL Version
++ PG_VERSION_MAJOR=3D       @PG_VERSION_MAJOR@
++ PG_VERSION_MINOR=3D       @PG_VERSION_MINOR@
++ PG_VERSION=3D             @PG_VERSION@
++ =
+
+  #location substitutions
+  =
+
+  pgincludedir=3D		@PGINCLUDEDIR@
+Index: configure.ac
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D
+RCS file: /slony1/slony1-engine/configure.ac,v
+retrieving revision 1.57.2.2
+diff -c -r1.57.2.2 configure.ac
+*** configure.ac	20 Feb 2007 11:29:39 -0000	1.57.2.2
+--- configure.ac	26 Apr 2007 16:07:07 -0000
+***************
+*** 162,167 ****
+--- 162,171 ----
+  ACX_LIBSNMP()
+  ACX_SLONYTOOLS()
+  =
+
++ AC_SUBST(PG_VERSION_MAJOR, $PG_VERSION_MAJOR)
++ AC_SUBST(PG_VERSION_MINOR, $PG_VERSION_MINOR)
++ AC_SUBST(PG_VERSION, $PG_VERSION)
++ =
+
+  AC_SUBST(PGINCLUDEDIR, $PG_INCLUDEDIR)
+  AC_SUBST(PGINCLUDESERVERDIR, $PG_INCLUDESERVERDIR)
+  AC_SUBST(PGLIBDIR, $PG_LIBDIR)
+Index: src/backend/slony1_funcs.c
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D
+RCS file: /slony1/slony1-engine/src/backend/slony1_funcs.c,v
+retrieving revision 1.53.2.1
+diff -c -r1.53.2.1 slony1_funcs.c
+*** src/backend/slony1_funcs.c	18 Apr 2007 19:28:27 -0000	1.53.2.1
+--- src/backend/slony1_funcs.c	26 Apr 2007 16:07:08 -0000
+***************
+*** 41,48 ****
+  #endif
+  =
+
+  /* -- Change from PostgreSQL Ver 8.3 -- */
+! #ifndef VARATT_SIZEP
+! #define VARATT_SIZEP VARATT_SIZEP_DEPRECATED
+  #endif
+  =
+
+  PG_FUNCTION_INFO_V1(_Slony_I_createEvent);
+--- 41,48 ----
+  #endif
+  =
+
+  /* -- Change from PostgreSQL Ver 8.3 -- */
+! #if !((PG_VERSION_MAJOR > 8) || ((PG_VERSION_MAJOR =3D=3D 8) && (PG_VERSI=
+ON_MINOR >=3D 3)))
+! #define SET_VARSIZE(datum, size) (VARATT_SIZEP(datum)=3D(size))
+  #endif
+  =
+
+  PG_FUNCTION_INFO_V1(_Slony_I_createEvent);
+***************
+*** 295,301 ****
+  =
+
+  	len =3D strlen(SLONY_I_VERSION_STRING);
+  	retval =3D palloc(VARHDRSZ + len);
+! 	VARATT_SIZEP(retval) =3D VARHDRSZ + len;
+  	memcpy(VARDATA(retval), SLONY_I_VERSION_STRING, len);
+  =
+
+  	PG_RETURN_TEXT_P(retval);
+--- 295,302 ----
+  =
+
+  	len =3D strlen(SLONY_I_VERSION_STRING);
+  	retval =3D palloc(VARHDRSZ + len);
+! =
+
+!         SET_VARSIZE(retval,VARHDRSZ + len);
+  	memcpy(VARDATA(retval), SLONY_I_VERSION_STRING, len);
+  =
+
+  	PG_RETURN_TEXT_P(retval);
+***************
+*** 368,386 ****
+  		case SLON_ROLE_UNSET:
+  			cs->session_role =3D SLON_ROLE_NORMAL;
+  			retval =3D palloc(VARHDRSZ + 6);
+! 			VARATT_SIZEP(retval) =3D VARHDRSZ + 6;
+  			memcpy(VARDATA(retval), "normal", 6);
+  			break;
+  =
+
+  		case SLON_ROLE_NORMAL:
+  			retval =3D palloc(VARHDRSZ + 6);
+! 			VARATT_SIZEP(retval) =3D VARHDRSZ + 6;
+  			memcpy(VARDATA(retval), "normal", 6);
+  			break;
+  =
+
+  		case SLON_ROLE_SLON:
+  			retval =3D palloc(VARHDRSZ + 4);
+! 			VARATT_SIZEP(retval) =3D VARHDRSZ + 4;
+  			memcpy(VARDATA(retval), "slon", 4);
+  			break;
+  	}
+--- 369,387 ----
+  		case SLON_ROLE_UNSET:
+  			cs->session_role =3D SLON_ROLE_NORMAL;
+  			retval =3D palloc(VARHDRSZ + 6);
+! 			SET_VARSIZE(retval, VARHDRSZ + 6);
+  			memcpy(VARDATA(retval), "normal", 6);
+  			break;
+  =
+
+  		case SLON_ROLE_NORMAL:
+  			retval =3D palloc(VARHDRSZ + 6);
+! 			SET_VARSIZE(retval, VARHDRSZ + 6);
+  			memcpy(VARDATA(retval), "normal", 6);
+  			break;
+  =
+
+  		case SLON_ROLE_SLON:
+  			retval =3D palloc(VARHDRSZ + 4);
+! 			SET_VARSIZE(retval, VARHDRSZ + 4);
+  			memcpy(VARDATA(retval), "slon", 4);
+  			break;
+  	}
+***************
+*** 475,481 ****
+  			elog(ERROR, "Slony-I: cannot determine log status");
+  		if (SPI_processed !=3D 1)
+  			elog(ERROR, "Slony-I: cannot determine log status");
+! 		=
+
+  		log_status =3D DatumGetInt32(SPI_getbinval(SPI_tuptable->vals[0],
+  									SPI_tuptable->tupdesc, 1, NULL));
+  		SPI_freetuptable(SPI_tuptable);
+--- 476,482 ----
+  			elog(ERROR, "Slony-I: cannot determine log status");
+  		if (SPI_processed !=3D 1)
+  			elog(ERROR, "Slony-I: cannot determine log status");
+! =
+
+  		log_status =3D DatumGetInt32(SPI_getbinval(SPI_tuptable->vals[0],
+  									SPI_tuptable->tupdesc, 1, NULL));
+  		SPI_freetuptable(SPI_tuptable);
+***************
+*** 621,628 ****
+  		 */
+  		*cp++ =3D ')';
+  		*cp =3D '\0';
+! 		VARATT_SIZEP(cs->cmddata_buf) =3D
+! 			VARHDRSZ + (cp - VARDATA(cs->cmddata_buf));
+  	}
+  	else if (TRIGGER_FIRED_BY_UPDATE(tg->tg_event))
+  	{
+--- 622,629 ----
+  		 */
+  		*cp++ =3D ')';
+  		*cp =3D '\0';
+! 		SET_VARSIZE(cs->cmddata_buf, =
+
+!                         VARHDRSZ + (cp - VARDATA(cs->cmddata_buf)));
+  	}
+  	else if (TRIGGER_FIRED_BY_UPDATE(tg->tg_event))
+  	{
+***************
+*** 859,866 ****
+  			cp +=3D len_value;
+  		}
+  		*cp =3D '\0';
+! 		VARATT_SIZEP(cs->cmddata_buf) =3D
+! 			VARHDRSZ + (cp - VARDATA(cs->cmddata_buf));
+  	}
+  	else if (TRIGGER_FIRED_BY_DELETE(tg->tg_event))
+  	{
+--- 860,867 ----
+  			cp +=3D len_value;
+  		}
+  		*cp =3D '\0';
+! 		SET_VARSIZE(cs->cmddata_buf,
+! 			VARHDRSZ + (cp - VARDATA(cs->cmddata_buf)));
+  	}
+  	else if (TRIGGER_FIRED_BY_DELETE(tg->tg_event))
+  	{
+***************
+*** 926,933 ****
+  			cp +=3D len_value;
+  		}
+  		*cp =3D '\0';
+! 		VARATT_SIZEP(cs->cmddata_buf) =3D
+! 			VARHDRSZ + (cp - VARDATA(cs->cmddata_buf));
+  	}
+  	else
+  		elog(ERROR, "Slony-I: logTrigger() fired for unhandled event");
+--- 927,934 ----
+  			cp +=3D len_value;
+  		}
+  		*cp =3D '\0';
+! 		SET_VARSIZE(cs->cmddata_buf,
+! 			VARHDRSZ + (cp - VARDATA(cs->cmddata_buf)));
+  	}
+  	else
+  		elog(ERROR, "Slony-I: logTrigger() fired for unhandled event");
+***************
+*** 1235,1241 ****
+  =
+
+  	len =3D strlen(qstr);
+  	result =3D (text *) palloc(len + VARHDRSZ);
+! 	VARATT_SIZEP(result) =3D len + VARHDRSZ;
+  	memcpy(VARDATA(result), qstr, len);
+  =
+
+  	PG_RETURN_TEXT_P(result);
+--- 1236,1242 ----
+  =
+
+  	len =3D strlen(qstr);
+  	result =3D (text *) palloc(len + VARHDRSZ);
+! 	SET_VARSIZE(result, len + VARHDRSZ);
+  	memcpy(VARDATA(result), qstr, len);
+  =
+
+  	PG_RETURN_TEXT_P(result);
+***************
+*** 1477,1489 ****
+  		 * parameter and initialize the cmddata_buf.
+  		 */
+  		cs->cmdtype_I =3D malloc(VARHDRSZ + 1);
+! 		VARATT_SIZEP(cs->cmdtype_I) =3D VARHDRSZ + 1;
+  		*VARDATA(cs->cmdtype_I) =3D 'I';
+  		cs->cmdtype_U =3D malloc(VARHDRSZ + 1);
+! 		VARATT_SIZEP(cs->cmdtype_U) =3D VARHDRSZ + 1;
+  		*VARDATA(cs->cmdtype_U) =3D 'U';
+  		cs->cmdtype_D =3D malloc(VARHDRSZ + 1);
+! 		VARATT_SIZEP(cs->cmdtype_D) =3D VARHDRSZ + 1;
+  		*VARDATA(cs->cmdtype_D) =3D 'D';
+  =
+
+  		/*
+--- 1478,1490 ----
+  		 * parameter and initialize the cmddata_buf.
+  		 */
+  		cs->cmdtype_I =3D malloc(VARHDRSZ + 1);
+! 		SET_VARSIZE(cs->cmdtype_I, VARHDRSZ + 1);
+  		*VARDATA(cs->cmdtype_I) =3D 'I';
+  		cs->cmdtype_U =3D malloc(VARHDRSZ + 1);
+! 		SET_VARSIZE(cs->cmdtype_U, VARHDRSZ + 1);
+  		*VARDATA(cs->cmdtype_U) =3D 'U';
+  		cs->cmdtype_D =3D malloc(VARHDRSZ + 1);
+! 		SET_VARSIZE(cs->cmdtype_D, VARHDRSZ + 1);
+  		*VARDATA(cs->cmdtype_D) =3D 'D';
+  =
+
+  		/*

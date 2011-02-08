@@ -1,0 +1,448 @@
+From darcyb at commandprompt.com  Thu Jul  5 08:22:08 2007
+From: darcyb at commandprompt.com (Darcy Buskermolen)
+Date: Thu Jul  5 08:52:29 2007
+Subject: [Slony1-patches] configure support of 8.3
+Message-ID: <1183648928.11433.1.camel@dbi-ubuntu-gateway>
+
+Since 2.0 will require 8.3, make configure test for >= 8.3
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: HEAD-config.diff
+Type: text/x-patch
+Size: 1432 bytes
+Desc: not available
+Url : http://lists.slony.info/pipermail/slony1-patches/attachments/20070705/e6e1f673/HEAD-config.bin
+From cbbrowne at ca.afilias.info  Thu Jul  5 09:41:57 2007
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Thu Jul  5 09:42:13 2007
+Subject: [Slony1-patches] configure support of 8.3
+In-Reply-To: <1183648928.11433.1.camel@dbi-ubuntu-gateway> (Darcy
+	Buskermolen's message of "Thu, 05 Jul 2007 08:22:08 -0700")
+References: <1183648928.11433.1.camel@dbi-ubuntu-gateway>
+Message-ID: <60ps363iqy.fsf@dba2.int.libertyrms.com>
+
+Darcy Buskermolen <darcyb@commandprompt.com> writes:
+> Since 2.0 will require 8.3, make configure test for >= 8.3
+
+I have a similar patch in my queue ;-)
+
+I have been looking at improving the default behaviour for handling
+documentation, notably with a view to perhaps automagically detecting
+where some common systems hide such things as:
+
+- where does docbook2man-spec.pl live?
+- where does collateindex.pl live?
+
+I've got a reasonable idea of where RPM and DPKG systems get these
+things; FreeBSD seems to be a bit mysterious; it has no
+"docbook2man-spec.pl".  Jan, is there peradventure a script called
+"docbook2man-spec"?  That's what the script internally thinks it's
+called...
+
+In looking at the PostgreSQL doc/src/sgml/Makefile, it gets a tad more
+mysterious; D2MDIR and D2MSCRIPT are defined directly in the Makefile,
+rather than being passed from configure.  So I think we're "ahead" in
+what Slony-I does of what PostgreSQL does...
+
+It seems likely that if we can come up with a better answer on this,
+it might also be a good patch to contribute to PostgreSQL proper.
+-- 
+output = ("cbbrowne" "@" "ca.afilias.info")
+<http://dba2.int.libertyrms.com/>
+Christopher Browne
+(416) 673-4124 (land)
+From cbbrowne at ca.afilias.info  Fri Jul  6 09:10:34 2007
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Fri Jul  6 09:10:44 2007
+Subject: [Slony1-patches] Parser problems for EXECUTE SCRIPT
+Message-ID: <468E697A.4040700@ca.afilias.info>
+
+Attached are diffs (against HEAD; should work as well against 1.2) for a =
+
+hopeful resolution to two problems with the parser that splits apart =
+
+EXECUTE SCRIPT requests.
+
+http://lists.slony.info/pipermail/slony1-general/2007-January/005659.html
+- This reports a problem where a statement is lost if it doesn't end in =
+
+a semicolon
+
+http://lists.slony.info/pipermail/slony1-general/2007-July/006290.html
+- This reports a problem where a statement which has an embedded =
+
+semicolon gets terminated at that semicolon
+-------------- next part --------------
+? emptytestresult.log
+? test-scanner
+? test_sql.log
+Index: emptytestresult.expected
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D
+RCS file: /home/cvsd/slony1/slony1-engine/src/parsestatements/emptytestresu=
+lt.expected,v
+retrieving revision 1.1
+diff -c -u -r1.1 emptytestresult.expected
+Binary files /tmp/cvss0kxvq and emptytestresult.expected differ
+Index: scanner.c
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D
+RCS file: /home/cvsd/slony1/slony1-engine/src/parsestatements/scanner.c,v
+retrieving revision 1.3
+diff -c -u -r1.3 scanner.c
+--- scanner.c	4 Aug 2006 20:40:19 -0000	1.3
++++ scanner.c	6 Jul 2007 16:05:02 -0000
+@@ -11,6 +11,9 @@
+   char cchar;
+   int d1start, d1end, d2start, d2end, d1stemp;
+   int statements;
++  int nparens;
++  int nbrokets;
++  int nsquigb;
+   =
+
+   /* Initialize */
+   cpos =3D 0;
+@@ -21,13 +24,49 @@
+   d2start =3D 0;
+   d1end =3D 0;
+   state =3D Q_NORMAL_STATE;
++  nparens =3D 0;
++  nbrokets =3D 0;
++  nsquigb =3D 0;
+   =
+
+   while (state !=3D Q_DONE) {
+     cchar =3D extended_statement[cpos];
+     switch (cchar) {
+     case '\0':
++      STMTS[statements++] =3D ++cpos;
+       state =3D Q_DONE;
+       break;
++
++    case '(':
++      if (state =3D=3D Q_NORMAL_STATE) {
++	nparens ++;
++	break;
++      }
++    case ')':
++      if (state =3D=3D Q_NORMAL_STATE) {
++	nparens --;
++	break;
++      }
++    case '[':
++      if (state =3D=3D Q_NORMAL_STATE) {
++	nbrokets ++;
++	break;
++      }
++    case ']':
++      if (state =3D=3D Q_NORMAL_STATE) {
++	nbrokets --;
++	break;
++      }
++    case '{':
++      if (state =3D=3D Q_NORMAL_STATE) {
++	nsquigb ++;
++	break;
++      }
++    case '}':
++      if (state =3D=3D Q_NORMAL_STATE) {
++	nsquigb --;
++	break;
++      }
++
+     case '/':
+       if (state =3D=3D Q_NORMAL_STATE) {
+ 	state =3D Q_HOPE_TO_CCOMMENT;
+@@ -51,8 +90,7 @@
+ 	  bpos =3D cpos;
+ 	  break;
+ 	}
+-      } =
+
+-
++      }
+       break;
+     case '$':
+       if (state =3D=3D Q_NORMAL_STATE) {
+@@ -151,7 +189,7 @@
+       if (state =3D=3D Q_DOLLAR_UNBUILDING) state =3D Q_DOLLAR_QUOTING;
+       break;
+     case ';':
+-      if (state =3D=3D Q_NORMAL_STATE) {
++      if ((state =3D=3D Q_NORMAL_STATE) && (nparens =3D=3D 0) && (nbrokets=
+ =3D=3D 0) && (nsquigb =3D=3D 0)) {
+ 	STMTS[statements++] =3D ++cpos;
+ 	if (statements >=3D MAXSTATEMENTS) {
+ 	  return statements;
+Index: test_sql.expected
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D
+RCS file: /home/cvsd/slony1/slony1-engine/src/parsestatements/test_sql.expe=
+cted,v
+retrieving revision 1.2
+diff -c -u -r1.2 test_sql.expected
+Binary files /tmp/cvs9FnuYZ and test_sql.expected differ
+Index: test_sql.sql
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D
+RCS file: /home/cvsd/slony1/slony1-engine/src/parsestatements/test_sql.sql,v
+retrieving revision 1.1
+diff -c -u -r1.1 test_sql.sql
+--- test_sql.sql	24 Feb 2006 18:33:02 -0000	1.1
++++ test_sql.sql	6 Jul 2007 16:05:02 -0000
+@@ -35,3 +35,13 @@
+     return NULL;
+   end;
+ $$ language plpgsql;
++
++
++-- Here is a rule creation with an embedded semicolon
++
++create table "public"."position";
++
++CREATE RULE "position_get_last_id_on_insert2"
++AS ON INSERT TO "public"."position" DO (SELECT
++currval('position_position_id_seq'::regclass) AS id;)
++
+From cbbrowne at ca.afilias.info  Wed Jul 11 08:08:39 2007
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Wed Jul 11 08:08:52 2007
+Subject: [Slony1-patches] configure support of 8.3
+In-Reply-To: <1183648928.11433.1.camel@dbi-ubuntu-gateway>
+References: <1183648928.11433.1.camel@dbi-ubuntu-gateway>
+Message-ID: <4694F277.9080105@ca.afilias.info>
+
+Darcy Buskermolen wrote:
+> Since 2.0 will require 8.3, make configure test for >= 8.3
+>
+>   
+> ------------------------------------------------------------------------
+>
+> Index: config/acx_libpq.m4
+> ===================================================================
+> RCS file: /home/cvsd/slony1/slony1-engine/config/acx_libpq.m4,v
+> retrieving revision 1.27
+> diff -r1.27 acx_libpq.m4
+> 144,145c144,145
+> <     if test "$PG_VERSION_MAJOR" = "7"; then
+> < 	if test $PG_VERSION_MINOR -gt 3; then
+> ---
+>   
+>>     if test "$PG_VERSION_MAJOR" = "8"; then
+>> 	if test $PG_VERSION_MINOR -gt 2; then
+>>     
+> 147c147
+> < 	    AC_DEFINE(PG_VERSION_OK,1,[PostgreSQL 7.4 or later])
+> ---
+>   
+>> 	    AC_DEFINE(PG_VERSION_OK,1,[PostgreSQL 8.3 or later])
+>>     
+> 151c151
+> < 	    than the required 7.4.  Slony-I needs functions included in
+> ---
+>   
+>> 	    than the required 8.3.  Slony-I needs functions included in
+>>     
+> 155,157c155,159
+> <     if test "$PG_VERSION_MAJOR" = "8"; then
+> <       AC_MSG_RESULT($PG_VERSION)
+> <       AC_DEFINE(PG_VERSION_OK,1,[PostgreSQL 7.4 or later])
+> ---
+>   
+>>     if test $PG_VERSION_MAJOR -lt 8; then
+>>      AC_MSG_RESULT("error")
+>>             AC_MSG_ERROR(Your version of PostgreSQL ($PG_VERSION) is lower
+>>             than the required 8.3.  Slony-I needs functions included in
+>>             a newer version.) 
+>>     
+> 159,161d160
+> < 
+> <     if test "$PG_VERSION_MAJOR" = "8"; then
+> < 	if test $PG_VERSION_MINOR -gt 0; then
+> 166,167d164
+> < 	fi
+> <     fi
+> 181d177
+> <                 if test $PG_VERSION_MAJOR -ge 8 -a $PG_VERSION_MINOR -ge 2; then
+> 183,185d178
+> <                 else
+> <                         AC_SUBST(NEED_PG_DLLINIT, 1)
+> <                 fi
+>   
+> ------------------------------------------------------------------------
+>
+> _______________________________________________
+> Slony1-patches mailing list
+> Slony1-patches@lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-patches
+>   
+That seems generally similar to a patch I created at roughly the same time.
+
+Here's what I've got; I don't too much care which patch goes in, but you 
+might take a look and make sure that between us, we covered everything 
+in config/acx_libpq.m4...
+
+Index: acx_libpq.m4
+===================================================================
+RCS file: /home/cvsd/slony1/slony1-engine/config/acx_libpq.m4,v
+retrieving revision 1.27
+diff -c -u -r1.27 acx_libpq.m4
+cvs diff: conflicting specifications of output style
+--- acx_libpq.m4    29 Nov 2006 18:44:36 -0000    1.27
++++ acx_libpq.m4    11 Jul 2007 15:05:21 -0000
+@@ -142,28 +142,29 @@
+     PG_VERSION_MAJOR=`echo $PG_VERSION | cut -d. -f1`
+     PG_VERSION_MINOR=`echo $PG_VERSION | cut -d. -f2`
+     if test "$PG_VERSION_MAJOR" = "7"; then
+-    if test $PG_VERSION_MINOR -gt 3; then
++        AC_MSG_RESULT("error")
++        AC_MSG_ERROR(Your version of PostgreSQL ($PG_VERSION) is lower
++        than the required 8.3.  Slony-I needs functionality included in
++        a newer version.)
++    fi
++    if test "$PG_VERSION_MAJOR" = "8"; then
++    if test $PG_VERSION_MINOR -gt 2; then
+         AC_MSG_RESULT($PG_VERSION)
+-        AC_DEFINE(PG_VERSION_OK,1,[PostgreSQL 7.4 or later])
++        AC_DEFINE(PG_VERSION_OK,1,[PostgreSQL 8.3 or later])
+     else
+         AC_MSG_RESULT("error")
+         AC_MSG_ERROR(Your version of PostgreSQL ($PG_VERSION) is lower
+-        than the required 7.4.  Slony-I needs functions included in
++        than the required 8.3.  Slony-I needs functionality included in
+         a newer version.)
+     fi
+-    fi
+-    if test "$PG_VERSION_MAJOR" = "8"; then
+       AC_MSG_RESULT($PG_VERSION)
+-      AC_DEFINE(PG_VERSION_OK,1,[PostgreSQL 7.4 or later])
++      AC_DEFINE(PG_VERSION_OK,1,[PostgreSQL 8.3 or later])
+     fi
+ 
+-    if test "$PG_VERSION_MAJOR" = "8"; then
+-    if test $PG_VERSION_MINOR -gt 0; then
+-            if test "$PG_SHAREDIR" = ""; then
+-                PG_SHAREDIR=`$PG_CONFIG_LOCATION --sharedir`/ 2>/dev/null
+-                echo "pg_config says pg_sharedir is $PG_SHAREDIR"
+-            fi
+-    fi
++   
++    if test "$PG_SHAREDIR" = ""; then
++       PG_SHAREDIR=`$PG_CONFIG_LOCATION --sharedir`/ 2>/dev/null
++       echo "pg_config says pg_sharedir is $PG_SHAREDIR"
+     fi
+ 
+     case ${host_os} in
+@@ -230,8 +231,9 @@
+     AC_DEFINE(PG_VERSION_VERIFIED,1,[PostgreSQL 7.3 or later check])
+ else
+     AC_MSG_ERROR(Your version of libpq doesn't have PQunescapeBytea
+-     this means that your version of PostgreSQL is lower than 7.3
+-     and thus not supported by Slony-I.)
++     which means that your version of PostgreSQL is lower than 7.3
++     and thus not even remotely supported by Slony-I version 2,
++     which requires 8.3+)
+ fi
+ 
+ TEMP_CPPFLAGS=$CPPFLAGS
+
+From darcyb at commandprompt.com  Wed Jul 11 08:25:48 2007
+From: darcyb at commandprompt.com (Darcy Buskermolen)
+Date: Wed Jul 11 08:26:07 2007
+Subject: [Slony1-patches] configure support of 8.3
+In-Reply-To: <4694F277.9080105@ca.afilias.info>
+References: <1183648928.11433.1.camel@dbi-ubuntu-gateway>
+	<4694F277.9080105@ca.afilias.info>
+Message-ID: <200707110825.49016.darcyb@commandprompt.com>
+
+On July 11, 2007 08:08 am, Christopher Browne wrote:
+> Darcy Buskermolen wrote:
+> > Since 2.0 will require 8.3, make configure test for >= 8.3
+
+Both contian the same logic, your's just contains a bit more textual 
+representation to the user.
+
+
+>
+> That seems generally similar to a patch I created at roughly the same time.
+>
+> Here's what I've got; I don't too much care which patch goes in, but you
+> might take a look and make sure that between us, we covered everything
+> in config/acx_libpq.m4...
+>
+> Index: acx_libpq.m4
+> ===================================================================
+> RCS file: /home/cvsd/slony1/slony1-engine/config/acx_libpq.m4,v
+> retrieving revision 1.27
+> diff -c -u -r1.27 acx_libpq.m4
+> cvs diff: conflicting specifications of output style
+> --- acx_libpq.m4    29 Nov 2006 18:44:36 -0000    1.27
+> +++ acx_libpq.m4    11 Jul 2007 15:05:21 -0000
+> @@ -142,28 +142,29 @@
+>      PG_VERSION_MAJOR=`echo $PG_VERSION | cut -d. -f1`
+>      PG_VERSION_MINOR=`echo $PG_VERSION | cut -d. -f2`
+>      if test "$PG_VERSION_MAJOR" = "7"; then
+> -    if test $PG_VERSION_MINOR -gt 3; then
+> +        AC_MSG_RESULT("error")
+> +        AC_MSG_ERROR(Your version of PostgreSQL ($PG_VERSION) is lower
+> +        than the required 8.3.  Slony-I needs functionality included in
+> +        a newer version.)
+> +    fi
+> +    if test "$PG_VERSION_MAJOR" = "8"; then
+> +    if test $PG_VERSION_MINOR -gt 2; then
+>          AC_MSG_RESULT($PG_VERSION)
+> -        AC_DEFINE(PG_VERSION_OK,1,[PostgreSQL 7.4 or later])
+> +        AC_DEFINE(PG_VERSION_OK,1,[PostgreSQL 8.3 or later])
+>      else
+>          AC_MSG_RESULT("error")
+>          AC_MSG_ERROR(Your version of PostgreSQL ($PG_VERSION) is lower
+> -        than the required 7.4.  Slony-I needs functions included in
+> +        than the required 8.3.  Slony-I needs functionality included in
+>          a newer version.)
+>      fi
+> -    fi
+> -    if test "$PG_VERSION_MAJOR" = "8"; then
+>        AC_MSG_RESULT($PG_VERSION)
+> -      AC_DEFINE(PG_VERSION_OK,1,[PostgreSQL 7.4 or later])
+> +      AC_DEFINE(PG_VERSION_OK,1,[PostgreSQL 8.3 or later])
+>      fi
+>
+> -    if test "$PG_VERSION_MAJOR" = "8"; then
+> -    if test $PG_VERSION_MINOR -gt 0; then
+> -            if test "$PG_SHAREDIR" = ""; then
+> -                PG_SHAREDIR=`$PG_CONFIG_LOCATION --sharedir`/ 2>/dev/null
+> -                echo "pg_config says pg_sharedir is $PG_SHAREDIR"
+> -            fi
+> -    fi
+> +
+> +    if test "$PG_SHAREDIR" = ""; then
+> +       PG_SHAREDIR=`$PG_CONFIG_LOCATION --sharedir`/ 2>/dev/null
+> +       echo "pg_config says pg_sharedir is $PG_SHAREDIR"
+>      fi
+>
+>      case ${host_os} in
+> @@ -230,8 +231,9 @@
+>      AC_DEFINE(PG_VERSION_VERIFIED,1,[PostgreSQL 7.3 or later check])
+>  else
+>      AC_MSG_ERROR(Your version of libpq doesn't have PQunescapeBytea
+> -     this means that your version of PostgreSQL is lower than 7.3
+> -     and thus not supported by Slony-I.)
+> +     which means that your version of PostgreSQL is lower than 7.3
+> +     and thus not even remotely supported by Slony-I version 2,
+> +     which requires 8.3+)
+>  fi
+>
+>  TEMP_CPPFLAGS=$CPPFLAGS
+
+-- 
+Darcy Buskermolen
+Command Prompt, Inc.
++1.503.667.4564 X 102
+http://www.commandprompt.com/
+PostgreSQL solutions since 1997

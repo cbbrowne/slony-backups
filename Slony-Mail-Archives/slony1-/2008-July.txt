@@ -1,0 +1,478 @@
+From singh.gurjeet at gmail.com  Thu Jul 10 04:14:02 2008
+From: singh.gurjeet at gmail.com (Gurjeet Singh)
+Date: Thu Jul 10 04:14:34 2008
+Subject: [Slony1-patches] A possible bug in Slony test_slony_state-dbi.pl
+Message-ID: <65937bea0807100414k7f4b0833r486e1113d6a2f50c@mail.gmail.com>
+
+Hi All,
+
+    I am no expert in either Slony or Perl, but it seems to me that the perl
+script should be connecting to each node in turn and then executing the
+test_node script; but it is not. The script performs only one connection
+throughout it's lifetime, and that is to the $initialDSN. The docs at
+http://www.slony.info/documentation/monitoring.html say:
+
+<snip>
+The script then rummages through sl_path to find all of the nodes in the
+cluster, and the DSNs to allow it to, in turn, connect to each of them.
+</snip>
+
+Is it possible that I am using an old version of the scripts? I took the
+script from:
+
+http://main.slony.info/viewcvs/viewvc.cgi/slony1-engine/tools/test_slony_st=
+ate-dbi.pl?revision=3D1.5&content-type=3Dtext%2Fplain
+
+  and the $Id $ tag says:
+
+# $Id: test_slony_state-dbi.pl,v 1.5 2007/01/02 19:34:11 cbbrowne Exp $
+
+
+    Here's a patch to fix the test_node function, if you consider this to be
+a bug:
+
+<patch>
+
+*** test_slony_state-dbi.pl     2008-07-08 21:43:37.000000000 +0000
+--- test_slony_state-dbi.pl.my  2008-07-10 11:05:09.000000000 +0000
+***************
+*** 75,80 ****
+--- 75,82 ----
+
+    print "\nTests for node $node - DSN =3D
+$dsn\n=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D\n";
+
++   $dbh =3D DBI->connect($dsn) or die "Unable to connect: $DBI::errstr\n";
++
+    my $listener_query =3D "select relpages, reltuples from
+pg_catalog.pg_class where relname =3D 'pg_listener';";
+    my $res =3D $dbh->prepare($listener_query);
+    $res->execute();
+
+</patch>
+
+Best regards,
+
+-- =
+
+gurjeet[.singh]@EnterpriseDB.com
+singh.gurjeet@{ gmail | hotmail | indiatimes | yahoo }.com
+
+EnterpriseDB http://www.enterprisedb.com
+
+Mail sent from my BlackLaptop device
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-patches/attachments/20080710/=
+d98c238b/attachment.htm
+From singh.gurjeet at gmail.com  Thu Jul 10 04:32:59 2008
+From: singh.gurjeet at gmail.com (Gurjeet Singh)
+Date: Thu Jul 10 04:33:31 2008
+Subject: [Slony1-patches] Re: A possible bug in Slony test_slony_state-dbi.pl
+In-Reply-To: <65937bea0807100414k7f4b0833r486e1113d6a2f50c@mail.gmail.com>
+References: <65937bea0807100414k7f4b0833r486e1113d6a2f50c@mail.gmail.com>
+Message-ID: <65937bea0807100432t44c62e99v45dd3e2fee75b9cc@mail.gmail.com>
+
+Forgot the fix to the dsn string. I am not sure if we should be replacing
+the spaces in the dsn string with a semicolon, so I'll leave that decision
+upto the hackers.
+
+*** test_slony_state-dbi.pl     2008-07-10 11:13:48.000000000 +0000
+--- test_slony_state-dbi.pl.my  2008-07-10 11:32:26.000000000 +0000
+***************
+*** 73,80 ****
+--- 73,84 ----
+  sub test_node {
+    my ($node, $dsn) =3D @_;
+
++   $dsn =3D "dbi:Pg:$dsn";
++
+    print "\nTests for node $node - DSN =3D
+$dsn\n=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D\n";
+
++   $dbh =3D DBI->connect($dsn) or die "Unable to connect: $DBI::errstr\n";
++
+    my $listener_query =3D "select relpages, reltuples from
+pg_catalog.pg_class where relname =3D 'pg_listener';";
+    my $res =3D $dbh->prepare($listener_query);
+    $res->execute();
+
+
+On Thu, Jul 10, 2008 at 7:14 AM, Gurjeet Singh <singh.gurjeet@gmail.com>
+wrote:
+
+> Hi All,
+>
+>     I am no expert in either Slony or Perl, but it seems to me that the
+> perl script should be connecting to each node in turn and then executing =
+the
+> test_node script; but it is not. The script performs only one connection
+> throughout it's lifetime, and that is to the $initialDSN. The docs at
+> http://www.slony.info/documentation/monitoring.html say:
+>
+> <snip>
+> The script then rummages through sl_path to find all of the nodes in the
+> cluster, and the DSNs to allow it to, in turn, connect to each of them.
+> </snip>
+>
+> Is it possible that I am using an old version of the scripts? I took the
+> script from:
+>
+>
+> http://main.slony.info/viewcvs/viewvc.cgi/slony1-engine/tools/test_slony_=
+state-dbi.pl?revision=3D1.5&content-type=3Dtext%2Fplain
+>
+>   and the $Id $ tag says:
+>
+> # $Id: test_slony_state-dbi.pl,v 1.5 2007/01/02 19:34:11 cbbrowne Exp $
+>
+>
+>     Here's a patch to fix the test_node function, if you consider this to
+> be a bug:
+>
+> <patch>
+>
+> *** test_slony_state-dbi.pl     2008-07-08 21:43:37.000000000 +0000
+> --- test_slony_state-dbi.pl.my  2008-07-10 11:05:09.000000000 +0000
+> ***************
+> *** 75,80 ****
+> --- 75,82 ----
+>
+>     print "\nTests for node $node - DSN =3D
+> $dsn\n=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D\n";
+>
+> +   $dbh =3D DBI->connect($dsn) or die "Unable to connect: $DBI::errstr\n=
+";
+> +
+>     my $listener_query =3D "select relpages, reltuples from
+> pg_catalog.pg_class where relname =3D 'pg_listener';";
+>     my $res =3D $dbh->prepare($listener_query);
+>     $res->execute();
+>
+> </patch>
+>
+> Best regards,
+>
+> --
+> gurjeet[.singh]@EnterpriseDB.com
+> singh.gurjeet@{ gmail | hotmail | indiatimes | yahoo }.com
+>
+> EnterpriseDB http://www.enterprisedb.com
+>
+> Mail sent from my BlackLaptop device
+
+
+
+
+-- =
+
+gurjeet[.singh]@EnterpriseDB.com
+singh.gurjeet@{ gmail | hotmail | indiatimes | yahoo }.com
+
+EnterpriseDB http://www.enterprisedb.com
+
+Mail sent from my BlackLaptop device
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-patches/attachments/20080710/=
+29fec7a9/attachment.htm
+From singh.gurjeet at gmail.com  Thu Jul 10 21:28:51 2008
+From: singh.gurjeet at gmail.com (Gurjeet Singh)
+Date: Thu Jul 10 21:29:14 2008
+Subject: [Slony1-patches] Re: A possible bug in Slony test_slony_state-dbi.pl
+In-Reply-To: <65937bea0807100432t44c62e99v45dd3e2fee75b9cc@mail.gmail.com>
+References: <65937bea0807100414k7f4b0833r486e1113d6a2f50c@mail.gmail.com>
+	<65937bea0807100432t44c62e99v45dd3e2fee75b9cc@mail.gmail.com>
+Message-ID: <65937bea0807102128u1481d4ecm501a5086d30d6664@mail.gmail.com>
+
+A newer version. Instead of dying upon connection failure, it registers a
+problem so that the problem can be reported at the end.
+
+A note for the archive readers: I noticed that every 'equal to' sign is
+being shown as 'equal to3D'in the archives, so if you are trying to pick up
+this patch from archives, do proper search/replce before applying this
+patch.
+
+<patch>
+*** test_slony_state-dbi.pl     2008-07-10 11:13:48.000000000 +0000
+--- test_slony_state-dbi.pl.my  2008-07-10 14:56:01.000000000 +0000
+***************
+*** 73,80 ****
+--- 73,85 ----
+  sub test_node {
+    my ($node, $dsn) =3D @_;
+
++   $dsn =3D "dbi:Pg:$dsn";
++
+    print "\nTests for node $node - DSN =3D
+$dsn\n=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D\n";
+
++   $dbh =3D DBI->connect($dsn) or add_problem ($node, "Could not connect.",
++                qq{Could not connect to node $node using DSN: $dsn}) and
+return;
++
+    my $listener_query =3D "select relpages, reltuples from
+pg_catalog.pg_class where relname =3D 'pg_listener';";
+    my $res =3D $dbh->prepare($listener_query);
+    $res->execute();
+</patch>
+
+Best regards,
+On Thu, Jul 10, 2008 at 7:32 AM, Gurjeet Singh <singh.gurjeet@gmail.com>
+wrote:
+
+> Forgot the fix to the dsn string. I am not sure if we should be replacing
+> the spaces in the dsn string with a semicolon, so I'll leave that decision
+> upto the hackers.
+>
+> *** test_slony_state-dbi.pl     2008-07-10 11:13:48.000000000 +0000
+> --- test_slony_state-dbi.pl.my  2008-07-10 11:32:26.000000000 +0000
+> ***************
+> *** 73,80 ****
+> --- 73,84 ----
+>   sub test_node {
+>     my ($node, $dsn) =3D @_;
+>
+> +   $dsn =3D "dbi:Pg:$dsn";
+> +
+>     print "\nTests for node $node - DSN =3D
+> $dsn\n=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D\n";
+>
+> +   $dbh =3D DBI->connect($dsn) or die "Unable to connect: $DBI::errstr\n=
+";
+> +
+>     my $listener_query =3D "select relpages, reltuples from
+> pg_catalog.pg_class where relname =3D 'pg_listener';";
+>     my $res =3D $dbh->prepare($listener_query);
+>     $res->execute();
+>
+>
+> On Thu, Jul 10, 2008 at 7:14 AM, Gurjeet Singh <singh.gurjeet@gmail.com>
+> wrote:
+>
+>> Hi All,
+>>
+>>     I am no expert in either Slony or Perl, but it seems to me that the
+>> perl script should be connecting to each node in turn and then executing=
+ the
+>> test_node script; but it is not. The script performs only one connection
+>> throughout it's lifetime, and that is to the $initialDSN. The docs at
+>> http://www.slony.info/documentation/monitoring.html say:
+>>
+>> <snip>
+>> The script then rummages through sl_path to find all of the nodes in the
+>> cluster, and the DSNs to allow it to, in turn, connect to each of them.
+>> </snip>
+>>
+>> Is it possible that I am using an old version of the scripts? I took the
+>> script from:
+>>
+>>
+>> http://main.slony.info/viewcvs/viewvc.cgi/slony1-engine/tools/test_slony=
+_state-dbi.pl?revision=3D1.5&content-type=3Dtext%2Fplain
+>>
+>>   and the $Id $ tag says:
+>>
+>> # $Id: test_slony_state-dbi.pl,v 1.5 2007/01/02 19:34:11 cbbrowne Exp $
+>>
+>>
+>>     Here's a patch to fix the test_node function, if you consider this to
+>> be a bug:
+>>
+>> <patch>
+>>
+>> *** test_slony_state-dbi.pl     2008-07-08 21:43:37.000000000 +0000
+>> --- test_slony_state-dbi.pl.my  2008-07-10 11:05:09.000000000 +0000
+>> ***************
+>> *** 75,80 ****
+>> --- 75,82 ----
+>>
+>>     print "\nTests for node $node - DSN =3D
+>> $dsn\n=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D\n";
+>>
+>> +   $dbh =3D DBI->connect($dsn) or die "Unable to connect: $DBI::errstr\=
+n";
+>> +
+>>     my $listener_query =3D "select relpages, reltuples from
+>> pg_catalog.pg_class where relname =3D 'pg_listener';";
+>>     my $res =3D $dbh->prepare($listener_query);
+>>     $res->execute();
+>>
+>> </patch>
+>>
+>> Best regards,
+>>
+>> --
+>> gurjeet[.singh]@EnterpriseDB.com
+>> singh.gurjeet@{ gmail | hotmail | indiatimes | yahoo }.com
+>>
+>> EnterpriseDB http://www.enterprisedb.com
+>>
+>> Mail sent from my BlackLaptop device
+>
+>
+>
+>
+> --
+> gurjeet[.singh]@EnterpriseDB.com
+> singh.gurjeet@{ gmail | hotmail | indiatimes | yahoo }.com
+>
+> EnterpriseDB http://www.enterprisedb.com
+>
+> Mail sent from my BlackLaptop device
+>
+
+
+
+-- =
+
+gurjeet[.singh]@EnterpriseDB.com
+singh.gurjeet@{ gmail | hotmail | indiatimes | yahoo }.com
+
+EnterpriseDB      http://www.enterprisedb.com
+
+Mail sent from my BlackLaptop device
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-patches/attachments/20080711/=
+33a93f6c/attachment.htm
+From cbbrowne at ca.afilias.info  Tue Jul 15 15:40:44 2008
+From: cbbrowne at ca.afilias.info (chris)
+Date: Tue Jul 15 15:41:00 2008
+Subject: [Slony1-patches] Re: [Slony1-bugs] Re: A possible bug in Slony
+	test_slony_state-dbi.pl
+In-Reply-To: <65937bea0807102128u1481d4ecm501a5086d30d6664@mail.gmail.com>
+	(Gurjeet Singh's message of "Fri, 11 Jul 2008 00:28:51 -0400")
+References: <65937bea0807100414k7f4b0833r486e1113d6a2f50c@mail.gmail.com>
+	<65937bea0807100432t44c62e99v45dd3e2fee75b9cc@mail.gmail.com>
+	<65937bea0807102128u1481d4ecm501a5086d30d6664@mail.gmail.com>
+Message-ID: <871w1uzs7n.fsf@dba2.int.libertyrms.com>
+
+"Gurjeet Singh" <singh.gurjeet@gmail.com> writes:
+> A newer version. Instead of dying upon connection failure, it
+> registers a problem so that the problem can be reported at the end.
+
+Better still!
+
+Thanks, I'll be committing this momentarily.
+-- 
+select 'cbbrowne' || '@' || 'linuxfinances.info';
+http://cbbrowne.com/info/lsf.html
+Rules  of the  Evil Overlord  #145. "My  dungeon cell  decor  will not
+feature exposed pipes.  While they add to the  gloomy atmosphere, they
+are good  conductors of vibrations and  a lot of  prisoners know Morse
+code." <http://www.eviloverlord.com/>
+From cbbrowne at ca.afilias.info  Thu Jul 17 15:40:15 2008
+From: cbbrowne at ca.afilias.info (chris)
+Date: Thu Jul 17 15:40:32 2008
+Subject: [Slony1-patches] Patch to do more monitoring
+Message-ID: <877ibkw2wg.fsf@dba2.int.libertyrms.com>
+
+See parallel discussion on -general.
+
+http://lists.slony.info/pipermail/slony1-general/2008-July/008378.html
+-- 
+(format nil "~S@~S" "cbbrowne" "ca.afilias.info")
+<http://dba2.int.libertyrms.com/>
+Christopher Browne
+(416) 673-4124 (land)
+From singh.gurjeet at gmail.com  Mon Jul 28 16:42:19 2008
+From: singh.gurjeet at gmail.com (Gurjeet Singh)
+Date: Mon Jul 28 16:42:34 2008
+Subject: [Slony1-patches] A minor bug-fix left-out in version 1.5
+Message-ID: <65937bea0807281642i23032dd0nc9d7fd412e59a17c@mail.gmail.com>
+
+I notice that version 1.5 of the test_slony_state-dbi.pl script fixed a
+problem where the diagnosis messages would not show which node the
+long-running transactions were running. But the 'add_problem()' function
+call of that code still has the first parameter as $origin, which I think is
+a copy-paste error from previous blocks of 'while' loops. This causes the
+emails sent out to be confusing as to which node the problem is being
+reported for!
+
+Here's a patch that fixes it. It also fixes another annoying this I have to
+edit out every time I download this script to make it excutable; it removes
+the # -*- perl -*- comment from the first line.
+
+<patch>
+*** test_slony_state-dbi.pl     2008-07-28 23:26:51.000000000 +0000
+--- test_slony_state-dbi.pl.fixed       2008-07-28 23:32:12.000000000 +0000
+***************
+*** 1,4 ****
+! #!/usr/bin/perl   # -*- perl -*-
+  # $Id: test_slony_state-dbi.pl,v 1.6 2008/07/15 22:41:59 cbbrowne Exp $
+  # Christopher Browne
+  # Copyright 2005
+--- 1,4 ----
+! #!/usr/bin/perl
+  # $Id: test_slony_state-dbi.pl,v 1.6 2008/07/15 22:41:59 cbbrowne Exp $
+  # Christopher Browne
+  # Copyright 2005
+***************
+*** 282,288 ****
+    while (my @row =3D $res->fetchrow_array) {
+      my ($db, $pid, $user, $age, $query) =3D @row;
+      printf "%15s %15d %15s %12s %20s\n", $db, $pid, $user, $age, $query;
+!       add_problem($origin, "Old Transactions Kept Open",
+                  qq{Old Transaction still running with age $age >
+$ELDERLY_TXN
+
+  Query: $query
+--- 282,288 ----
+    while (my @row =3D $res->fetchrow_array) {
+      my ($db, $pid, $user, $age, $query) =3D @row;
+      printf "%15s %15d %15s %12s %20s\n", $db, $pid, $user, $age, $query;
+!       add_problem($node, "Old Transactions Kept Open",
+                  qq{Old Transaction still running with age $age >
+$ELDERLY_TXN
+
+  Query: $query
+</patch>
+
+
+Best regards,
+-- =
+
+gurjeet[.singh]@EnterpriseDB.com
+singh.gurjeet@{ gmail | hotmail | indiatimes | yahoo }.com
+
+EnterpriseDB http://www.enterprisedb.com
+
+Mail sent from my BlackLaptop device
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-patches/attachments/20080729/=
+956b6657/attachment.htm
+From cbbrowne at ca.afilias.info  Tue Jul 29 12:29:50 2008
+From: cbbrowne at ca.afilias.info (chris)
+Date: Tue Jul 29 12:30:01 2008
+Subject: [Slony1-patches] Monitoring Patch
+Message-ID: <87k5f4qyj5.fsf@dba2.int.libertyrms.com>
+
+Per:
+http://lists.slony.info/pipermail/slony1-patches/2008-July/000039.html
+http://lists.slony.info/pipermail/slony1-general/2008-July/008378.html
+
+I forgot to include the patch!
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: delta.diff
+Type: text/x-diff
+Size: 12060 bytes
+Desc: not available
+Url : http://lists.slony.info/pipermail/slony1-patches/attachments/20080729/fad43a8c/delta.bin
+-------------- next part --------------
+-- 
+select 'cbbrowne' || '@' || 'linuxfinances.info';
+http://cbbrowne.com/info/lsf.html
+Rules  of the  Evil Overlord  #145. "My  dungeon cell  decor  will not
+feature exposed pipes.  While they add to the  gloomy atmosphere, they
+are good  conductors of vibrations and  a lot of  prisoners know Morse
+code." <http://www.eviloverlord.com/>
