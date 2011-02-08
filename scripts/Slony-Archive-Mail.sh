@@ -5,27 +5,35 @@ cd $ARCHIVEHOME
 git fetch origin
 git pull origin master
 
-for l in bugs commit general hackers patches; do
-    list=slony1-${l}
-    listdir=${ARCHIVEHOME}/${list}
+
+pull_all_years () {
+    local list=$1
+    listname=slony1-${list}
+    listdir=${ARCHIVEHOME}/${listname}
     mkdir -p ${listdir}
-    
-    rm -f ${listdir}/latest.gz
-    currenturl=`date +"http://lists.slony.info/pipermail/slony1-${l}/%Y-%B.txt.gz"`
+    for year in 2007 2008 2009 2010 2011 2012 2013; do
+     	for month in January February March April May June July August September October November December; do
+     	    currenturl=`date +"http://lists.slony.info/pipermail/${listname}/${year}-${month}.txt.gz"`
+     	    currentfile=${year}-${month}.txt
+     	    rm -f ${listdir}/temp.gz
+     	    wget -O ${listdir}/temp.gz $currenturl
+     	    zcat ${listdir}/temp.gz > ${listdir}/${currentfile}
+    	    git add ${listdir}/${currentfile}
+     	done
+    done
+}
+
+for list in bugs commit general hackers patches; do
+    listname=slony1-${list}
+    listdir=${ARCHIVEHOME}/${listname}
+    currenturl=`date +"http://lists.slony.info/pipermail/slony1-${list}/%Y-%B.txt.gz"`
     currentfile=`date +"%Y-%B.txt"`
+    rm -f ${listdir}/latest.gz
     wget -O ${listdir}/latest.gz $currenturl
     zcat ${listdir}/latest.gz > ${listdir}/${currentfile}
     git add ${listdir}/${currentfile}
 
-    for year in 2007 2008 2009 2010 2011 2012 2013; do
-	for month in January February March April May June July August September October November December; do
-	    currenturl=`date +"http://lists.slony.info/pipermail/slony1-${l}/${year}-${month}.txt.gz"`
-	    currentfile=${year}-${month}.txt
-	    wget -O ${listdir}/temp.gz $currenturl
-	    zcat ${listdir}/temp.gz > ${listdir}/${currentfile}
-	    git add ${listdir}/${currentfile}
-	done
-    done
+    pull_all_years ${list}
 done
 
 git commit -m "Check in mail archive updates - run of scripts/Slony-Archive-Mail.sh"
