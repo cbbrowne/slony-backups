@@ -1075,3 +1075,452 @@ Jan
 Anyone who trades liberty for security deserves neither
 liberty nor security. -- Benjamin Franklin
 
+From ssinger at ca.afilias.info  Tue Feb  8 07:07:54 2011
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Tue, 08 Feb 2011 10:07:54 -0500
+Subject: [Slony1-hackers] Multi node failover draft
+In-Reply-To: <4D504F72.7000705@Yahoo.com>
+References: <4D504F72.7000705@Yahoo.com>
+Message-ID: <4D515C4A.6020300@ca.afilias.info>
+
+On 11-02-07 03:00 PM, Jan Wieck wrote:
+
+
+
+>
+> Stage 2 - Disabling slon processes
+>
+> In order for slonik to perform failover procedures without concurrently
+> running slon processes interfering with it via event processing, we need
+> a way to tell the local nodes slon process to not startup normally but
+> to stop and retry before spawning off all the worker threads. This
+
+I think you mean stop and wait not retry.  From what I read below the 
+slon will wait until stage 6.  There might be some polling/looping 
+mechanism used to achieve this but I don't see slon restarting or
+logging any errors while it is in this state.
+
+
+
+> should be a column inside the sl_node table, possibly the existing
+> no_active column, which seems unused. Stage 2 sets this flag on all
+> surviving nodes and restarts the slon processes via NOTIFY.
+
+no_active appears to be used in RebuildListenEntries(). I see at least 
+three states a node can be in.
+
+A normal active node
+A node that is paused as described above but is considered as part of 
+the listen network
+A node that has a row in sl_node but isn't yet considered as part of the 
+listen network (these are the cases where no_active=false today). I 
+think when a CLONE PREPARE (but not a CLONE FINISH) is done the node is 
+probably in this state.  Also when we fail the node but haven't yet 
+dropped it.
+
+
+
+
+>
+>
+> Stage 3 - Disabling paths to failed nodes.
+>
+> Failures are not necessarily caused by DB server problems, but are often
+> the result of network problems.
+>
+> In any failover case, we must not only assume that the failed nodes are
+> no longer reachable. It is actually best practice to forcibly make
+> failed nodes unreachable by network management means. Slony cannot
+> prevent any outside applications from still accessing those "failed"
+> nodes. But we can make sure that the surviving nodes, as defined by the
+> FAILOVER CLUSTER command, will not receive any more events from those
+> nodes that may possibly interfere with the failover procedures. We
+> accomplish this by updating all sl_path entries to/from any of the
+> failed nodes on all remaining nodes to something, that does not
+> represent a valid conninfo string. This way, the remaining nodes will no
+> longer be able to connect and thus, no longer receive any events
+> (outstanding or newly created).
+>
+>
+> Stage 4 - Remove abandoned sets from the configuration
+>
+> All sets that have been specified to be abandoned will be removed from
+> the configuration of all surviving nodes. Slonik will analyze after
+> doing this which was the highest advanced surviving node that was
+> subscribed to the set in order to inform the administrator which node
+> has the most advanced data.
+>
+>
+> Stage 5 - Reshaping the cluster
+>
+> This is the most complicated step in the failover procedure. Consider
+> the following cluster configuration:
+>
+>        A ----- C ----- D
+>        |       |
+>        |       |
+>        B      /
+>        |     /
+>        |    /
+>        E --/
+>
+> Node A is origin to set 1 with subscribers B, C, D and E
+> Node C is origin to set 2 with subscribers A, B, D and E
+> Node E receives both sets via node B
+>
+> Failure case is that nodes A and B fail and C is the designated backup
+> node for set 1.
+>
+> Although node E has a path to node C, which could have been created
+> after the failure prior to executing FAILOVER CLUSTER, it will not use
+> it to listen for events from node C. Its subscription for set 2,
+> originating from node C, uses node B as data provider. This causes node
+> E to listen for events from node C via B, which now is a disabled path.
+>
+
+
+
+> Stage 5.1 - Determining the temporary origins
+>
+> Per set, slonik will find which is the highest advanced forwarding
+> subscriber. It will make that node the temporary origin of the set. In
+> the above example, this can either be node C or E. If there are multiple
+> nodes qualifying for this definition, the designated backup node is
+> chosen. There only will be a temporary origin in this test case if node
+> E is the most advanced. In that case, there will be as per today a
+> FAILOVER_SET event, faked to originate from node A injected into node E,
+> followed by a MOVE_SET event to transfer the ownership to node C. If
+> node C, the designated backup node, is higher advanced, only a
+> FAILOVER_SET originating from A will be injected into node C without a
+> following MOVE_SET.
+>
+> Note that at this point, the slon processes are still disabled so none
+> of the events are propagating yet.
+
+We also need to deal with non-SYNC events that have escaped the failed 
+node but not yet made it to the temporary origin.
+
+For example: you have a replication set 1 with 3 nodes. Node 1 is the 
+origin and a fourth node that is NOT subscribed to the set but has a 
+direct path to 1.
+
+2<---1---->3
+      |
+      4
+
+The sl_event on node 1 is:
+1,1233, SYNC
+1,1234, SYNC
+1,1235 DROP SET 1
+1,1236 SYNC
+
+At the time node 1 fails:
+node 2 is at 1,1234
+node 3 is at 1,1233
+node 4 has processed 1,1235.
+
+Slonik must examine all nodes in the cluster (not just subscribers) and 
+see that the correct sequence number for the failed FAILOVER_SET event 
+with number 1,1237 NOT 1,1235.
+
+Furthermore I think that slonik needs to wait until node 2 has processed 
+event 1,1235 before proceeding with step 5.1
+
+Don't get caught up on the DROP SET versus any other non-SYNC event (it 
+could also be a CREATE SET, STORE NODE, EXECUTE SCRIPT etc...)  The 
+important thing is that it is an event that escaped the failed node to a 
+non subscriber(the subscriber might subscribe to another set).  The non 
+subscriber will have a record of the event in sl_event (since we store 
+non sync events from remote nodes in sl_event on all nodes).
+
+
+
+
+
+
+
+
+
+>
+>
+> Stage 5.2 - Reshaping subscriptions.
+>
+> Per set slonik will
+>
+>      * resubscribe every subscriber of that set to the (temporary) origin
+>
+
+I think you mean resubscribe every direct subscriber of the old origin 
+to the temporary origin (you deal with non-direct subscribers below)
+
+>      * resubscribe every subscriber of that set, which does not have a
+>        direct path to the (temporary) origin, to an already resubscribed
+>        forwarder. This is an iterative process. It is possible that slonik
+>        finds a non-forwarding subscriber, that is higher advanced than the
+>        temporary origin or backup node. This nodes subscription must
+>        forcibly be dropped with a WARNING, because it has processed changes
+>        the other nodes don't have but for which the sl_log entries have
+>        been lost in the failure.
+>
+> Stage 5.3 - Sanitizing sl_event
+>
+> It is possible that there have been SUBSCRIBE_SET events outstanding
+> when the failure occured. Further more, the data provider for that event
+> may be one of the failed nodes. Since the slon processes are stopped at
+> this time, the new subscriber will not be able to perform the
+> subscription at all, so these events must be purged from sl_event on all
+> nodes and WARNING messages given.
+>
+
+Is SUBSCRIBE_SET the only event that must be canceled or are there 
+others? (MOVE SET? FAIL_OVER?)
+
+
+>
+> Stage 6 - Enable slon processes and wait
+>
+> The slon processes will now start processing all the outstanding events
+> that were generated or still queued up until all the faked FAILOVER_SET
+> events have been confirmed by all other remaining nodes. This may take
+> some time in case there were other subscriptions in progress when the
+> failure happened. Those subscriptions had been interrupted when we
+> disabled the slon processes in stage 2 and just have been restarted.
+>
+>
+> Stage 7 - Sanity check and drop failed nodes
+>
+> After having waited for stage 6 to complete, none of the surviving nodes
+> should list any of the failed nodes as the origin of any set and all
+> events originating from one of the failed nodes should be confirmed by
+> all surviving nodes. If those conditions are met, it is safe to initiate
+> DROP NODE events for all failed nodes.
+>
+>
+> Examining more failure scenarios
+>
+> Case 2 - 5 node cluster with 2 sets.
+>
+>        A ----- C ----- E
+>        |       |
+>        |       |
+>        B       D
+>
+> Node A is origin of set 1, subscribed to nodes B, C, D and E.
+> Node B is origin of set 2, subscribed to nodes A, C, D and E.
+>
+> Failure case is nodes A and B fail, node C is designated backup for set
+> 1, node D is designated backup for set 2.
+>
+>      * The remaining cluster has a sufficient path network to pass stage 1
+>      * Stage 2 cannot fail by definition
+>      * Stage 3 cannot fail by definition
+>      * Stage 4 is irrelevant for this example
+>      * Stage 5 will decide that C is the new origin of set 1 via
+>        FAILOVER_SET and that node C will be the temporary origin for set 2
+>        via FAILOVER_SET followed by an immediate MOVE_SET to D.
+>        All subscriptions for E and D will point to C as data provider.
+>      * Stage 6 will wait until both FAILOVER_SET and the MOVE_SET event
+>        from stage 5 have been confirmed by C, D and E.
+>      * Stage 7 should pass its sanity checks and drop nodes A and B.
+>
+>
+> Case 3 - 5 node cluster with 3 sets.
+>
+>        A ----- C ----- E
+>        |       |
+>        |       |
+>        B ----- D
+>
+> Node A is origin of set 1, subscribed to nodes B, C, D and E. Node D
+> uses node C as data provider.
+> Node B is origin of set 2, subscribed to nodes A and C. Node D is
+> currently subscribing to set 2 using the origin node B as provider.
+> Node B is origin of set 3, subscribed to node A only.
+>
+> Failure case is nodes A and B fail, node C is designated backup for set
+> 1 and 2.
+>
+>      * The remaining cluster has a sufficient path network to pass stage 1
+>      * Stage 2 cannot fail by definition
+>      * Stage 3 cannot fail by definition
+>      * Stage 4 will remove set 3 from sl_set on all nodes.
+>      * Stage 5 will decide that C is the new origin of sets 1 and 2 via
+>        FAILOVER_SET. Subscriptions for set 1 will point to node C.
+>        It is well possible that the SUBSCRIBE_SET event for node D
+>        subscribing set 2 from B is interrupted by the failover, but since
+>        it causes very little work, had already been processed and confirmed
+>        by nodes C and E. Stage 5.3 will delete these events from sl_event
+>        on nodes C and E. The event would fail when D receives it from E
+>        because it cannot connect to the data provider B.
+>      * Stage 6 will wait until both FAILOVER_SET events from stage 5 have
+>        been confirmed by C, D and E.
+>      * Stage 7 should pass its sanity checks and drop nodes A and B.
+>
+>
+> Comments?
+> Jan
+>
+
+A few other notes:
+
+* This should be done in a way such that if slonik dies halfway through 
+the processes (it is killed by a user, or the OS crashes etc...) then 
+you have some hope of recovering.
+
+* Some examples of the proposed syntax would be useful to debate.  If 
+anyone wants to enaging in bike-shedding we should do it  before you 
+spend time modifying parser.y
+
+
+From cbbrowne at ca.afilias.info  Tue Feb  8 09:31:38 2011
+From: cbbrowne at ca.afilias.info (Christopher Browne)
+Date: Tue, 08 Feb 2011 12:31:38 -0500
+Subject: [Slony1-hackers] Multi node failover draft
+In-Reply-To: <4D504F72.7000705@Yahoo.com> (Jan Wieck's message of "Mon, 07 Feb
+	2011 15:00:50 -0500")
+References: <4D504F72.7000705@Yahoo.com>
+Message-ID: <87mxm6zb45.fsf@cbbrowne.afilias-int.info>
+
+Jan Wieck <JanWieck at Yahoo.com> writes:
+
+> Problem
+>
+> The current steps necessary to perform failover in a Slony replication 
+> cluster where multiple nodes have failed are complicated. Even a single 
+> node failover with multiple surviving subscribers can lead to unexpected 
+> failures and broken configurations. Many DBA's do not have the detail 
+> knowledge about Slony-I internals that is needed to write slonik scripts 
+> that do the necessary waiting between critical steps in the failover 
+> procedure.
+>
+>
+> Proposal summary
+>
+> To solve this problem we will develop a slonik failover command that 
+> receives all the information about which nodes have failed and which 
+> sets should be taken over by which backup node at once. This command 
+> will perform sanity checks on the remaining nodes, then execute all the 
+> necessary steps including waiting for event propagation to get to a new, 
+> working cluster shape to the point, where the failed nodes are dropped 
+> from the configuration of the remaining cluster.
+>
+>
+> Command syntax
+>
+> The new FAILOVER CLUSTER command will specify the list of failed nodes. 
+> This command is a string of space separated node-ID numbers. Following 
+> this are the actions to be taken for every set that originates on one of 
+> the failed nodes. There are two possible actions:
+>
+>     * Specify a backup node that will be the new origin. This backup
+>       node must be a forwarding subscriber of the set and one of the
+>       surviving nodes.
+>
+>     * Abandon the set. This can happen when there is not a single
+>       forwarding subscriber of the set left.
+
+So, the FAILOVER CLUSTER command will specify one of these actions for
+each affected node/set combination?
+
+To clarify the "abandon" option...  I don't imagine we'd want to have
+the command "automatically abandon" a set if it wasn't expressly asked
+to abandon it.
+
+If it is concluded that a set needs to be abandoned, but slonik hasn't
+been expressly asked to do so, an error should be raised, and the
+attempt to failover should be abandoned, awaiting the administrator
+addressing this problem.  Right?
+
+> Stage 1 - Requirements and sanity checks
+>
+> For the FAILOVER CLUSTER command it is necessary that the remaining 
+> nodes have a sufficient path network.
+>
+>     * For every surviving set, the surviving subscribers must have a path
+>       to either the new origin (backup node), or another surviving
+>       forwarder for that set.
+>
+>     * Nodes that are currently not subscribed to any set at all must have
+>       paths that somehow allow a functional listen network to be
+>       generated.
+>
+>     * The slonik script that performs the FAILOVER CLUSTER command must
+>       specify admin conninfo's for all remaining nodes, since slonik will
+
+Error checking comments...
+
+If any of these problems are discovered, the slonik script should, I
+think, do the following:
+
+1.  Report all of the missing configuration, and
+2.  Refuse to run (e.g. - it doesn't try to do part of the work)
+
+> Stage 2 - Disabling slon processes
+>
+> In order for slonik to perform failover procedures without concurrently 
+> running slon processes interfering with it via event processing, we need 
+> a way to tell the local nodes slon process to not startup normally but 
+> to stop and retry before spawning off all the worker threads. This 
+> should be a column inside the sl_node table, possibly the existing 
+> no_active column, which seems unused. Stage 2 sets this flag on all 
+> surviving nodes and restarts the slon processes via NOTIFY.
+
+If this is the intended use of sl_node.no_active, then that's fine; if
+this really is a new purpose, then I don't see any problem in adding a
+new column for this purpose.
+
+I'd rather add a new, well-defined column than try to reuse something.
+
+> Stage 3 - Disabling paths to failed nodes.
+>
+> Failures are not necessarily caused by DB server problems, but are often 
+> the result of network problems.
+>
+> In any failover case, we must not only assume that the failed nodes are 
+> no longer reachable. It is actually best practice to forcibly make 
+> failed nodes unreachable by network management means. Slony cannot 
+> prevent any outside applications from still accessing those "failed" 
+> nodes. But we can make sure that the surviving nodes, as defined by the 
+> FAILOVER CLUSTER command, will not receive any more events from those 
+> nodes that may possibly interfere with the failover procedures. We 
+> accomplish this by updating all sl_path entries to/from any of the 
+> failed nodes on all remaining nodes to something, that does not 
+> represent a valid conninfo string. This way, the remaining nodes will no 
+> longer be able to connect and thus, no longer receive any events 
+> (outstanding or newly created).
+
+I'd rather that this be pretty explicit.  
+
+I'd add a boolean to sl_path which indicates that the path shouldn't be
+used.
+
+But I don't object to adding an additional "belt & suspenders" component
+to sl_path.pa_conninfo which we know will cause erroneous attempts at
+connection to fail.  (I kind of like the idea of pre-pending the conninfo
+with "node=dead ".)
+
+> Stage 4 - Remove abandoned sets from the configuration
+>
+> All sets that have been specified to be abandoned will be removed from 
+> the configuration of all surviving nodes. Slonik will analyze after 
+> doing this which was the highest advanced surviving node that was 
+> subscribed to the set in order to inform the administrator which node 
+> has the most advanced data.
+
+Do we need to have some standard place to put "inform the administrator"
+material?
+
+It may be OK to say "slonik output", though I also like the idea of
+having slon log this as "SLON_CONFIG" output.
+
+> Comments?
+
+The examples need some more thought, but it's certainly good to have
+some reasonably sophisticated examples of how things may break, and
+predicted responses.
+-- 
+(reverse (concatenate 'string "ofni.sailifa.ac" "@" "enworbbc"))
+Christopher Browne
+"Bother,"  said Pooh,  "Eeyore, ready  two photon  torpedoes  and lock
+phasers on the Heffalump, Piglet, meet me in transporter room three"
+
