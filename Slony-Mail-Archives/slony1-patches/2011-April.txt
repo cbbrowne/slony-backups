@@ -1,0 +1,189 @@
+From ssinger at ca.afilias.info  Fri Apr 15 08:39:20 2011
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Fri, 15 Apr 2011 11:39:20 -0400
+Subject: [Slony1-patches] patch to add a resetSession() C function
+Message-ID: <4DA866A8.2080501@ca.afilias.info>
+
+Jan,
+
+Can you do a review of the attached patch.
+
+When we are cloning a node, if slonik calls getLocalNodeId() on the 
+cloned node before calling cloneFinish() but as part of the same session 
+then the old node id will be cached and used even after cloneFinish() 
+resets the node id.
+
+I've exposed this in the auto-wait-for branch.  This patch introduces a 
+function to reset all of the state cached in the C status data structure.
+
+
+https://github.com/ssinger/slony1-engine/commit/d912c2be643b4f46e35a05562305a64c028965c7
+
+
+Thanks
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: 0001-Provide-a-way-of-resetting-the-per-session-datastruc.patch
+Type: text/x-patch
+Size: 0 bytes
+Desc: not available
+Url : http://lists.slony.info/pipermail/slony1-patches/attachments/20110415/18330b70/attachment.bin 
+
+From ssinger at ca.afilias.info  Fri Apr 15 08:12:50 2011
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Fri, 15 Apr 2011 11:12:50 -0400
+Subject: [PATCH] Provide a way of resetting the per session datastructure
+ that stores the cluster status in the C functions.
+Message-ID: <mailman.0.1302894080.6915.slony1-patches@lists.slony.info>
+
+cloneFinish() changes the sequence sl_local_node_id but the value
+is cached in the C functions per session.  If getLocalNodeId()
+has already been called in the current session cloneNode will
+do the wrong thing because subsequent calls to getLocalNodeId()
+will return the old value.
+
+With the auto-wait-for changes slonik typically calls
+getLocalNodeId() before submitting commands this exposes
+this bug.
+
+Here we provide a C function that resets the cluster status
+and have the cloneNode function call this after changing
+the sl_local_node_id value.
+---
+ src/backend/slony1_funcs.c   |   43 +++++++++++++++++++++++++++++++++++++++++-
+ src/backend/slony1_funcs.sql |    7 +++++-
+ 2 files changed, 48 insertions(+), 2 deletions(-)
+
+diff --git a/src/backend/slony1_funcs.c b/src/backend/slony1_funcs.c
+index 863c23a..107cf53 100644
+--- a/src/backend/slony1_funcs.c
++++ b/src/backend/slony1_funcs.c
+@@ -60,7 +60,7 @@ PG_FUNCTION_INFO_V1(_Slony_I_killBackend);
+ PG_FUNCTION_INFO_V1(_Slony_I_seqtrack);
+ 
+ PG_FUNCTION_INFO_V1(_slon_quote_ident);
+-
++PG_FUNCTION_INFO_V1(_Slony_I_resetSession);
+ 
+ Datum		_Slony_I_createEvent(PG_FUNCTION_ARGS);
+ Datum		_Slony_I_getLocalNodeId(PG_FUNCTION_ARGS);
+@@ -74,6 +74,8 @@ Datum		_Slony_I_seqtrack(PG_FUNCTION_ARGS);
+ 
+ Datum		_slon_quote_ident(PG_FUNCTION_ARGS);
+ 
++Datum		_Slony_I_resetSession(PG_FUNCTION_ARGS);
++
+ #ifdef CYGWIN
+ extern DLLIMPORT Node *newNodeMacroHolder;
+ #endif
+@@ -1402,6 +1404,45 @@ getClusterStatus(Name cluster_name, int need_plan_mask)
+ 	/* @+nullderef@ */
+ }
+ 
++Datum
++_Slony_I_resetSession(PG_FUNCTION_ARGS)
++{
++  Slony_I_ClusterStatus *cs;
++  
++  cs = clusterStatusList; 
++  while(cs != NULL)
++  {
++	  Slony_I_ClusterStatus *previous;
++	  if(cs->cmdtype_I)
++		  free(cs->cmdtype_I);
++	  if(cs->cmdtype_D)
++		  free(cs->cmdtype_D);
++	  if(cs->cmdtype_U)
++		  free(cs->cmdtype_D);
++	  if(cs->cmddata_buf)
++		  free(cs->cmddata_buf);
++	  free(cs->clusterident);
++	  if(cs->plan_insert_event)
++		  SPI_freeplan(cs->plan_insert_event);
++	  if(cs->plan_insert_log_1)
++		  SPI_freeplan(cs->plan_insert_log_1);
++	  if(cs->plan_insert_log_2)
++		  SPI_freeplan(cs->plan_insert_log_2);
++	  if(cs->plan_record_sequences)
++		  SPI_freeplan(cs->plan_record_sequences);
++	  if(cs->plan_get_logstatus)
++		  SPI_freeplan(cs->plan_get_logstatus);
++	  previous=cs;
++	  cs=cs->next;
++	  free(previous);
++
++
++  }
++  clusterStatusList=NULL;
++  PG_RETURN_NULL();
++
++}
++
+ 
+ /*
+  * Local Variables:
+diff --git a/src/backend/slony1_funcs.sql b/src/backend/slony1_funcs.sql
+index 671a0a9..4c3c8ea 100644
+--- a/src/backend/slony1_funcs.sql
++++ b/src/backend/slony1_funcs.sql
+@@ -179,6 +179,11 @@ grant execute on function @NAMESPACE at .getModuleVersion () to public;
+ comment on function @NAMESPACE at .getModuleVersion () is
+   'Returns the compiled-in version number of the Slony-I shared object';
+ 
++
++create or replace function @NAMESPACE at .resetSession() returns text
++	   as '$libdir/slony1_funcs','_Slony_I_resetSession'
++	   language C;
++
+ create or replace function @NAMESPACE at .checkmoduleversion () returns text as $$
+ declare
+   moduleversion	text;
+@@ -1526,7 +1531,7 @@ declare
+ 	v_row			record;
+ begin
+ 	perform "pg_catalog".setval('@NAMESPACE at .sl_local_node_id', p_no_id);
+-
++	perform @NAMESPACE at .resetSession();
+ 	for v_row in select sub_set from @NAMESPACE at .sl_subscribe
+ 			where sub_receiver = p_no_id
+ 	loop
+-- 
+1.7.0.4
+
+
+--------------030003050705060406010108--
+
+From JanWieck at Yahoo.com  Mon Apr 18 07:56:14 2011
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Mon, 18 Apr 2011 10:56:14 -0400
+Subject: [Slony1-patches] patch to add a resetSession() C function
+In-Reply-To: <4DA866A8.2080501@ca.afilias.info>
+References: <4DA866A8.2080501@ca.afilias.info>
+Message-ID: <4DAC510E.8030100@Yahoo.com>
+
+On 4/15/2011 11:39 AM, Steve Singer wrote:
+> Jan,
+>
+> Can you do a review of the attached patch.
+>
+> When we are cloning a node, if slonik calls getLocalNodeId() on the
+> cloned node before calling cloneFinish() but as part of the same session
+> then the old node id will be cached and used even after cloneFinish()
+> resets the node id.
+>
+> I've exposed this in the auto-wait-for branch.  This patch introduces a
+> function to reset all of the state cached in the C status data structure.
+>
+>
+> https://github.com/ssinger/slony1-engine/commit/d912c2be643b4f46e35a05562305a64c028965c7
+
+Will do.
+
+
+Jan
+
+-- 
+Anyone who trades liberty for security deserves neither
+liberty nor security. -- Benjamin Franklin
+
