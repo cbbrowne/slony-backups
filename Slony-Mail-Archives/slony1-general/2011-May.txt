@@ -1,0 +1,1436 @@
+From ssinger at ca.afilias.info  Mon May  2 06:20:20 2011
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Mon, 02 May 2011 09:20:20 -0400
+Subject: [Slony1-general] Looking at bug #137 - DDL application change
+In-Reply-To: <BANLkTin=aUcTOadXr824HxQf=7adkU9mGQ@mail.gmail.com>
+References: <BANLkTin=aUcTOadXr824HxQf=7adkU9mGQ@mail.gmail.com>
+Message-ID: <4DBEAF94.4070602@ca.afilias.info>
+
+On 11-04-29 05:50 PM, Christopher Browne wrote:
+
+<snip>
+
+>
+> What remains...
+>
+> slonik needs to:
+> a) Lock the tables
+> b) Run ddlscript_prepare(), which just does some validation, and sets
+> replication mode to 'local'
+> c) Split the DDL into statements
+> d) Prepare a statement to drop DDL into sl_log_*
+> e) For each statement
+>    e.1) Run the DDL on the origin
+>    e.2) Save DDL into sl_log_*
+> f) Restore replication mode (probably to 'origin')
+>
+> slon, today, does a great deal of work, but it basically all gets dropped.
+> - The DDL event doesn't need to do anything.
+> - No need to split statements up.
+>
+> Basically, when processing sl_log_*, we'll sometimes have DDL
+> statements, so that today's (Insert,Update,Delete,Truncate) augments
+> to (Insert,Update,Delete,Truncate,Script), and we basically just need
+> to enclose the Script items with set/restore replication mode.
+>
+> Still apparent complications:
+> - ONLY ON NODE functionality basically just connects to the specified
+> node, and omits saving the DDL in sl_log_*, right?  That's a small
+> change to slonik, and requires *nothing* of slon, right?
+>
+> - Log shipping...  Nothing special; we're capturing sl_log_* output;
+> DDL is just an addition to this.
+>
+> This *looks* like it turns into a considerable code simplification,
+> which would be mighty nice, if so.
+
+The algorithm you describe above sounds sane to me.  Will having slonik 
+instead of slon split the ddl script up make it any less forgiving to 
+bugs in the scanner (I don't think so).  I'm not sure the above changes 
+will significantly simplify or reduce the code footprint.  (We still 
+need the scanner just in a different place, ddlScript prepare/finish are 
+fairly short, and remote_worker.c will still need a switch for 
+'scripts', just under the SYNC block per row processing instead of as an 
+event type).
+
+As you stated above we still need to add in code to lock a user provided 
+list of tables.
+
+
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+
+
+From Frank.Mcgeough at vocalocity.com  Mon May  9 06:29:16 2011
+From: Frank.Mcgeough at vocalocity.com (Frank McGeough)
+Date: Mon, 9 May 2011 06:29:16 -0700
+Subject: [Slony1-general] setting up new node
+Message-ID: <9F2DDBC1199E7C47B8A3B2CCCDD1E62008EB82CF45@VA3DIAXVS341.RED001.local>
+
+Environment : postgres 8.4, slony 1.2.20
+	
+When adding a new node to an existing replication environment its my understanding that you would first get the slon process running on the new node. Even without subscribing sets the slon process on the new node would need to be running in order to handle events, correct? Otherwise, the sl_status st_lag_time for this new node would report a larger and larger lag time, right? 
+
+I'm asking because someone that I know suggested that you could add a node and subscribe it a couple weeks later and it wouldn't effect replication at all in that interim period. I said that it wouldn't change replication to the existing nodes but that the new node would possibly trigger alarms if they were based on st_lag_time. Even though a new node isn't subscribed it still must handle ongoing events, right? Even if the handling is to discard them? That is, the master sends out events to all slaves and how they process them is decided on the slave slon process - the master doesn't filter things to send different events out to different nodes based on their subscription. 
+
+Thanks,
+Frank
+
+From cbbrowne at afilias.info  Mon May  9 07:13:06 2011
+From: cbbrowne at afilias.info (Christopher Browne)
+Date: Mon, 9 May 2011 10:13:06 -0400
+Subject: [Slony1-general] setting up new node
+In-Reply-To: <9F2DDBC1199E7C47B8A3B2CCCDD1E62008EB82CF45@VA3DIAXVS341.RED001.local>
+References: <9F2DDBC1199E7C47B8A3B2CCCDD1E62008EB82CF45@VA3DIAXVS341.RED001.local>
+Message-ID: <BANLkTim+Hzze5VKziSwaQH6vYrw5yzoQMg@mail.gmail.com>
+
+On Mon, May 9, 2011 at 9:29 AM, Frank McGeough
+<Frank.Mcgeough at vocalocity.com> wrote:
+> Environment : postgres 8.4, slony 1.2.20
+>
+> When adding a new node to an existing replication environment its my understanding that you would first get the slon process running on the new node. Even without subscribing sets the slon process on the new node would need to be running in order to handle events, correct? Otherwise, the sl_status st_lag_time for this new node would report a larger and larger lag time, right?
+>
+> I'm asking because someone that I know suggested that you could add a node and subscribe it a couple weeks later and it wouldn't effect replication at all in that interim period. I said that it wouldn't change replication to the existing nodes but that the new node would possibly trigger alarms if they were based on st_lag_time. Even though a new node isn't subscribed it still must handle ongoing events, right? Even if the handling is to discard them? That is, the master sends out events to all slaves and how they process them is decided on the slave slon process - the master doesn't filter things to send different events out to different nodes based on their subscription.
+
+Sure, it'll have further adverse effects, too.
+
+Since that new node has not reported confirmation of processing of
+events, the cluster will hold onto *all* replicable data, so that
+tables sl_log_1, sl_log_2, and the sequence log will grow unboundedly,
+as nothing will be trimming their data.  I think you'll see ballooning
+of sl_event and sl_confirm, too, but that won't be nearly as
+significant as unbounded growth of sl_log_[12].
+
+From ssinger at ca.afilias.info  Mon May  9 12:18:44 2011
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Mon, 09 May 2011 15:18:44 -0400
+Subject: [Slony1-general] Slony-I 2.1.0 beta 1
+Message-ID: <4DC83E14.5070809@ca.afilias.info>
+
+The Slony team is pleased to announce the first beta for the next major 
+release of Slony-I (2.1.0).
+
+Slony-I 2.1.0.b1 is available at 
+http://www.slony.info/downloads/2.1/source/slony1-2.1.0.b1.tar.bz2
+
+The documentation can be downloaded from 
+http://www.slony.info/downloads/2.1/source/slony1-2.1.0.b1-docs.tar.bz2
+
+
+This release includes over 20 new features and bug fixes from the last 
+2.0 release.   The Slony team is asking the Slony community to try out 
+this beta release and send test reports (both successful and 
+unsuccessful to the slony1-general at lists.slony.info mailing list).
+
+
+
+Highlights of 2.1.0 include:
+---------------------------------
+-Improvements to the performance of replication when a node is 
+significantly behind (Bug # 167)
+
+-A component status table that monitors the state of each thread in the 
+slon process (Bug # 175)
+
+-Multiple tables to a replication set can be added with a single command 
+using regular expressions (Bug # 181)
+
+-Slonik will now automatically wait for event confirmations when 
+required (Bug # 179)
+
+-Support for TRUNCATE triggers with PostgreSQL 8.4 or higher (Bug # 134)
+
+-Support for adjusting TCP keep alive values (Bug # 126)
+
+
+A complete list of changes can be found at 
+http://git.postgresql.org/gitweb?p=slony1-engine.git;a=blob_plain;f=RELEASE;h=3ab8d7cd49b8a934f63d5db9bbf82e41bd40581c;hb=29fa3df92c2205df877d2c864fc38f037437577c
+
+
+For more information about Slony go to http://www.slony.info
+
+From DOUGLAS.LITTLE at orbitz.com  Mon May  9 12:35:11 2011
+From: DOUGLAS.LITTLE at orbitz.com (Little, Douglas)
+Date: Mon, 9 May 2011 14:35:11 -0500
+Subject: [Slony1-general] Slony use cases
+Message-ID: <8585BA53443004458E0BAA6134C5A7FB678420EF@EGEXCMB01.oww.root.lcl>
+
+Hi,
+We use greenplum (based on PG 8.2.13) for our data warehouse. We're on a 10node system, with 1 master that coordinates the work.  We use before row triggers a lot to implement at rest encryption.
+
+We're bringing up an additional system an need a mechanism for keeping the two clusters in sync.
+We have a large installation (14000 tables,  14TB).  It's mostly batch updated, with most tables only getting <100k inserts/updates per day.  Our  biggest table  might do 5m rows/day.
+We have about 1500 core tables that we'd want to replicate.
+
+Could people comment on if this would be an appropriate use case for slony?
+Thanks
+
+
+Doug Little
+
+Sr. Data Warehouse Architect | Business Intelligence Architecture | Orbitz Worldwide
+500 W. Madison, Suite 1000  Chicago IL 60661| Office 312.260.2588 | Fax 312.894.5164 | Cell 847-997-5741
+Douglas.Little at orbitz.com<mailto:Douglas.Little at orbitz.com>
+ [cid:image001.jpg at 01CC0E56.4D172300]   orbitz.com<http://www.orbitz.com/> | ebookers.com<http://www.ebookers.com/> | hotelclub.com<http://www.hotelclub.com/> | cheaptickets.com<http://www.cheaptickets.com/> | ratestogo.com<http://www.ratestogo.com/> | asiahotels.com<http://www.asiahotels.com/>
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20110509/f722442a/attachment.htm 
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: image001.jpg
+Type: image/jpeg
+Size: 2337 bytes
+Desc: image001.jpg
+Url : http://lists.slony.info/pipermail/slony1-general/attachments/20110509/f722442a/attachment.jpg 
+
+From scott.marlowe at gmail.com  Mon May  9 13:09:42 2011
+From: scott.marlowe at gmail.com (Scott Marlowe)
+Date: Mon, 9 May 2011 14:09:42 -0600
+Subject: [Slony1-general] Slony use cases
+In-Reply-To: <8585BA53443004458E0BAA6134C5A7FB678420EF@EGEXCMB01.oww.root.lcl>
+References: <8585BA53443004458E0BAA6134C5A7FB678420EF@EGEXCMB01.oww.root.lcl>
+Message-ID: <BANLkTinLV+LJtjYhbagbVgK6e9nTxaSUMg@mail.gmail.com>
+
+(Please stick to plain text on the lists.  Some clients can't display
+html email well.)
+
+On Mon, May 9, 2011 at 1:35 PM, Little, Douglas
+<DOUGLAS.LITTLE at orbitz.com> wrote:
+>
+> Hi,
+>
+> We use greenplum (based on PG 8.2.13) for our data warehouse. We?re on a 10node system, with 1 master that coordinates the work.? We use before row triggers a lot to implement at rest encryption.
+
+I'd ask Greenplum, as I don't know how well their system works with
+slony.  Other than that, the issues you face when dealing with a large
+number of objects seem lessened with slony 2.0 versus 1.2.  1.2 has
+some pretty pessimistic locking and as you get into the thousands of
+objects it can get a little slow at some things like creating a set.
+We replicate ~900 objects.  With lots (45k) of other objects in the
+master database, we take up to 5 hours to create set.  create set from
+a master without those 45k extra objects set creation takes < 5
+minutes.  That's with slony 1.2.  We haven't (and probably wont) try
+slony 2.0 in production any time soon.
+
+From msquires at whitepages.com  Mon May  9 13:51:07 2011
+From: msquires at whitepages.com (Michael Squires)
+Date: Mon, 9 May 2011 13:51:07 -0700
+Subject: [Slony1-general] Slony use cases
+In-Reply-To: <8585BA53443004458E0BAA6134C5A7FB678420EF@EGEXCMB01.oww.root.lcl>
+Message-ID: <C9EDA17E.103CE%msquires@whitepages.com>
+
+Since we use Slony (2.0.3) here for some things, and also run Greenplum, I asked one of our DBAs about this. Here is his reply:
+
+Greenplum will not work with Slony since Greenplum's trigger has a major limitation.
+
+The Greenplum trigger function doesn't allow any SQL execution or modification of the database. So Slony will not work since it relies on triggers to replicate.
+
+See Sing
+
+From: "Little, Douglas" <DOUGLAS.LITTLE at orbitz.com<mailto:DOUGLAS.LITTLE at orbitz.com>>
+Date: Mon, 9 May 2011 12:35:11 -0700
+To: "slony1-general at lists.slony.info<mailto:slony1-general at lists.slony.info>" <slony1-general at lists.slony.info<mailto:slony1-general at lists.slony.info>>
+Subject: [Slony1-general] Slony use cases
+
+Hi,
+We use greenplum (based on PG 8.2.13) for our data warehouse. We?re on a 10node system, with 1 master that coordinates the work.  We use before row triggers a lot to implement at rest encryption.
+
+We?re bringing up an additional system an need a mechanism for keeping the two clusters in sync.
+We have a large installation (14000 tables,  14TB).  It?s mostly batch updated, with most tables only getting <100k inserts/updates per day.  Our  biggest table  might do 5m rows/day.
+We have about 1500 core tables that we?d want to replicate.
+
+Could people comment on if this would be an appropriate use case for slony?
+Thanks
+
+
+Doug Little
+
+Sr. Data Warehouse Architect | Business Intelligence Architecture | Orbitz Worldwide
+500 W. Madison, Suite 1000  Chicago IL 60661| Office 312.260.2588 | Fax 312.894.5164 | Cell 847-997-5741
+Douglas.Little at orbitz.com<mailto:Douglas.Little at orbitz.com>
+ [cid:image001.jpg at 01CC0E56.4D172300]   orbitz.com<http://www.orbitz.com/> | ebookers.com<http://www.ebookers.com/> | hotelclub.com<http://www.hotelclub.com/> | cheaptickets.com<http://www.cheaptickets.com/> | ratestogo.com<http://www.ratestogo.com/> | asiahotels.com<http://www.asiahotels.com/>
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20110509/834fbaec/attachment-0001.htm 
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: image001.jpg
+Type: image/jpeg
+Size: 2337 bytes
+Desc: image001.jpg
+Url : http://lists.slony.info/pipermail/slony1-general/attachments/20110509/834fbaec/attachment-0001.jpg 
+
+From DOUGLAS.LITTLE at orbitz.com  Mon May  9 15:11:49 2011
+From: DOUGLAS.LITTLE at orbitz.com (Little, Douglas)
+Date: Mon, 9 May 2011 17:11:49 -0500
+Subject: [Slony1-general] Slony use cases
+In-Reply-To: <C9EDA17E.103CE%msquires@whitepages.com>
+References: <8585BA53443004458E0BAA6134C5A7FB678420EF@EGEXCMB01.oww.root.lcl>
+	<C9EDA17E.103CE%msquires@whitepages.com>
+Message-ID: <8585BA53443004458E0BAA6134C5A7FB678422EA@EGEXCMB01.oww.root.lcl>
+
+Thanks to all for the replies.
+Doug
+
+
+From: Michael Squires [mailto:msquires at whitepages.com]
+Sent: Monday, May 09, 2011 3:51 PM
+To: Little, Douglas; slony1-general at lists.slony.info
+Subject: Re: [Slony1-general] Slony use cases
+
+Since we use Slony (2.0.3) here for some things, and also run Greenplum, I asked one of our DBAs about this. Here is his reply:
+
+Greenplum will not work with Slony since Greenplum's trigger has a major limitation.
+
+The Greenplum trigger function doesn't allow any SQL execution or modification of the database. So Slony will not work since it relies on triggers to replicate.
+
+See Sing
+
+From: "Little, Douglas" <DOUGLAS.LITTLE at orbitz.com<mailto:DOUGLAS.LITTLE at orbitz.com>>
+Date: Mon, 9 May 2011 12:35:11 -0700
+To: "slony1-general at lists.slony.info<mailto:slony1-general at lists.slony.info>" <slony1-general at lists.slony.info<mailto:slony1-general at lists.slony.info>>
+Subject: [Slony1-general] Slony use cases
+
+Hi,
+We use greenplum (based on PG 8.2.13) for our data warehouse. We're on a 10node system, with 1 master that coordinates the work.  We use before row triggers a lot to implement at rest encryption.
+
+We're bringing up an additional system an need a mechanism for keeping the two clusters in sync.
+We have a large installation (14000 tables,  14TB).  It's mostly batch updated, with most tables only getting <100k inserts/updates per day.  Our  biggest table  might do 5m rows/day.
+We have about 1500 core tables that we'd want to replicate.
+
+Could people comment on if this would be an appropriate use case for slony?
+Thanks
+
+
+Doug Little
+
+Sr. Data Warehouse Architect | Business Intelligence Architecture | Orbitz Worldwide
+500 W. Madison, Suite 1000  Chicago IL 60661| Office 312.260.2588 | Fax 312.894.5164 | Cell 847-997-5741
+Douglas.Little at orbitz.com<mailto:Douglas.Little at orbitz.com>
+ [cid:image001.jpg at 01CC0E6C.2F10F8C0]   orbitz.com<http://www.orbitz.com/> | ebookers.com<http://www.ebookers.com/> | hotelclub.com<http://www.hotelclub.com/> | cheaptickets.com<http://www.cheaptickets.com/> | ratestogo.com<http://www.ratestogo.com/> | asiahotels.com<http://www.asiahotels.com/>
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20110509/828f2677/attachment.htm 
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: image001.jpg
+Type: image/jpeg
+Size: 2337 bytes
+Desc: image001.jpg
+Url : http://lists.slony.info/pipermail/slony1-general/attachments/20110509/828f2677/attachment.jpg 
+
+From dba at richyen.com  Wed May 11 11:56:56 2011
+From: dba at richyen.com (Richard Yen)
+Date: Wed, 11 May 2011 11:56:56 -0700
+Subject: [Slony1-general] Slony seems to have missed an event???
+Message-ID: <BANLkTimZgFHj52Uu7OMEN1MoZt_8HPUQVQ@mail.gmail.com>
+
+Hello,
+
+running slon version 2.0.6 here...
+
+Would anyone be able to help me track down why slony missed a DELETE?  It
+seems that my replication is broken as the subscribers are trying to process
+an INSERT, but a primary key is being violated.  The origin machine does not
+have the offending tuple, which leads me to believe that a DELETE was
+processed, but wasn't propagated to the subscribers
+
+
+From JanWieck at Yahoo.com  Wed May 11 13:12:35 2011
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Wed, 11 May 2011 16:12:35 -0400
+Subject: [Slony1-general] Slony seems to have missed an event???
+In-Reply-To: <BANLkTimZgFHj52Uu7OMEN1MoZt_8HPUQVQ@mail.gmail.com>
+References: <BANLkTimZgFHj52Uu7OMEN1MoZt_8HPUQVQ@mail.gmail.com>
+Message-ID: <4DCAEDB3.9070805@Yahoo.com>
+
+On 5/11/2011 2:56 PM, Richard Yen wrote:
+> Hello,
+>
+> running slon version 2.0.6 here...
+
+This is the first time I've heard about an operation missing. I remember 
+in some old version of PostgreSQL (8.1 I think) that we experienced 
+duplicate sl_log rows due to index corruption. I was actually able to 
+get a result set with a duplicate ctid. But never was a row missing so far.
+
+To fix your replica(s), you should be able to manually DELETE the 
+offending row using psql and doing
+
+     set session_replication_role to "replica";
+     delete from cron_lock where ...
+
+You need to be a superuser to do so. After that SET statement, the psql 
+prompt will bypass the deny_access triggers and the DELETE statement 
+will behave exactly as if it was coming from slon.
+
+I assume that by now, a log switch has probably destroyed all traces 
+that could be used to debug the problem further.
+
+
+Jan
+
+
+>
+> Would anyone be able to help me track down why slony missed a DELETE?
+>   It seems that my replication is broken as the subscribers are trying
+> to process an INSERT, but a primary key is being violated.  The origin
+> machine does not have the offending tuple, which leads me to believe
+> that a DELETE was processed, but wasn't propagated to the subscribers
+>
+>  From my origin machine:
+> my_db=# select * from cron_lock;
+>          id         |      lock_until_time
+> -------------------+----------------------------
+>   anonymous_marking | 2011-05-11 11:40:02.456091
+> (1 row)
+>
+>  From my subscriber machines:
+> my_db=# select * from cron_lock ;
+>          id         |      lock_until_time
+> -------------------+----------------------------
+>   anonymous_marking | 2011-05-11 10:40:02.123721
+> (1 row)
+>
+>  From the origin's sl_log_* tables:
+> my_db=# select * from _sac_uk.sl_log_2 where log_tableid =190;
+>   log_origin |  log_txid  | log_tableid | log_actionseq | log_cmdtype |
+>                                              log_cmddata
+> ------------+------------+-------------+---------------+-------------+-----------------------------------------------------------------------------------------------------
+>            1 | 1369072247 |         190 |     239698918 | I           |
+> ("id","lock_until_time") values ('anonymous_marking','2011-05-11
+> 11:40:02.456091')
+>            1 | 1369182578 |         190 |     239728797 | I           |
+> ("id","lock_until_time") values ('process_past_due_pm_assignments.pl
+> <http://process_past_due_pm_assignments.pl>','2011-05-11 11:00:23.944101')
+>            1 | 1369182587 |         190 |     239728806 | D           |
+> "id"='process_past_due_pm_assignments.pl
+> <http://process_past_due_pm_assignments.pl>'
+>            1 | 1369182626 |         190 |     239728830 | I           |
+> ("id","lock_until_time") values ('process_past_due_pm_assignments.pl
+> <http://process_past_due_pm_assignments.pl>','2011-05-11
+> 11:00:24.525818')          1 | 1369182671 |         190 |     239728833
+> | D           | "id"='process_past_due_pm_assignments.pl
+> <http://process_past_due_pm_assignments.pl>'
+> (5 rows)
+>
+> my_db=# select * from _sac_uk.sl_log_1 where log_tableid =190;
+>   log_origin |  log_txid  | log_tableid | log_actionseq | log_cmdtype |
+>                                     log_cmddata
+> ------------+------------+-------------+---------------+-------------+------------------------------------------------------------------------------------
+>           1 | 1369393174 |         190 |     239789790 | D           |
+> "id"='anonymous_marking'
+>            1 | 1369403276 |         190 |     239793047 | I           |
+> ("id","lock_until_time") values ('anonymous_marking','2011-05-11
+> 12:40:02.970433')(2 rows)
+>
+> On the subscriber logs:May 11 11:54:40 uk-sdb2 postgres[30851]: [926-1]
+> 2011-05-11 11:54:40.755 PDT [user=slony,db=my_db 10.1.0.149(47318)
+> PID:30851 XID:1509911291]ERROR:  duplicate key value violates unique
+> constraint "cron_lock_pkey"
+> May 11 11:54:40 uk-sdb2 postgres[30851]: [926-2] 2011-05-11 11:54:40.755
+> PDT [user=slony,db=my_db 10.1.0.149(47318) PID:30851
+> XID:1509911291]STATEMENT:  update only "public"."m_user" set
+> "last_login"='2011-05-11 10:40:02.429308' where "id"='2459339';
+>
+> Any help would be much appreciated.
+> --Richard
+>
+>
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+
+
+-- 
+Anyone who trades liberty for security deserves neither
+liberty nor security. -- Benjamin Franklin
+
+From richyen at iparadigms.com  Wed May 11 13:18:44 2011
+From: richyen at iparadigms.com (Richard Yen)
+Date: Wed, 11 May 2011 13:18:44 -0700
+Subject: [Slony1-general] Slony seems to have missed an event???
+In-Reply-To: <4DCAEDB3.9070805@Yahoo.com>
+References: <BANLkTimZgFHj52Uu7OMEN1MoZt_8HPUQVQ@mail.gmail.com>
+	<4DCAEDB3.9070805@Yahoo.com>
+Message-ID: <BANLkTimCWSpsXiSEtKg89m4SZduZ8Pwxuw@mail.gmail.com>
+
+Thanks Jan,
+
+I'll go ahead and do as recommended.  I was actually hoping that maybe we
+could scour the sl_confirm and/or sl_event tables for clues, but if you
+think it's not possible to find out what happened, I guess I'll just delete
+the row and move on.
+
+Thanks again,
+--Richard
+
+
+
+On Wed, May 11, 2011 at 1:12 PM, Jan Wieck <JanWieck at yahoo.com> wrote:
+
+> On 5/11/2011 2:56 PM, Richard Yen wrote:
+>
+>> Hello,
+>>
+>> running slon version 2.0.6 here...
+>>
+>
+> This is the first time I've heard about an operation missing. I remember in
+> some old version of PostgreSQL (8.1 I think) that we experienced duplicate
+> sl_log rows due to index corruption. I was actually able to get a result set
+> with a duplicate ctid. But never was a row missing so far.
+>
+> To fix your replica(s), you should be able to manually DELETE the offending
+> row using psql and doing
+>
+>    set session_replication_role to "replica";
+>    delete from cron_lock where ...
+>
+> You need to be a superuser to do so. After that SET statement, the psql
+> prompt will bypass the deny_access triggers and the DELETE statement will
+> behave exactly as if it was coming from slon.
+>
+> I assume that by now, a log switch has probably destroyed all traces that
+> could be used to debug the problem further.
+>
+>
+> Jan
+>
+>
+>
+>> Would anyone be able to help me track down why slony missed a DELETE?
+>>  It seems that my replication is broken as the subscribers are trying
+>> to process an INSERT, but a primary key is being violated.  The origin
+>> machine does not have the offending tuple, which leads me to believe
+>> that a DELETE was processed, but wasn't propagated to the subscribers
+>>
+>>  From my origin machine:
+>> my_db=# select * from cron_lock;
+>>         id         |      lock_until_time
+>> -------------------+----------------------------
+>>  anonymous_marking | 2011-05-11 11:40:02.456091
+>> (1 row)
+>>
+>>  From my subscriber machines:
+>> my_db=# select * from cron_lock ;
+>>         id         |      lock_until_time
+>> -------------------+----------------------------
+>>  anonymous_marking | 2011-05-11 10:40:02.123721
+>> (1 row)
+>>
+>>  From the origin's sl_log_* tables:
+>> my_db=# select * from _sac_uk.sl_log_2 where log_tableid =190;
+>>  log_origin |  log_txid  | log_tableid | log_actionseq | log_cmdtype |
+>>                                             log_cmddata
+>>
+>> ------------+------------+-------------+---------------+-------------+-----------------------------------------------------------------------------------------------------
+>>           1 | 1369072247 |         190 |     239698918 | I           |
+>> ("id","lock_until_time") values ('anonymous_marking','2011-05-11
+>> 11:40:02.456091')
+>>           1 | 1369182578 |         190 |     239728797 | I           |
+>> ("id","lock_until_time") values ('process_past_due_pm_assignments.pl
+>> <http://process_past_due_pm_assignments.pl>','2011-05-11
+>> 11:00:23.944101')
+>>
+>>           1 | 1369182587 |         190 |     239728806 | D           |
+>> "id"='process_past_due_pm_assignments.pl
+>> <http://process_past_due_pm_assignments.pl>'
+>>
+>>           1 | 1369182626 |         190 |     239728830 | I           |
+>> ("id","lock_until_time") values ('process_past_due_pm_assignments.pl
+>> <http://process_past_due_pm_assignments.pl>','2011-05-11
+>>
+>> 11:00:24.525818')          1 | 1369182671 |         190 |     239728833
+>> | D           | "id"='process_past_due_pm_assignments.pl
+>> <http://process_past_due_pm_assignments.pl>'
+>>
+>> (5 rows)
+>>
+>> my_db=# select * from _sac_uk.sl_log_1 where log_tableid =190;
+>>  log_origin |  log_txid  | log_tableid | log_actionseq | log_cmdtype |
+>>                                    log_cmddata
+>>
+>> ------------+------------+-------------+---------------+-------------+------------------------------------------------------------------------------------
+>>          1 | 1369393174 |         190 |     239789790 | D           |
+>> "id"='anonymous_marking'
+>>           1 | 1369403276 |         190 |     239793047 | I           |
+>> ("id","lock_until_time") values ('anonymous_marking','2011-05-11
+>> 12:40:02.970433')(2 rows)
+>>
+>> On the subscriber logs:May 11 11:54:40 uk-sdb2 postgres[30851]: [926-1]
+>> 2011-05-11 11:54:40.755 PDT [user=slony,db=my_db 10.1.0.149(47318)
+>> PID:30851 XID:1509911291]ERROR:  duplicate key value violates unique
+>> constraint "cron_lock_pkey"
+>> May 11 11:54:40 uk-sdb2 postgres[30851]: [926-2] 2011-05-11 11:54:40.755
+>> PDT [user=slony,db=my_db 10.1.0.149(47318) PID:30851
+>> XID:1509911291]STATEMENT:  update only "public"."m_user" set
+>> "last_login"='2011-05-11 10:40:02.429308' where "id"='2459339';
+>>
+>> Any help would be much appreciated.
+>> --Richard
+>>
+>>
+>>
+>> _______________________________________________
+>> Slony1-general mailing list
+>> Slony1-general at lists.slony.info
+>> http://lists.slony.info/mailman/listinfo/slony1-general
+>>
+>
+>
+> --
+> Anyone who trades liberty for security deserves neither
+> liberty nor security. -- Benjamin Franklin
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20110511/b1ab434c/attachment.htm 
+
+From ssinger at ca.afilias.info  Wed May 11 13:21:31 2011
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Wed, 11 May 2011 16:21:31 -0400
+Subject: [Slony1-general] Slony seems to have missed an event???
+In-Reply-To: <BANLkTimCWSpsXiSEtKg89m4SZduZ8Pwxuw@mail.gmail.com>
+References: <BANLkTimZgFHj52Uu7OMEN1MoZt_8HPUQVQ@mail.gmail.com>	<4DCAEDB3.9070805@Yahoo.com>
+	<BANLkTimCWSpsXiSEtKg89m4SZduZ8Pwxuw@mail.gmail.com>
+Message-ID: <4DCAEFCB.5000606@ca.afilias.info>
+
+On 11-05-11 04:18 PM, Richard Yen wrote:
+> Thanks Jan,
+>
+> I'll go ahead and do as recommended.  I was actually hoping that maybe
+> we could scour the sl_confirm and/or sl_event tables for clues, but if
+> you think it's not possible to find out what happened, I guess I'll just
+> delete the row and move on.
+>
+> Thanks again,
+> --Richard
+
+If you can get a dump of sl_event and sl_confirm of both the master and 
+the slave and send it to one of us we can take a look.
+
+If you happen to have slon logs of the period it can't hurt to send 
+those as well.
+
+
+>
+>
+>
+> On Wed, May 11, 2011 at 1:12 PM, Jan Wieck <JanWieck at yahoo.com
+> <mailto:JanWieck at yahoo.com>> wrote:
+>
+>     On 5/11/2011 2:56 PM, Richard Yen wrote:
+>
+>         Hello,
+>
+>         running slon version 2.0.6 here...
+>
+>
+>     This is the first time I've heard about an operation missing. I
+>     remember in some old version of PostgreSQL (8.1 I think) that we
+>     experienced duplicate sl_log rows due to index corruption. I was
+>     actually able to get a result set with a duplicate ctid. But never
+>     was a row missing so far.
+>
+>     To fix your replica(s), you should be able to manually DELETE the
+>     offending row using psql and doing
+>
+>         set session_replication_role to "replica";
+>         delete from cron_lock where ...
+>
+>     You need to be a superuser to do so. After that SET statement, the
+>     psql prompt will bypass the deny_access triggers and the DELETE
+>     statement will behave exactly as if it was coming from slon.
+>
+>     I assume that by now, a log switch has probably destroyed all traces
+>     that could be used to debug the problem further.
+>
+>
+>     Jan
+>
+>
+>
+>         Would anyone be able to help me track down why slony missed a
+>         DELETE?
+>           It seems that my replication is broken as the subscribers are
+>         trying
+>         to process an INSERT, but a primary key is being violated.  The
+>         origin
+>         machine does not have the offending tuple, which leads me to believe
+>         that a DELETE was processed, but wasn't propagated to the
+>         subscribers
+>
+>           From my origin machine:
+>         my_db=# select * from cron_lock;
+>                  id         |      lock_until_time
+>         -------------------+----------------------------
+>           anonymous_marking | 2011-05-11 11:40:02.456091
+>         (1 row)
+>
+>           From my subscriber machines:
+>         my_db=# select * from cron_lock ;
+>                  id         |      lock_until_time
+>         -------------------+----------------------------
+>           anonymous_marking | 2011-05-11 10:40:02.123721
+>         (1 row)
+>
+>           From the origin's sl_log_* tables:
+>         my_db=# select * from _sac_uk.sl_log_2 where log_tableid =190;
+>           log_origin |  log_txid  | log_tableid | log_actionseq |
+>         log_cmdtype |
+>                                                      log_cmddata
+>         ------------+------------+-------------+---------------+-------------+-----------------------------------------------------------------------------------------------------
+>                    1 | 1369072247 |         190 |     239698918 | I
+>                |
+>         ("id","lock_until_time") values ('anonymous_marking','2011-05-11
+>         11:40:02.456091')
+>                    1 | 1369182578 |         190 |     239728797 | I
+>                |
+>         ("id","lock_until_time") values
+>         ('process_past_due_pm_assignments.pl
+>         <http://process_past_due_pm_assignments.pl>
+>         <http://process_past_due_pm_assignments.pl>','2011-05-11
+>         11:00:23.944101')
+>
+>                    1 | 1369182587 |         190 |     239728806 | D
+>                |
+>         "id"='process_past_due_pm_assignments.pl
+>         <http://process_past_due_pm_assignments.pl>
+>         <http://process_past_due_pm_assignments.pl>'
+>
+>                    1 | 1369182626 |         190 |     239728830 | I
+>                |
+>         ("id","lock_until_time") values
+>         ('process_past_due_pm_assignments.pl
+>         <http://process_past_due_pm_assignments.pl>
+>         <http://process_past_due_pm_assignments.pl>','2011-05-11
+>
+>         11:00:24.525818')          1 | 1369182671 |         190 |
+>         239728833
+>         | D           | "id"='process_past_due_pm_assignments.pl
+>         <http://process_past_due_pm_assignments.pl>
+>         <http://process_past_due_pm_assignments.pl>'
+>
+>         (5 rows)
+>
+>         my_db=# select * from _sac_uk.sl_log_1 where log_tableid =190;
+>           log_origin |  log_txid  | log_tableid | log_actionseq |
+>         log_cmdtype |
+>                                             log_cmddata
+>         ------------+------------+-------------+---------------+-------------+------------------------------------------------------------------------------------
+>                   1 | 1369393174 |         190 |     239789790 | D
+>              |
+>         "id"='anonymous_marking'
+>                    1 | 1369403276 |         190 |     239793047 | I
+>                |
+>         ("id","lock_until_time") values ('anonymous_marking','2011-05-11
+>         12:40:02.970433')(2 rows)
+>
+>         On the subscriber logs:May 11 11:54:40 uk-sdb2 postgres[30851]:
+>         [926-1]
+>         2011-05-11 11:54:40.755 PDT [user=slony,db=my_db 10.1.0.149(47318)
+>         PID:30851 XID:1509911291]ERROR:  duplicate key value violates unique
+>         constraint "cron_lock_pkey"
+>         May 11 11:54:40 uk-sdb2 postgres[30851]: [926-2] 2011-05-11
+>         11:54:40.755
+>         PDT [user=slony,db=my_db 10.1.0.149(47318) PID:30851
+>         XID:1509911291]STATEMENT:  update only "public"."m_user" set
+>         "last_login"='2011-05-11 10:40:02.429308' where "id"='2459339';
+>
+>         Any help would be much appreciated.
+>         --Richard
+>
+>
+>
+>         _______________________________________________
+>         Slony1-general mailing list
+>         Slony1-general at lists.slony.info
+>         <mailto:Slony1-general at lists.slony.info>
+>         http://lists.slony.info/mailman/listinfo/slony1-general
+>
+>
+>
+>     --
+>     Anyone who trades liberty for security deserves neither
+>     liberty nor security. -- Benjamin Franklin
+>
+>
+>
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+
+
+From dba at richyen.com  Wed May 11 13:29:38 2011
+From: dba at richyen.com (Richard Yen)
+Date: Wed, 11 May 2011 13:29:38 -0700
+Subject: [Slony1-general] Slony seems to have missed an event???
+In-Reply-To: <4DCAEFCB.5000606@ca.afilias.info>
+References: <BANLkTimZgFHj52Uu7OMEN1MoZt_8HPUQVQ@mail.gmail.com>
+	<4DCAEDB3.9070805@Yahoo.com>
+	<BANLkTimCWSpsXiSEtKg89m4SZduZ8Pwxuw@mail.gmail.com>
+	<4DCAEFCB.5000606@ca.afilias.info>
+Message-ID: <BANLkTimxC1hubxJ74avtx2F4Y7p0pQtXFQ@mail.gmail.com>
+
+Thanks Steve.  I've put the dumps for the master and my two slaves at
+http://richyen.com/slony/
+
+Thanks again,
+--Richard
+
+
+
+On Wed, May 11, 2011 at 1:21 PM, Steve Singer <ssinger at ca.afilias.info>wrote:
+
+> On 11-05-11 04:18 PM, Richard Yen wrote:
+> > Thanks Jan,
+> >
+> > I'll go ahead and do as recommended.  I was actually hoping that maybe
+> > we could scour the sl_confirm and/or sl_event tables for clues, but if
+> > you think it's not possible to find out what happened, I guess I'll just
+> > delete the row and move on.
+> >
+> > Thanks again,
+> > --Richard
+>
+> If you can get a dump of sl_event and sl_confirm of both the master and
+> the slave and send it to one of us we can take a look.
+>
+> If you happen to have slon logs of the period it can't hurt to send
+> those as well.
+>
+>
+> >
+> >
+> >
+> > On Wed, May 11, 2011 at 1:12 PM, Jan Wieck <JanWieck at yahoo.com
+> > <mailto:JanWieck at yahoo.com>> wrote:
+> >
+> >     On 5/11/2011 2:56 PM, Richard Yen wrote:
+> >
+> >         Hello,
+> >
+> >         running slon version 2.0.6 here...
+> >
+> >
+> >     This is the first time I've heard about an operation missing. I
+> >     remember in some old version of PostgreSQL (8.1 I think) that we
+> >     experienced duplicate sl_log rows due to index corruption. I was
+> >     actually able to get a result set with a duplicate ctid. But never
+> >     was a row missing so far.
+> >
+> >     To fix your replica(s), you should be able to manually DELETE the
+> >     offending row using psql and doing
+> >
+> >         set session_replication_role to "replica";
+> >         delete from cron_lock where ...
+> >
+> >     You need to be a superuser to do so. After that SET statement, the
+> >     psql prompt will bypass the deny_access triggers and the DELETE
+> >     statement will behave exactly as if it was coming from slon.
+> >
+> >     I assume that by now, a log switch has probably destroyed all traces
+> >     that could be used to debug the problem further.
+> >
+> >
+> >     Jan
+> >
+> >
+> >
+> >         Would anyone be able to help me track down why slony missed a
+> >         DELETE?
+> >           It seems that my replication is broken as the subscribers are
+> >         trying
+> >         to process an INSERT, but a primary key is being violated.  The
+> >         origin
+> >         machine does not have the offending tuple, which leads me to
+> believe
+> >         that a DELETE was processed, but wasn't propagated to the
+> >         subscribers
+> >
+> >           From my origin machine:
+> >         my_db=# select * from cron_lock;
+> >                  id         |      lock_until_time
+> >         -------------------+----------------------------
+> >           anonymous_marking | 2011-05-11 11:40:02.456091
+> >         (1 row)
+> >
+> >           From my subscriber machines:
+> >         my_db=# select * from cron_lock ;
+> >                  id         |      lock_until_time
+> >         -------------------+----------------------------
+> >           anonymous_marking | 2011-05-11 10:40:02.123721
+> >         (1 row)
+> >
+> >           From the origin's sl_log_* tables:
+> >         my_db=# select * from _sac_uk.sl_log_2 where log_tableid =190;
+> >           log_origin |  log_txid  | log_tableid | log_actionseq |
+> >         log_cmdtype |
+> >                                                      log_cmddata
+> >
+> ------------+------------+-------------+---------------+-------------+-----------------------------------------------------------------------------------------------------
+> >                    1 | 1369072247 |         190 |     239698918 | I
+> >                |
+> >         ("id","lock_until_time") values ('anonymous_marking','2011-05-11
+> >         11:40:02.456091')
+> >                    1 | 1369182578 |         190 |     239728797 | I
+> >                |
+> >         ("id","lock_until_time") values
+> >         ('process_past_due_pm_assignments.pl
+> >         <http://process_past_due_pm_assignments.pl>
+> >         <http://process_past_due_pm_assignments.pl>','2011-05-11
+> >         11:00:23.944101')
+> >
+> >                    1 | 1369182587 |         190 |     239728806 | D
+> >                |
+> >         "id"='process_past_due_pm_assignments.pl
+> >         <http://process_past_due_pm_assignments.pl>
+> >         <http://process_past_due_pm_assignments.pl>'
+> >
+> >                    1 | 1369182626 |         190 |     239728830 | I
+> >                |
+> >         ("id","lock_until_time") values
+> >         ('process_past_due_pm_assignments.pl
+> >         <http://process_past_due_pm_assignments.pl>
+> >         <http://process_past_due_pm_assignments.pl>','2011-05-11
+> >
+> >         11:00:24.525818')          1 | 1369182671 |         190 |
+> >         239728833
+> >         | D           | "id"='process_past_due_pm_assignments.pl
+> >         <http://process_past_due_pm_assignments.pl>
+> >         <http://process_past_due_pm_assignments.pl>'
+> >
+> >         (5 rows)
+> >
+> >         my_db=# select * from _sac_uk.sl_log_1 where log_tableid =190;
+> >           log_origin |  log_txid  | log_tableid | log_actionseq |
+> >         log_cmdtype |
+> >                                             log_cmddata
+> >
+> ------------+------------+-------------+---------------+-------------+------------------------------------------------------------------------------------
+> >                   1 | 1369393174 |         190 |     239789790 | D
+> >              |
+> >         "id"='anonymous_marking'
+> >                    1 | 1369403276 |         190 |     239793047 | I
+> >                |
+> >         ("id","lock_until_time") values ('anonymous_marking','2011-05-11
+> >         12:40:02.970433')(2 rows)
+> >
+> >         On the subscriber logs:May 11 11:54:40 uk-sdb2 postgres[30851]:
+> >         [926-1]
+> >         2011-05-11 11:54:40.755 PDT [user=slony,db=my_db
+> 10.1.0.149(47318)
+> >         PID:30851 XID:1509911291]ERROR:  duplicate key value violates
+> unique
+> >         constraint "cron_lock_pkey"
+> >         May 11 11:54:40 uk-sdb2 postgres[30851]: [926-2] 2011-05-11
+> >         11:54:40.755
+> >         PDT [user=slony,db=my_db 10.1.0.149(47318) PID:30851
+> >         XID:1509911291]STATEMENT:  update only "public"."m_user" set
+> >         "last_login"='2011-05-11 10:40:02.429308' where "id"='2459339';
+> >
+> >         Any help would be much appreciated.
+> >         --Richard
+> >
+> >
+> >
+> >         _______________________________________________
+> >         Slony1-general mailing list
+> >         Slony1-general at lists.slony.info
+> >         <mailto:Slony1-general at lists.slony.info>
+> >         http://lists.slony.info/mailman/listinfo/slony1-general
+> >
+> >
+> >
+> >     --
+> >     Anyone who trades liberty for security deserves neither
+> >     liberty nor security. -- Benjamin Franklin
+> >
+> >
+> >
+> >
+> > _______________________________________________
+> > Slony1-general mailing list
+> > Slony1-general at lists.slony.info
+> > http://lists.slony.info/mailman/listinfo/slony1-general
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20110511/d3e3d0f6/attachment.htm 
+
+From ssinger at ca.afilias.info  Wed May 11 14:26:12 2011
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Wed, 11 May 2011 17:26:12 -0400
+Subject: [Slony1-general] Slony seems to have missed an event???
+In-Reply-To: <BANLkTimxC1hubxJ74avtx2F4Y7p0pQtXFQ@mail.gmail.com>
+References: <BANLkTimZgFHj52Uu7OMEN1MoZt_8HPUQVQ@mail.gmail.com>	<4DCAEDB3.9070805@Yahoo.com>	<BANLkTimCWSpsXiSEtKg89m4SZduZ8Pwxuw@mail.gmail.com>	<4DCAEFCB.5000606@ca.afilias.info>
+	<BANLkTimxC1hubxJ74avtx2F4Y7p0pQtXFQ@mail.gmail.com>
+Message-ID: <4DCAFEF4.6080707@ca.afilias.info>
+
+On 11-05-11 04:29 PM, Richard Yen wrote:
+> Thanks Steve.  I've put the dumps for the master and my two slaves at
+> http://richyen.com/slony/
+
+As Jan suspected there isn't really anything still left in the logs 
+about events from before the failed insert.
+
+When should the row have been deleted from cron_lock? immediately before 
+or sometime before?
+
+Did anything else happen around this time? (server restarts, moving 
+masters etc?)
+
+
+>
+> Thanks again,
+> --Richard
+>
+>
+>
+> On Wed, May 11, 2011 at 1:21 PM, Steve Singer <ssinger at ca.afilias.info
+> <mailto:ssinger at ca.afilias.info>> wrote:
+>
+>     On 11-05-11 04:18 PM, Richard Yen wrote:
+>      > Thanks Jan,
+>      >
+>      > I'll go ahead and do as recommended.  I was actually hoping that
+>     maybe
+>      > we could scour the sl_confirm and/or sl_event tables for clues,
+>     but if
+>      > you think it's not possible to find out what happened, I guess
+>     I'll just
+>      > delete the row and move on.
+>      >
+>      > Thanks again,
+>      > --Richard
+>
+>     If you can get a dump of sl_event and sl_confirm of both the master and
+>     the slave and send it to one of us we can take a look.
+>
+>     If you happen to have slon logs of the period it can't hurt to send
+>     those as well.
+>
+>
+>      >
+>      >
+>      >
+>      > On Wed, May 11, 2011 at 1:12 PM, Jan Wieck <JanWieck at yahoo.com
+>     <mailto:JanWieck at yahoo.com>
+>      > <mailto:JanWieck at yahoo.com <mailto:JanWieck at yahoo.com>>> wrote:
+>      >
+>      >     On 5/11/2011 2:56 PM, Richard Yen wrote:
+>      >
+>      >         Hello,
+>      >
+>      >         running slon version 2.0.6 here...
+>      >
+>      >
+>      >     This is the first time I've heard about an operation missing. I
+>      >     remember in some old version of PostgreSQL (8.1 I think) that we
+>      >     experienced duplicate sl_log rows due to index corruption. I was
+>      >     actually able to get a result set with a duplicate ctid. But
+>     never
+>      >     was a row missing so far.
+>      >
+>      >     To fix your replica(s), you should be able to manually DELETE the
+>      >     offending row using psql and doing
+>      >
+>      >         set session_replication_role to "replica";
+>      >         delete from cron_lock where ...
+>      >
+>      >     You need to be a superuser to do so. After that SET
+>     statement, the
+>      >     psql prompt will bypass the deny_access triggers and the DELETE
+>      >     statement will behave exactly as if it was coming from slon.
+>      >
+>      >     I assume that by now, a log switch has probably destroyed all
+>     traces
+>      >     that could be used to debug the problem further.
+>      >
+>      >
+>      >     Jan
+>      >
+>      >
+>      >
+>      >         Would anyone be able to help me track down why slony missed a
+>      >         DELETE?
+>      >           It seems that my replication is broken as the
+>     subscribers are
+>      >         trying
+>      >         to process an INSERT, but a primary key is being
+>     violated.  The
+>      >         origin
+>      >         machine does not have the offending tuple, which leads me
+>     to believe
+>      >         that a DELETE was processed, but wasn't propagated to the
+>      >         subscribers
+>      >
+>      >           From my origin machine:
+>      >         my_db=# select * from cron_lock;
+>      >                  id         |      lock_until_time
+>      >         -------------------+----------------------------
+>      >           anonymous_marking | 2011-05-11 11:40:02.456091
+>      >         (1 row)
+>      >
+>      >           From my subscriber machines:
+>      >         my_db=# select * from cron_lock ;
+>      >                  id         |      lock_until_time
+>      >         -------------------+----------------------------
+>      >           anonymous_marking | 2011-05-11 10:40:02.123721
+>      >         (1 row)
+>      >
+>      >           From the origin's sl_log_* tables:
+>      >         my_db=# select * from _sac_uk.sl_log_2 where log_tableid
+>     =190;
+>      >           log_origin |  log_txid  | log_tableid | log_actionseq |
+>      >         log_cmdtype |
+>      >                                                      log_cmddata
+>      >
+>     ------------+------------+-------------+---------------+-------------+-----------------------------------------------------------------------------------------------------
+>      >                    1 | 1369072247 |         190 |     239698918 | I
+>      >                |
+>      >         ("id","lock_until_time") values
+>     ('anonymous_marking','2011-05-11
+>      >         11:40:02.456091')
+>      >                    1 | 1369182578 |         190 |     239728797 | I
+>      >                |
+>      >         ("id","lock_until_time") values
+>      >         ('process_past_due_pm_assignments.pl
+>     <http://process_past_due_pm_assignments.pl>
+>      > <http://process_past_due_pm_assignments.pl>
+>      > <http://process_past_due_pm_assignments.pl>','2011-05-11
+>      >         11:00:23.944101')
+>      >
+>      >                    1 | 1369182587 |         190 |     239728806 | D
+>      >                |
+>      > "id"='process_past_due_pm_assignments.pl
+>     <http://process_past_due_pm_assignments.pl>
+>      > <http://process_past_due_pm_assignments.pl>
+>      > <http://process_past_due_pm_assignments.pl>'
+>      >
+>      >                    1 | 1369182626 |         190 |     239728830 | I
+>      >                |
+>      >         ("id","lock_until_time") values
+>      >         ('process_past_due_pm_assignments.pl
+>     <http://process_past_due_pm_assignments.pl>
+>      > <http://process_past_due_pm_assignments.pl>
+>      > <http://process_past_due_pm_assignments.pl>','2011-05-11
+>      >
+>      >         11:00:24.525818')          1 | 1369182671 |         190 |
+>      >         239728833
+>      >         | D           | "id"='process_past_due_pm_assignments.pl
+>     <http://process_past_due_pm_assignments.pl>
+>      > <http://process_past_due_pm_assignments.pl>
+>      > <http://process_past_due_pm_assignments.pl>'
+>      >
+>      >         (5 rows)
+>      >
+>      >         my_db=# select * from _sac_uk.sl_log_1 where log_tableid
+>     =190;
+>      >           log_origin |  log_txid  | log_tableid | log_actionseq |
+>      >         log_cmdtype |
+>      >                                             log_cmddata
+>      >
+>     ------------+------------+-------------+---------------+-------------+------------------------------------------------------------------------------------
+>      >                   1 | 1369393174 |         190 |     239789790 | D
+>      >              |
+>      > "id"='anonymous_marking'
+>      >                    1 | 1369403276 |         190 |     239793047 | I
+>      >                |
+>      >         ("id","lock_until_time") values
+>     ('anonymous_marking','2011-05-11
+>      >         12:40:02.970433')(2 rows)
+>      >
+>      >         On the subscriber logs:May 11 11:54:40 uk-sdb2
+>     postgres[30851]:
+>      >         [926-1]
+>      >         2011-05-11 11:54:40.755 PDT [user=slony,db=my_db
+>     10.1.0.149(47318)
+>      >         PID:30851 XID:1509911291]ERROR:  duplicate key value
+>     violates unique
+>      >         constraint "cron_lock_pkey"
+>      >         May 11 11:54:40 uk-sdb2 postgres[30851]: [926-2] 2011-05-11
+>      >         11:54:40.755
+>      >         PDT [user=slony,db=my_db 10.1.0.149(47318) PID:30851
+>      >         XID:1509911291]STATEMENT:  update only "public"."m_user" set
+>      > "last_login"='2011-05-11 10:40:02.429308' where "id"='2459339';
+>      >
+>      >         Any help would be much appreciated.
+>      >         --Richard
+>      >
+>      >
+>      >
+>      >         _______________________________________________
+>      >         Slony1-general mailing list
+>      > Slony1-general at lists.slony.info
+>     <mailto:Slony1-general at lists.slony.info>
+>      > <mailto:Slony1-general at lists.slony.info
+>     <mailto:Slony1-general at lists.slony.info>>
+>      > http://lists.slony.info/mailman/listinfo/slony1-general
+>      >
+>      >
+>      >
+>      >     --
+>      >     Anyone who trades liberty for security deserves neither
+>      >     liberty nor security. -- Benjamin Franklin
+>      >
+>      >
+>      >
+>      >
+>      > _______________________________________________
+>      > Slony1-general mailing list
+>      > Slony1-general at lists.slony.info
+>     <mailto:Slony1-general at lists.slony.info>
+>      > http://lists.slony.info/mailman/listinfo/slony1-general
+>
+>     _______________________________________________
+>     Slony1-general mailing list
+>     Slony1-general at lists.slony.info <mailto:Slony1-general at lists.slony.info>
+>     http://lists.slony.info/mailman/listinfo/slony1-general
+>
+>
+
+
+From dba at richyen.com  Wed May 11 14:43:06 2011
+From: dba at richyen.com (Richard Yen)
+Date: Wed, 11 May 2011 14:43:06 -0700
+Subject: [Slony1-general] Slony seems to have missed an event???
+In-Reply-To: <4DCAFEF4.6080707@ca.afilias.info>
+References: <BANLkTimZgFHj52Uu7OMEN1MoZt_8HPUQVQ@mail.gmail.com>
+	<4DCAEDB3.9070805@Yahoo.com>
+	<BANLkTimCWSpsXiSEtKg89m4SZduZ8Pwxuw@mail.gmail.com>
+	<4DCAEFCB.5000606@ca.afilias.info>
+	<BANLkTimxC1hubxJ74avtx2F4Y7p0pQtXFQ@mail.gmail.com>
+	<4DCAFEF4.6080707@ca.afilias.info>
+Message-ID: <BANLkTinL=R5U+a5gdB=t7eQOKdAm1RtOnQ@mail.gmail.com>
+
+On Wed, May 11, 2011 at 2:26 PM, Steve Singer <ssinger at ca.afilias.info>wrote:
+
+> On 11-05-11 04:29 PM, Richard Yen wrote:
+>
+>> Thanks Steve.  I've put the dumps for the master and my two slaves at
+>> http://richyen.com/slony/
+>>
+>
+> As Jan suspected there isn't really anything still left in the logs about
+> events from before the failed insert.
+>
+> When should the row have been deleted from cron_lock? immediately before or
+> sometime before?
+>
+The cron runs every hour, so there should have been a DELETE  at 10:40AM,
+just milliseconds before the INSERT.
+
+
+> Did anything else happen around this time? (server restarts, moving masters
+> etc?)
+>
+No, we didn't do anything during this time.  The previous action I performed
+on this cluster was at 10:04AM, which was to INSERT a row into another table
+in the database.  The sync_interval I have is 500ms, so I'm fairly confident
+that this would have been processed long before the offending INSERT to
+cron_lock arrived at 10:40AM.  The oldest entry in sl_even right now is
+'2011-05-11 10:40:02.354653'
+
+If we can't get any more clues, I'll go ahead an process the DELETE.  Thanks
+again for your help in trying to get to the bottom of this.
+--Richard
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20110511/f0461a44/attachment.htm 
+
+From dba at richyen.com  Wed May 11 15:23:12 2011
+From: dba at richyen.com (Richard Yen)
+Date: Wed, 11 May 2011 15:23:12 -0700
+Subject: [Slony1-general] Slony seems to have missed an event???
+In-Reply-To: <BANLkTinL=R5U+a5gdB=t7eQOKdAm1RtOnQ@mail.gmail.com>
+References: <BANLkTimZgFHj52Uu7OMEN1MoZt_8HPUQVQ@mail.gmail.com>
+	<4DCAEDB3.9070805@Yahoo.com>
+	<BANLkTimCWSpsXiSEtKg89m4SZduZ8Pwxuw@mail.gmail.com>
+	<4DCAEFCB.5000606@ca.afilias.info>
+	<BANLkTimxC1hubxJ74avtx2F4Y7p0pQtXFQ@mail.gmail.com>
+	<4DCAFEF4.6080707@ca.afilias.info>
+	<BANLkTinL=R5U+a5gdB=t7eQOKdAm1RtOnQ@mail.gmail.com>
+Message-ID: <BANLkTim_zG+ocnN9EODQGTJBgVDG+FZp=Q@mail.gmail.com>
+
+Steve, I've also noticed something even more bizarre.
+
+Fortunately, I have log_shipping set up on a third subscriber, and grepping
+through the files, I find the following:
+
+[root at asp-dbr1 log_staging]# for i in `ls`; do grep -Hn cron_lock $i; done
+slony1_log_3_00000000000011179582.sql:13:insert into "public"."cron_lock"
+("id","lock_until_time") values ('anonymous_marking','2011-05-11
+11:40:02.456091');
+slony1_log_3_00000000000011180903.sql:13:insert into "public"."cron_lock"
+("id","lock_until_time") values ('anonymous_marking','2011-05-11
+11:40:02.456091');
+slony1_log_3_00000000000011181730.sql:13:insert into "public"."cron_lock"
+("id","lock_until_time") values ('anonymous_marking','2011-05-11
+11:40:02.456091');
+slony1_log_3_00000000000011182005.sql:13:insert into "public"."cron_lock"
+("id","lock_until_time") values ('anonymous_marking','2011-05-11
+11:40:02.456091');
+slony1_log_3_00000000000011182466.sql:13:insert into "public"."cron_lock"
+("id","lock_until_time") values ('anonymous_marking','2011-05-11
+11:40:02.456091');
+slony1_log_3_00000000000011183270.sql:13:insert into "public"."cron_lock"
+("id","lock_until_time") values ('anonymous_marking','2011-05-11
+11:40:02.456091');
+
+[root at asp-dbr1 log_staging]# diff slony1_log_3_00000000000011179582.sql
+slony1_log_3_00000000000011180903.sql
+7c7
+< select "_sac_uk".archiveTracking_offline('11179582', '2011-05-11
+11:33:39.97637');
+---
+> select "_sac_uk".archiveTracking_offline('11180903', '2011-05-11
+11:46:11.544073');
+
+It seems that something has gone horribly wrong with replication such that
+it's beginning to even replay events.
+
+Does this look like an issue you may already be aware of?
+--Richard
+
+
+
+On Wed, May 11, 2011 at 2:43 PM, Richard Yen <dba at richyen.com> wrote:
+
+>
+>
+> On Wed, May 11, 2011 at 2:26 PM, Steve Singer <ssinger at ca.afilias.info>wrote:
+>
+>> On 11-05-11 04:29 PM, Richard Yen wrote:
+>>
+>>> Thanks Steve.  I've put the dumps for the master and my two slaves at
+>>> http://richyen.com/slony/
+>>>
+>>
+>> As Jan suspected there isn't really anything still left in the logs about
+>> events from before the failed insert.
+>>
+>> When should the row have been deleted from cron_lock? immediately before
+>> or sometime before?
+>>
+> The cron runs every hour, so there should have been a DELETE  at 10:40AM,
+> just milliseconds before the INSERT.
+>
+>
+>> Did anything else happen around this time? (server restarts, moving
+>> masters etc?)
+>>
+> No, we didn't do anything during this time.  The previous action I
+> performed on this cluster was at 10:04AM, which was to INSERT a row into
+> another table in the database.  The sync_interval I have is 500ms, so I'm
+> fairly confident that this would have been processed long before the
+> offending INSERT to cron_lock arrived at 10:40AM.  The oldest entry in
+> sl_even right now is '2011-05-11 10:40:02.354653'
+>
+> If we can't get any more clues, I'll go ahead an process the DELETE.
+>  Thanks again for your help in trying to get to the bottom of this.
+> --Richard
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20110511/65628e24/attachment.htm 
+
+From ssinger at ca.afilias.info  Wed May 11 20:38:55 2011
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Wed, 11 May 2011 23:38:55 -0400
+Subject: [Slony1-general] Slony seems to have missed an event???
+In-Reply-To: <BANLkTim_zG+ocnN9EODQGTJBgVDG+FZp=Q@mail.gmail.com>
+References: <BANLkTimZgFHj52Uu7OMEN1MoZt_8HPUQVQ@mail.gmail.com>	<4DCAEDB3.9070805@Yahoo.com>	<BANLkTimCWSpsXiSEtKg89m4SZduZ8Pwxuw@mail.gmail.com>	<4DCAEFCB.5000606@ca.afilias.info>	<BANLkTimxC1hubxJ74avtx2F4Y7p0pQtXFQ@mail.gmail.com>	<4DCAFEF4.6080707@ca.afilias.info>	<BANLkTinL=R5U+a5gdB=t7eQOKdAm1RtOnQ@mail.gmail.com>
+	<BANLkTim_zG+ocnN9EODQGTJBgVDG+FZp=Q@mail.gmail.com>
+Message-ID: <4DCB564F.7060901@ca.afilias.info>
+
+On 11-05-11 06:23 PM, Richard Yen wrote:
+> Steve, I've also noticed something even more bizarre.
+>
+> Fortunately, I have log_shipping set up on a third subscriber, and
+> grepping through the files, I find the following:
+>
+> [root at asp-dbr1 log_staging]# for i in `ls`; do grep -Hn cron_lock $i; done
+> slony1_log_3_00000000000011179582.sql:13:insert into
+> "public"."cron_lock" ("id","lock_until_time") values
+> ('anonymous_marking','2011-05-11 11:40:02.456091');
+
+
+> It seems that something has gone horribly wrong with replication such
+> that it's beginning to even replay events.
+>
+> Does this look like an issue you may already be aware of?
+
+I wonder if this is caused by
+1. Slon (on the slave) writes the SQL as part of the sync to the 
+logshipper file
+2. slon tries to apply the SQL to the slave
+3. The transaction roles back on the slave but doesn't delete anything 
+from the logshipping file
+4. Slon retires (goto step 1).
+
+I'll try to look at the log shipping code in slon to see if something 
+similar to the above is in fact the case.
+
+
+
+> --Richard
+>
+>
+>
+> On Wed, May 11, 2011 at 2:43 PM, Richard Yen <dba at richyen.com
+> <mailto:dba at richyen.com>> wrote:
+>
+>
+>
+>     On Wed, May 11, 2011 at 2:26 PM, Steve Singer
+>     <ssinger at ca.afilias.info <mailto:ssinger at ca.afilias.info>> wrote:
+>
+>         On 11-05-11 04:29 PM, Richard Yen wrote:
+>
+>             Thanks Steve.  I've put the dumps for the master and my two
+>             slaves at
+>             http://richyen.com/slony/
+>
+>
+>         As Jan suspected there isn't really anything still left in the
+>         logs about events from before the failed insert.
+>
+>         When should the row have been deleted from cron_lock?
+>         immediately before or sometime before?
+>
+>     The cron runs every hour, so there should have been a DELETE  at
+>     10:40AM, just milliseconds before the INSERT.
+>
+>         Did anything else happen around this time? (server restarts,
+>         moving masters etc?)
+>
+>     No, we didn't do anything during this time.  The previous action I
+>     performed on this cluster was at 10:04AM, which was to INSERT a row
+>     into another table in the database.  The sync_interval I have is
+>     500ms, so I'm fairly confident that this would have been processed
+>     long before the offending INSERT to cron_lock arrived at 10:40AM.
+>       The oldest entry in sl_even right now is '2011-05-11 10:40:02.354653'
+>
+>     If we can't get any more clues, I'll go ahead an process the DELETE.
+>       Thanks again for your help in trying to get to the bottom of this.
+>     --Richard
+>
+>
+
+
