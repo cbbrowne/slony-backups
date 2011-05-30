@@ -1424,3 +1424,226 @@ Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
 ------- You are receiving this mail because: -------
 You are on the CC list for the bug.
 
+From bugzilla-daemon at main.slony.info  Fri May 27 08:10:35 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Fri, 27 May 2011 08:10:35 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 216] New: monitor threads don't work on Win32
+Message-ID: <bug-216-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=216
+
+           Summary: monitor threads don't work on Win32
+           Product: Slony-I
+           Version: devel
+          Platform: PC
+        OS/Version: Linux
+            Status: NEW
+          Severity: enhancement
+          Priority: low
+         Component: slon
+        AssignedTo: slony1-bugs at lists.slony.info
+        ReportedBy: ssinger at ca.afilias.info
+                CC: slony1-bugs at lists.slony.info
+   Estimated Hours: 0.0
+
+
+With 2.1.0 beta2 on Win32.
+
+slon keeps complaining about errors inserting into the component_state table:
+
+ie 
+
+Invalid input syntax for timestamp with timezone: 2011-05-27 11:04:25Eastern
+Daylight Time
+
+The strftime function on Win32 returns the timezone as "Eastern Daylight Time" 
+which Postgresql does not seem to like.
+
+We could
+1) Get + pass second since 1970 converted to UTC to postgresql.
+2) Get the current timezone offset and pass that to postgresql ie (2011-05-27
+11:04:25+04)
+3) Find a way to convert the windows timezone names to a postgresql recognized
+abbreviation.
+
+I think 1 is the best option
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Fri May 27 08:25:19 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Fri, 27 May 2011 08:25:19 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 216] monitor threads don't work on Win32
+In-Reply-To: <bug-216-4@http.www.slony.info/bugzilla/>
+References: <bug-216-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110527152519.8F22F290D90@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=216
+
+Christopher Browne <cbbrowne at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         AssignedTo|slony1-bugs at lists.slony.inf |ssinger at ca.afilias.info
+                   |o                           |
+             Status|NEW                         |ASSIGNED
+
+--- Comment #1 from Christopher Browne <cbbrowne at ca.afilias.info> 2011-05-27 08:25:19 PDT ---
+I agree with your ordering; #1 seems most preferable, and #3 seems least
+undesirable.
+
+Does this involve using a #define to determine how the timestamp is generated? 
+I suspect so...
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Fri May 27 08:28:37 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Fri, 27 May 2011 08:28:37 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 216] monitor threads don't work on Win32
+In-Reply-To: <bug-216-4@http.www.slony.info/bugzilla/>
+References: <bug-216-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110527152837.DAC46290D85@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=216
+
+--- Comment #2 from Steve Singer <ssinger at ca.afilias.info> 2011-05-27 08:28:37 PDT ---
+(In reply to comment #1)
+> I agree with your ordering; #1 seems most preferable, and #3 seems least
+> undesirable.
+> 
+> Does this involve using a #define to determine how the timestamp is generated? 
+> I suspect so...
+
+If we are doing #1 we can do it on all platforms and avoid a #define (I think
+we can get the current time in seconds as a long from gmtime on all platforms)
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Fri May 27 12:33:04 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Fri, 27 May 2011 12:33:04 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 217] New: Changing the primary key of a
+ replicated table leads to trouble
+Message-ID: <bug-217-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=217
+
+           Summary: Changing the primary key of a replicated table leads
+                    to trouble
+           Product: Slony-I
+           Version: 2.0
+          Platform: PC
+        OS/Version: Linux
+            Status: NEW
+          Severity: enhancement
+          Priority: low
+         Component: trigger SPI
+        AssignedTo: slony1-bugs at lists.slony.info
+        ReportedBy: ssinger at ca.afilias.info
+                CC: slony1-bugs at lists.slony.info
+   Estimated Hours: 0.0
+
+
+This bug has been confirmed in slony 2.1.0 but I would expect it to show up in
+2.0.x but not 1.2 or earlier.
+
+Say you have a table test1
+create table test1 (
+       id1 int4 not null,
+       id2 int4 not null,
+       id3 int4,
+       data text
+);
+create unique index test1_pkey on test1(id1);
+
+insert into test1(id1,id2,id3,data) values (1,1,1,'test');
+insert into test1(id1,id2,id3,data) values (2,2,1,'test2');
+
+and you replicate it specifying the unique index pkey1 on the 'set add table..'
+line.
+
+Then you execute the following script through EXECUTE SCRIPT
+
+drop index test1_pkey;
+create unique index test1_pkey on test1(id1,id2);
+update test1 set id1=1;
+
+Then on the master you do 
+update test1 set data='bar' where id2=2
+
+The update matches 1 row on the master.  However when it runs on the slave
+slony thinks the primary key is (id1) so it only includes id1 in the where
+clause.   This means that two rows will be changed on the slave.
+
+The trigger definition arguments contains 'k' initially, and we have no way of
+updating it to 'kk',  nor does the trigger (today) have any way of knowing (at
+runtime) that the index has changed.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Fri May 27 13:31:22 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Fri, 27 May 2011 13:31:22 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 217] Changing the primary key of a replicated
+ table leads to trouble
+In-Reply-To: <bug-217-4@http.www.slony.info/bugzilla/>
+References: <bug-217-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110527203122.6239C290DB0@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=217
+
+--- Comment #1 from Christopher Browne <cbbrowne at ca.afilias.info> 2011-05-27 13:31:22 PDT ---
+I see that a test case for this has been added to HEAD...
+
+http://git.postgresql.org/gitweb?p=slony1-engine.git;a=commit;h=1ff9059f1a25ddc58e7ac729eb5c2ef822ede8cf
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Fri May 27 13:34:48 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Fri, 27 May 2011 13:34:48 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 217] Changing the primary key of a replicated
+ table leads to trouble
+In-Reply-To: <bug-217-4@http.www.slony.info/bugzilla/>
+References: <bug-217-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110527203448.AB623290D85@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=217
+
+--- Comment #2 from Christopher Browne <cbbrowne at ca.afilias.info> 2011-05-27 13:34:48 PDT ---
+A solution strategy for this may be to create a function that rummages through
+all replicated tables, checking to see if the triggers have 'kvvkvk' values
+that correspond to the primary key for each respective table, fixing that, if
+it should fail to match.
+
+Such a function would be run by EXECUTE SCRIPT, automatically.
+
+It could presumably also be run manually, against each node, if someone has
+decided to mess with the tables by hand, via psql.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
