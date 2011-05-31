@@ -1647,3 +1647,163 @@ Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
 You are on the CC list for the bug.
 You are the assignee for the bug.
 
+From bugzilla-daemon at main.slony.info  Mon May 30 07:29:01 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Mon, 30 May 2011 07:29:01 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 217] Changing the primary key of a replicated
+ table leads to trouble
+In-Reply-To: <bug-217-4@http.www.slony.info/bugzilla/>
+References: <bug-217-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110530142901.4C497290DB7@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=217
+
+Steve Singer <ssinger at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+           Priority|low                         |high
+           Severity|enhancement                 |critical
+
+--- Comment #3 from Steve Singer <ssinger at ca.afilias.info> 2011-05-30 07:29:01 PDT ---
+The following query will detect if the primary key/unique index has changed
+since the log trigger was created.
+
+select  tab_relname from _test.sl_table, pg_trigger where tab_reloid=tgrelid
+and
+_test.determineAttKindUnique(tab_nspname||'.'||tab_relname,tab_idxname)!=(string_to_array(tgargs::text,E'\\000'::text))[3];
+
+(where _test is the slony schema name, replace with your slony schema name)
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Mon May 30 08:08:05 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Mon, 30 May 2011 08:08:05 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 217] Changing the primary key of a replicated
+ table leads to trouble
+In-Reply-To: <bug-217-4@http.www.slony.info/bugzilla/>
+References: <bug-217-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110530150805.6498D290273@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=217
+
+--- Comment #4 from Steve Singer <ssinger at ca.afilias.info> 2011-05-30 08:08:05 PDT ---
+Created an attachment (id=100)
+ --> (http://www.slony.info/bugzilla/attachment.cgi?id=100)
+A function to recreate the trigger with the arguments for the new primary key
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Mon May 30 08:16:25 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Mon, 30 May 2011 08:16:25 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 217] Changing the primary key of a replicated
+ table leads to trouble
+In-Reply-To: <bug-217-4@http.www.slony.info/bugzilla/>
+References: <bug-217-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110530151625.28CA9290D90@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=217
+
+--- Comment #5 from Steve Singer <ssinger at ca.afilias.info> 2011-05-30 08:16:25 PDT ---
+I have now attached
+
+a) A query to detect tables with modified indexes/pkeys
+b) A function to drop the trigger and re-add it with the proper/new arguments
+(this takes an exclusive lock on the table)
+
+We can modify EXECUTE SCRIPT to check all replicated tables and fix them if
+they require fixing.  Another approach would be to have EXECUTE SCRIPT only fix
+tables that the current transaction already has an exclusive lock on.  If the
+SQL script submitted to execute script actually changed the primary
+key/constraint on the table then the transaction would already hold that lock. 
+ This condition would mean that EXECUTE SCRIPT still won't obtain any exclusive
+locks in addition to what the SQL script already has.  The downside is that if
+a table has the wrong trigger arguments prior to EXECUTE SCRIPT being called
+(ie the primary key was changed outside of EXECUTE SCRIPT and
+recreate_log_trigger wasn't called) then the error will remain.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Mon May 30 08:45:01 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Mon, 30 May 2011 08:45:01 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 217] Changing the primary key of a replicated
+ table leads to trouble
+In-Reply-To: <bug-217-4@http.www.slony.info/bugzilla/>
+References: <bug-217-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110530154501.29F0B290D8A@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=217
+
+--- Comment #6 from Christopher Browne <cbbrowne at ca.afilias.info> 2011-05-30 08:45:00 PDT ---
+There exist arguments both ways:
+
+1.  Only running this against tables that already have locks taken out means
+we're not escalating locks, and we can indeed be confident that any tables that
+are being modified in *THIS* DDL script will already be locked.
+
+2.  If we don't fix all tables that need fixing, then we're leaving a broken
+state in place.  The DDL request may demand some locks that it didn't already
+have, but only against tables that probably can't replicate properly.  Doesn't
+that seem like a high priority fix???
+
+I'd be inclined to fix all tables that need fixing, otherwise, replication
+remains broken for those tables.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Mon May 30 12:27:34 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Mon, 30 May 2011 12:27:34 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 217] Changing the primary key of a replicated
+ table leads to trouble
+In-Reply-To: <bug-217-4@http.www.slony.info/bugzilla/>
+References: <bug-217-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110530192735.0A651290D5D@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=217
+
+--- Comment #7 from Steve Singer <ssinger at ca.afilias.info> 2011-05-30 12:27:35 PDT ---
+(In reply to comment #3)
+> The following query will detect if the primary key/unique index has changed
+> since the log trigger was created.
+> 
+> select  tab_relname from _test.sl_table, pg_trigger where tab_reloid=tgrelid
+> and
+> _test.determineAttKindUnique(tab_nspname||'.'||tab_relname,tab_idxname)!=(string_to_array(tgargs::text,E'\\000'::text))[3];
+> 
+> (where _test is the slony schema name, replace with your slony schema name)
+
+A better version of the query is
+
+select  tab_relname from _test.sl_table, pg_trigger where tab_reloid=tgrelid
+and
+_test.determineAttKindUnique(tab_nspname||'.'||tab_relname,tab_idxname)!=(string_to_array(tgargs::text,E'\\000'::text))[3]
+and tgname='_test_logtrigger';
+
+(Note the and tgname='....' to only include the log triggers.)
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+

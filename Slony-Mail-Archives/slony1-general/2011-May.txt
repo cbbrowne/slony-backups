@@ -2556,3 +2556,164 @@ threads (monitor_threads=false)
 
 Test reports of both successful tests and issues are encouraged.
 
+From ssinger at ca.afilias.info  Mon May 30 11:45:36 2011
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Mon, 30 May 2011 14:45:36 -0400
+Subject: [Slony1-general] Changing primary keys with Slony 2.0.x
+Message-ID: <4DE3E5D0.6050703@ca.afilias.info>
+
+A few of the discussions with developers and users of other replication 
+systems at PGCon left me a bit confused about how some things work in 
+slony.  It turns changing a primary key (or unique index) of a 
+replicated table i Slony 2.0.x (where x <= 6) doesn't work very well.
+
+See
+http://www.slony.info/bugzilla/show_bug.cgi?id=217  for more details.
+
+If you are running Slony 2.0.x (x<=6) and have reason to:
+
+a) Add columns to the primary key/unique index that slony uses
+b) Drop columns from the primary key/unique index that slony uses
+c) Drop any columns from a table that come before the last column 
+involved in the primary key/unqiue index.
+
+Case c is best explained by an example:
+
+create table foo (
+  a int4,
+  b int4,
+  c int4 primary key,
+  d int4 );
+
+If foo is a table replicated by slony and at some later point you drop 
+column b then you will encounter this issue.
+
+
+Clusters that encounter this issue can have DELETE or UPDATE statements 
+improperly replicated to slaves.
+
+A query that can detect if your database suffers from this issue has 
+been attached to the bug along with
+a function to reconfigure slony to recognize the new primary key has 
+been attached to that bug.
+
+
+In future versions of Slony we are considering changing EXECUTE SCRIPT 
+to either
+
+a) After the script has been executed, check ALL replicated tables for 
+this condition and reconfigure those tables.  This will require EXECUTE 
+SCRIPT obtaining an exclusive lock on these tables.
+
+b) Have EXECUTE SCRIPT *only* fix the tables that the SQL script 
+obtained an exclusive lock on.
+
+Option (b)  has the benefit of fixing any tables with key modifications 
+done by the current script without locking any unexpected tables.  The 
+downside is that if your cluster had problem tables before (due to DDL 
+done outside of execute script that didn't call the recreate trigger 
+function) then you will still have that problem after calling an 
+unrelated execute script.
+
+
+I would appreciate feedback on which of option (a) or option (b) is 
+preferred.
+
+
+Steve
+
+From stephane.schildknecht at postgresql.fr  Tue May 31 00:37:19 2011
+From: stephane.schildknecht at postgresql.fr (=?ISO-8859-15?Q?=22St=E9phane_A=2E_Schildknecht=22?=)
+Date: Tue, 31 May 2011 09:37:19 +0200
+Subject: [Slony1-general] Changing primary keys with Slony 2.0.x
+In-Reply-To: <4DE3E5D0.6050703@ca.afilias.info>
+References: <4DE3E5D0.6050703@ca.afilias.info>
+Message-ID: <4DE49AAF.9090200@postgresql.fr>
+
+-----BEGIN PGP SIGNED MESSAGE-----
+Hash: SHA1
+
+Le 30/05/2011 20:45, Steve Singer a ?crit :
+> A few of the discussions with developers and users of other replication 
+> systems at PGCon left me a bit confused about how some things work in 
+> slony.  It turns changing a primary key (or unique index) of a 
+> replicated table i Slony 2.0.x (where x <= 6) doesn't work very well.
+> 
+> See
+> http://www.slony.info/bugzilla/show_bug.cgi?id=217  for more details.
+> 
+> If you are running Slony 2.0.x (x<=6) and have reason to:
+> 
+> a) Add columns to the primary key/unique index that slony uses
+> b) Drop columns from the primary key/unique index that slony uses
+> c) Drop any columns from a table that come before the last column 
+> involved in the primary key/unqiue index.
+> 
+> Case c is best explained by an example:
+> 
+> create table foo (
+>   a int4,
+>   b int4,
+>   c int4 primary key,
+>   d int4 );
+> 
+> If foo is a table replicated by slony and at some later point you drop 
+> column b then you will encounter this issue.
+> 
+> 
+> Clusters that encounter this issue can have DELETE or UPDATE statements 
+> improperly replicated to slaves.
+> 
+> A query that can detect if your database suffers from this issue has 
+> been attached to the bug along with
+> a function to reconfigure slony to recognize the new primary key has 
+> been attached to that bug.
+> 
+> 
+> In future versions of Slony we are considering changing EXECUTE SCRIPT 
+> to either
+> 
+> a) After the script has been executed, check ALL replicated tables for 
+> this condition and reconfigure those tables.  This will require EXECUTE 
+> SCRIPT obtaining an exclusive lock on these tables.
+> 
+> b) Have EXECUTE SCRIPT *only* fix the tables that the SQL script 
+> obtained an exclusive lock on.
+> 
+> Option (b)  has the benefit of fixing any tables with key modifications 
+> done by the current script without locking any unexpected tables.  The 
+> downside is that if your cluster had problem tables before (due to DDL 
+> done outside of execute script that didn't call the recreate trigger 
+> function) then you will still have that problem after calling an 
+> unrelated execute script.
+> 
+> 
+> I would appreciate feedback on which of option (a) or option (b) is 
+> preferred.
+
+I'd say option option b is more valuable, as it does not have extra locking
+side-effect.
+
+Is the downside of this option really a downside, as it has always been
+explained that all DDL has to be passed through an EXECUTE SCRIPT?
+I'm not sure you have to take that case into account. Or you'll have to adress
+also every mistake that could ever be done by the operator.
+
+BTW, we could think of a REPAIR_ALL_MISTAKE_I_HAVE_DONE_SO_FAR procedure ;-)
+which could reconfigure every table. But that should be a one shot maintenance
+script, I think.
+
+- -- 
+St?phane Schildknecht
+Loxodata
+Contact r?gional PostgreSQL
+
+-----BEGIN PGP SIGNATURE-----
+Version: GnuPG v1.4.10 (GNU/Linux)
+Comment: Using GnuPG with Mozilla - http://enigmail.mozdev.org/
+
+iEYEARECAAYFAk3kmq8ACgkQA+REPKWGI0GZTQCeIesdTRtrgnt/bLfLBtz8TLLi
+C7UAnjziIhCFtLzznNozQGzqya813y6U
+=hU76
+-----END PGP SIGNATURE-----
+
