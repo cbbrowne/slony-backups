@@ -270,3 +270,184 @@ Thanks
 Glyn
 
 
+From JanWieck at Yahoo.com  Thu Jun  9 06:14:49 2011
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Thu, 09 Jun 2011 09:14:49 -0400
+Subject: [Slony1-general] Support for EnterpriseDB version string?
+In-Reply-To: <4DDE0290.4020603@mark.mielke.cc>
+References: <4DDE0290.4020603@mark.mielke.cc>
+Message-ID: <4DF0C749.2010705@Yahoo.com>
+
+On 5/26/2011 3:34 AM, Mark Mielke wrote:
+> Hi all:
+>
+> I've attached a patch against Slony-I 2.0.4 that we are currently using
+> to allow our PostgreSQL 8.4.8 + Slony-I 2.0.4 work properly with
+> EnterpriseDB 8.4.7.20 + EnterpriseDB's version of Slony-I 2.0.4. Please
+> take a look and see whether you agree that this should be incorporated
+> up stream.
+
+After discussion with Chris and Steve I have committed this change to 
+2.0 STABLE as well as master (current 2.1 BETA). It seems safe enough.
+
+Greg's suggestion to just look for three numbers in the string involves 
+a bit more dramatic changes because that may require moving from 
+sscanf() to using regular expressions. A change we should consider for 
+2.2, but definitely nothing we want to back patch into 2.0.
+
+
+Jan
+
+
+>
+> It's a very trivial patch - but I guess it implies that Slony-I
+> introduces recognition of EnterpriseDB's build of PostgreSQL more
+> officially?
+>
+> I had a similar patch against Slony-I 2.0.6 that I can provide if this
+> patch file isn't good enough - but due to EnterpriseDB still
+> distributing Slony-I 2.0.4, we're version locked on Slony-I 2.0.4 for now...
+>
+> Thanks!
+>
+>
+>
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+
+
+-- 
+Anyone who trades liberty for security deserves neither
+liberty nor security. -- Benjamin Franklin
+
+From ssinger at ca.afilias.info  Thu Jun  9 06:26:05 2011
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Thu, 09 Jun 2011 09:26:05 -0400
+Subject: [Slony1-general] 2.0.6 Subscribe set errors
+In-Reply-To: <165449.30644.qm@web26004.mail.ukl.yahoo.com>
+References: <165449.30644.qm@web26004.mail.ukl.yahoo.com>
+Message-ID: <4DF0C9ED.302@ca.afilias.info>
+
+On 11-06-08 11:15 PM, Glyn Astill wrote:
+> Hi Guys,
+>
+> Just had an issue with subscribe set in 2.0.6.  From what I can see somehow slonik is passing parameters
+> to reshapesubscription in the wrong order, instead of (sub_set, sub_provider, sub_receiver) it seems to be
+> sending (sub_provider, sub_set, sub_receiver).  In turn that made slonik hang on me and borked my subscriptions.
+>
+
+Yes the parameters appear to be passed in the wrong order.
+
+I have created a bug for this and attached a patch
+http://bugs.slony.info/bugzilla/show_bug.cgi?id=220
+
+Once Jan or Chris looks over the patch I will commit this for 2.0.7 and 
+for the next 2.1 beta
+
+Thanks for the report
+
+> Here's what I submitted to slonik:
+>
+>      SUBSCRIBE SET ( ID = 1000, PROVIDER = 4, RECEIVER = 5, FORWARD = YES );
+>
+> Here's the error message I get from slonik:
+>
+>      Way5b:/pgsql/slony# slonik reshape.scr
+>      reshape.scr:17: ATTEMPT:  SUBSCRIBE SET
+>      reshape.scr:18: NOTICE:  subscribe set: omit_copy=f
+>      reshape.scr:18: NOTICE:  subscribe set: omit_copy=f
+>      CONTEXT:  SQL statement "SELECT  "_main_replication".subscribeSet_int( $1 ,  $2 ,  $3 ,  $4 ,  $5 )"
+>      PL/pgSQL function "subscribeset" line 77 at PERFORM
+>      reshape.scr:18: PGRES_FATAL_ERROR select "_main_replication".reshapeSubscription(4,1000,5); - ERROR:  insert or update on table "sl_subscribe" violates foreign key constraint "sl_subscribe-sl_path-ref"
+>      DETAIL:  Key (sub_provider,sub_receiver)=(1000,5) is not present in table "sl_path".
+>      CONTEXT:  SQL statement "update "_main_replication".sl_subscribe set sub_provider= $1  WHERE sub_set= $2  AND sub_receiver= $3 "
+>      PL/pgSQL function "reshapesubscription" line 11 at SQL statement
+>      error reshaping subscriber
+>
+> And here's what my reshapesubscription looks like:
+>
+>      CREATE OR REPLACE FUNCTION _main_replication.reshapesubscription(integer, integer, integer)
+>        RETURNS integer AS
+>      $BODY$
+>      declare
+>          p_sub_set            alias for $1;
+>          p_sub_provider        alias for $2;
+>          p_sub_receiver        alias for $3;
+>      begin
+>          -- ----
+>          -- Grab the central configuration lock
+>          -- ----
+>          lock table "_main_replication".sl_config_lock;
+>
+>          update "_main_replication".sl_subscribe set sub_provider=p_sub_provider
+>                 WHERE sub_set=p_sub_set AND sub_receiver=p_sub_receiver;
+>          if found then
+>             perform "_main_replication".RebuildListenEntries();
+>             notify "_main_replication_Restart";
+>          end if;
+>          return 0;
+>      end
+>      $BODY$
+>      LANGUAGE plpgsql VOLATILE;
+>
+> Looking in the slonik.c starting on on line 3541 I can see the following:
+>
+>                  slon_mkquery(&query,
+>                                           "select \"_%s\".reshapeSubscription(%d,%d,%d);",
+>                                           stmt->hdr.script->clustername,
+>                                           stmt->sub_provider,stmt->sub_setid,
+>                                           stmt->sub_receiver);
+>
+> Unless I'm going crazy (It is now 4am), that pretty much looks the wrong way around to me?
+>
+> Thanks
+> Glyn
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+
+
+From glynastill at yahoo.co.uk  Thu Jun  9 08:43:19 2011
+From: glynastill at yahoo.co.uk (Glyn Astill)
+Date: Thu, 9 Jun 2011 16:43:19 +0100 (BST)
+Subject: [Slony1-general] 2.0.6 Subscribe set errors
+In-Reply-To: <4DF0C9ED.302@ca.afilias.info>
+References: <165449.30644.qm@web26004.mail.ukl.yahoo.com>
+	<4DF0C9ED.302@ca.afilias.info>
+Message-ID: <582425.44838.qm@web26008.mail.ukl.yahoo.com>
+
+----- Original Message -----
+
+> From: Steve Singer <ssinger at ca.afilias.info>
+> To: Glyn Astill <glynastill at yahoo.co.uk>
+> Cc: slony <slony1-general at lists.slony.info>
+> Sent: Thursday, 9 June 2011, 14:26
+> Subject: Re: [Slony1-general] 2.0.6 Subscribe set errors
+> 
+> On 11-06-08 11:15 PM, Glyn Astill wrote:
+>>  Hi Guys,
+>> 
+>>  Just had an issue with subscribe set in 2.0.6.? From what I can see somehow 
+> slonik is passing parameters
+>>  to reshapesubscription in the wrong order, instead of (sub_set, 
+> sub_provider, sub_receiver) it seems to be
+>>  sending (sub_provider, sub_set, sub_receiver).? In turn that made slonik 
+> hang on me and borked my subscriptions.
+>> 
+> 
+> Yes the parameters appear to be passed in the wrong order.
+> 
+> I have created a bug for this and attached a patch
+> http://bugs.slony.info/bugzilla/show_bug.cgi?id=220
+> 
+> Once Jan or Chris looks over the patch I will commit this for 2.0.7 and 
+> for the next 2.1 beta
+> 
+
+Thanks Steve, I applied the change shortly after emailing the list last night/this morning and can confirm it appears to resolve the issue.
+

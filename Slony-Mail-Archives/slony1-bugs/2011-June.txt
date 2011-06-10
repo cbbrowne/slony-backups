@@ -424,3 +424,556 @@ Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
 You are on the CC list for the bug.
 You are the assignee for the bug.
 
+From bugzilla-daemon at main.slony.info  Thu Jun  9 06:20:07 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu,  9 Jun 2011 06:20:07 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 220] New: parameters to reshape subscription are
+ passed in the wrong order
+Message-ID: <bug-220-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=220
+
+           Summary: parameters to reshape subscription are passed in the
+                    wrong order
+           Product: Slony-I
+           Version: 2.0
+          Platform: PC
+        OS/Version: Linux
+            Status: NEW
+          Severity: enhancement
+          Priority: low
+         Component: slonik
+        AssignedTo: slony1-bugs at lists.slony.info
+        ReportedBy: ssinger at ca.afilias.info
+                CC: slony1-bugs at lists.slony.info
+   Estimated Hours: 0.0
+
+
+Bug report from Glyn Still
+--
+Hi Guys,
+
+Just had an issue with subscribe set in 2.0.6.  From what I can see somehow
+slonik is passing parameters 
+to reshapesubscription in the wrong order, instead of (sub_set, sub_provider,
+sub_receiver) it seems to be 
+sending (sub_provider, sub_set, sub_receiver).  In turn that made slonik hang
+on me and borked my subscriptions. 
+
+Here's what I submitted to slonik:
+
+    SUBSCRIBE SET ( ID = 1000, PROVIDER = 4, RECEIVER = 5, FORWARD = YES );
+
+Here's the error message I get from slonik:
+
+    Way5b:/pgsql/slony# slonik reshape.scr
+    reshape.scr:17: ATTEMPT:  SUBSCRIBE SET
+    reshape.scr:18: NOTICE:  subscribe set: omit_copy=f
+    reshape.scr:18: NOTICE:  subscribe set: omit_copy=f
+    CONTEXT:  SQL statement "SELECT  "_main_replication".subscribeSet_int( $1 ,
+ $2 ,  $3 ,  $4 ,  $5 )"
+    PL/pgSQL function "subscribeset" line 77 at PERFORM
+    reshape.scr:18: PGRES_FATAL_ERROR select
+"_main_replication".reshapeSubscription(4,1000,5); - ERROR:  insert or update
+on table "sl_subscribe" violates foreign key constraint
+"sl_subscribe-sl_path-ref"
+    DETAIL:  Key (sub_provider,sub_receiver)=(1000,5) is not present in table
+"sl_path".
+    CONTEXT:  SQL statement "update "_main_replication".sl_subscribe set
+sub_provider= $1  WHERE sub_set= $2  AND sub_receiver= $3 "
+    PL/pgSQL function "reshapesubscription" line 11 at SQL statement
+    error reshaping subscriber
+
+And here's what my reshapesubscription looks like:
+
+    CREATE OR REPLACE FUNCTION _main_replication.reshapesubscription(integer,
+integer, integer)
+      RETURNS integer AS
+    $BODY$
+    declare
+        p_sub_set            alias for $1;
+        p_sub_provider        alias for $2;
+        p_sub_receiver        alias for $3;
+    begin
+        -- ----
+        -- Grab the central configuration lock
+        -- ----
+        lock table "_main_replication".sl_config_lock;
+
+        update "_main_replication".sl_subscribe set sub_provider=p_sub_provider
+               WHERE sub_set=p_sub_set AND sub_receiver=p_sub_receiver;
+        if found then
+           perform "_main_replication".RebuildListenEntries();
+           notify "_main_replication_Restart";
+        end if;
+        return 0;
+    end
+    $BODY$
+    LANGUAGE plpgsql VOLATILE;
+
+Looking in the slonik.c starting on on line 3541 I can see the following:
+
+                slon_mkquery(&query,
+                                         "select
+\"_%s\".reshapeSubscription(%d,%d,%d);",
+                                         stmt->hdr.script->clustername,
+                                         stmt->sub_provider,stmt->sub_setid,
+                                         stmt->sub_receiver);
+
+Unless I'm going crazy (It is now 4am), that pretty much looks the wrong way
+around to me?
+
+Thanks
+Glyn
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Thu Jun  9 06:24:25 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu,  9 Jun 2011 06:24:25 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 220] parameters to reshape subscription are
+ passed in the wrong order
+In-Reply-To: <bug-220-4@http.www.slony.info/bugzilla/>
+References: <bug-220-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110609132425.98149290DB2@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=220
+
+--- Comment #1 from Steve Singer <ssinger at ca.afilias.info> 2011-06-09 06:24:25 PDT ---
+Created an attachment (id=106)
+ --> (http://www.slony.info/bugzilla/attachment.cgi?id=106)
+proposed fix
+
+Proposed fix.
+Will need to be applied against both master and REL_2_0_STABLE
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Thu Jun  9 08:27:55 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu,  9 Jun 2011 08:27:55 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 220] parameters to reshape subscription are
+ passed in the wrong order
+In-Reply-To: <bug-220-4@http.www.slony.info/bugzilla/>
+References: <bug-220-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110609152755.A822C29032D@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=220
+
+Christopher Browne <cbbrowne at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         AssignedTo|slony1-bugs at lists.slony.inf |ssinger at ca.afilias.info
+                   |o                           |
+             Status|NEW                         |ASSIGNED
+
+--- Comment #2 from Christopher Browne <cbbrowne at ca.afilias.info> 2011-06-09 08:27:55 PDT ---
++1 from me
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Thu Jun  9 09:38:42 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu,  9 Jun 2011 09:38:42 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 217] Changing the primary key of a replicated
+ table leads to trouble
+In-Reply-To: <bug-217-4@http.www.slony.info/bugzilla/>
+References: <bug-217-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110609163842.D014E290DB5@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=217
+
+Christopher Browne <cbbrowne at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         AssignedTo|slony1-bugs at lists.slony.inf |ssinger at ca.afilias.info
+                   |o                           |
+             Status|NEW                         |ASSIGNED
+
+--- Comment #12 from Christopher Browne <cbbrowne at ca.afilias.info> 2011-06-09 09:38:42 PDT ---
+It scares me that decoding trigger arguments required an SPI function.
+
+Actually, poking at pg_trigger suggests that the problem isn't at the Slony
+level...  I wonder who came up with the notion that the following was
+reasonable...
+
+slonyregress1 at localhost->  select tgnargs, tgargs from pg_trigger where tgnargs
+> 0;
+ tgnargs |                           tgargs
+---------+------------------------------------------------------------
+       3 | \x5f736c6f6e795f72656772657373310031006b00
+       1 | \x5f736c6f6e795f726567726573733100
+       3 | \x5f736c6f6e795f72656772657373310032006b00
+       1 | \x5f736c6f6e795f726567726573733100
+       3 | \x5f736c6f6e795f72656772657373310034006b00
+       1 | \x5f736c6f6e795f726567726573733100
+       3 | \x5f736c6f6e795f72656772657373310035006b76766b767676766b00
+       1 | \x5f736c6f6e795f726567726573733100
+(8 rows)
+
+I'd be inclined to feed some griping about this representation up to
+pgsql-hackers, in the hopes of getting something nicer, maybe?
+
+Not that that's too likely for 9.1 :-)
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Thu Jun  9 11:56:45 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu,  9 Jun 2011 11:56:45 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 218] slon often has to retry transactions due to
+ concurrent update in 2.1.0.b2
+In-Reply-To: <bug-218-4@http.www.slony.info/bugzilla/>
+References: <bug-218-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110609185645.64A27290DAD@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=218
+
+--- Comment #6 from Jan Wieck <janwieck at yahoo.com> 2011-06-09 11:56:45 PDT ---
+Does this actually solve the problem or does it only lower the chance of
+running into it?
+
+You remember we had the discussion about LOCK TABLE with respect to snapshots
+and realized, that LOCK TABLE statements at the beginning of a transaction
+actually cause the lock to be taken out BEFORE the transaction snapshot is
+generated. However, this LOCK TABLE cannot be done from inside of a stored
+procedure because SELECTing that SP causes the snapshot to be generated before
+the LOCK TABLE statement itself.
+
+My gut feeling is that we need slonik to do the LOCK on the sl_config_log at
+the beginning of any transaction, where it intends to call SPs that change the
+configuration.
+
+
+Jan
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Thu Jun  9 12:04:01 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu,  9 Jun 2011 12:04:01 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 217] Changing the primary key of a replicated
+ table leads to trouble
+In-Reply-To: <bug-217-4@http.www.slony.info/bugzilla/>
+References: <bug-217-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110609190401.C65B8290366@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=217
+
+--- Comment #13 from Jan Wieck <janwieck at yahoo.com> 2011-06-09 12:04:01 PDT ---
+Maybe we aren't supposed to query pg_trigger, but query the
+information_schema.triggers view instead?
+
+
+Jan
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Thu Jun  9 12:13:21 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu,  9 Jun 2011 12:13:21 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 218] slon often has to retry transactions due to
+ concurrent update in 2.1.0.b2
+In-Reply-To: <bug-218-4@http.www.slony.info/bugzilla/>
+References: <bug-218-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110609191321.401ED290C43@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=218
+
+Steve Singer <ssinger at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         Resolution|FIXED                       |
+             Status|RESOLVED                    |REOPENED
+
+--- Comment #7 from Steve Singer <ssinger at ca.afilias.info> 2011-06-09 12:13:21 PDT ---
+(In reply to comment #6)
+> Does this actually solve the problem or does it only lower the chance of
+> running into it?
+> 
+> You remember we had the discussion about LOCK TABLE with respect to snapshots
+> and realized, that LOCK TABLE statements at the beginning of a transaction
+> actually cause the lock to be taken out BEFORE the transaction snapshot is
+> generated. However, this LOCK TABLE cannot be done from inside of a stored
+> procedure because SELECTing that SP causes the snapshot to be generated before
+> the LOCK TABLE statement itself.
+> 
+> My gut feeling is that we need slonik to do the LOCK on the sl_config_log at
+> the beginning of any transaction, where it intends to call SPs that change the
+> configuration.
+> 
+> 
+> Jan
+
+I am inclined to agree with you.  I don't think we should be taking locks in
+the stored procedures, so slonik + a few parts of slon might need to do this.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Thu Jun  9 12:23:19 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu,  9 Jun 2011 12:23:19 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 218] slon often has to retry transactions due to
+ concurrent update in 2.1.0.b2
+In-Reply-To: <bug-218-4@http.www.slony.info/bugzilla/>
+References: <bug-218-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110609192319.31848290C43@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=218
+
+--- Comment #8 from Jan Wieck <janwieck at yahoo.com> 2011-06-09 12:23:19 PDT ---
+For what release would you consider that?
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Thu Jun  9 12:29:27 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu,  9 Jun 2011 12:29:27 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 218] slon often has to retry transactions due to
+ concurrent update in 2.1.0.b2
+In-Reply-To: <bug-218-4@http.www.slony.info/bugzilla/>
+References: <bug-218-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110609192927.AB6B0290C43@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=218
+
+--- Comment #9 from Steve Singer <ssinger at ca.afilias.info> 2011-06-09 12:29:27 PDT ---
+(In reply to comment #8)
+> For what release would you consider that?
+
+I see no reason to fix this in 2.0.
+
+In 2.1 we removed the 'lock sl_config_lock' at the top of the slon remote
+worker thread, we  did this because it could cause deadlocks with the
+sl_event_lock that slonik now obtains.   An argument can be made that since we
+are messing with locking behaviour in 2.1 anyway, and some of our chances
+exposed some of the behaviour issues under testing then we should properly fix
+the problem in 2.1 
+
+Thoughts?
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Thu Jun  9 12:37:07 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu,  9 Jun 2011 12:37:07 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 217] Changing the primary key of a replicated
+ table leads to trouble
+In-Reply-To: <bug-217-4@http.www.slony.info/bugzilla/>
+References: <bug-217-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110609193707.F22A1290C43@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=217
+
+--- Comment #14 from Steve Singer <ssinger at ca.afilias.info> 2011-06-09 12:37:08 PDT ---
+(In reply to comment #13)
+> Maybe we aren't supposed to query pg_trigger, but query the
+> information_schema.triggers view instead?
+> 
+> 
+> Jan
+
+The information schema gives rows like
+
+
+ EXECUTE PROCEDURE _slonyregress.logtrigger('_slonyregress', '1', 'k')
+
+
+we could
+
+a) build up a similar line in the query in the plpgsql function and do a text
+comparision
+b) Do regex matching to extract the 'k' from the arguments
+c) use the C function like the patch proposes.
+
+I dislike (b).  I'm not opposed to (a), but comparing just the trigger
+arguments seems more direct to me, even if it involves a C function to get them
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Thu Jun  9 13:42:28 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu,  9 Jun 2011 13:42:28 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 218] slon often has to retry transactions due to
+ concurrent update in 2.1.0.b2
+In-Reply-To: <bug-218-4@http.www.slony.info/bugzilla/>
+References: <bug-218-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110609204228.07D78290D89@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=218
+
+--- Comment #10 from Jan Wieck <janwieck at yahoo.com> 2011-06-09 13:42:28 PDT ---
+I agree. But that causes us to go back to development and out of BETA.
+
+
+Jan
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Thu Jun  9 13:52:25 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu,  9 Jun 2011 13:52:25 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 217] Changing the primary key of a replicated
+ table leads to trouble
+In-Reply-To: <bug-217-4@http.www.slony.info/bugzilla/>
+References: <bug-217-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110609205225.782F3290D89@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=217
+
+--- Comment #15 from Jan Wieck <janwieck at yahoo.com> 2011-06-09 13:52:25 PDT ---
+I would favor a). Although it will lead to a rather cryptic and non-intuitive
+behavior should the information_schema.triggers view ever change the
+representation (it didn't since 8.3 and I didn't bother checking earlier
+versions). What it would tell is that all the unlocked tables have changed but
+it won't do anything about it. Then again any regexp implementation could
+behave just the same, so there is not much to gain from that.
+
+
+Jan
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Thu Jun  9 14:28:30 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu,  9 Jun 2011 14:28:30 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 216] monitor threads don't work on Win32
+In-Reply-To: <bug-216-4@http.www.slony.info/bugzilla/>
+References: <bug-216-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110609212830.203DB290D89@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=216
+
+--- Comment #3 from Steve Singer <ssinger at ca.afilias.info> 2011-06-09 14:28:30 PDT ---
+Created an attachment (id=107)
+ --> (http://www.slony.info/bugzilla/attachment.cgi?id=107)
+patch to use time from epoch
+
+This patch should avoid the issue since slon will now send postgres the time
+in seconds from epoch.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Thu Jun  9 14:29:56 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu,  9 Jun 2011 14:29:56 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 217] Changing the primary key of a replicated
+ table leads to trouble
+In-Reply-To: <bug-217-4@http.www.slony.info/bugzilla/>
+References: <bug-217-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110609212956.4AF6D290D89@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=217
+
+--- Comment #16 from Christopher Browne <cbbrowne at ca.afilias.info> 2011-06-09 14:29:56 PDT ---
+(In reply to comment #15)
+> I would favor a). Although it will lead to a rather cryptic and non-intuitive
+> behavior should the information_schema.triggers view ever change the
+> representation (it didn't since 8.3 and I didn't bother checking earlier
+> versions). What it would tell is that all the unlocked tables have changed but
+> it won't do anything about it. Then again any regexp implementation could
+> behave just the same, so there is not much to gain from that.
+
+I suggest that if we guard ourselves by having a decent regression test, so
+that if the view changes, we're quite likely to notice, then yes, a) seems
+better to me.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Thu Jun  9 14:33:04 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu,  9 Jun 2011 14:33:04 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 218] slon often has to retry transactions due to
+ concurrent update in 2.1.0.b2
+In-Reply-To: <bug-218-4@http.www.slony.info/bugzilla/>
+References: <bug-218-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110609213304.A67BF290D8A@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=218
+
+Christopher Browne <cbbrowne at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         AssignedTo|ssinger at ca.afilias.info     |cbbrowne at ca.afilias.info
+
+--- Comment #11 from Christopher Browne <cbbrowne at ca.afilias.info> 2011-06-09 14:33:04 PDT ---
+I don't think this destroys "beta"; it should be a moderate amount of work to
+shift the locks on sl_config_lock into the first query run.
+
+I'll take a look at this.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Thu Jun  9 14:43:18 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu,  9 Jun 2011 14:43:18 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 218] slon often has to retry transactions due to
+ concurrent update in 2.1.0.b2
+In-Reply-To: <bug-218-4@http.www.slony.info/bugzilla/>
+References: <bug-218-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110609214318.9A64E290D89@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=218
+
+--- Comment #12 from Jan Wieck <janwieck at yahoo.com> 2011-06-09 14:43:18 PDT ---
+Attempting to LOCK and already locked table only wastes some CPU cycles, so
+doing it in a rather generic fashion would be OK, IMHO.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
