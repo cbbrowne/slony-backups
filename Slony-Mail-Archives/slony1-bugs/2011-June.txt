@@ -108,3 +108,319 @@ Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
 You are on the CC list for the bug.
 You are the assignee for the bug.
 
+From bugzilla-daemon at main.slony.info  Wed Jun  8 07:50:24 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed,  8 Jun 2011 07:50:24 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 219] New: truncate triggers in 9.1 don't load
+Message-ID: <bug-219-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=219
+
+           Summary: truncate triggers in 9.1 don't load
+           Product: Slony-I
+           Version: devel
+          Platform: PC
+        OS/Version: Linux
+            Status: NEW
+          Severity: enhancement
+          Priority: low
+         Component: trigger SPI
+        AssignedTo: slony1-bugs at lists.slony.info
+        ReportedBy: ssinger at ca.afilias.info
+                CC: slony1-bugs at lists.slony.info
+   Estimated Hours: 0.0
+
+
+Under postgresql 9.1 beta x (master sometime after beta 1)
+
+I see the following in my postgresql log
+
+WARNING:  This node is running PostgreSQL 8.3 - cannot apply TRUNCATE triggers
+CONTEXT:  SQL statement "SELECT "_slonyregress".add_truncate_triggers()"
+    PL/pgSQL function "upgradeschema" line 12 at PERFORM
+
+
+
+slonik seems to be defaulting to 8.3 behaviour when it can't recognize the
+version instead of 8.4
+
+see load_slony_functions in slonik.c
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Jun  8 07:57:54 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed,  8 Jun 2011 07:57:54 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 219] truncate triggers in 9.1 don't load
+In-Reply-To: <bug-219-4@http.www.slony.info/bugzilla/>
+References: <bug-219-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110608145755.00A37290D89@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=219
+
+--- Comment #1 from Steve Singer <ssinger at ca.afilias.info> 2011-06-08 07:57:54 PDT ---
+Created an attachment (id=103)
+ --> (http://www.slony.info/bugzilla/attachment.cgi?id=103)
+fix for bug 219
+
+This is a proposed fix for bug 219.
+
+The problem only applies to 2.1, REL_2_0_STABLE already seems to have the
+correct behaviour.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Jun  8 08:46:13 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed,  8 Jun 2011 08:46:13 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 218] slon often has to retry transactions due to
+ concurrent update in 2.1.0.b2
+In-Reply-To: <bug-218-4@http.www.slony.info/bugzilla/>
+References: <bug-218-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110608154613.6DA8B29032D@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=218
+
+--- Comment #1 from Steve Singer <ssinger at ca.afilias.info> 2011-06-08 08:46:13 PDT ---
+The following is an example from the postgresql query log that shows the issue.
+
+
+slon.remoteWorkerThread_3 slonyregress1 4def9413.2f41 0LOG:  statement: begin
+transaction; set transaction isolation level serializable; 
+
+slon.remoteWorkerThread_3 slonyregress1 4def9413.2f41 0LOG:  statement: select
+"_slonyregress".storePath_int(1, 3, 'dbname=slonyregress1 host=localhost
+port=9432 user=slony password=test', 10); insert into "_slonyregress".sl_event 
+   (ev_origin, ev_seqno, ev_timestamp,      ev_snapshot, ev_type , ev_data1,
+ev_data2, ev_data3, ev_data4    ) values ('3', '5000000001', '2011-06-08
+11:24:03.10834-04', '43245:43245:', 'STORE_PATH', '1', '3',
+'dbname=slonyregress1 host=localhost port=9432 user=slony password=test',
+'10'); insert into "_slonyregress".sl_confirm       (con_origin, con_received,
+con_seqno, con_timestamp)    values (3, 1, '5000000001', now()); commit
+transaction;
+
+slon.remoteWorkerThread_2 slonyregress1 4def9413.2f3e 0LOG:  statement: begin
+transaction; set transaction isolation level serializable; 
+
+slon.remoteWorkerThread_2 slonyregress1 4def9413.2f3e 0LOG:  statement: select
+"_slonyregress".storePath_int(1, 2, 'dbname=slonyregress1 host=localhost
+port=9432 user=slony password=test', 10); insert into "_slonyregress".sl_event 
+   (ev_origin, ev_seqno, ev_timestamp,      ev_snapshot, ev_type , ev_data1,
+ev_data2, ev_data3, ev_data4    ) values ('2', '5000000001', '2011-06-08
+11:24:03.018181-04', '43243:43243:', 'STORE_PATH', '1', '2',
+'dbname=slonyregress1 host=localhost port=9432 user=slony password=test',
+'10'); insert into "_slonyregress".sl_confirm      (con_origin, con_received,
+con_seqno, con_timestamp)    values (2, 1, '5000000001', now()); commit
+transaction;
+
+
+slon.remoteWorkerThread_2 slonyregress1 4def9413.2f3e 43258ERROR:  could not
+serialize access due to read/write dependencies among transactions
+slon.remoteWorkerThread_2 slonyregress1 4def9413.2f3e 43258DETAIL:  Cancelled
+on conflict out to pivot 43254, during read.
+slon.remoteWorkerThread_2 slonyregress1 4def9413.2f3e 43258HINT:  The
+transaction might succeed if retried.
+slon.remoteWorkerThread_2 slonyregress1 4def9413.2f3e 43258CONTEXT:  SQL
+statement "delete from "_slonyregress".sl_listen"
+slon.remoteWorkerThread_2 slonyregress1 4def9413.2f3e 43258STATEMENT:  select
+"_slonyregress".storePath_int(1, 2, 'dbname=slonyregress1 host=localhost
+port=9432 user=slony password=test', 10); insert into "_slonyregress".sl_event 
+   (ev_origin, ev_seqno, ev_timestamp,      ev_snapshot, ev_type , ev_data1,
+ev_data2, ev_data3, ev_data4    ) values ('2', '5000000001', '2011-06-08
+11:24:03.018181-04', '43243:43243:', 'STORE_PATH', '1', '2',
+'dbname=slonyregress1 host=localhost port=9432 user=slony password=test',
+'10'); insert into "_slonyregress".sl_confirm       (con_origin, con_received,
+con_seqno, con_timestamp)    values (2, 1, '5000000001', now()); commit
+transaction;
+slon.remoteWorkerThread_3 slonyregress1 4def9413.2f41 0LOG:  statement: select
+li_origin, li_provider from "_slonyregress".sl_listen where li_receiver = 1
+
+
+I am not sure why the lock table 'sl_config_lock' at the top of storePath_int
+isn't stopping this.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Jun  8 08:54:41 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed,  8 Jun 2011 08:54:41 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 218] slon often has to retry transactions due to
+ concurrent update in 2.1.0.b2
+In-Reply-To: <bug-218-4@http.www.slony.info/bugzilla/>
+References: <bug-218-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110608155441.8E0CC29032D@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=218
+
+--- Comment #2 from Steve Singer <ssinger at ca.afilias.info> 2011-06-08 08:54:41 PDT ---
+
+The answer to my previous question is in the PostgreSQL documentation for 'lock
+table'
+----------
+To achieve a similar effect when running a transaction at the Serializable
+isolation level, you have to execute the LOCK TABLE statement before executing
+any SELECT or data modification statement. A serializable transaction's view of
+data will be frozen when its first SELECT or data modification statement
+begins. A LOCK TABLE later in the transaction will still prevent concurrent
+writes ? but it won't ensure that what the transaction reads corresponds to the
+latest committed values. 
+-----------------
+
+We should move the lock table on sl_config_lock to be outside of the
+storePath_int call, similar to what we did for sl_event_lock.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Jun  8 10:15:18 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed,  8 Jun 2011 10:15:18 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 218] slon often has to retry transactions due to
+ concurrent update in 2.1.0.b2
+In-Reply-To: <bug-218-4@http.www.slony.info/bugzilla/>
+References: <bug-218-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110608171518.D764C290DAD@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=218
+
+--- Comment #3 from Steve Singer <ssinger at ca.afilias.info> 2011-06-08 10:15:18 PDT ---
+Created an attachment (id=104)
+ --> (http://www.slony.info/bugzilla/attachment.cgi?id=104)
+fix for bug 218
+
+Lock sl_config_lock before calling storePath_int
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Jun  8 11:55:44 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed,  8 Jun 2011 11:55:44 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 218] slon often has to retry transactions due to
+ concurrent update in 2.1.0.b2
+In-Reply-To: <bug-218-4@http.www.slony.info/bugzilla/>
+References: <bug-218-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110608185544.CB36D290D77@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=218
+
+Christopher Browne <cbbrowne at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         AssignedTo|slony1-bugs at lists.slony.inf |ssinger at ca.afilias.info
+                   |o                           |
+             Status|NEW                         |ASSIGNED
+
+--- Comment #4 from Christopher Browne <cbbrowne at ca.afilias.info> 2011-06-08 11:55:44 PDT ---
+Looks like a good change to me.
+
+I kicked off regression tests against an instance with this patch; tests are
+running fine thus far.
+
+If there's a particular test that tends to expose failures, it would be a fine
+thing to point out which one it is...
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Jun  8 13:58:20 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed,  8 Jun 2011 13:58:20 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 218] slon often has to retry transactions due to
+ concurrent update in 2.1.0.b2
+In-Reply-To: <bug-218-4@http.www.slony.info/bugzilla/>
+References: <bug-218-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110608205820.C1636290D92@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=218
+
+Steve Singer <ssinger at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         Resolution|                            |FIXED
+             Status|ASSIGNED                    |RESOLVED
+
+--- Comment #5 from Steve Singer <ssinger at ca.afilias.info> 2011-06-08 13:58:20 PDT ---
+Fixed in 2.1.0 for the next beta
+
+http://git.postgresql.org/gitweb?p=slony1-engine.git;a=commit;h=9f0ff6c21eb9f7493de01a4bda16f178e97c80aa
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Jun  8 14:11:53 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed,  8 Jun 2011 14:11:53 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 204] Failover to a non-direct subscriber fails
+In-Reply-To: <bug-204-4@http.www.slony.info/bugzilla/>
+References: <bug-204-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110608211153.E389D290DA8@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=204
+
+--- Comment #3 from Steve Singer <ssinger at ca.afilias.info> 2011-06-08 14:11:54 PDT ---
+Additional fixes that first fix didn't get rid of the problem
+
+in master
+http://git.postgresql.org/gitweb?p=slony1-engine.git;a=commit;h=e3313e04357e7c084c4e412c87fe47aa64dc0ea9
+
+in 2.0
+http://git.postgresql.org/gitweb?p=slony1-engine.git;a=commit;h=dadc17788c604175b07d03597a01160f7249b14d
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Jun  8 15:05:10 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed,  8 Jun 2011 15:05:10 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 217] Changing the primary key of a replicated
+ table leads to trouble
+In-Reply-To: <bug-217-4@http.www.slony.info/bugzilla/>
+References: <bug-217-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110608220510.40921290DB1@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=217
+
+--- Comment #11 from Christopher Browne <cbbrowne at ca.afilias.info> 2011-06-08 15:05:10 PDT ---
+Created an attachment (id=105)
+ --> (http://www.slony.info/bugzilla/attachment.cgi?id=105)
+Add PK test to the set of regression tests typically run
+
+Here's an additional patch to add in the additional regression test.
+
+FYI, it ran fine for me against 2.0, based on your branch, bug217_20.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
