@@ -1447,3 +1447,135 @@ Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
 You are on the CC list for the bug.
 You are the assignee for the bug.
 
+From bugzilla-daemon at main.slony.info  Mon Jun 20 07:14:31 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Mon, 20 Jun 2011 07:14:31 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 222] New: cleanup thread can lock out new
+ application connections
+Message-ID: <bug-222-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=222
+
+           Summary: cleanup thread can lock out new application
+                    connections
+           Product: Slony-I
+           Version: 2.0
+          Platform: PC
+        OS/Version: Linux
+            Status: NEW
+          Severity: enhancement
+          Priority: low
+         Component: trigger SPI
+        AssignedTo: slony1-bugs at lists.slony.info
+        ReportedBy: ssinger at ca.afilias.info
+                CC: slony1-bugs at lists.slony.info
+   Estimated Hours: 0.0
+
+
+We've had a report of the following scenario
+
+1.  A remote slon executes the log fetch query.  This transaction will obtain
+AccessShare locks on sl_log_1 and sl_log_2.    This transaction runs for a
+while (in the example we were sent this took an unusually long time due to
+network/WAN issues)
+
+2. The cleanupThread ones and determines  logswitch_finish() is ready to
+truncate a log table, ie sl_log_1.   The cleanup thread transaction blocks at
+the 'trucnate sl_log_1' command.  It is blocking waiting for the AccessShare
+lock to go away.
+
+3. A new connection to the database is started, this connection tries to insert
+into a replicated table.  The first time the log trigger runs it prepares
+prepared statements for inserting into both sl_log_1 and sl_log_2.  Preparing
+these requires a row exclusive lock on the table but this is stuck waiting for
+the cleanupThread to obtain (and then finish with) its lock.  
+
+This is only an issue if the connection in step (3) is a new connection, the
+actual row into sl_log_x will not be inserted into the table being truncated
+but because we prepare the statements ahead of time on both tables the system
+is at risk.
+
+The solution is to modify the log trigger to prepare the statements for
+sl_log_1 and sl_log_2 the first time THAT statement is needed.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Mon Jun 20 08:23:10 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Mon, 20 Jun 2011 08:23:10 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 222] cleanup thread can lock out new application
+	connections
+In-Reply-To: <bug-222-4@http.www.slony.info/bugzilla/>
+References: <bug-222-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110620152310.B8C0C29032D@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=222
+
+--- Comment #1 from Christopher Browne <cbbrowne at ca.afilias.info> 2011-06-20 08:23:10 PDT ---
+Step #2 shouldn't be able to be.
+
+If you look at logswitch_finish(), it doesn't request a "bare" truncate of
+sl_log_1 or sl_log_2.  When looking at using TRUNCATE (to replace the former
+DELETE requests), I was specifically concerned about this sort of case.
+
+It doesn't "bare truncate" - instead, it first attempts to grab an exclusive
+lock, with the NOWAIT option.
+
+If there's a competing lock on sl_log_1/sl_log_2, then the attempt to lock will
+fail, and you'll get an exception raised such as:
+
+    Slony-I: could not lock sl_log_2 - sl_log_2 not truncated
+
+It only submits a TRUNCATE request if that lock request succeeds, with the
+consequence that there's no reason for the transaction to block at the point of
+the TRUNCATE request.  At *that* point, it already has an exclusive lock on the
+table.
+
+Are you sure this is an issue in 2.0?  It might have been plausible in 1.2.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Mon Jun 20 08:27:50 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Mon, 20 Jun 2011 08:27:50 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 222] cleanup thread can lock out new application
+	connections
+In-Reply-To: <bug-222-4@http.www.slony.info/bugzilla/>
+References: <bug-222-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110620152750.1503029032D@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=222
+
+--- Comment #2 from Steve Singer <ssinger at ca.afilias.info> 2011-06-20 08:27:49 PDT ---
+Yes this was with 2.0.6 on a 8.3.x system.
+
+Try the following
+
+T1:
+begin;
+select * FROM _test.sl_log_1;
+select * FROM _test.sl_log_2;
+
+
+Next open a second connection
+begin;
+lock table _test.sl_log_2 in exclusive mode no wait;
+truncate table _test.sl_log_2; 
+
+
+The 'nowait' passes but the truncate doesn't.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
