@@ -1682,3 +1682,137 @@ Have a nice day,
 -- 
 Martijn van Oosterhout <kleptog at gmail.com> http://svana.org/kleptog/
 
+From ssinger_pg at sympatico.ca  Sun Jun 26 05:29:39 2011
+From: ssinger_pg at sympatico.ca (Steve Singer)
+Date: Sun, 26 Jun 2011 08:29:39 -0400
+Subject: [Slony1-general] How is replication of TRIGGERS handled under
+ Slony?
+In-Reply-To: <BANLkTi=jBrfR0pMC5+HUeym6JDRzTTz87w@mail.gmail.com>
+References: <BANLkTi=jBrfR0pMC5+HUeym6JDRzTTz87w@mail.gmail.com>
+Message-ID: <BLU0-SMTP41A46EE8695ABDB6277FE9AC540@phx.gbl>
+
+Aleksey Tsalolikhin wrote:
+> Hi.  I've been using Slony for a couple of years, and it's been working great;
+> but we've just started using triggers in our application, and when I manually
+> added the trigger on the subscriber side, next time I tried to recreate the
+> data set, it wouldn't go due to multiple triggers issue.  So how do I replicate
+> triggers, please?
+
+Did you attempt to add the trigger (or make any other DDL change) on the 
+subscriber outside of an EXECUTE SCRIPT block?
+
+In 1.2.x slony munges the catalog (pg_class) to disable triggers on the 
+subscriber nodes.
+
+The comments another poster gave you about ENABLE/DISALBE triggers 
+applies  to Slony 2.0 but might not work as you want for 1.2
+
+My understanding of a procedure for running triggers on the master with 
+1.2 is that you
+
+1. You write a SQL script that adds the triggers to the tables via 
+EXECUTE SCRIPT.
+2.  That script will then run on all nodes.
+3.  When you insert data into your table your trigger will run along 
+with the slony triggers.
+4.  When slony replicates the data to the slave this trigger will NOT 
+run (and nor will the slony trigger) becaues pg_class on the slave was 
+munged by slony to prevent triggers from running.
+
+If you want your trigger to also run on the slave you can accomplish 
+this in 1.2 with the SET ADD TRIGGER command.
+
+If you tried to add a trigger to a slave without using EXECUTE SCRIPT 
+(in 1.2) you might have corrupted your slave.
+
+This is all different in 2.0,  I would recommend also looking at how 2.0 
+  deals with this stuff and start planning an upgrade.
+
+> 
+> -----------------------------------------------------------------------------------------------------
+> 
+> This is the issue I ran into after manually adding the trigger on the
+> subscriber:
+> 
+> 
+> NOTICE: Slony-I: alterTableForReplication(): multiple instances of
+> trigger % on table %'',
+> 
+> This normally happens if you have a table that had a trigger attached
+> to it that replication hid due to this being a subscriber node, and
+> then you added a trigger by the same name back to replication. Now,
+> when trying to "fix up" triggers, those two triggers conflict.
+> 
+> The DDL script will keep running and rerunning, or the UNINSTALL NODE
+> will keep failing, until you drop the "visible" trigger, by hand, much
+> as you must have added it, by hand, earlier.
+> 
+> ERROR: Slony-I: Unable to disable triggers
+> 
+> This is the error that follows the "multiple triggers" problem.
+> ------------------------------------------------------------------------------------------------------------
+> 
+> Should I have added the trigger to replication using slonik?  If so,
+> how, please?  I looked
+> on the slony.info web site but did not find the answer.
+> 
+> I am using slony1-1.2.21
+> 
+> Thanks,
+> Aleksey
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+> 
+> 
+
+
+From yl.wang at invantest.com  Sun Jun 26 19:48:54 2011
+From: yl.wang at invantest.com (rodney)
+Date: Mon, 27 Jun 2011 10:48:54 +0800
+Subject: [Slony1-general] How many slaves can be supported by slony2.0?
+Message-ID: <1309142934.2589.4.camel@scadmin-ThinkPad-T61>
+
+Hi
+
+I'm trying to setup slony to replicate table from one master to around
+200 slaves. Can slony support slave number at this scale? It is observed
+in pgadmin that when I have 1 slave, the num of listener is 1. However,
+when I have 2 slaves, the num of listener increase from 1 to 4 (not 2).
+Will this be a problem if the slave go to a large number, like 100?
+
+
+Best regards
+
+-- 
+rodney <yl.wang at invantest.com>
+
+
+From guillaume at lelarge.info  Sun Jun 26 23:20:49 2011
+From: guillaume at lelarge.info (Guillaume Lelarge)
+Date: Mon, 27 Jun 2011 08:20:49 +0200
+Subject: [Slony1-general] How many slaves can be supported by slony2.0?
+In-Reply-To: <1309142934.2589.4.camel@scadmin-ThinkPad-T61>
+References: <1309142934.2589.4.camel@scadmin-ThinkPad-T61>
+Message-ID: <1309155649.2085.0.camel@laptop>
+
+On Mon, 2011-06-27 at 10:48 +0800, rodney wrote:
+> Hi
+> 
+> I'm trying to setup slony to replicate table from one master to around
+> 200 slaves. Can slony support slave number at this scale? It is observed
+> in pgadmin that when I have 1 slave, the num of listener is 1. However,
+> when I have 2 slaves, the num of listener increase from 1 to 4 (not 2).
+> Will this be a problem if the slave go to a large number, like 100?
+> 
+
+Yes, you usually don't go over 12 or 15 nodes with Slony.
+
+
+-- 
+Guillaume
+  http://blog.guillaume.lelarge.info
+  http://www.dalibo.com
+
+
