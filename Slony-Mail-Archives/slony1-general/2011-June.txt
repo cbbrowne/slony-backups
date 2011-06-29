@@ -1816,3 +1816,247 @@ Guillaume
   http://www.dalibo.com
 
 
+From ssinger at ca.afilias.info  Mon Jun 27 06:26:44 2011
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Mon, 27 Jun 2011 09:26:44 -0400
+Subject: [Slony1-general] How many slaves can be supported by slony2.0?
+In-Reply-To: <1309142934.2589.4.camel@scadmin-ThinkPad-T61>
+References: <1309142934.2589.4.camel@scadmin-ThinkPad-T61>
+Message-ID: <4E088514.30204@ca.afilias.info>
+
+On 11-06-26 10:48 PM, rodney wrote:
+> Hi
+>
+> I'm trying to setup slony to replicate table from one master to around
+> 200 slaves. Can slony support slave number at this scale? It is observed
+> in pgadmin that when I have 1 slave, the num of listener is 1. However,
+> when I have 2 slaves, the num of listener increase from 1 to 4 (not 2).
+> Will this be a problem if the slave go to a large number, like 100?
+>
+>
+> Best regards
+
+Running 200 slaves isn't a common use case for slony.
+That doesn't mean it won't work.  I know of at least one person who is 
+doing about 50 slaves, but I don't have details on the setup.
+
+If your going to try Slony with 200 slaves this would be my advice
+
+* Expect to encounter issues along the way, you will need to figure out 
+the best way to deploy and tune things
+
+* Slony supports the idea of cascaded subscribers.   You can have node 
+something like
+
+     1
+     |
+     V
+     2
+    / \
+   3   4
+
+so you can have a number of direct subscribers then feeding a number of 
+slaves.   Creating a layered network would probably work better than 
+having 50 or 100 subscribers off a single node.
+
+* Slony also supports something called 'log shipping' where the slon on 
+a slave generates .sql files that can then be applied to other nodes 
+downstream.  Since these other nodes are not technically part of the 
+slony cluster (they don't have paths, or slon daemons) you can 
+distribute the .sql files to as many machines as you want.  This might 
+work for you
+
+* In a slony cluster each node must confirm SYNC messages from EVERY 
+other node even when a direct path between them doesn't exist (this 
+explains  for the number of listeners you see in pgadmin).  At a 100 
+nodes there will be a lot of SYNC/confirm messages.  You will probably 
+have to increase the SYNC interval so you have fewer syncs going on.
+
+
+* If you try any of this let us know what works or doesn't
+
+Steve
+
+
+From greg at endpoint.com  Mon Jun 27 06:52:03 2011
+From: greg at endpoint.com (Greg Sabino Mullane)
+Date: Mon, 27 Jun 2011 09:52:03 -0400
+Subject: [Slony1-general] How many slaves can be supported by slony2.0?
+In-Reply-To: <1309142934.2589.4.camel@scadmin-ThinkPad-T61>
+References: <1309142934.2589.4.camel@scadmin-ThinkPad-T61>
+Message-ID: <20110627135203.GA3103@core.home>
+
+On Mon, Jun 27, 2011 at 10:48:54AM +0800, rodney wrote:
+> Hi
+> 
+> I'm trying to setup slony to replicate table from one master to around
+> 200 slaves. Can slony support slave number at this scale?
+
+As others have observed, no. Even cascading to that number may 
+be a challenge. You might want to step back and ask if you really 
+need that many slaves. Things like pgbouncer can help you scale 
+vertically and reduce the number of slaves (horizontal scaling) 
+you need.
+
+-- 
+Greg Sabino Mullane greg at endpoint.com
+End Point Corporation
+PGP Key: 0x14964AC8
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: not available
+Type: application/pgp-signature
+Size: 163 bytes
+Desc: not available
+Url : http://lists.slony.info/pipermail/slony1-general/attachments/20110627/e01c8789/attachment.pgp 
+
+From yl.wang at invantest.com  Mon Jun 27 18:27:11 2011
+From: yl.wang at invantest.com (rodney)
+Date: Tue, 28 Jun 2011 09:27:11 +0800
+Subject: [Slony1-general] How many slaves can be supported by slony2.0?
+In-Reply-To: <4E088514.30204@ca.afilias.info>
+References: <1309142934.2589.4.camel@scadmin-ThinkPad-T61>
+	<4E088514.30204@ca.afilias.info>
+Message-ID: <1309224431.2201.0.camel@scadmin-ThinkPad-T61>
+
+Steve
+
+I will try the log shipping and let you know.
+
+Thanks
+
+
+On Mon, 2011-06-27 at 09:26 -0400, Steve Singer wrote:
+> On 11-06-26 10:48 PM, rodney wrote:
+> > Hi
+> >
+> > I'm trying to setup slony to replicate table from one master to around
+> > 200 slaves. Can slony support slave number at this scale? It is observed
+> > in pgadmin that when I have 1 slave, the num of listener is 1. However,
+> > when I have 2 slaves, the num of listener increase from 1 to 4 (not 2).
+> > Will this be a problem if the slave go to a large number, like 100?
+> >
+> >
+> > Best regards
+> 
+> Running 200 slaves isn't a common use case for slony.
+> That doesn't mean it won't work.  I know of at least one person who is 
+> doing about 50 slaves, but I don't have details on the setup.
+> 
+> If your going to try Slony with 200 slaves this would be my advice
+> 
+> * Expect to encounter issues along the way, you will need to figure out 
+> the best way to deploy and tune things
+> 
+> * Slony supports the idea of cascaded subscribers.   You can have node 
+> something like
+> 
+>      1
+>      |
+>      V
+>      2
+>     / \
+>    3   4
+> 
+> so you can have a number of direct subscribers then feeding a number of 
+> slaves.   Creating a layered network would probably work better than 
+> having 50 or 100 subscribers off a single node.
+> 
+> * Slony also supports something called 'log shipping' where the slon on 
+> a slave generates .sql files that can then be applied to other nodes 
+> downstream.  Since these other nodes are not technically part of the 
+> slony cluster (they don't have paths, or slon daemons) you can 
+> distribute the .sql files to as many machines as you want.  This might 
+> work for you
+> 
+> * In a slony cluster each node must confirm SYNC messages from EVERY 
+> other node even when a direct path between them doesn't exist (this 
+> explains  for the number of listeners you see in pgadmin).  At a 100 
+> nodes there will be a lot of SYNC/confirm messages.  You will probably 
+> have to increase the SYNC interval so you have fewer syncs going on.
+> 
+> 
+> * If you try any of this let us know what works or doesn't
+> 
+> Steve
+> 
+
+-- 
+rodney <yl.wang at invantest.com>
+
+
+From yl.wang at invantest.com  Mon Jun 27 18:35:25 2011
+From: yl.wang at invantest.com (rodney)
+Date: Tue, 28 Jun 2011 09:35:25 +0800
+Subject: [Slony1-general] How many slaves can be supported by slony2.0?
+In-Reply-To: <4E088514.30204@ca.afilias.info>
+References: <1309142934.2589.4.camel@scadmin-ThinkPad-T61>
+	<4E088514.30204@ca.afilias.info>
+Message-ID: <1309224925.2201.3.camel@scadmin-ThinkPad-T61>
+
+After reading the log shipping document from
+http://slony.info/documentation/logshipping.html, find it not
+straightforward to configure. I'll just give up on this solution.
+
+Thanks.
+
+
+On Mon, 2011-06-27 at 09:26 -0400, Steve Singer wrote:
+> On 11-06-26 10:48 PM, rodney wrote:
+> > Hi
+> >
+> > I'm trying to setup slony to replicate table from one master to around
+> > 200 slaves. Can slony support slave number at this scale? It is observed
+> > in pgadmin that when I have 1 slave, the num of listener is 1. However,
+> > when I have 2 slaves, the num of listener increase from 1 to 4 (not 2).
+> > Will this be a problem if the slave go to a large number, like 100?
+> >
+> >
+> > Best regards
+> 
+> Running 200 slaves isn't a common use case for slony.
+> That doesn't mean it won't work.  I know of at least one person who is 
+> doing about 50 slaves, but I don't have details on the setup.
+> 
+> If your going to try Slony with 200 slaves this would be my advice
+> 
+> * Expect to encounter issues along the way, you will need to figure out 
+> the best way to deploy and tune things
+> 
+> * Slony supports the idea of cascaded subscribers.   You can have node 
+> something like
+> 
+>      1
+>      |
+>      V
+>      2
+>     / \
+>    3   4
+> 
+> so you can have a number of direct subscribers then feeding a number of 
+> slaves.   Creating a layered network would probably work better than 
+> having 50 or 100 subscribers off a single node.
+> 
+> * Slony also supports something called 'log shipping' where the slon on 
+> a slave generates .sql files that can then be applied to other nodes 
+> downstream.  Since these other nodes are not technically part of the 
+> slony cluster (they don't have paths, or slon daemons) you can 
+> distribute the .sql files to as many machines as you want.  This might 
+> work for you
+> 
+> * In a slony cluster each node must confirm SYNC messages from EVERY 
+> other node even when a direct path between them doesn't exist (this 
+> explains  for the number of listeners you see in pgadmin).  At a 100 
+> nodes there will be a lot of SYNC/confirm messages.  You will probably 
+> have to increase the SYNC interval so you have fewer syncs going on.
+> 
+> 
+> * If you try any of this let us know what works or doesn't
+> 
+> Steve
+> 
+
+-- 
+rodney <yl.wang at invantest.com>
+
+
