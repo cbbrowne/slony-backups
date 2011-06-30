@@ -2060,3 +2060,245 @@ On Mon, 2011-06-27 at 09:26 -0400, Steve Singer wrote:
 rodney <yl.wang at invantest.com>
 
 
+From jose.arthur at gmail.com  Tue Jun 28 14:37:07 2011
+From: jose.arthur at gmail.com (=?ISO-8859-1?Q?Jos=E9_Arthur_Benetasso_Villanova?=)
+Date: Tue, 28 Jun 2011 18:37:07 -0300
+Subject: [Slony1-general] Slony1-general Digest, Vol 52, Issue 13
+In-Reply-To: <mailman.1.1309287601.25781.slony1-general@lists.slony.info>
+References: <mailman.1.1309287601.25781.slony1-general@lists.slony.info>
+Message-ID: <BANLkTi=B0wJU8ep+n6rPV-dPeNcs9HDz5A@mail.gmail.com>
+
+Hi people.
+
+I have 52 nodes in a slony installation. I'll give you more information.
+
+First, I have few writes on that database, about 1 TPS, on the other hand,
+I've done some 20K rows updates and I've got a lag of 20 minutes. The
+database size is less than 10GB.
+
+This is a very simple database, only 3 tables and only 2 really importants.
+We implemented what Steve said, a cascade structure: one "forward-only"
+database on each DC, then it forwards to the real slaves or for others
+"forward-only" databases, something like this:
+
+MASTER
+|
+` DC1
+|  ` slave
+|  ...
+` DC2
+|  ` slave
+|  ...
+` DC3
+|  ` slave
+   ...
+
+Other rule that we implemented: no more than 8 nodes on each forward-only
+node, so, we have 3 or 4 tree depth to real slaves.
+
+We didn't measure too much how much bandwitch we use, because we know that
+we have light database traffic, but it's very important to check that.
+
+On Tue, Jun 28, 2011 at 4:00 PM, <slony1-general-request at lists.slony.info>wrote:
+
+> Send Slony1-general mailing list submissions to
+>        slony1-general at lists.slony.info
+>
+> To subscribe or unsubscribe via the World Wide Web, visit
+>        http://lists.slony.info/mailman/listinfo/slony1-general
+> or, via email, send a message with subject or body 'help' to
+>        slony1-general-request at lists.slony.info
+>
+> You can reach the person managing the list at
+>        slony1-general-owner at lists.slony.info
+>
+> When replying, please edit your Subject line so it is more specific
+> than "Re: Contents of Slony1-general digest..."
+>
+>
+> Today's Topics:
+>
+>   1. Re: How many slaves can be supported by slony2.0? (rodney)
+>   2. Re: How many slaves can be supported by slony2.0? (rodney)
+>
+>
+> ----------------------------------------------------------------------
+>
+> Message: 1
+> Date: Tue, 28 Jun 2011 09:27:11 +0800
+> From: rodney <yl.wang at invantest.com>
+> Subject: Re: [Slony1-general] How many slaves can be supported by
+>        slony2.0?
+> To: Steve Singer <ssinger at ca.afilias.info>
+> Cc: slony1-support <slony1-general at lists.slony.info>
+> Message-ID: <1309224431.2201.0.camel at scadmin-ThinkPad-T61>
+> Content-Type: text/plain; charset="UTF-8"
+>
+> Steve
+>
+> I will try the log shipping and let you know.
+>
+> Thanks
+>
+>
+> On Mon, 2011-06-27 at 09:26 -0400, Steve Singer wrote:
+> > On 11-06-26 10:48 PM, rodney wrote:
+> > > Hi
+> > >
+> > > I'm trying to setup slony to replicate table from one master to around
+> > > 200 slaves. Can slony support slave number at this scale? It is
+> observed
+> > > in pgadmin that when I have 1 slave, the num of listener is 1. However,
+> > > when I have 2 slaves, the num of listener increase from 1 to 4 (not 2).
+> > > Will this be a problem if the slave go to a large number, like 100?
+> > >
+> > >
+> > > Best regards
+> >
+> > Running 200 slaves isn't a common use case for slony.
+> > That doesn't mean it won't work.  I know of at least one person who is
+> > doing about 50 slaves, but I don't have details on the setup.
+> >
+> > If your going to try Slony with 200 slaves this would be my advice
+> >
+> > * Expect to encounter issues along the way, you will need to figure out
+> > the best way to deploy and tune things
+> >
+> > * Slony supports the idea of cascaded subscribers.   You can have node
+> > something like
+> >
+> >      1
+> >      |
+> >      V
+> >      2
+> >     / \
+> >    3   4
+> >
+> > so you can have a number of direct subscribers then feeding a number of
+> > slaves.   Creating a layered network would probably work better than
+> > having 50 or 100 subscribers off a single node.
+> >
+> > * Slony also supports something called 'log shipping' where the slon on
+> > a slave generates .sql files that can then be applied to other nodes
+> > downstream.  Since these other nodes are not technically part of the
+> > slony cluster (they don't have paths, or slon daemons) you can
+> > distribute the .sql files to as many machines as you want.  This might
+> > work for you
+> >
+> > * In a slony cluster each node must confirm SYNC messages from EVERY
+> > other node even when a direct path between them doesn't exist (this
+> > explains  for the number of listeners you see in pgadmin).  At a 100
+> > nodes there will be a lot of SYNC/confirm messages.  You will probably
+> > have to increase the SYNC interval so you have fewer syncs going on.
+> >
+> >
+> > * If you try any of this let us know what works or doesn't
+> >
+> > Steve
+> >
+>
+> --
+> rodney <yl.wang at invantest.com>
+>
+>
+>
+> ------------------------------
+>
+> Message: 2
+> Date: Tue, 28 Jun 2011 09:35:25 +0800
+> From: rodney <yl.wang at invantest.com>
+> Subject: Re: [Slony1-general] How many slaves can be supported by
+>        slony2.0?
+> To: Steve Singer <ssinger at ca.afilias.info>
+> Cc: slony1-support <slony1-general at lists.slony.info>
+> Message-ID: <1309224925.2201.3.camel at scadmin-ThinkPad-T61>
+> Content-Type: text/plain; charset="UTF-8"
+>
+> After reading the log shipping document from
+> http://slony.info/documentation/logshipping.html, find it not
+> straightforward to configure. I'll just give up on this solution.
+>
+> Thanks.
+>
+>
+> On Mon, 2011-06-27 at 09:26 -0400, Steve Singer wrote:
+> > On 11-06-26 10:48 PM, rodney wrote:
+> > > Hi
+> > >
+> > > I'm trying to setup slony to replicate table from one master to around
+> > > 200 slaves. Can slony support slave number at this scale? It is
+> observed
+> > > in pgadmin that when I have 1 slave, the num of listener is 1. However,
+> > > when I have 2 slaves, the num of listener increase from 1 to 4 (not 2).
+> > > Will this be a problem if the slave go to a large number, like 100?
+> > >
+> > >
+> > > Best regards
+> >
+> > Running 200 slaves isn't a common use case for slony.
+> > That doesn't mean it won't work.  I know of at least one person who is
+> > doing about 50 slaves, but I don't have details on the setup.
+> >
+> > If your going to try Slony with 200 slaves this would be my advice
+> >
+> > * Expect to encounter issues along the way, you will need to figure out
+> > the best way to deploy and tune things
+> >
+> > * Slony supports the idea of cascaded subscribers.   You can have node
+> > something like
+> >
+> >      1
+> >      |
+> >      V
+> >      2
+> >     / \
+> >    3   4
+> >
+> > so you can have a number of direct subscribers then feeding a number of
+> > slaves.   Creating a layered network would probably work better than
+> > having 50 or 100 subscribers off a single node.
+> >
+> > * Slony also supports something called 'log shipping' where the slon on
+> > a slave generates .sql files that can then be applied to other nodes
+> > downstream.  Since these other nodes are not technically part of the
+> > slony cluster (they don't have paths, or slon daemons) you can
+> > distribute the .sql files to as many machines as you want.  This might
+> > work for you
+> >
+> > * In a slony cluster each node must confirm SYNC messages from EVERY
+> > other node even when a direct path between them doesn't exist (this
+> > explains  for the number of listeners you see in pgadmin).  At a 100
+> > nodes there will be a lot of SYNC/confirm messages.  You will probably
+> > have to increase the SYNC interval so you have fewer syncs going on.
+> >
+> >
+> > * If you try any of this let us know what works or doesn't
+> >
+> > Steve
+> >
+>
+> --
+> rodney <yl.wang at invantest.com>
+>
+>
+>
+> ------------------------------
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+>
+>
+> End of Slony1-general Digest, Vol 52, Issue 13
+> **********************************************
+>
+
+
+
+-- 
+Jos? Arthur Benetasso Villanova
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20110628/2376a6e2/attachment.htm 
+
