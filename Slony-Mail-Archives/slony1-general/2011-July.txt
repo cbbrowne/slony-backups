@@ -1209,3 +1209,251 @@ On Thu, Jul 14, 2011 at 4:33 AM, Daniel Kahn Gillmor
 node. as long as your data is still in your master you should not lose
 anything.
 
+From mu at forsa.de  Tue Jul 19 09:03:36 2011
+From: mu at forsa.de (marmu)
+Date: Tue, 19 Jul 2011 09:03:36 -0700 (PDT)
+Subject: [Slony1-general] Is it possible to add slony to an existing DB
+ (imported from old-slony-server)?
+Message-ID: <32092506.post@talk.nabble.com>
+
+
+Hi guys,
+
+gotta ask here for advice, after asking on IRC. My college told me he set up
+slony on an existing DB. Now I am trying to copy 2 DBs from our old server
+to new hardware. I already imported the globals, the structure and the data
+from the old server. Is it even possible to get slony working on this new
+machine now?
+replication is local between to DBs for now. slony won't work:
+
+fquest-b1:/etc/slony-I # /etc/init.d/slony-I_fquest_master start
+fquest-b1:/etc/slony-I # cat  /var/log/slony-I/master_fquest.log
+-->...
+-->2011-07-08 16:57:57 CESTERROR  Slony-I schema version is 2.0.5
+-->2011-07-08 16:57:57 CESTERROR  please upgrade Slony-I schema to version
+2.0.6
+-->...
+
+/etc/slony-I/slonik < upgradeslony
+<stdin>:6: PGRES_FATAL_ERROR select
+"_catimaster".getLocalNodeId('_catimaster'); - ERROR:  schema "_catimaster"
+does not exist
+<stdin>:6: database specified in <stdin>:4 reports no_id -1
+
+
+then I started again looking at the tutorial (2.1.2. Preparing the
+Databases) and thought the following might help...:
+"createdb -O $PGBENCHUSER -h $MASTERHOST $MASTERDBNAME"
+
+but of course it leads to the following error:
+-->ERROR:  database "catimaster" already exists
+
+yes, it exists...
+
+what now, do I really have to start from scratch? I kind IRC user in #slony
+told me this is the way to go:
+...
+a) you have to drop slony schema from server B ( thats of no use )
+b) create another db, where you will replicate on the same server in your
+case
+c) install slony from scratch..
+d) init db
+
+and ya... after init node.. you would need to do create set and set add
+table too..
+
+e) store node
+f) store path
+g) start the slons and subscribe
+
+schema you get from pg_dump is of no use...
+when you do init node ... it will get created again..
+...
+
+Any help is highly appreciated, since I am new to slony. Thanks a lot in
+advance.
+
+Cheers,
+Marcus
+
+-- 
+View this message in context: http://old.nabble.com/Is-it-possible-to-add-slony-to-an-existing-DB-%28imported-from-old-slony-server%29--tp32092506p32092506.html
+Sent from the Slony-I -- General mailing list archive at Nabble.com.
+
+
+From stephane.schildknecht at postgresql.fr  Tue Jul 19 11:29:18 2011
+From: stephane.schildknecht at postgresql.fr (=?ISO-8859-15?Q?=22St=E9phane_A=2E_Schildknecht=22?=)
+Date: Tue, 19 Jul 2011 20:29:18 +0200
+Subject: [Slony1-general] Is it possible to add slony to an existing DB
+ (imported from old-slony-server)?
+In-Reply-To: <32092506.post@talk.nabble.com>
+References: <32092506.post@talk.nabble.com>
+Message-ID: <4E25CCFE.7020002@postgresql.fr>
+
+-----BEGIN PGP SIGNED MESSAGE-----
+Hash: SHA1
+
+Le 19/07/2011 18:03, marmu a ?crit :
+> 
+> Hi guys,
+> 
+> gotta ask here for advice, after asking on IRC. My college told me he set up
+> slony on an existing DB. Now I am trying to copy 2 DBs from our old server
+> to new hardware. I already imported the globals, the structure and the data
+> from the old server. Is it even possible to get slony working on this new
+> machine now?
+> replication is local between to DBs for now. slony won't work:
+> 
+> fquest-b1:/etc/slony-I # /etc/init.d/slony-I_fquest_master start
+> fquest-b1:/etc/slony-I # cat  /var/log/slony-I/master_fquest.log
+> -->...
+> -->2011-07-08 16:57:57 CESTERROR  Slony-I schema version is 2.0.5
+> -->2011-07-08 16:57:57 CESTERROR  please upgrade Slony-I schema to version
+> 2.0.6
+> -->...
+> 
+> /etc/slony-I/slonik < upgradeslony
+> <stdin>:6: PGRES_FATAL_ERROR select
+> "_catimaster".getLocalNodeId('_catimaster'); - ERROR:  schema "_catimaster"
+> does not exist
+> <stdin>:6: database specified in <stdin>:4 reports no_id -1
+> 
+> 
+> then I started again looking at the tutorial (2.1.2. Preparing the
+> Databases) and thought the following might help...:
+> "createdb -O $PGBENCHUSER -h $MASTERHOST $MASTERDBNAME"
+> 
+> but of course it leads to the following error:
+> -->ERROR:  database "catimaster" already exists
+> 
+> yes, it exists...
+> 
+> what now, do I really have to start from scratch? I kind IRC user in #slony
+> told me this is the way to go:
+> ...
+> a) you have to drop slony schema from server B ( thats of no use )
+> b) create another db, where you will replicate on the same server in your
+> case
+> c) install slony from scratch..
+> d) init db
+> 
+> and ya... after init node.. you would need to do create set and set add
+> table too..
+> 
+> e) store node
+> f) store path
+> g) start the slons and subscribe
+> 
+> schema you get from pg_dump is of no use...
+> when you do init node ... it will get created again..
+> ...
+
+> 
+> Any help is highly appreciated, since I am new to slony. Thanks a lot in
+> advance.
+
+Hi,
+
+Seems like you are confusing between slony schema and db schema.
+
+First error (slony schema version) indicates you need to have the same *slony*
+version on every node.
+2.0.6, I guess.
+
+To sum up, could you tell us how you settled your nodes ?
+pg_dump should do the trick, but you have to drop the slony schema after
+restoring the dump.
+
+If you want to restart with slony schema included in the dump, you may try with
+the repair config facility :
+http://www.slony.info/documentation/stmtrepairconfig.html
+
+Regards,
+
+
+- -- 
+St?phane Schildknecht
+Loxodata
+Contact r?gional PostgreSQL
+
+-----BEGIN PGP SIGNATURE-----
+Version: GnuPG v1.4.10 (GNU/Linux)
+Comment: Using GnuPG with Mozilla - http://enigmail.mozdev.org/
+
+iEYEARECAAYFAk4lzP4ACgkQA+REPKWGI0F2uwCghtEgpEXIhAxl/Isk9Q9sA4/n
+LjAAoLNg4qlUxyl1kTB/ASyO7QeCjVPN
+=6Z3/
+-----END PGP SIGNATURE-----
+
+From dkg at fifthhorseman.net  Tue Jul 19 15:11:31 2011
+From: dkg at fifthhorseman.net (Daniel Kahn Gillmor)
+Date: Wed, 20 Jul 2011 00:11:31 +0200
+Subject: [Slony1-general] node cleanup and restart
+In-Reply-To: <CANp-+Rz=PUUq99ruUpq1ciRQBHxFXjgyvpxx+LkRBd8YwCzpzg@mail.gmail.com>
+References: <4E1E5574.8080008@fifthhorseman.net>	<CANp-+RzY2fd6z-=CV0BW+Woxwqq8YxS-Nd06DjnOxhV=vOrLzQ@mail.gmail.com>
+	<CANp-+Rz=PUUq99ruUpq1ciRQBHxFXjgyvpxx+LkRBd8YwCzpzg@mail.gmail.com>
+Message-ID: <4E260113.6000806@fifthhorseman.net>
+
+Hi Juan--
+
+Thanks for the reply!
+
+On 07/18/2011 11:25 AM, Juan Antonio de los Palotes Machado wrote:
+>    try to remove the slony schemas by hand and then recreating the
+> node. as long as your data is still in your master you should not lose
+> anything.
+
+When you say "remove the schemas by hand", do you mean psql, or slonik
+commands?
+
+Ultimately (guided by stevenSn on #slony on irc.freenode.net), i used
+slonik commands to drop the nodes that weren't replicating properly, and
+then repeated the store node commands for those nodes.
+
+Then i was able to store node, and things got synced up properly.
+
+Unfortunately, i don't know for certain how i got into that nasty state.
+ It may have been by trying to drop a node while it was attempting to
+sync or something.  But i'm not sure :/
+
+If i figure out more, i'll report back here.
+
+	--dkg
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: signature.asc
+Type: application/pgp-signature
+Size: 1030 bytes
+Desc: OpenPGP digital signature
+Url : http://lists.slony.info/pipermail/slony1-general/attachments/20110720/628d55ea/attachment.pgp 
+
+From j.a.palotes.machado at gmail.com  Wed Jul 20 00:50:24 2011
+From: j.a.palotes.machado at gmail.com (Juan Antonio de los Palotes Machado)
+Date: Wed, 20 Jul 2011 09:50:24 +0200
+Subject: [Slony1-general] node cleanup and restart
+In-Reply-To: <4E260113.6000806@fifthhorseman.net>
+References: <4E1E5574.8080008@fifthhorseman.net>
+	<CANp-+RzY2fd6z-=CV0BW+Woxwqq8YxS-Nd06DjnOxhV=vOrLzQ@mail.gmail.com>
+	<CANp-+Rz=PUUq99ruUpq1ciRQBHxFXjgyvpxx+LkRBd8YwCzpzg@mail.gmail.com>
+	<4E260113.6000806@fifthhorseman.net>
+Message-ID: <CANp-+RyzZxnO7TupiTYhwb2PQcRbQNofAaT8Z=avepzKyt-HNw@mail.gmail.com>
+
+On Wed, Jul 20, 2011 at 12:11 AM, Daniel Kahn Gillmor
+<dkg at fifthhorseman.net> wrote:
+> On 07/18/2011 11:25 AM, Juan Antonio de los Palotes Machado wrote:
+>> ? ?try to remove the slony schemas by hand and then recreating the
+>> node. as long as your data is still in your master you should not lose
+>> anything.
+>
+> When you say "remove the schemas by hand", do you mean psql, or slonik
+> commands?
+
+    psql
+
+> Ultimately (guided by stevenSn on #slony on irc.freenode.net), i used
+> slonik commands to drop the nodes that weren't replicating properly, and
+> then repeated the store node commands for those nodes.
+
+    aha, interesting. how?
+
