@@ -1457,3 +1457,231 @@ On Wed, Jul 20, 2011 at 12:11 AM, Daniel Kahn Gillmor
 
     aha, interesting. how?
 
+From mu at forsa.de  Thu Jul 21 04:52:32 2011
+From: mu at forsa.de (marmu)
+Date: Thu, 21 Jul 2011 04:52:32 -0700 (PDT)
+Subject: [Slony1-general] Is it possible to add slony to an existing DB
+ (imported from old-slony-server)?
+In-Reply-To: <4E25CCFE.7020002@postgresql.fr>
+References: <32092506.post@talk.nabble.com> <4E25CCFE.7020002@postgresql.fr>
+Message-ID: <32106787.post@talk.nabble.com>
+
+
+Hello Guys,
+
+at first, thanks St?phane for your input. But after getting some more errors
+and not finding any suitable solutions, I already started from scratch. I
+dropped both databases and did the following acording to the slony
+documentation:
+http://pastebin.com/RTJ5c4kY
+
+The problem now is as follows (extract from the pastebin above): 
+...
+fquest-b1:/etc/slony-I # pgbench -i -s 1 -U $PGBENCHUSER -h $MASTERHOST
+$MASTERDBNAME
+NOTICE:  table "pgbench_branches" does not exist, skipping
+NOTICE:  table "pgbench_tellers" does not exist, skipping
+NOTICE:  table "pgbench_accounts" does not exist, skipping
+NOTICE:  table "pgbench_history" does not exist, skipping
+...
+fquest-b1:/etc/slony-I # psql -U $PGBENCHUSER -h localhost -d $MASTERDBNAME
+-c "begin; alter table
+history add column id serial; update history set id =
+nextval('history_id_seq'); alter table history add primary key(id);
+commit"
+ERROR:  relation "history" does not exist
+
+Why isn't the relation "history" created? Any ideas? I am really stuck here.
+Thanks again in advance.
+
+Cheers, 
+Marcus
+
+
+
+&quot;St?phane A. Schildknecht&quot;-3 wrote:
+> 
+> -----BEGIN PGP SIGNED MESSAGE-----
+> Hash: SHA1
+> 
+> Le 19/07/2011 18:03, marmu a ?crit :
+>> 
+>> Hi guys,
+>> 
+>> gotta ask here for advice, after asking on IRC. My college told me he set
+>> up
+>> slony on an existing DB. Now I am trying to copy 2 DBs from our old
+>> server
+>> to new hardware. I already imported the globals, the structure and the
+>> data
+>> from the old server. Is it even possible to get slony working on this new
+>> machine now?
+>> replication is local between to DBs for now. slony won't work:
+>> 
+>> fquest-b1:/etc/slony-I # /etc/init.d/slony-I_fquest_master start
+>> fquest-b1:/etc/slony-I # cat  /var/log/slony-I/master_fquest.log
+>> -->...
+>> -->2011-07-08 16:57:57 CESTERROR  Slony-I schema version is 2.0.5
+>> -->2011-07-08 16:57:57 CESTERROR  please upgrade Slony-I schema to
+>> version
+>> 2.0.6
+>> -->...
+>> 
+>> /etc/slony-I/slonik < upgradeslony
+>> <stdin>:6: PGRES_FATAL_ERROR select
+>> "_catimaster".getLocalNodeId('_catimaster'); - ERROR:  schema
+>> "_catimaster"
+>> does not exist
+>> <stdin>:6: database specified in <stdin>:4 reports no_id -1
+>> 
+>> 
+>> then I started again looking at the tutorial (2.1.2. Preparing the
+>> Databases) and thought the following might help...:
+>> "createdb -O $PGBENCHUSER -h $MASTERHOST $MASTERDBNAME"
+>> 
+>> but of course it leads to the following error:
+>> -->ERROR:  database "catimaster" already exists
+>> 
+>> yes, it exists...
+>> 
+>> what now, do I really have to start from scratch? I kind IRC user in
+>> #slony
+>> told me this is the way to go:
+>> ...
+>> a) you have to drop slony schema from server B ( thats of no use )
+>> b) create another db, where you will replicate on the same server in your
+>> case
+>> c) install slony from scratch..
+>> d) init db
+>> 
+>> and ya... after init node.. you would need to do create set and set add
+>> table too..
+>> 
+>> e) store node
+>> f) store path
+>> g) start the slons and subscribe
+>> 
+>> schema you get from pg_dump is of no use...
+>> when you do init node ... it will get created again..
+>> ...
+> 
+>> 
+>> Any help is highly appreciated, since I am new to slony. Thanks a lot in
+>> advance.
+> 
+> Hi,
+> 
+> Seems like you are confusing between slony schema and db schema.
+> 
+> First error (slony schema version) indicates you need to have the same
+> *slony*
+> version on every node.
+> 2.0.6, I guess.
+> 
+> To sum up, could you tell us how you settled your nodes ?
+> pg_dump should do the trick, but you have to drop the slony schema after
+> restoring the dump.
+> 
+> If you want to restart with slony schema included in the dump, you may try
+> with
+> the repair config facility :
+> http://www.slony.info/documentation/stmtrepairconfig.html
+> 
+> Regards,
+> 
+> 
+> - -- 
+> St?phane Schildknecht
+> Loxodata
+> Contact r?gional PostgreSQL
+> 
+> -----BEGIN PGP SIGNATURE-----
+> Version: GnuPG v1.4.10 (GNU/Linux)
+> Comment: Using GnuPG with Mozilla - http://enigmail.mozdev.org/
+> 
+> iEYEARECAAYFAk4lzP4ACgkQA+REPKWGI0F2uwCghtEgpEXIhAxl/Isk9Q9sA4/n
+> LjAAoLNg4qlUxyl1kTB/ASyO7QeCjVPN
+> =6Z3/
+> -----END PGP SIGNATURE-----
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+> 
+> 
+
+-- 
+View this message in context: http://old.nabble.com/Is-it-possible-to-add-slony-to-an-existing-DB-%28imported-from-old-slony-server%29--tp32092506p32106787.html
+Sent from the Slony-I -- General mailing list archive at Nabble.com.
+
+
+From guillaume at lelarge.info  Thu Jul 21 09:48:19 2011
+From: guillaume at lelarge.info (Guillaume Lelarge)
+Date: Thu, 21 Jul 2011 18:48:19 +0200
+Subject: [Slony1-general] Is it possible to add slony to an existing DB
+ (imported from old-slony-server)?
+In-Reply-To: <32106787.post@talk.nabble.com>
+References: <32092506.post@talk.nabble.com> <4E25CCFE.7020002@postgresql.fr>
+	<32106787.post@talk.nabble.com>
+Message-ID: <1311266899.2018.68.camel@laptop>
+
+On Thu, 2011-07-21 at 04:52 -0700, marmu wrote:
+> Hello Guys,
+> 
+> at first, thanks St?phane for your input. But after getting some more errors
+> and not finding any suitable solutions, I already started from scratch. I
+> dropped both databases and did the following acording to the slony
+> documentation:
+> http://pastebin.com/RTJ5c4kY
+> 
+> The problem now is as follows (extract from the pastebin above): 
+> ...
+> fquest-b1:/etc/slony-I # pgbench -i -s 1 -U $PGBENCHUSER -h $MASTERHOST
+> $MASTERDBNAME
+> NOTICE:  table "pgbench_branches" does not exist, skipping
+> NOTICE:  table "pgbench_tellers" does not exist, skipping
+> NOTICE:  table "pgbench_accounts" does not exist, skipping
+> NOTICE:  table "pgbench_history" does not exist, skipping
+> ...
+> fquest-b1:/etc/slony-I # psql -U $PGBENCHUSER -h localhost -d $MASTERDBNAME
+> -c "begin; alter table
+> history add column id serial; update history set id =
+> nextval('history_id_seq'); alter table history add primary key(id);
+> commit"
+> ERROR:  relation "history" does not exist
+> 
+> Why isn't the relation "history" created? Any ideas? I am really stuck here.
+> Thanks again in advance.
+> 
+
+Because its name is not history but pgbench_history. And ditto for the
+sequence.
+
+
+-- 
+Guillaume
+  http://blog.guillaume.lelarge.info
+  http://www.dalibo.com
+
+
+From scott.marlowe at gmail.com  Thu Jul 21 10:07:19 2011
+From: scott.marlowe at gmail.com (Scott Marlowe)
+Date: Thu, 21 Jul 2011 11:07:19 -0600
+Subject: [Slony1-general] Is it possible to add slony to an existing DB
+ (imported from old-slony-server)?
+In-Reply-To: <1311266899.2018.68.camel@laptop>
+References: <32092506.post@talk.nabble.com> <4E25CCFE.7020002@postgresql.fr>
+	<32106787.post@talk.nabble.com> <1311266899.2018.68.camel@laptop>
+Message-ID: <CAOR=d=3cAQ1ooErNEEnpw0z53-2G9DUJhjLtBrOsGUwsF85CsA@mail.gmail.com>
+
+On Thu, Jul 21, 2011 at 10:48 AM, Guillaume Lelarge
+<guillaume at lelarge.info> wrote:
+>
+> Because its name is not history but pgbench_history. And ditto for the
+> sequence.
+
+Note that in older PG versions, pgbench just make a history table etc.
+ To make sure it didn't stomp on a user table named history that was
+changed a few versions back.  Guess it's time to update that slony
+testing doco.
+

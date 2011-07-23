@@ -1308,3 +1308,82 @@ Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
 You are on the CC list for the bug.
 You are the assignee for the bug.
 
+From bugzilla-daemon at main.slony.info  Thu Jul 21 20:28:00 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu, 21 Jul 2011 20:28:00 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 226] New: When the cleanupEvent was called,
+ the slon worker process restarted
+Message-ID: <bug-226-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=226
+
+           Summary: When the cleanupEvent was called, the slon worker
+                    process restarted
+           Product: Slony-I
+           Version: devel
+          Platform: PC
+        OS/Version: Linux
+            Status: NEW
+          Severity: normal
+          Priority: low
+         Component: slon
+        AssignedTo: slony1-bugs at lists.slony.info
+        ReportedBy: hirano.hiroyuki at oss.ntt.co.jp
+                CC: slony1-bugs at lists.slony.info
+   Estimated Hours: 0.0
+
+
+I'm testing Slony-I 2.1.0b3.
+
+When the cleanupEvent was called, the slon worker process restarted
+with the following messages:
+-----
+2011-07-19 15:22:00 JST FATAL  cleanupThread: "begin;lock table
+"_replication".sl_config_lock;select "_replication".cleanupEvent('10
+minutes'::interval);commit;" -
+2011-07-19 15:22:00 JST CONFIG slon: child terminated signal: 9; pid: 2911,
+current worker pid: 2911
+2011-07-19 15:22:00 JST  CONFIG slon: restart of worker in 10 seconds
+-----
+
+This might be regression.
+
+
+In cleanupThred_main, the query is multi-statement:
+  ----
+    slon_mkquery(&query_baseclean,
+                 "begin;"
+                 "lock table %s.sl_config_lock;"
+                 "select %s.cleanupEvent('%s'::interval);"
+                 "commit;",
+                 rtcfg_namespace,
+                 rtcfg_namespace,
+                 cleanup_interval
+        );
+  ----
+
+Then, PQresultStatus would not return "PGRES_TUPLES_OK" but
+"PGRES_COMMAND_OK", falling into error handling:
+  ----
+        if (PQresultStatus(res) != PGRES_TUPLES_OK)
+        {
+            slon_log(SLON_FATAL,
+                     "cleanupThread: \"%s\" - %s",
+                  dstring_data(&query_baseclean), PQresultErrorMessage(res));
+            PQclear(res);
+            slon_retry();
+            break;
+  ----
+
+
+Thoughts?
+
+NTT OSS Center
+  Hiroyuki Hirano
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
