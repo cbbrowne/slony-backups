@@ -1853,3 +1853,251 @@ Slony configuration needs to account for the new names.  Nobody
 updated the documentation, so I have done so.
    <http://git.postgresql.org/gitweb/?p=slony1-engine.git;a=commit;h=928300d1fc0078d2e980aa3f601c351c12495d8a>
 
+From JanWieck at Yahoo.com  Sat Jul 23 07:49:52 2011
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Sat, 23 Jul 2011 10:49:52 -0400
+Subject: [Slony1-general] postgres 8.4, slony 1.2.20, FETCH LOG
+In-Reply-To: <CANfbgba4yZyAoCLF8sY=tg-d8gNfLU_aW14JOkCeMerM_G51=w@mail.gmail.com>
+References: <9F2DDBC1199E7C47B8A3B2CCCDD1E62008EE559085@VA3DIAXVS341.RED001.local>
+	<CANfbgba4yZyAoCLF8sY=tg-d8gNfLU_aW14JOkCeMerM_G51=w@mail.gmail.com>
+Message-ID: <4E2ADF90.8070109@Yahoo.com>
+
+On 7/14/2011 3:50 PM, Christopher Browne wrote:
+> On Thu, Jul 14, 2011 at 2:54 PM, Frank McGeough
+> <Frank.Mcgeough at vocalocity.com>  wrote:
+>>  I have a 3 server cluster with slow replication currently. I believe it is because a very large transaction (>  1,000,000 rows) yielded a low of dead tuples in the slony log tables. I see a lot index bloat in the slony tables - sl_seqlog has a index_ratio of 68.65, for example. sl_confirm is 78.
+>>
+>>  Could I run
+>>
+>>  cluster sl_seqlog using sl_seqlog;
+>>
+>>  and help this situation?
+>
+> Yep, that should be helpful.
+>
+> In version 2.0, we changed strategy for sl_seqlog, so that it only
+> collects values when sequences actually change, so it should be
+> expected to churn a whole lot less.
+
+We also identified a problem with large backlog in the selection from 
+sl_log_n. This has been fixed in the upcoming 2.1 but not yet been 
+backported into 2.0.
+
+
+Jan
+
+-- 
+Anyone who trades liberty for security deserves neither
+liberty nor security. -- Benjamin Franklin
+
+From mu at forsa.de  Fri Jul 22 10:44:51 2011
+From: mu at forsa.de (marmu)
+Date: Fri, 22 Jul 2011 10:44:51 -0700 (PDT)
+Subject: [Slony1-general] Is it possible to add slony to an existing DB
+ (imported from old-slony-server)?
+In-Reply-To: <CANfbgbbJu6Z4OQT_wq=Nq4Ypk2ar6vpPXyWpB7CaEyt1B=afDw@mail.gmail.com>
+References: <32092506.post@talk.nabble.com> <4E25CCFE.7020002@postgresql.fr>
+	<32106787.post@talk.nabble.com> <1311266899.2018.68.camel@laptop>
+	<32116280.post@talk.nabble.com>
+	<CANfbgbbJu6Z4OQT_wq=Nq4Ypk2ar6vpPXyWpB7CaEyt1B=afDw@mail.gmail.com>
+Message-ID: <32117157.post@talk.nabble.com>
+
+
+Hello Christopher,
+
+thanks a lot for replying. Of course this is a configuration issue and the
+user (me) is the source of all evil. But I am really new to slony and
+therefore I am asking a lot. 
+
+One thing that bothers me is that the old server I am trying to "copy" runs
+slony and everything works as expected. But I can't find any of the
+mentioned tables there, like "history" or "pgbench_history" etc.
+
+On the new server there were "pgbench_history", "pgbench_branches",
+"pgbench_tellers", "pgbench_accounts", but all in the public schema. And I
+got this notice:
+NOTICE:  table "pgbench_branches" does not exist, skipping
+NOTICE:  table "pgbench_tellers" does not exist, skipping
+NOTICE:  table "pgbench_accounts" does not exist, skipping
+NOTICE:  table "pgbench_history" does not exist, skipping
+
+So why is slony working on the other (old) server, which does not seem to
+have any of the four tables mentioned above? Is that even possible? Are the
+tables "invisible" or am I too unexperienced to find them?
+
+After dropping the two databases and starting from scratch I was even able
+to start the master slon. Only an error when starting the slave remained.
+But now, after rebooting, I can't even start the master anymore:
+/etc/init.d/slony-I_fquest_master start -> failed
+cat  /var/log/slony-I/master_fquest.log:
+...
+2011-07-22 19:08:44 CESTFATAL  Cannot open pid_file
+"/var/log/slony-I/master_slon.pid"
+...
+
+This is now a bit off topic, but feel free to help me out.
+
+Kind regards,
+Marcus
+
+ 
+
+
+Christopher Browne-5 wrote:
+> 
+> On Fri, Jul 22, 2011 at 11:37 AM, marmu <mu at forsa.de> wrote:
+>>
+>> Hello Guillaume,
+>>
+>> ok, that was my mistake. but now I altered the psql command accordingly
+>> and
+>> this is the output:
+>>
+>> fquest-b1:~ # psql -U $PGBENCHUSER -h localhost -d $MASTERDBNAME -c
+>> "begin;
+>> alter table pgbench_history add column id serial; update pgbench_history
+>> set
+>> id =
+>> nextval('history_id_seq'); alter table pgbench_history add primary
+>> key(id);
+>> commit";
+>> NOTICE: ?ALTER TABLE will create implicit sequence
+>> "pgbench_history_id_seq"
+>> for serial column "pgbench_history.id"
+>> ERROR: ?relation "history_id_seq" does not exist
+>> LINE 2: nextval('history_id_seq'); alter table pgbench_history add p...
+>> ? ? ? ? ? ? ? ?^
+>> fquest-b1:~ # psql -U $PGBENCHUSER -h localhost -d $MASTERDBNAME -c
+>> "begin;update pgbench_history set id = nextval('pgbench_history_id_seq');
+>> alter table pgbench_history add primary key(id); commit";
+>> ERROR: ?relation "pgbench_history_id_seq" does not exist
+>> LINE 1: begin;update pgbench_history set id = nextval('pgbench_histo...
+>>
+>> I really don't get it. Where should the relation "pgbench_history_id_seq"
+>> come from, do I have to create everything manually? Slony is kind of a
+>> pain
+>> in the ass for novices like me, excuse my language.
+>> My colleage says, "but when it is finally running, it is solid as a rock
+>> and
+>> amazingly fast". I'd like to experience that soon :)
+> 
+> This isn't notably a Slony issue, except insofar as the Slony
+> documentation describes how pgbench *used* to work, rather than what
+> it got changed to more recently.
+> 
+> Understanding what's going on is a lot more important than getting a
+> recipe, because when PostgreSQL or pgbench change, that means the
+> recipe may need to change, and that is indeed what happened.
+> 
+> Slony requires that all replicated tables have a primary key defined.
+> The pgbench "history" table doesn't have one of those by default, so,
+> to replicate the pgbench schema requires adding a primary key to that
+> table.
+> 
+> On older versions of pgbench, what was necessary was to run a query like:
+>   alter table history add column id serial;
+>   alter table history add primary key(id);
+> 
+> And then add the sequence that gets generated for that ID column to
+> replication.
+> 
+> On newer versions of pgbench, the tables have the prefix "pgbench_"
+> prepended to them, thereby changing the queries to:
+>  alter table pgbench_history add column id serial;
+>  alter table pgbench_history add primary key (id);
+> 
+> Since the names of the tables and sequences have all changed, the
+> Slony configuration needs to account for the new names.  Nobody
+> updated the documentation, so I have done so.
+>   
+> <http://git.postgresql.org/gitweb/?p=slony1-engine.git;a=commit;h=928300d1fc0078d2e980aa3f601c351c12495d8a>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+> 
+> 
+
+-- 
+View this message in context: http://old.nabble.com/Is-it-possible-to-add-slony-to-an-existing-DB-%28imported-from-old-slony-server%29--tp32092506p32117157.html
+Sent from the Slony-I -- General mailing list archive at Nabble.com.
+
+
+From scott.marlowe at gmail.com  Sat Jul 23 08:38:57 2011
+From: scott.marlowe at gmail.com (Scott Marlowe)
+Date: Sat, 23 Jul 2011 09:38:57 -0600
+Subject: [Slony1-general] Is it possible to add slony to an existing DB
+ (imported from old-slony-server)?
+In-Reply-To: <32117157.post@talk.nabble.com>
+References: <32092506.post@talk.nabble.com> <4E25CCFE.7020002@postgresql.fr>
+	<32106787.post@talk.nabble.com> <1311266899.2018.68.camel@laptop>
+	<32116280.post@talk.nabble.com>
+	<CANfbgbbJu6Z4OQT_wq=Nq4Ypk2ar6vpPXyWpB7CaEyt1B=afDw@mail.gmail.com>
+	<32117157.post@talk.nabble.com>
+Message-ID: <CAOR=d=2PegAvTHtRgdKpxPfN-MNLL4qJOOMAaaDZ6S5_aMafnQ@mail.gmail.com>
+
+On Fri, Jul 22, 2011 at 11:44 AM, marmu <mu at forsa.de> wrote:
+>
+> Hello Christopher,
+>
+> thanks a lot for replying. Of course this is a configuration issue and the
+> user (me) is the source of all evil. But I am really new to slony and
+> therefore I am asking a lot.
+>
+> One thing that bothers me is that the old server I am trying to "copy" runs
+> slony and everything works as expected. But I can't find any of the
+> mentioned tables there, like "history" or "pgbench_history" etc.
+
+Slony doesn't need those tables.  This is a tutorial on how to setup
+slony replication on a pgbench schema.  You don't need pgbench for
+slony to work.  It can work on any tables.  the prurpose of pgbench is
+to give you something to replicate that is somewhat well defined to
+write a tutorial around.
+
+From JanWieck at Yahoo.com  Sat Jul 23 09:04:56 2011
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Sat, 23 Jul 2011 12:04:56 -0400
+Subject: [Slony1-general] node cleanup and restart
+In-Reply-To: <CANp-+RyzZxnO7TupiTYhwb2PQcRbQNofAaT8Z=avepzKyt-HNw@mail.gmail.com>
+References: <4E1E5574.8080008@fifthhorseman.net>
+	<CANp-+RzY2fd6z-=CV0BW+Woxwqq8YxS-Nd06DjnOxhV=vOrLzQ@mail.gmail.com>
+	<CANp-+Rz=PUUq99ruUpq1ciRQBHxFXjgyvpxx+LkRBd8YwCzpzg@mail.gmail.com>
+	<4E260113.6000806@fifthhorseman.net>
+	<CANp-+RyzZxnO7TupiTYhwb2PQcRbQNofAaT8Z=avepzKyt-HNw@mail.gmail.com>
+Message-ID: <4E2AF128.9090701@Yahoo.com>
+
+On 7/20/2011 3:50 AM, Juan Antonio de los Palotes Machado wrote:
+> On Wed, Jul 20, 2011 at 12:11 AM, Daniel Kahn Gillmor
+> <dkg at fifthhorseman.net>  wrote:
+>>  On 07/18/2011 11:25 AM, Juan Antonio de los Palotes Machado wrote:
+>>>      try to remove the slony schemas by hand and then recreating the
+>>>  node. as long as your data is still in your master you should not lose
+>>>  anything.
+>>
+>>  When you say "remove the schemas by hand", do you mean psql, or slonik
+>>  commands?
+>
+>      psql
+
+I have not seen Daniel mentioning any version numbers. In any case, 
+please do NOT give this advice unconditional. Before version 2.0 
+dropping the Slony-I schema by hand (DROP SCHEMA ... CASCADE) was a big 
+foot gun that left people stranded with corrupted system catalogs.
+
+>
+>>  Ultimately (guided by stevenSn on #slony on irc.freenode.net), i used
+>>  slonik commands to drop the nodes that weren't replicating properly, and
+>>  then repeated the store node commands for those nodes.
+>
+>      aha, interesting. how?
+
+Probably using slonik commands "drop node" and "uninstall node", then 
+rebuilding them with "store node" and "subscribe set".
+
+
+Jan
+
+-- 
+Anyone who trades liberty for security deserves neither
+liberty nor security. -- Benjamin Franklin
+
