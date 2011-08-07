@@ -139,3 +139,526 @@ Steve
 
 
 
+From ichbinrene at gmail.com  Fri Aug  5 13:38:58 2011
+From: ichbinrene at gmail.com (Rene Romero Benavides)
+Date: Fri, 05 Aug 2011 15:38:58 -0500
+Subject: [Slony1-general] Segmentation fault when subscribing a node to a
+	replication set
+Message-ID: <4E3C54E2.8040409@gmail.com>
+
+Hello everybody and greetings from M?xico City.
+
+*slony version: 2.0.7 with postgresql 9.0.4 running on debian squeeze 
+(and same issue arises with opensuse 11.04)*
+I get the following message when trying to subscribe a node to a 
+replication set:
+
+*<stdin>:4: row number 0 is out of range 0..-1
+Segmentation fault*
+
+the slony instructions (generated with perltools) that caused this error:/
+/-----------------------------------------------------------------------------------------------------
+/cluster name = slony_cluster;
+  node 1 admin conninfo='host=10.0.0.142 dbname=pgbench user=postgres 
+port=5432 password=postgres';
+  node 2 admin conninfo='host=10.0.0.140 dbname=pgbenchslave 
+user=postgres port=5432 password=postgres';
+   try {
+     subscribe set (id = 1, provider = 1, receiver = 2, forward = yes);
+   }
+   on error {
+     exit 1;
+   }
+   echo 'Subscribed nodes to set 1';/
+-----------------------------------------------------------------------------------------------------
+
+And my slon_tools.conf
+-----------------------------------------------------------------------------------------------------
+
+if ($ENV{"SLONYNODES"}) {
+     require $ENV{"SLONYNODES"};
+} else {
+
+     $CLUSTER_NAME = 'slony_cluster';
+
+     $LOGDIR = '/var/log/slony1';
+
+     $MASTERNODE = 1;
+
+     $DEBUGLEVEL = 2;
+
+     add_node(node     => 1,
+          host     => '10.0.0.142',
+          dbname   => 'pgbench',
+          port     => 5432,
+          user     => 'postgres',
+              password => 'postgres');
+
+     add_node(node     => 2,
+          host     => '10.0.0.140',
+          dbname   => 'pgbenchslave',
+          port     => 5432,
+          user     => 'postgres',
+              password => 'postgres');
+}
+
+
+$SLONY_SETS = {
+     "set1" => {
+     "set_id" => 1,
+     "table_id"    => 1,
+     "sequence_id" => 1,
+     "pkeyedtables" => [
+                                 'pgbench_tellers',
+                                 'pgbench_history',
+                                 'pgbench_accounts',
+                                 'pgbench_branches'
+                            ],
+     },
+};
+
+if ($ENV{"SLONYSET"}) {
+     require $ENV{"SLONYSET"};
+}
+# Please do not add or change anything below this point.
+1;
+-----------------------------------------------------------------------------------------------------
+When I fire up the script I get:
+2011-08-05 15:26:20 CDT LOG:  unexpected EOF on client connection
+on the slon logs from the master node (where I'm calling it from)
+
+I've checked connectivity between nodes and everything is alright. I've 
+ran other scripts such as slonik_uninstall_nodes, slonik_drop_node, and 
+slonik_add_node and they're executed successfully.
+
+The cluster was previously initialized with:
+-----------------------------------------------------------------------------------------------------------------------
+# INIT CLUSTER
+cluster name = slony_cluster;
+  node 1 admin conninfo='host=10.0.0.142 dbname=pgbench user=postgres 
+port=5432 password=postgres';
+  node 2 admin conninfo='host=10.0.0.140 dbname=pgbenchslave 
+user=postgres port=5432 password=postgres';
+   init cluster (id = 1, comment = 'Node 1 - pgbench at 10.0.0.142');
+
+# STORE NODE
+   store node (id = 2, event node = 1, comment = 'Node 2 - 
+pgbenchslave at 10.0.0.140');
+   echo 'Set up replication nodes';
+
+# STORE PATH
+   echo 'Next: configure paths for each node/origin';
+   store path (server = 1, client = 2, conninfo = 'host=10.0.0.142 
+dbname=pgbench user=postgres port=5432 password=postgres');
+   store path (server = 2, client = 1, conninfo = 'host=10.0.0.140 
+dbname=pgbenchslave user=postgres port=5432 password=postgres');
+   echo 'Replication nodes prepared';
+   echo 'Please start a slon replication daemon for each node';
+-----------------------------------------------------------------------------------------------------------------------
+The slon daemon is running on both nodes.
+
+Any help will be highly appreciated. Thanks
+
+
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20110805/c4060571/attachment.htm 
+
+From ssinger at ca.afilias.info  Fri Aug  5 14:09:37 2011
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Fri, 05 Aug 2011 17:09:37 -0400
+Subject: [Slony1-general] Segmentation fault when subscribing a node to
+ a replication set
+In-Reply-To: <4E3C54E2.8040409@gmail.com>
+References: <4E3C54E2.8040409@gmail.com>
+Message-ID: <4E3C5C11.4050505@ca.afilias.info>
+
+On 11-08-05 04:38 PM, Rene Romero Benavides wrote:
+> Hello everybody and greetings from M?xico City.
+>
+> *slony version: 2.0.7 with postgresql 9.0.4 running on debian squeeze
+> (and same issue arises with opensuse 11.04)*
+> I get the following message when trying to subscribe a node to a
+> replication set:
+>
+> *<stdin>:4: row number 0 is out of range 0..-1
+> Segmentation fault*
+>
+
+I don't see a 'create set(....)'  slonik command anywhere in the below 
+output.  The altperl script slonik_create_set command generates this. 
+Did you forget to run it befure you tried subscribing?
+
+(if this is the case and slonik is generating a segmentation fault 
+instead of a useful error message then that is a bug)
+
+Steve
+
+> the slony instructions (generated with perltools) that caused this error:/
+> /-----------------------------------------------------------------------------------------------------
+> /cluster name = slony_cluster;
+> node 1 admin conninfo='host=10.0.0.142 dbname=pgbench user=postgres
+> port=5432 password=postgres';
+> node 2 admin conninfo='host=10.0.0.140 dbname=pgbenchslave user=postgres
+> port=5432 password=postgres';
+> try {
+> subscribe set (id = 1, provider = 1, receiver = 2, forward = yes);
+> }
+> on error {
+> exit 1;
+> }
+> echo 'Subscribed nodes to set 1';/
+> -----------------------------------------------------------------------------------------------------
+>
+> And my slon_tools.conf
+> -----------------------------------------------------------------------------------------------------
+>
+> if ($ENV{"SLONYNODES"}) {
+> require $ENV{"SLONYNODES"};
+> } else {
+>
+> $CLUSTER_NAME = 'slony_cluster';
+>
+> $LOGDIR = '/var/log/slony1';
+>
+> $MASTERNODE = 1;
+>
+> $DEBUGLEVEL = 2;
+>
+> add_node(node => 1,
+> host => '10.0.0.142',
+> dbname => 'pgbench',
+> port => 5432,
+> user => 'postgres',
+> password => 'postgres');
+>
+> add_node(node => 2,
+> host => '10.0.0.140',
+> dbname => 'pgbenchslave',
+> port => 5432,
+> user => 'postgres',
+> password => 'postgres');
+> }
+>
+>
+> $SLONY_SETS = {
+> "set1" => {
+> "set_id" => 1,
+> "table_id" => 1,
+> "sequence_id" => 1,
+> "pkeyedtables" => [
+> 'pgbench_tellers',
+> 'pgbench_history',
+> 'pgbench_accounts',
+> 'pgbench_branches'
+> ],
+> },
+> };
+>
+> if ($ENV{"SLONYSET"}) {
+> require $ENV{"SLONYSET"};
+> }
+> # Please do not add or change anything below this point.
+> 1;
+> -----------------------------------------------------------------------------------------------------
+> When I fire up the script I get:
+> 2011-08-05 15:26:20 CDT LOG: unexpected EOF on client connection
+> on the slon logs from the master node (where I'm calling it from)
+>
+> I've checked connectivity between nodes and everything is alright. I've
+> ran other scripts such as slonik_uninstall_nodes, slonik_drop_node, and
+> slonik_add_node and they're executed successfully.
+>
+> The cluster was previously initialized with:
+> -----------------------------------------------------------------------------------------------------------------------
+> # INIT CLUSTER
+> cluster name = slony_cluster;
+> node 1 admin conninfo='host=10.0.0.142 dbname=pgbench user=postgres
+> port=5432 password=postgres';
+> node 2 admin conninfo='host=10.0.0.140 dbname=pgbenchslave user=postgres
+> port=5432 password=postgres';
+> init cluster (id = 1, comment = 'Node 1 - pgbench at 10.0.0.142');
+>
+> # STORE NODE
+> store node (id = 2, event node = 1, comment = 'Node 2 -
+> pgbenchslave at 10.0.0.140');
+> echo 'Set up replication nodes';
+>
+> # STORE PATH
+> echo 'Next: configure paths for each node/origin';
+> store path (server = 1, client = 2, conninfo = 'host=10.0.0.142
+> dbname=pgbench user=postgres port=5432 password=postgres');
+> store path (server = 2, client = 1, conninfo = 'host=10.0.0.140
+> dbname=pgbenchslave user=postgres port=5432 password=postgres');
+> echo 'Replication nodes prepared';
+> echo 'Please start a slon replication daemon for each node';
+> -----------------------------------------------------------------------------------------------------------------------
+> The slon daemon is running on both nodes.
+>
+> Any help will be highly appreciated. Thanks
+>
+>
+>
+>
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+
+
+From ichbinrene at gmail.com  Fri Aug  5 14:44:26 2011
+From: ichbinrene at gmail.com (Rene Romero Benavides)
+Date: Fri, 05 Aug 2011 16:44:26 -0500
+Subject: [Slony1-general] Segmentation fault when subscribing a node to
+ a replication set
+In-Reply-To: <4E3C5C11.4050505@ca.afilias.info>
+References: <4E3C54E2.8040409@gmail.com> <4E3C5C11.4050505@ca.afilias.info>
+Message-ID: <4E3C643A.1060406@gmail.com>
+
+My bad, I just started using slony and bypassed that common sense 
+implication =-D. Thanks for the guide and for bearing with newbies. No 
+bug whatsoever.
+
+El 05/08/11 16:09, Steve Singer escribi?:
+> On 11-08-05 04:38 PM, Rene Romero Benavides wrote:
+>> Hello everybody and greetings from M?xico City.
+>>
+>> *slony version: 2.0.7 with postgresql 9.0.4 running on debian squeeze
+>> (and same issue arises with opensuse 11.04)*
+>> I get the following message when trying to subscribe a node to a
+>> replication set:
+>>
+>> *<stdin>:4: row number 0 is out of range 0..-1
+>> Segmentation fault*
+>>
+>
+> I don't see a 'create set(....)'  slonik command anywhere in the below 
+> output.  The altperl script slonik_create_set command generates this. 
+> Did you forget to run it befure you tried subscribing?
+>
+> (if this is the case and slonik is generating a segmentation fault 
+> instead of a useful error message then that is a bug)
+>
+> Steve
+>
+>> the slony instructions (generated with perltools) that caused this 
+>> error:/
+>> /----------------------------------------------------------------------------------------------------- 
+>>
+>> /cluster name = slony_cluster;
+>> node 1 admin conninfo='host=10.0.0.142 dbname=pgbench user=postgres
+>> port=5432 password=postgres';
+>> node 2 admin conninfo='host=10.0.0.140 dbname=pgbenchslave user=postgres
+>> port=5432 password=postgres';
+>> try {
+>> subscribe set (id = 1, provider = 1, receiver = 2, forward = yes);
+>> }
+>> on error {
+>> exit 1;
+>> }
+>> echo 'Subscribed nodes to set 1';/
+>> ----------------------------------------------------------------------------------------------------- 
+>>
+>>
+>> And my slon_tools.conf
+>> ----------------------------------------------------------------------------------------------------- 
+>>
+>>
+>> if ($ENV{"SLONYNODES"}) {
+>> require $ENV{"SLONYNODES"};
+>> } else {
+>>
+>> $CLUSTER_NAME = 'slony_cluster';
+>>
+>> $LOGDIR = '/var/log/slony1';
+>>
+>> $MASTERNODE = 1;
+>>
+>> $DEBUGLEVEL = 2;
+>>
+>> add_node(node => 1,
+>> host => '10.0.0.142',
+>> dbname => 'pgbench',
+>> port => 5432,
+>> user => 'postgres',
+>> password => 'postgres');
+>>
+>> add_node(node => 2,
+>> host => '10.0.0.140',
+>> dbname => 'pgbenchslave',
+>> port => 5432,
+>> user => 'postgres',
+>> password => 'postgres');
+>> }
+>>
+>>
+>> $SLONY_SETS = {
+>> "set1" => {
+>> "set_id" => 1,
+>> "table_id" => 1,
+>> "sequence_id" => 1,
+>> "pkeyedtables" => [
+>> 'pgbench_tellers',
+>> 'pgbench_history',
+>> 'pgbench_accounts',
+>> 'pgbench_branches'
+>> ],
+>> },
+>> };
+>>
+>> if ($ENV{"SLONYSET"}) {
+>> require $ENV{"SLONYSET"};
+>> }
+>> # Please do not add or change anything below this point.
+>> 1;
+>> ----------------------------------------------------------------------------------------------------- 
+>>
+>> When I fire up the script I get:
+>> 2011-08-05 15:26:20 CDT LOG: unexpected EOF on client connection
+>> on the slon logs from the master node (where I'm calling it from)
+>>
+>> I've checked connectivity between nodes and everything is alright. I've
+>> ran other scripts such as slonik_uninstall_nodes, slonik_drop_node, and
+>> slonik_add_node and they're executed successfully.
+>>
+>> The cluster was previously initialized with:
+>> ----------------------------------------------------------------------------------------------------------------------- 
+>>
+>> # INIT CLUSTER
+>> cluster name = slony_cluster;
+>> node 1 admin conninfo='host=10.0.0.142 dbname=pgbench user=postgres
+>> port=5432 password=postgres';
+>> node 2 admin conninfo='host=10.0.0.140 dbname=pgbenchslave user=postgres
+>> port=5432 password=postgres';
+>> init cluster (id = 1, comment = 'Node 1 - pgbench at 10.0.0.142');
+>>
+>> # STORE NODE
+>> store node (id = 2, event node = 1, comment = 'Node 2 -
+>> pgbenchslave at 10.0.0.140');
+>> echo 'Set up replication nodes';
+>>
+>> # STORE PATH
+>> echo 'Next: configure paths for each node/origin';
+>> store path (server = 1, client = 2, conninfo = 'host=10.0.0.142
+>> dbname=pgbench user=postgres port=5432 password=postgres');
+>> store path (server = 2, client = 1, conninfo = 'host=10.0.0.140
+>> dbname=pgbenchslave user=postgres port=5432 password=postgres');
+>> echo 'Replication nodes prepared';
+>> echo 'Please start a slon replication daemon for each node';
+>> ----------------------------------------------------------------------------------------------------------------------- 
+>>
+>> The slon daemon is running on both nodes.
+>>
+>> Any help will be highly appreciated. Thanks
+>>
+>>
+>>
+>>
+>>
+>> _______________________________________________
+>> Slony1-general mailing list
+>> Slony1-general at lists.slony.info
+>> http://lists.slony.info/mailman/listinfo/slony1-general
+>
+
+
+From cbbrowne at afilias.info  Fri Aug  5 14:49:09 2011
+From: cbbrowne at afilias.info (Christopher Browne)
+Date: Fri, 5 Aug 2011 17:49:09 -0400
+Subject: [Slony1-general] Segmentation fault when subscribing a node to
+ a replication set
+In-Reply-To: <4E3C5C11.4050505@ca.afilias.info>
+References: <4E3C54E2.8040409@gmail.com>
+	<4E3C5C11.4050505@ca.afilias.info>
+Message-ID: <CANfbgbY=7u-yMyfwaVLrS1MPZ5cqM3Oxq4EXQoqHXH3hqgsO0g@mail.gmail.com>
+
+On Fri, Aug 5, 2011 at 5:09 PM, Steve Singer <ssinger at ca.afilias.info> wrote:
+> On 11-08-05 04:38 PM, Rene Romero Benavides wrote:
+>> Hello everybody and greetings from M?xico City.
+>>
+>> *slony version: 2.0.7 with postgresql 9.0.4 running on debian squeeze
+>> (and same issue arises with opensuse 11.04)*
+>> I get the following message when trying to subscribe a node to a
+>> replication set:
+>>
+>> *<stdin>:4: row number 0 is out of range 0..-1
+>> Segmentation fault*
+>>
+>
+> I don't see a 'create set(....)' ?slonik command anywhere in the below
+> output. ?The altperl script slonik_create_set command generates this.
+> Did you forget to run it befure you tried subscribing?
+>
+> (if this is the case and slonik is generating a segmentation fault
+> instead of a useful error message then that is a bug)
+
+I don't think I'd call this a *severe* bug, but it seems to me that
+"row number 0 is out of range..." isn't quite the most intuitive error
+message of all time.
+
+That's presumably taking place somewhere inside the Postgres "stack",
+as that description isn't found anywhere in the Slony code base.
+
+If we can get a stack trace from the Postgres logs indicating
+specifically where it was executing when this happened, it might be
+possible to toss in a more descriptive error message, presumably
+somewhere in the subscribe set code.
+
+From dilrajssokhi at gmail.com  Fri Aug  5 16:22:46 2011
+From: dilrajssokhi at gmail.com (Dilraj Singh)
+Date: Fri, 5 Aug 2011 16:22:46 -0700
+Subject: [Slony1-general] Uninterrupted Slony Replication
+Message-ID: <CAHFJsA9PkvFO27RUVoO-hXnrZzHtb1M93z9JgQ+AL6H7p02doA@mail.gmail.com>
+
+Hi,
+
+I am using postgresql-8.4 and slony1-1.2.0.3 and i have been able implement
+a 4 node replication cluster where nodes communicate successfully with each
+other. The way i have went about this is that i have written scripts (say
+cluster_setup.sh and subscribe.sh) to be run with slonik. Like run the
+script cluster_setup on the master node and then slon daemon's on all the 4
+nodes with necessary connection information and finally run subscribe.sh on
+the master node again. This works perfectly fine and even when i kill some
+of the slons on the different machines, if i start slon again, the
+replication at that node picks up where it was left before.
+
+After this i tried automating the whole process so that in case of a network
+disconnect/power failure/reboot the replication can continue to work as
+normal. So instead of running slon's manually on each machine, i placed a
+script having 'bash -U postgres -c "./slon conninfo=" ' command in init.d
+directory for each machine. After having all the database replication
+running again, i rebooted one of the machines but i could not have the
+database replication restored after that. The node which was acting as a
+provider to the rebooted machine started showing this error:
+
+2011-08-05 09:25:40 PDTERROR  remoteListenThread_3: "select con_origin,
+con_received,     max(con_seqno) as con_seqno,     max(con_timestamp) as
+con_timestamp from "_four_node_rep_cluster20".sl_confirm where con_received
+<> 2 group by con_origin, con_received" 2011-08-05 09:25:42 PDTERROR
+remoteListenThread_3: "select ev_origin, ev_seqno, ev_timestamp,
+ev_snapshot,        "pg_catalog".txid_snapshot_xmin(ev_snapshot),
+"pg_catalog".txid_snapshot_xmax(ev_snapshot),        ev_type,
+ev_data1, ev_data2,        ev_data3, ev_data4,        ev_data5,
+ev_data6,        ev_data7, ev_data8 from "_four_node_rep_cluster20".sl_event
+e where (e.ev_origin = '3' and e.ev_seqno > '5000000005') or (e.ev_origin =
+'4' and e.ev_seqno > '5000000039') order by e.ev_origin, e.ev_seqno limit
+40" - no connection to the server
+
+and then the replication wont start working again till the time i reboot all
+the nodes. I am guessing it might be the case that the provider node gets
+reinitialized on rebooting thats why the replication starts again. I know
+slony is used for automated database replication so i was wondering whether
+there is any way in which i can make this work without rebooting all the
+nodes, which will be inconvenient if the number of nodes increase or for
+production server
+
+Any inputs on the above error will be greatly appreciated.
+
+Regards
+Dilraj Singh
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20110805/d19da692/attachment-0001.htm 
+
