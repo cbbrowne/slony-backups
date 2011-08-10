@@ -99,3 +99,259 @@ Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
 You are on the CC list for the bug.
 You are the assignee for the bug.
 
+From bugzilla-daemon at main.slony.info  Mon Aug  8 06:31:35 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Mon,  8 Aug 2011 06:31:35 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 229] New: creating a set then adding a table to
+ a different set can deadlock
+Message-ID: <bug-229-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=229
+
+           Summary: creating a set then adding a table to a different set
+                    can deadlock
+           Product: Slony-I
+           Version: devel
+          Platform: PC
+        OS/Version: Linux
+            Status: NEW
+          Severity: enhancement
+          Priority: low
+         Component: slonik
+        AssignedTo: slony1-bugs at lists.slony.info
+        ReportedBy: ssinger at ca.afilias.info
+                CC: slony1-bugs at lists.slony.info
+   Estimated Hours: 0.0
+
+
+A tester has reported in In 2.1.0 beta3:
+
+A slonik script such as 
+
+create set(id=2, origin=2 ,comment='second set');
+create set(id=3, origin=3 ,comment='second set');
+set add table(set id=2,origin=2,  tables='disorder.do_item_*');
+
+----
+
+can hang slonik where slonik keeps waiting for an event confirmation that it
+never sees.
+
+The issue seems to be that the add table code will:
+
+1. Open a transaction and obtain a lock on sl_config_lock on the origin node
+(node 2)
+2. perform an implicit 'wait for event' to ensure that the last event submitted
+to node 3 (the previous origin) has propagated.
+
+However because slonik has a lock on sl_config_lock on node 2, the slon for
+node 2 (the remote worker) might not be able to replicate events to node 2 (the
+store node) because applying a many events to node 2 requires obtaining the
+sl_config_lock (and sometimes the sl_event_lock).
+
+slonik should not be invoking the implicit 'wait for' behaviour when it is
+holding an open transaction.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Mon Aug  8 11:16:52 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Mon,  8 Aug 2011 11:16:52 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 229] creating a set then adding a table to a
+ different set can deadlock
+In-Reply-To: <bug-229-4@http.www.slony.info/bugzilla/>
+References: <bug-229-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110808181652.DE91D290E37@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=229
+
+Steve Singer <ssinger at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         AssignedTo|slony1-bugs at lists.slony.inf |ssinger at ca.afilias.info
+                   |o                           |
+             Status|NEW                         |ASSIGNED
+
+--- Comment #1 from Steve Singer <ssinger at ca.afilias.info> 2011-08-08 11:16:52 PDT ---
+Created an attachment (id=118)
+ --> (http://www.slony.info/bugzilla/attachment.cgi?id=118)
+test case
+
+Test case bug
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Mon Aug  8 11:17:08 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Mon,  8 Aug 2011 11:17:08 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 229] creating a set then adding a table to a
+ different set can deadlock
+In-Reply-To: <bug-229-4@http.www.slony.info/bugzilla/>
+References: <bug-229-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110808181708.5DD0E290E24@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=229
+
+--- Comment #2 from Steve Singer <ssinger at ca.afilias.info> 2011-08-08 11:17:08 PDT ---
+Created an attachment (id=119)
+ --> (http://www.slony.info/bugzilla/attachment.cgi?id=119)
+fix for bug
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Mon Aug  8 11:18:50 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Mon,  8 Aug 2011 11:18:50 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 229] creating a set then adding a table to a
+ different set can deadlock
+In-Reply-To: <bug-229-4@http.www.slony.info/bugzilla/>
+References: <bug-229-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110808181850.B2362290E36@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=229
+
+Steve Singer <ssinger at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         AssignedTo|ssinger at ca.afilias.info     |janwieck at yahoo.com
+
+--- Comment #3 from Steve Singer <ssinger at ca.afilias.info> 2011-08-08 11:18:50 PDT ---
+Please arrange for a review to this fix
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Mon Aug  8 12:39:36 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Mon,  8 Aug 2011 12:39:36 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 228] 'drop node' in a try block
+In-Reply-To: <bug-228-4@http.www.slony.info/bugzilla/>
+References: <bug-228-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110808193936.CF819290E20@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=228
+
+--- Comment #2 from Christopher Browne <cbbrowne at ca.afilias.info> 2011-08-08 12:39:36 PDT ---
+Another alternative would be for conditionals to be handled in an "abort if
+{conditions} fashion", as described in bug #173.
+
+I think you've observed that this isn't necessarily a reason to "abort," so
+perhaps that should change to "conditional execution."
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Mon Aug  8 12:40:39 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Mon,  8 Aug 2011 12:40:39 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 173] Slonik ABORT command
+In-Reply-To: <bug-173-4@http.www.slony.info/bugzilla/>
+References: <bug-173-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110808194039.DCC0F290E24@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=173
+
+--- Comment #4 from Christopher Browne <cbbrowne at ca.afilias.info> 2011-08-08 12:40:40 PDT ---
+As observed in bug #228, there would be some use in having conditionals used to
+pick between blocks of Slonik code.  We're not necessarily going to want to
+abort.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Mon Aug  8 13:20:28 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Mon,  8 Aug 2011 13:20:28 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 229] creating a set then adding a table to a
+ different set can deadlock
+In-Reply-To: <bug-229-4@http.www.slony.info/bugzilla/>
+References: <bug-229-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110808202028.8627E290E20@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=229
+
+--- Comment #4 from Steve Singer <ssinger at ca.afilias.info> 2011-08-08 13:20:28 PDT ---
+I don't know if this is related to this change, another recent change but
+
+I am occasionally (as in 1 or two tests will hit this through a full disorder
+run ) getting something like
+
+@5ef4b65d - 2011-08-08 14:37:58 EDTDEBUG2 remoteWorkerThread_4: Received event
+#4 from 5000000002 type:STORE_PATH
+2011-08-08 14:37:58,028 [slonik add pathsstderr] ERROR
+info.slony.clustertest.testcoordinator.slony.SlonikScript slonik add pa
+ths:java.lang.UNIXProcess at 5d79a22d - <stdin>:19: PGRES_FATAL_ERROR lock table
+"_disorder_replica".sl_event_lock, "_disorder_re
+plica".sl_config_lock;select "_disorder_replica".storePath(5, 2, 'dbname=test5
+host=localhost port=5432 user=slon password=slo
+n', 10);  - ERROR:  duplicate key value violates unique constraint
+"sl_node-pkey"
+2011-08-08 14:37:58,028 [slonik add pathsstderr] ERROR
+info.slony.clustertest.testcoordinator.slony.SlonikScript slonik add pa
+ths:java.lang.UNIXProcess at 5d79a22d - CONTEXT:  SQL statement "insert into
+"_disorder_replica".sl_node (no_id, no_active, no_co
+mment) values ( $1 , 'f',  $2 )"
+2011-08-08 14:37:58,028 [slonik add pathsstderr] ERROR
+info.slony.clustertest.testcoordinator.slony.SlonikScript slonik add pa
+ths:java.lang.UNIXProcess at 5d79a22d - PL/pgSQL function "storenode_int" line 22
+at SQL statement
+
+
+as I test this change.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Mon Aug  8 13:39:12 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Mon,  8 Aug 2011 13:39:12 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 218] slon often has to retry transactions due to
+ concurrent update in 2.1.0.b2
+In-Reply-To: <bug-218-4@http.www.slony.info/bugzilla/>
+References: <bug-218-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110808203912.A1019290E36@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=218
+
+Steve Singer <ssinger at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         Resolution|FIXED                       |
+             Status|RESOLVED                    |REOPENED
+
+--- Comment #22 from Steve Singer <ssinger at ca.afilias.info> 2011-08-08 13:39:12 PDT ---
+It looks like the merge issues on this ended up merging in the version of this
+fix that has remote_worker obtain sl_config_lock then sl_event_lock  compared
+to slonik that obtains sl_event_lock then sl_config_lock.
+
+See my review up thread dated "2011-06-08 08:46:13 PDT" on this bug.
+
+I see the occasional deadlock with the disorder tests due to this.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
