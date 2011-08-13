@@ -1439,3 +1439,125 @@ b) One "subscriber" that consolidates the data from all 5 systems.
 The trouble with this feature is less about doing it and more about
 coming up with a parsimonious way to describe the configuration.
 
+From sivakumar.mailinglist at gmail.com  Thu Aug 11 09:05:50 2011
+From: sivakumar.mailinglist at gmail.com (sivakumar krishnamurthy)
+Date: Thu, 11 Aug 2011 21:35:50 +0530
+Subject: [Slony1-general] problem with replication of the same table in
+ multiple clusters
+Message-ID: <CANP9x9bT+wzk4S4v2CNTEqJ2JOfYUv2taLrgdcV2U5zo3Zb-jw@mail.gmail.com>
+
+Hi All,
+? In one of my production?environments due to network restrictions I
+used to have the following setup.
+Node 1 ---- Node 2 ----- Node 3
+Node 1, Node 2 is part of slony cluster1
+Node 2, Node 3 is part of slony cluster2
+table A is replicated from Node 1 to Node 2 and then to Node 3. This
+means on Node 2, table A?used to have both log_trigger and deny_access
+trigger.
+The above setup was working fine with PG 8.3.12 and slony 1.2.11.
+However the same setup is not working with?PG 9.0.4 and slony 2.0.6
+and has the following problem.
+Any DML changes applied on Node 1 is replicated to Node 2 however its
+not being replicated to Node 3. Also the sl_log_[12] tables on
+cluster2 doesn't have any?corresponding?entries for DML changes. I
+could also see SYNC events(sl_events) being replicated from Node 2 to
+Node 3.
+Can you please help me?
+Thanks,
+Sivakumar.K
+
+Cluster creation scripts
+==================
+slonik <<_EOF_
+cluster name = cluster1;
+node 1 admin conninfo = 'dbname=test5432 host=localhost port=5432 user=slony';
+node 3 admin conninfo = 'dbname=test5433 host=localhost port=5433 user=slony';
+init cluster(id=1, comment = 'Master Node');
+_EOF_
+
+slonik <<_EOF_
+cluster name = cluster1;
+node 1 admin conninfo = 'dbname=test5432 host=localhost port=5432 user=slony';
+node 3 admin conninfo = 'dbname=test5433 host=localhost port=5433 user=slony';
+create set (id=4, origin=1, comment='geo_region_table');
+set add table (set id=4, origin=1, id=20, fully qualified name =
+'public.geo_region', comment='geo_region table');
+_EOF_
+
+slonik <<_EOF_
+cluster name = cluster1;
+node 1 admin conninfo = 'dbname=test5432 host=localhost port=5432 user=slony';
+node 3 admin conninfo = 'dbname=test5433 host=localhost port=5433 user=slony';
+store node (id=3, COMMENT = 'Node 3', EVENT NODE = 1);
+_EOF_
+
+slonik <<_EOF_
+cluster name = cluster1;
+node 1 admin conninfo = 'dbname=test5432 host=localhost port=5432 user=slony';
+node 3 admin conninfo = 'dbname=test5433 host=localhost port=5433 user=slony';
+
+store path (server=1, client=3, conninfo='dbname=test5432
+host=localhost port=5432 user=slony');
+store path (server=3, client=1, conninfo='dbname=test5433
+host=localhost port=5433 user=slony');
+_EOF_
+
+
+nohup slon cluster1 'dbname=test5432 port=5432 user=slony' >
+/data5432/cluster1.log 2>&1 &
+nohup slon cluster1 'dbname=test5433 port=5433 user=slony' >
+/data5433/cluster1.log 2>&1 &
+
+slonik <<_EOF_
+cluster name = cluster1;
+node 1 admin conninfo = 'dbname=test5432 host=localhost port=5432 user=slony';
+node 3 admin conninfo = 'dbname=test5433 host=localhost port=5433 user=slony';
+subscribe set (id=4, provider=1,receiver=3,forward=yes,OMIT COPY=no);
+_EOF_
+==========================================================================
+slonik <<_EOF_
+cluster name = cluster2;
+node 1 admin conninfo = 'dbname=test5433 host=localhost port=5433 user=slony';
+node 2 admin conninfo = 'dbname=test5434 host=localhost port=5434 user=slony';
+init cluster(id=1, comment = 'Master Node');
+_EOF_
+
+slonik <<_EOF_
+cluster name = cluster2;
+node 1 admin conninfo = 'dbname=test5433 host=localhost port=5433 user=slony';
+node 2 admin conninfo = 'dbname=test5434 host=localhost port=5434 user=slony';
+create set (id=4, origin=1, comment='geo_region_table');
+set add table (set id=4, origin=1, id=20, fully qualified name =
+'public.geo_region', comment='geo_region table');
+_EOF_
+slonik <<_EOF_
+cluster name = cluster2;
+node 1 admin conninfo = 'dbname=test5433 host=localhost port=5433 user=slony';
+node 2 admin conninfo = 'dbname=test5434 host=localhost port=5434 user=slony';
+store node (id=2, COMMENT = 'Node 2', EVENT NODE = 1);
+_EOF_
+
+slonik <<_EOF_
+cluster name = cluster2;
+node 1 admin conninfo = 'dbname=test5433 host=localhost port=5433 user=slony';
+node 2 admin conninfo = 'dbname=test5434 host=localhost port=5434 user=slony';
+store path (server=1, client=2, conninfo='dbname=test5433
+host=localhost port=5433 user=slony');
+store path (server=2, client=1, conninfo='dbname=test5434
+host=localhost port=5434 user=slony');
+_EOF_
+
+
+nohup slon cluster2 'dbname=test5433 port=5433 user=slony' >
+/data5433/cluster2.log 2>&1 &
+nohup slon cluster2 'dbname=test5434 port=5434 user=slony' >
+/data5434/cluster2.log 2>&1 &
+
+slonik <<_EOF_
+cluster name = cluster2;
+node 1 admin conninfo = 'dbname=test5433 host=localhost port=5433 user=slony';
+node 2 admin conninfo = 'dbname=test5434 host=localhost port=5434 user=slony';
+subscribe set (id=4, provider=1,receiver=2,forward=yes,OMIT COPY=no);
+_EOF_
+
