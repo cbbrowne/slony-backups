@@ -1561,3 +1561,227 @@ node 2 admin conninfo = 'dbname=test5434 host=localhost port=5434 user=slony';
 subscribe set (id=4, provider=1,receiver=2,forward=yes,OMIT COPY=no);
 _EOF_
 
+From Frank.Mcgeough at vocalocity.com  Fri Aug 12 06:52:36 2011
+From: Frank.Mcgeough at vocalocity.com (Frank McGeough)
+Date: Fri, 12 Aug 2011 06:52:36 -0700
+Subject: [Slony1-general] upgrade from 1.2.20 to 2.0.6
+Message-ID: <9F2DDBC1199E7C47B8A3B2CCCDD1E62008F06909E1@VA3DIAXVS341.RED001.local>
+
+I've read the documentation on upgrading and it appears the recommended approach is to drop replication and start over. Is this correct? Does anyone have any experience with performing the upgrade from 1.2 level up to 2?
+
+Regards,
+Frank
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20110812/84e11d27/attachment.htm 
+
+From stephane.schildknecht at postgresql.fr  Fri Aug 12 07:05:26 2011
+From: stephane.schildknecht at postgresql.fr (=?ISO-8859-15?Q?=22St=E9phane_A=2E_Schildknecht=22?=)
+Date: Fri, 12 Aug 2011 16:05:26 +0200
+Subject: [Slony1-general] problem with replication of the same table in
+ multiple clusters
+In-Reply-To: <CANP9x9bT+wzk4S4v2CNTEqJ2JOfYUv2taLrgdcV2U5zo3Zb-jw@mail.gmail.com>
+References: <CANP9x9bT+wzk4S4v2CNTEqJ2JOfYUv2taLrgdcV2U5zo3Zb-jw@mail.gmail.com>
+Message-ID: <4E453326.1060401@postgresql.fr>
+
+-----BEGIN PGP SIGNED MESSAGE-----
+Hash: SHA1
+
+Le 11/08/2011 18:05, sivakumar krishnamurthy a ?crit :
+> Hi All,
+>   In one of my production environments due to network restrictions I
+> used to have the following setup.
+> Node 1 ---- Node 2 ----- Node 3
+> Node 1, Node 2 is part of slony cluster1
+> Node 2, Node 3 is part of slony cluster2
+> table A is replicated from Node 1 to Node 2 and then to Node 3. This
+> means on Node 2, table A used to have both log_trigger and deny_access
+> trigger.
+> The above setup was working fine with PG 8.3.12 and slony 1.2.11.
+> However the same setup is not working with PG 9.0.4 and slony 2.0.6
+> and has the following problem.
+> Any DML changes applied on Node 1 is replicated to Node 2 however its
+> not being replicated to Node 3. Also the sl_log_[12] tables on
+> cluster2 doesn't have any corresponding entries for DML changes. I
+> could also see SYNC events(sl_events) being replicated from Node 2 to
+> Node 3.
+> Can you please help me?
+> Thanks,
+> Sivakumar.K
+
+(...)
+
+Hi,
+
+It seems to me you want to have some cascading replication. To achieve that,
+you have to define a cluster with 3 nodes.
+
+You would have :
+slonik <<_EOF_
+cluster name = cluster1;
+node 1 admin conninfo = 'dbname=test5432 host=localhost port=5432 user=slony';
+node 2 admin conninfo = 'dbname=test5434 host=localhost port=5434 user=slony';
+node 3 admin conninfo = 'dbname=test5433 host=localhost port=5433 user=slony';
+init cluster(id=1, comment = 'Master Node');
+store node (id=2, COMMENT = 'Node 2', EVENT NODE = 1);
+store node (id=3, COMMENT = 'Node 3', EVENT NODE = 2);
+create set (id=4, origin=1, comment='geo_region_table');
+set add table (set id=4, origin=1, id=20, fully qualified name =
+'public.geo_region', comment='geo_region table');
+store path (server=1, client=3, conninfo='dbname=test5432
+host=localhost port=5432 user=slony');
+store path (server=3, client=1, conninfo='dbname=test5433
+host=localhost port=5433 user=slony');
+_EOF_
+
+
+nohup slon cluster1 'dbname=test5432 port=5432 user=slony' >
+/data5432/cluster1.log 2>&1 &
+nohup slon cluster1 'dbname=test5433 port=5433 user=slony' >
+/data5433/cluster1.log 2>&1 &
+nohup slon cluster1 'dbname=test5434 port=5434 user=slony' >
+/data5434/cluster1.log 2>&1 &
+
+slonik <<_EOF_
+cluster name = cluster1;
+node 1 admin conninfo = 'dbname=test5432 host=localhost port=5432 user=slony';
+node 2 admin conninfo = 'dbname=test5434 host=localhost port=5434 user=slony';
+node 3 admin conninfo = 'dbname=test5433 host=localhost port=5433 user=slony';
+subscribe set (id=4, provider=1,receiver=2,forward=yes,OMIT COPY=no);
+subscribe set (id=4, provider=2,receiver=3,forward=no,OMIT COPY=no);
+_EOF_
+
+
+
+
+- -- 
+St?phane Schildknecht
+Loxodata
+Contact r?gional PostgreSQL
+
+-----BEGIN PGP SIGNATURE-----
+Version: GnuPG v1.4.10 (GNU/Linux)
+Comment: Using GnuPG with Mozilla - http://enigmail.mozdev.org/
+
+iEYEARECAAYFAk5FMyYACgkQA+REPKWGI0HHWACaAvi6UTpn13PLDE8olzlhIQXc
+IGoAn2l5WzRpXWHMIN8Rvr+wBBW11YbT
+=txoz
+-----END PGP SIGNATURE-----
+
+From cbbrowne at afilias.info  Fri Aug 12 08:28:04 2011
+From: cbbrowne at afilias.info (Christopher Browne)
+Date: Fri, 12 Aug 2011 11:28:04 -0400
+Subject: [Slony1-general] Fwd:  upgrade from 1.2.20 to 2.0.6
+In-Reply-To: <CANfbgbZZx8Ex9LtaY+5maRA0xbQKkKUzcHwHSyxS1aq=AE0dqA@mail.gmail.com>
+References: <9F2DDBC1199E7C47B8A3B2CCCDD1E62008F06909E1@VA3DIAXVS341.RED001.local>
+	<CANfbgbZZx8Ex9LtaY+5maRA0xbQKkKUzcHwHSyxS1aq=AE0dqA@mail.gmail.com>
+Message-ID: <CANfbgbYMKEb2ZdPaurFuf9YD=ZCawmEDUBZim65hKKhi6Bo13g@mail.gmail.com>
+
+On Fri, Aug 12, 2011 at 9:52 AM, Frank McGeough
+<Frank.Mcgeough at vocalocity.com> wrote:
+> I?ve read the documentation on upgrading and it appears the recommended
+> approach is to drop replication and start over. Is this correct? Does anyone
+> have any experience with performing the upgrade from 1.2 level up to 2?
+
+Yes, you've got that correct.
+
+There were pretty massive changes between 1.2 and 2.0.
+
+I had started efforts on a would-be methodology to upgrade the Slony
+schema, but it was getting complex enough, including requiring some
+steps outside Slony (e.g. - the log triggers and XXID visibility
+functions changed in ways that would be really troublesome to cope
+with) that we concluded it wasn't realistic to "upgrade" but rather to
+drop replication and reinstall Slony. ?To aid in that, we added the
+"OMIT COPY" option, so that you can install without having to
+TRUNCATE/COPY all the data on subscriber nodes that are already up to
+date.
+
+There's tooling there (see tools/slonikconfdump.sh) to dump out the
+cluster's configuration so that it is made as easy as possible to
+re-install.
+
+From stuart at stuartbishop.net  Fri Aug 12 09:09:04 2011
+From: stuart at stuartbishop.net (Stuart Bishop)
+Date: Fri, 12 Aug 2011 23:09:04 +0700
+Subject: [Slony1-general] 1 cluster or 5?
+In-Reply-To: <CANfbgbZooxej99Yk_bFsNKz3fFA7F+Z2Fn7Dy=FhcPbVqATNKA@mail.gmail.com>
+References: <CADmi=6PtF9vaOybL2Lxru7yJN0wAkcwc2z_mOT94mgzF_wN8wQ@mail.gmail.com>
+	<CANfbgbZooxej99Yk_bFsNKz3fFA7F+Z2Fn7Dy=FhcPbVqATNKA@mail.gmail.com>
+Message-ID: <CADmi=6PnwBqKfrPtoeW-SEUR44R2JJx880ak27SpCw-Yy-r=SA@mail.gmail.com>
+
+On Tue, Aug 9, 2011 at 11:49 PM, Christopher Browne
+<cbbrowne at afilias.info> wrote:
+
+> By "identical schema," does that mean you have 5 databases with
+> identical schemas:
+
+This one.
+
+> if, on the other hand, it looks like the former, where it's only the
+> database name that tells things apart, I'd be not too keen to try to
+> have just one big cluster, as there's a pretty big "foot-gun."
+>
+> Let me describe the shape of the "foot-gun"...
+
+Thanks for this. It seems possible, but I don't think there are enough
+gains so I've gone with 5 simple clusters over one complex one.
+
+-- 
+Stuart Bishop <stuart at stuartbishop.net>
+http://www.stuartbishop.net/
+
+From dilrajssokhi at gmail.com  Fri Aug 12 09:23:44 2011
+From: dilrajssokhi at gmail.com (Dilraj Singh)
+Date: Fri, 12 Aug 2011 09:23:44 -0700
+Subject: [Slony1-general] Fwd: upgrade from 1.2.20 to 2.0.6
+In-Reply-To: <CANfbgbYMKEb2ZdPaurFuf9YD=ZCawmEDUBZim65hKKhi6Bo13g@mail.gmail.com>
+References: <9F2DDBC1199E7C47B8A3B2CCCDD1E62008F06909E1@VA3DIAXVS341.RED001.local>
+	<CANfbgbZZx8Ex9LtaY+5maRA0xbQKkKUzcHwHSyxS1aq=AE0dqA@mail.gmail.com>
+	<CANfbgbYMKEb2ZdPaurFuf9YD=ZCawmEDUBZim65hKKhi6Bo13g@mail.gmail.com>
+Message-ID: <CAHFJsA85L5O_mqCE4itRmqyyWqmjMLMCNdkVp-N-xjebhU1gZg@mail.gmail.com>
+
+Hi i had some experience in upgrading from 1.2 to 2.0, similar to the above
+post:
+
+On Fri, Aug 12, 2011 at 8:28 AM, Christopher Browne
+<cbbrowne at afilias.info>wrote:
+
+>
+> I had started efforts on a would-be methodology to upgrade the Slony
+> schema, but it was getting complex enough, including requiring some
+> steps outside Slony (e.g. - the log triggers and XXID visibility
+> functions changed in ways that would be really troublesome to cope
+> with) that we concluded it wasn't realistic to "upgrade" but rather to
+> drop replication and reinstall Slony.
+>
+>
+I pretty much upgraded the same way i.e. dropped the working replication,
+deleted version slony1 using apt-get remove purge and apt-get installed the
+newer version slony1-2. After that i tried adding the new entries to the
+replicated database, but i kept on getting this error.
+
+2011-08-12 08:59:59 PDT ERROR:  type "_four_node_rep_cluster1221.xxid" does
+not exist
+2011-08-12 08:59:59 PDT STATEMENT:  insert into contact (cid, name, address,
+    phonenumber) values ((select nextval('contact_seq')),
+    'Robert', '4 Bar Roard', '(515) 821-3831');
+ERROR:  type "_four_node_rep_cluster1221.xxid" does not exist
+
+The replication cluster being used (as shown in the error) is
+_four_node_rep_cluster1221 whereas i configured and started a new
+replication cluster _four_node_rep_cluster2041 for the newer version,
+2.0.4.1.  So i am guessing this is because of the XXID visibilty function
+changes in the versions from 1.2 to 2.0. Does this mean that I cant make
+changes to the database being used when i switch over to slony1-2 version?
+
+Let me know if am doing anything wrong or missing anything because this
+pretty much means that i cannot upgrade slony on the live database without
+deleting replication schemas or creating new database.
+
+Regards
+Dilraj Singh
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20110812/2a0d2391/attachment.htm 
+
