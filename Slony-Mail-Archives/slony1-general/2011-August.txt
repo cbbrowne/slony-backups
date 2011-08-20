@@ -1785,3 +1785,146 @@ Dilraj Singh
 An HTML attachment was scrubbed...
 URL: http://lists.slony.info/pipermail/slony1-general/attachments/20110812/2a0d2391/attachment.htm 
 
+From kleptog at gmail.com  Thu Aug 18 06:03:48 2011
+From: kleptog at gmail.com (Martijn van O)
+Date: Thu, 18 Aug 2011 15:03:48 +0200
+Subject: [Slony1-general] Segmentation fault when subscribing a node to
+ a replication set
+In-Reply-To: <CANfbgbY=7u-yMyfwaVLrS1MPZ5cqM3Oxq4EXQoqHXH3hqgsO0g@mail.gmail.com>
+References: <4E3C54E2.8040409@gmail.com> <4E3C5C11.4050505@ca.afilias.info>
+	<CANfbgbY=7u-yMyfwaVLrS1MPZ5cqM3Oxq4EXQoqHXH3hqgsO0g@mail.gmail.com>
+Message-ID: <CADWG95sgQvmH0MMFpdKOJ-xi1FsBZSAMaXxCBxe5iSULxVt1PQ@mail.gmail.com>
+
+On 5 August 2011 23:49, Christopher Browne <cbbrowne at afilias.info> wrote:
+> That's presumably taking place somewhere inside the Postgres "stack",
+> as that description isn't found anywhere in the Slony code base.
+>
+> If we can get a stack trace from the Postgres logs indicating
+> specifically where it was executing when this happened, it might be
+> possible to toss in a more descriptive error message, presumably
+> somewhere in the subscribe set code.
+
+I ran into this same problem and I've captured some more output:
+
+Sequence of queries (extracted from strace, so not complete):
+
+begin transaction;
+select count(*) FROM "config_rep".sl_subscribe where sub_set=1 AND
+sub_receiver=2  and sub_...
+select set_origin from "config_rep".sl_set where set_id=1
+>>> result is SELECT 0, followed by
+<stdin>:4: row number 0 is out of range 0..-1
+>>> and then segmentation fault
+
+Backtrace looks like this (not sure how much optimisation was used):
+
+#0  0xaf5c2c29 in ____strtol_l_internal (nptr=0x0, endptr=0x0,
+base=10, group=0, loc=0xaf6cd360) at strtol_l.c:298
+#1  0xaf5c29d8 in strtol (nptr=0x0, endptr=0x0, base=10) at strtol.c:110
+#2  0x1747b8b1 in atoi (stmt=0x1749bb68) at /usr/include/stdlib.h:286
+#3  slonik_subscribe_set (stmt=0x1749bb68) at slonik.c:3506
+#4  0x1747deca in script_exec_stmts (script=<value optimized out>,
+hdr=0x1749bb68) at slonik.c:1416
+#5  0x1747e281 in script_exec_stmts (script=<value optimized out>,
+hdr=0x1749bdd0) at slonik.c:1127
+#6  0x1747e372 in script_exec (script=0x1749be18) at slonik.c:1091
+#7  0x1747f2a5 in main (argc=1, argv=0xb8f874f4) at slonik.c:156
+
+Hope this helps,
+-- 
+Martijn van Oosterhout <kleptog at gmail.com> http://svana.org/kleptog/
+
+From ssinger at ca.afilias.info  Thu Aug 18 06:47:40 2011
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Thu, 18 Aug 2011 09:47:40 -0400
+Subject: [Slony1-general] Segmentation fault when subscribing a node to
+ a replication set
+In-Reply-To: <CADWG95sgQvmH0MMFpdKOJ-xi1FsBZSAMaXxCBxe5iSULxVt1PQ@mail.gmail.com>
+References: <4E3C54E2.8040409@gmail.com>	<4E3C5C11.4050505@ca.afilias.info>	<CANfbgbY=7u-yMyfwaVLrS1MPZ5cqM3Oxq4EXQoqHXH3hqgsO0g@mail.gmail.com>
+	<CADWG95sgQvmH0MMFpdKOJ-xi1FsBZSAMaXxCBxe5iSULxVt1PQ@mail.gmail.com>
+Message-ID: <4E4D17FC.60302@ca.afilias.info>
+
+On 11-08-18 09:03 AM, Martijn van O wrote:
+> On 5 August 2011 23:49, Christopher Browne<cbbrowne at afilias.info>  wrote:
+
+> I ran into this same problem and I've captured some more output:
+>
+> Sequence of queries (extracted from strace, so not complete):
+>
+
+Thanks.
+I have created a bug with an attached patch.
+http://www.slony.info/bugzilla/show_bug.cgi?id=233
+
+
+> begin transaction;
+> select count(*) FROM "config_rep".sl_subscribe where sub_set=1 AND
+> sub_receiver=2  and sub_...
+> select set_origin from "config_rep".sl_set where set_id=1
+>>>> result is SELECT 0, followed by
+> <stdin>:4: row number 0 is out of range 0..-1
+>>>> and then segmentation fault
+>
+> Backtrace looks like this (not sure how much optimisation was used):
+>
+> #0  0xaf5c2c29 in ____strtol_l_internal (nptr=0x0, endptr=0x0,
+> base=10, group=0, loc=0xaf6cd360) at strtol_l.c:298
+> #1  0xaf5c29d8 in strtol (nptr=0x0, endptr=0x0, base=10) at strtol.c:110
+> #2  0x1747b8b1 in atoi (stmt=0x1749bb68) at /usr/include/stdlib.h:286
+> #3  slonik_subscribe_set (stmt=0x1749bb68) at slonik.c:3506
+> #4  0x1747deca in script_exec_stmts (script=<value optimized out>,
+> hdr=0x1749bb68) at slonik.c:1416
+> #5  0x1747e281 in script_exec_stmts (script=<value optimized out>,
+> hdr=0x1749bdd0) at slonik.c:1127
+> #6  0x1747e372 in script_exec (script=0x1749be18) at slonik.c:1091
+> #7  0x1747f2a5 in main (argc=1, argv=0xb8f874f4) at slonik.c:156
+>
+> Hope this helps,
+
+
+From dkg at fifthhorseman.net  Thu Aug 18 23:04:03 2011
+From: dkg at fifthhorseman.net (Daniel Kahn Gillmor)
+Date: Fri, 19 Aug 2011 02:04:03 -0400
+Subject: [Slony1-general] "fetch 500 from LOG" consuming a lot of CPU
+Message-ID: <4E4DFCD3.8070505@fifthhorseman.net>
+
+hi slony-folks--
+
+I've got a slony-I 2.0.4 system replicating between two psql databases.
+
+If i run pg_top on the origin node, i regularly see ~25% CPU usage in a
+fetch command that appears to be:
+
+ fetch 500 from LOG;
+
+(i get this query string from "SELECT * FROM pg_stat_activity;")  The pg
+user associated with this query is the user account used by the slon
+process.
+
+In addition to this problem on the origin node, i see a long-standing
+"idle in transaction" process via pg_top on the subscribed node,
+
+I found this entry in the FAQ:
+
+ http://slony.info/documentation/faq.html#AEN5103
+
+But i'm not clear what to do to improve the situation.  Can you suggest
+next steps that would be useful?
+
+My frontend application isn't using connection pooling -- it's a
+perl-based fcgi script.
+
+I would appreciate any advice!
+
+Regards,
+
+	--dkg
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: signature.asc
+Type: application/pgp-signature
+Size: 1030 bytes
+Desc: OpenPGP digital signature
+Url : http://lists.slony.info/pipermail/slony1-general/attachments/20110819/ef39171f/attachment.pgp 
+
