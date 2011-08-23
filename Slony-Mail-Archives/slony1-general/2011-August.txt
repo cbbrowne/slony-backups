@@ -2047,3 +2047,112 @@ that events + confirmations are flowing.
 >
 
 
+From dkg at fifthhorseman.net  Sun Aug 21 15:21:02 2011
+From: dkg at fifthhorseman.net (Daniel Kahn Gillmor)
+Date: Sun, 21 Aug 2011 18:21:02 -0400
+Subject: [Slony1-general] overflow in re-computing sync group sizes
+Message-ID: <87sjou5ru9.fsf@fifthhorseman.net>
+
+Hi good slony folks--
+
+I think there is a bug in slony's sync group size calculations.  In
+particular, the calculation of the next sync group size appears to be
+vulnerable to integer overflow.
+
+I'm in a situation where one node is seriously lagged, and i need to
+catch up quickly.  So i've set my slon process' desired_sync_time to a
+large value (1000 seconds) and its sync_group_maxsize to 3000.
+
+Unfortunately, since there is a serious gap, each sync group takes quite
+a while to compute, even if there is only 1 sync group requested
+(stevensn on #slony suggests that it's doing a full tablescan of
+sl_log_1 each update).
+
+Under these conditions, slon appears to calculate a *negative* ideal
+sync group size.  (see the -4030 in the log below):
+
+2011-08-21 03:42:11 UTCCONFIG slon: watchdog ready - pid = 7135
+2011-08-21 03:42:11 UTCCONFIG slon: worker process created - pid = 7136
+2011-08-21 03:42:11 UTCCONFIG main: Integer option vac_frequency = 3
+2011-08-21 03:42:11 UTCCONFIG main: Integer option log_level = 1
+2011-08-21 03:42:11 UTCCONFIG main: Integer option sync_interval = 1000
+2011-08-21 03:42:11 UTCCONFIG main: Integer option sync_interval_timeout = 10000
+2011-08-21 03:42:11 UTCCONFIG main: Integer option sync_group_maxsize = 3000
+2011-08-21 03:42:11 UTCCONFIG main: Integer option desired_sync_time = 1000000
+2011-08-21 03:42:11 UTCCONFIG main: Integer option syslog = 0
+2011-08-21 03:42:11 UTCCONFIG main: Integer option quit_sync_provider = 0
+2011-08-21 03:42:11 UTCCONFIG main: Integer option quit_sync_finalsync = 0
+2011-08-21 03:42:11 UTCCONFIG main: Integer option sync_max_rowsize = 8192
+2011-08-21 03:42:11 UTCCONFIG main: Integer option sync_max_largemem = 5242880
+2011-08-21 03:42:11 UTCCONFIG main: Integer option remote_listen_timeout = 300
+2011-08-21 03:42:11 UTCCONFIG main: Boolean option log_pid = 0
+2011-08-21 03:42:11 UTCCONFIG main: Boolean option log_timestamp = 1
+2011-08-21 03:42:11 UTCCONFIG main: Boolean option cleanup_deletelogs = 0
+2011-08-21 03:42:11 UTCCONFIG main: Real option real_placeholder = 0.000000
+2011-08-21 03:42:11 UTCCONFIG main: String option cluster_name = clustername
+2011-08-21 03:42:11 UTCCONFIG main: String option conn_info = host=foo.example.org dbname=testdb user=slony port=5432 sslmode=require
+2011-08-21 03:42:11 UTCCONFIG main: String option pid_file = /var/run/slony1/node4.pid
+2011-08-21 03:42:11 UTCCONFIG main: String option log_timestamp_format = %Y-%m-%d %H:%M:%S %Z
+2011-08-21 03:42:11 UTCCONFIG main: String option archive_dir = [NULL]
+2011-08-21 03:42:11 UTCCONFIG main: String option sql_on_connection = [NULL]
+2011-08-21 03:42:11 UTCCONFIG main: String option lag_interval = [NULL]
+2011-08-21 03:42:11 UTCCONFIG main: String option command_on_logarchive = [NULL]
+2011-08-21 03:42:11 UTCCONFIG main: String option syslog_facility = LOCAL0
+2011-08-21 03:42:11 UTCCONFIG main: String option syslog_ident = slon
+2011-08-21 03:42:11 UTCCONFIG main: String option cleanup_interval = 10 minutes                             
+ [...]
+2011-08-21 19:20:11 UTCINFO   remoteWorkerThread_3: SYNC 5002089203 done in 381.641 seconds
+2011-08-21 19:20:11 UTCDEBUG1 remoteWorkerThread_3: SYNC 5002089203 sync_event timing:  pqexec (s/count)- provider 0.246/1 - subscriber 0.002/1 - IUD 6.663/7337
+2011-08-21 19:20:11 UTCDEBUG1 calc sync size - last time: 1895 last length: 381873 ideal: 4962 proposed size: 3000
+2011-08-21 19:20:11 UTCDEBUG1 about to monitor_subscriber_query - pulling big actionid list for 3
+2011-08-21 19:20:11 UTCINFO   remoteWorkerThread_3: syncing set 2 with 7 table(s) from provider 3
+2011-08-21 19:25:21 UTCDEBUG1 remoteHelperThread_3_3: 309.699 seconds delay for first row
+2011-08-21 19:25:32 UTCDEBUG1 remoteHelperThread_3_3: 320.586 seconds until close cursor
+2011-08-21 19:25:32 UTCDEBUG1 remoteHelperThread_3_3: inserts=48428 updates=10966 deletes=0
+2011-08-21 19:25:32 UTCDEBUG1 remoteWorkerThread_3: sync_helper timing:  pqexec (s/count)- provider 315.415/122 - subscriber 0.002/122
+2011-08-21 19:25:32 UTCDEBUG1 remoteWorkerThread_3: sync_helper timing:  large tuples 0.000/0
+2011-08-21 19:25:32 UTCINFO   remoteWorkerThread_3: SYNC 5002092203 done in 320.936 seconds
+2011-08-21 19:25:32 UTCDEBUG1 remoteWorkerThread_3: SYNC 5002092203 sync_event timing:  pqexec (s/count)- provider 0.064/1 - subscriber 0.002/1 - IUD 10.840/11889
+2011-08-21 19:25:32 UTCDEBUG1 calc sync size - last time: 3000 last length: 321314 ideal: -4030 proposed size: 1
+2011-08-21 19:25:32 UTCDEBUG1 about to monitor_subscriber_query - pulling big actionid list for 3
+
+This is with slony 2.0.4 from debian squeeze, on amd64.
+
+the formula for calculating the ideal sync size (line 596 of
+src/slon/remote_worker.c) is: 
+
+  ideal_sync = (last_sync_group_size * desired_sync_time) / last_sync_length;
+
+All four variables in the assignment are of type int.
+
+With desired_sync_time of 1000000 (milliseconds), and a
+last_sync_group_size of 3000, this code overflows a 32-bit signed
+integer :(, resulting in the -4030
+
+There are probably a few bugs here, but the most important bug is:
+
+ 0) overflow isn't being handled properly.  The simplest way to fix this
+ is probably to do this kind of internal computation in floats, and then
+ cast back to integers later.
+
+some secondary issues worth considering are:
+
+ 1) this is a 64-bit architecture -- why aren't these using 64-bit
+ integers instead of 32-bit?  Maybe there are some odd compiler flags in
+ use?
+
+ 2) should these ints be unsigned instead of signed?
+
+I hope this problem report is useful!  I'd be happy to answer any
+questions or to clarify concerns other people have.  Would it be useful
+to report this concern anywhere other than the mailing list?
+
+   --dkg
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: not available
+Type: application/pgp-signature
+Size: 965 bytes
+Desc: not available
+Url : http://lists.slony.info/pipermail/slony1-general/attachments/20110821/cbe3a8cc/attachment.pgp 
+
