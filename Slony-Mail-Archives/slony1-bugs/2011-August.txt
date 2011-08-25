@@ -1412,3 +1412,278 @@ Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
 You are on the CC list for the bug.
 You are the assignee for the bug.
 
+From bugzilla-daemon at main.slony.info  Tue Aug 23 11:40:51 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Tue, 23 Aug 2011 11:40:51 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 235] New: SYNC GROUP size bugs
+Message-ID: <bug-235-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=235
+
+           Summary: SYNC GROUP size bugs
+           Product: Slony-I
+           Version: 2.0
+          Platform: PC
+        OS/Version: Linux
+            Status: NEW
+          Severity: enhancement
+          Priority: low
+         Component: slon
+        AssignedTo: slony1-bugs at lists.slony.info
+        ReportedBy: ssinger at ca.afilias.info
+                CC: slony1-bugs at lists.slony.info
+   Estimated Hours: 0.0
+
+
+This bug was reported on the slony mailing list
+
+I think there is a bug in slony's sync group size calculations.  In
+particular, the calculation of the next sync group size appears to be
+vulnerable to integer overflow.
+
+I'm in a situation where one node is seriously lagged, and i need to
+catch up quickly.  So i've set my slon process' desired_sync_time to a
+large value (1000 seconds) and its sync_group_maxsize to 3000.
+
+Unfortunately, since there is a serious gap, each sync group takes quite
+a while to compute, even if there is only 1 sync group requested
+(stevensn on #slony suggests that it's doing a full tablescan of
+sl_log_1 each update).
+
+Under these conditions, slon appears to calculate a *negative* ideal
+sync group size.  (see the -4030 in the log below):
+
+2011-08-21 03:42:11 UTCCONFIG slon: watchdog ready - pid = 7135
+2011-08-21 03:42:11 UTCCONFIG slon: worker process created - pid = 7136
+2011-08-21 03:42:11 UTCCONFIG main: Integer option vac_frequency = 3
+2011-08-21 03:42:11 UTCCONFIG main: Integer option log_level = 1
+2011-08-21 03:42:11 UTCCONFIG main: Integer option sync_interval = 1000
+2011-08-21 03:42:11 UTCCONFIG main: Integer option sync_interval_timeout =
+10000
+2011-08-21 03:42:11 UTCCONFIG main: Integer option sync_group_maxsize = 3000
+2011-08-21 03:42:11 UTCCONFIG main: Integer option desired_sync_time = 1000000
+2011-08-21 03:42:11 UTCCONFIG main: Integer option syslog = 0
+2011-08-21 03:42:11 UTCCONFIG main: Integer option quit_sync_provider = 0
+2011-08-21 03:42:11 UTCCONFIG main: Integer option quit_sync_finalsync = 0
+2011-08-21 03:42:11 UTCCONFIG main: Integer option sync_max_rowsize = 8192
+2011-08-21 03:42:11 UTCCONFIG main: Integer option sync_max_largemem = 5242880
+2011-08-21 03:42:11 UTCCONFIG main: Integer option remote_listen_timeout = 300
+2011-08-21 03:42:11 UTCCONFIG main: Boolean option log_pid = 0
+2011-08-21 03:42:11 UTCCONFIG main: Boolean option log_timestamp = 1
+2011-08-21 03:42:11 UTCCONFIG main: Boolean option cleanup_deletelogs = 0
+2011-08-21 03:42:11 UTCCONFIG main: Real option real_placeholder = 0.000000
+2011-08-21 03:42:11 UTCCONFIG main: String option cluster_name = clustername
+2011-08-21 03:42:11 UTCCONFIG main: String option conn_info =
+host=foo.example.org dbname=testdb user=slony port=5432 sslmode=require
+2011-08-21 03:42:11 UTCCONFIG main: String option pid_file =
+/var/run/slony1/node4.pid
+2011-08-21 03:42:11 UTCCONFIG main: String option log_timestamp_format =
+%Y-%m-%d %H:%M:%S %Z
+2011-08-21 03:42:11 UTCCONFIG main: String option archive_dir = [NULL]
+2011-08-21 03:42:11 UTCCONFIG main: String option sql_on_connection = [NULL]
+2011-08-21 03:42:11 UTCCONFIG main: String option lag_interval = [NULL]
+2011-08-21 03:42:11 UTCCONFIG main: String option command_on_logarchive =
+[NULL]
+2011-08-21 03:42:11 UTCCONFIG main: String option syslog_facility = LOCAL0
+2011-08-21 03:42:11 UTCCONFIG main: String option syslog_ident = slon
+2011-08-21 03:42:11 UTCCONFIG main: String option cleanup_interval = 10 minutes 
+ [...]
+2011-08-21 19:20:11 UTCINFO   remoteWorkerThread_3: SYNC 5002089203 done in
+381.641 seconds
+2011-08-21 19:20:11 UTCDEBUG1 remoteWorkerThread_3: SYNC 5002089203 sync_event
+timing:  pqexec (s/count)- provider 0.246/1 - subscriber 0.002/1 - IUD
+6.663/7337
+2011-08-21 19:20:11 UTCDEBUG1 calc sync size - last time: 1895 last length:
+381873 ideal: 4962 proposed size: 3000
+2011-08-21 19:20:11 UTCDEBUG1 about to monitor_subscriber_query - pulling big
+actionid list for 3
+2011-08-21 19:20:11 UTCINFO   remoteWorkerThread_3: syncing set 2 with 7
+table(s) from provider 3
+2011-08-21 19:25:21 UTCDEBUG1 remoteHelperThread_3_3: 309.699 seconds delay for
+first row
+2011-08-21 19:25:32 UTCDEBUG1 remoteHelperThread_3_3: 320.586 seconds until
+close cursor
+2011-08-21 19:25:32 UTCDEBUG1 remoteHelperThread_3_3: inserts=48428
+updates=10966 deletes=0
+2011-08-21 19:25:32 UTCDEBUG1 remoteWorkerThread_3: sync_helper timing:  pqexec
+(s/count)- provider 315.415/122 - subscriber 0.002/122
+2011-08-21 19:25:32 UTCDEBUG1 remoteWorkerThread_3: sync_helper timing:  large
+tuples 0.000/0
+2011-08-21 19:25:32 UTCINFO   remoteWorkerThread_3: SYNC 5002092203 done in
+320.936 seconds
+2011-08-21 19:25:32 UTCDEBUG1 remoteWorkerThread_3: SYNC 5002092203 sync_event
+timing:  pqexec (s/count)- provider 0.064/1 - subscriber 0.002/1 - IUD
+10.840/11889
+2011-08-21 19:25:32 UTCDEBUG1 calc sync size - last time: 3000 last length:
+321314 ideal: -4030 proposed size: 1
+2011-08-21 19:25:32 UTCDEBUG1 about to monitor_subscriber_query - pulling big
+actionid list for 3
+
+This is with slony 2.0.4 from debian squeeze, on amd64.
+
+the formula for calculating the ideal sync size (line 596 of
+src/slon/remote_worker.c) is: 
+
+  ideal_sync = (last_sync_group_size * desired_sync_time) / last_sync_length;
+
+All four variables in the assignment are of type int.
+
+With desired_sync_time of 1000000 (milliseconds), and a
+last_sync_group_size of 3000, this code overflows a 32-bit signed
+integer :(, resulting in the -4030
+
+There are probably a few bugs here, but the most important bug is:
+
+ 0) overflow isn't being handled properly.  The simplest way to fix this
+ is probably to do this kind of internal computation in floats, and then
+ cast back to integers later.
+
+some secondary issues worth considering are:
+
+ 1) this is a 64-bit architecture -- why aren't these using 64-bit
+ integers instead of 32-bit?  Maybe there are some odd compiler flags in
+ use?
+
+ 2) should these ints be unsigned instead of signed?
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Tue Aug 23 12:46:38 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Tue, 23 Aug 2011 12:46:38 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 235] SYNC GROUP size bugs
+In-Reply-To: <bug-235-4@http.www.slony.info/bugzilla/>
+References: <bug-235-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110823194638.B49EF290E22@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=235
+
+--- Comment #1 from Christopher Browne <cbbrowne at ca.afilias.info> 2011-08-23 12:46:38 PDT ---
+This is the same problem, no doubt, as the "int versus int64" issues resolved
+here:
+
+http://git.postgresql.org/gitweb/?p=slony1-engine.git;a=commit;h=a886824b87b8da3a485b8dfea7910734bd6a7bce
+
+As a "first blush," I'd suggest considering changing the variables to int64,
+which is where the above changes ultimately went.
+
+And switching to using float seems like not a terrible idea.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Tue Aug 23 14:50:30 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Tue, 23 Aug 2011 14:50:30 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 235] SYNC GROUP size bugs
+In-Reply-To: <bug-235-4@http.www.slony.info/bugzilla/>
+References: <bug-235-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110823215030.22309290E32@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=235
+
+--- Comment #2 from Christopher Browne <cbbrowne at ca.afilias.info> 2011-08-23 14:50:30 PDT ---
+It seems to me that in HEAD, we should look at revising the logic in a more
+substantial way.
+
+The logic that was added around 1.2 has the conceit that we imagine that SYNCs
+are likely to 'typically' take some period of time to process, from whence
+comes the configuration option "desired_sync_time".
+
+This is fairly nonsensical, as how long a SYNC will take to process really
+depends on how much data got committed between two SYNCs, which isn't so
+predictable.
+
+The logic might be simplified to something more like:
+
+- We define a "max" number of syncs to process, and don't ever consider doing
+more than that.
+
+- If there are fewer than that "max", then group whatever is available.
+
+There's some logic surrounding increasing towards the "max"; it's pretty likely
+that trying to do this is just nonsense, and we should just head straight to
+the configured maximum.
+
+If the administrator feels that only a few SYNCs should be processed together,
+then they can set sync_group_maxsize fairly small, and get the desired result.
+
+If they want lots of grouping, then they can set it high, and get the desired
+result.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Aug 24 00:20:57 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed, 24 Aug 2011 00:20:57 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 235] SYNC GROUP size bugs
+In-Reply-To: <bug-235-4@http.www.slony.info/bugzilla/>
+References: <bug-235-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110824072057.9C462290E32@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=235
+
+Daniel Kahn Gillmor <dkg at fifthhorseman.net> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+                 CC|                            |dkg at fifthhorseman.net
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Aug 24 01:05:30 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed, 24 Aug 2011 01:05:30 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 235] SYNC GROUP size bugs
+In-Reply-To: <bug-235-4@http.www.slony.info/bugzilla/>
+References: <bug-235-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110824080530.2499E290E28@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=235
+
+--- Comment #3 from Daniel Kahn Gillmor <dkg at fifthhorseman.net> 2011-08-24 01:05:30 PDT ---
+I think the logic behind the "ramping up" is that if the admin says "group at
+most 3000 SYNCs at a time" (sync_group_maxsize) and "i want each run to take
+about 60 seconds" (desired_sync_time), and it turns out that we can process
+about 10 SYNCs per second, then if we just jump straight to 3000 SYNCs, the run
+would take 5 times the recommended maximum duration.
+
+So the current logic does a small number of SYNCs and then tries to predict
+(based on some implicit assumption that the number of SYNCs varies linearly
+with the duration of the SYNC group) what the ideal number of SYNCs would be to
+hit the desired_sync_time.
+
+Aside from overflow issues, the big problem with this approach is that the
+number of SYNCs processed per group does *not* necessarily vary linearly with
+the time it takes for the group to be processed.  Or, if it does vary linearly,
+it is with a constant offset that can grow substantially if there are a large
+number of elements in sl_log_1 or sl_log_2.
+
+In my case, with > 8 GiB in sl_log_1, a SYNC group of size 1 takes several
+hundred seconds, and a sync group of size 3000 *also* takes several hundred
+seconds.  (maybe due to the full tablescan of sl_log_1?) 
+
+As a result, the estimate of how many SYNCs to process in a group stays low,
+which makes slony take even longer to finish processing its data :(
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
