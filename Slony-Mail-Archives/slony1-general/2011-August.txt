@@ -2657,3 +2657,539 @@ Size: 1030 bytes
 Desc: OpenPGP digital signature
 Url : http://lists.slony.info/pipermail/slony1-general/attachments/20110824/6c8843e1/attachment.pgp 
 
+From mu at forsa.de  Wed Aug 24 04:03:37 2011
+From: mu at forsa.de (marmu)
+Date: Wed, 24 Aug 2011 04:03:37 -0700 (PDT)
+Subject: [Slony1-general] After importing data into my DBs slony replication
+ does not work anymore
+Message-ID: <32325514.post@talk.nabble.com>
+
+
+Hello guys,
+
+yesterday I finally had slony replication working between two DBs on one
+server. To this point in time I only had imported the globals and the
+structure of the DBs. When I inserted a row in a table which is part of a
+replication set it was immediately replicated. Then I thought it is time for
+the next step: importing the (old) data backed up before.
+
+At first I stopped the slons and disables all triggers in my DBs. After I
+imported the data into both DBs the replication doesn't work anymore. Of
+course I got some errors while importing data into the slave, since tables
+are taking part in the replication:
+"Table xxxxxxx is replicated and cannot be modified on a subscriber node -
+role=0"
+
+I thought, ok, I will have to import the data of the master-DB first and
+then let slony replicate to the slave. But this didn't work. No replication
+taking place and no errors in the slony logs.
+
+The sl_status table in the master-DB is empty (0 rows), the sl_status table
+in the slave-DB contains the following row (1 row, formatted for better
+display):
+ st_origin = 2 | st_received = 1 | st_last_event = 5002159114 |
+ st_last_event_ts = 2011-08-24 12:31:37.56454 | st_last_received =
+5002159114 |
+ st_last_received_ts = 2011-08-24 12:31:38.598021 | 
+ st_last_received_event_ts = 2011-08-24 12:31:37.56454 | st_lag_num_events =
+0 |
+ st_lag_time = 00:16:24.21951
+
+Any hints on why the replication won't work after importing data would be
+great. Further what would be the correct sequence of actions for moving 2
+DBs from one server to a new one (new postgres and slony versions).
+
+This is what I did:
+1) export
+    1.1) export globals
+    1.2) export structure
+    1.3) export data
+2) import globals and structure
+3) get slony working (replication was tested at this point and worked)
+4) stop all slons (like "/etc/init.d/slony-slave stop" and
+"/etc/init.d/slony-master stop")
+5) disable all triggers (in our case some calculations based on the data are
+taking place, but that is only needed while in production - so I could have
+skipped this for now, but not in the future)
+6) import the data (which was dumped before)
+
+Thanks for your time, thoughts and help in advance.
+
+Cheers,
+Marcus
+-- 
+View this message in context: http://old.nabble.com/After-importing-data-into-my-DBs-slony-replication-does-not-work-anymore-tp32325514p32325514.html
+Sent from the Slony-I -- General mailing list archive at Nabble.com.
+
+
+From wmoran at potentialtech.com  Wed Aug 24 05:03:07 2011
+From: wmoran at potentialtech.com (Bill Moran)
+Date: Wed, 24 Aug 2011 08:03:07 -0400
+Subject: [Slony1-general] After importing data into my DBs slony
+ replication does not work anymore
+In-Reply-To: <32325514.post@talk.nabble.com>
+References: <32325514.post@talk.nabble.com>
+Message-ID: <20110824080307.2051cc4b.wmoran@potentialtech.com>
+
+
+Slony uses triggers.  You disabled the triggers, so Slony no longer works.
+Even if you re-enable the triggers, information about what data changed
+has been lost.
+
+Got back and redo your steps but don't disable any triggers.
+
+In response to marmu <mu at forsa.de>:
+> 
+> Hello guys,
+> 
+> yesterday I finally had slony replication working between two DBs on one
+> server. To this point in time I only had imported the globals and the
+> structure of the DBs. When I inserted a row in a table which is part of a
+> replication set it was immediately replicated. Then I thought it is time for
+> the next step: importing the (old) data backed up before.
+> 
+> At first I stopped the slons and disables all triggers in my DBs. After I
+> imported the data into both DBs the replication doesn't work anymore. Of
+> course I got some errors while importing data into the slave, since tables
+> are taking part in the replication:
+> "Table xxxxxxx is replicated and cannot be modified on a subscriber node -
+> role=0"
+> 
+> I thought, ok, I will have to import the data of the master-DB first and
+> then let slony replicate to the slave. But this didn't work. No replication
+> taking place and no errors in the slony logs.
+> 
+> The sl_status table in the master-DB is empty (0 rows), the sl_status table
+> in the slave-DB contains the following row (1 row, formatted for better
+> display):
+>  st_origin = 2 | st_received = 1 | st_last_event = 5002159114 |
+>  st_last_event_ts = 2011-08-24 12:31:37.56454 | st_last_received =
+> 5002159114 |
+>  st_last_received_ts = 2011-08-24 12:31:38.598021 | 
+>  st_last_received_event_ts = 2011-08-24 12:31:37.56454 | st_lag_num_events =
+> 0 |
+>  st_lag_time = 00:16:24.21951
+> 
+> Any hints on why the replication won't work after importing data would be
+> great. Further what would be the correct sequence of actions for moving 2
+> DBs from one server to a new one (new postgres and slony versions).
+> 
+> This is what I did:
+> 1) export
+>     1.1) export globals
+>     1.2) export structure
+>     1.3) export data
+> 2) import globals and structure
+> 3) get slony working (replication was tested at this point and worked)
+> 4) stop all slons (like "/etc/init.d/slony-slave stop" and
+> "/etc/init.d/slony-master stop")
+> 5) disable all triggers (in our case some calculations based on the data are
+> taking place, but that is only needed while in production - so I could have
+> skipped this for now, but not in the future)
+> 6) import the data (which was dumped before)
+> 
+> Thanks for your time, thoughts and help in advance.
+
+-- 
+Bill Moran
+http://www.potentialtech.com
+http://people.collaborativefusion.com/~wmoran/
+
+From maretranq at gmail.com  Wed Aug 24 15:24:19 2011
+From: maretranq at gmail.com (maretranq)
+Date: Wed, 24 Aug 2011 15:24:19 -0700
+Subject: [Slony1-general] how to fix replication after column added to
+	origin outside Slony?
+Message-ID: <CAJM0Wbh-ETRVO3tgz5wrDerhV2igO89fsyVmHNVe_ZUyd_svew@mail.gmail.com>
+
+Hello,
+
+Is it possible to fix this situation, ideally without starting over?
+
+A Slony cluster of 2 nodes was deployed and running. Some time later,
+a column was added only to the origin/"master" node outside of Slony
+control. slon is still running on both nodes, but the subscriber node
+is understandably emitting errors, such as:
+
+ERROR:  column "foo" of relation "bar" does not exist
+
+Does anyone have suggestions on what might be the best way forward?
+
+Software versions:
+
+Ubuntu 10.04
+PostgreSQL 8.4.8 (Ubuntu)
+Slony-I 1.2.20 (Ubuntu)
+
+I apologize if this scenario has been addressed previously; I'd
+greatly appreciate any pointers. What searches I tried did not turn up
+something applicable.
+
+Thanks!
+
+mare
+
+From jim at contacttelecom.com  Wed Aug 24 15:28:44 2011
+From: jim at contacttelecom.com (Jim Buttafuoco)
+Date: Wed, 24 Aug 2011 18:28:44 -0400
+Subject: [Slony1-general] how to fix replication after column added to
+	origin outside Slony?
+In-Reply-To: <CAJM0Wbh-ETRVO3tgz5wrDerhV2igO89fsyVmHNVe_ZUyd_svew@mail.gmail.com>
+References: <CAJM0Wbh-ETRVO3tgz5wrDerhV2igO89fsyVmHNVe_ZUyd_svew@mail.gmail.com>
+Message-ID: <095486D3-6855-4EA8-86F8-A41363CB112E@contacttelecom.com>
+
+just alter the table on the other node, I have to do it here all the time.
+
+On Aug 24, 2011, at 6:24 PM, maretranq wrote:
+
+> Hello,
+> 
+> Is it possible to fix this situation, ideally without starting over?
+> 
+> A Slony cluster of 2 nodes was deployed and running. Some time later,
+> a column was added only to the origin/"master" node outside of Slony
+> control. slon is still running on both nodes, but the subscriber node
+> is understandably emitting errors, such as:
+> 
+> ERROR:  column "foo" of relation "bar" does not exist
+> 
+> Does anyone have suggestions on what might be the best way forward?
+> 
+> Software versions:
+> 
+> Ubuntu 10.04
+> PostgreSQL 8.4.8 (Ubuntu)
+> Slony-I 1.2.20 (Ubuntu)
+> 
+> I apologize if this scenario has been addressed previously; I'd
+> greatly appreciate any pointers. What searches I tried did not turn up
+> something applicable.
+> 
+> Thanks!
+> 
+> mare
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+> 
+
+___________________________________________________________
+
+
+
+
+
+
+
+Jim Buttafuoco
+jim at contacttelecom.com
+603-647-7170 ext. 2222- Office
+603-490-3409 - Cell
+jimbuttafuoco - Skype
+
+
+
+
+
+
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20110824/7a39788b/attachment.htm 
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: image.gif
+Type: image/gif
+Size: 2793 bytes
+Desc: not available
+Url : http://lists.slony.info/pipermail/slony1-general/attachments/20110824/7a39788b/attachment.gif 
+
+From ssinger at ca.afilias.info  Wed Aug 24 16:44:32 2011
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Wed, 24 Aug 2011 19:44:32 -0400
+Subject: [Slony1-general] how to fix replication after column added to
+ origin outside Slony?
+In-Reply-To: <095486D3-6855-4EA8-86F8-A41363CB112E@contacttelecom.com>
+References: <CAJM0Wbh-ETRVO3tgz5wrDerhV2igO89fsyVmHNVe_ZUyd_svew@mail.gmail.com>
+	<095486D3-6855-4EA8-86F8-A41363CB112E@contacttelecom.com>
+Message-ID: <4E558CE0.6070601@ca.afilias.info>
+
+On 11-08-24 06:28 PM, Jim Buttafuoco wrote:
+> just alter the table on the other node, I have to do it here all the time.
+
+Your Playing with fire.
+
+With Slony 1.2.x the triggers installed on your table contain 
+information about the structure of your table in the trigger arguments. 
+  The EXECUTE SCRIPT slonik command resets those values.  Also doing any 
+sort of DDL on a 1.2 slave outside of EXECUTE SCRIPT is a bad idea 
+because of how slony 1.2 munges the catalog of slaves.
+
+I think mare would be better off
+
+Doing a EXECUTE SCRIPT(only on=slave node) to add the columns to the 
+slave node.
+
+Then do an EXECUTE SCRIPT(file=some_script.sql , only on=master node) 
+where some_script.sql is some SQL file that does not do much (ie just 
+selects from a table).  When Slonik performs the execute script it will 
+reset the triggers.
+
+Remember EXECUTE SCRIPT in Slony 1.2 takes exclusive locks on all 
+replicated tables.
+
+
+>
+> On Aug 24, 2011, at 6:24 PM, maretranq wrote:
+>
+>> Hello,
+>>
+>> Is it possible to fix this situation, ideally without starting over?
+>>
+>> A Slony cluster of 2 nodes was deployed and running. Some time later,
+>> a column was added only to the origin/"master" node outside of Slony
+>> control. slon is still running on both nodes, but the subscriber node
+>> is understandably emitting errors, such as:
+>>
+>> ERROR: column "foo" of relation "bar" does not exist
+>>
+>> Does anyone have suggestions on what might be the best way forward?
+>>
+>> Software versions:
+>>
+>> Ubuntu 10.04
+>> PostgreSQL 8.4.8 (Ubuntu)
+>> Slony-I 1.2.20 (Ubuntu)
+>>
+>> I apologize if this scenario has been addressed previously; I'd
+>> greatly appreciate any pointers. What searches I tried did not turn up
+>> something applicable.
+>>
+>> Thanks!
+>>
+>> mare
+>> _______________________________________________
+>> Slony1-general mailing list
+>> Slony1-general at lists.slony.info <mailto:Slony1-general at lists.slony.info>
+>> http://lists.slony.info/mailman/listinfo/slony1-general
+>>
+>
+> ___________________________________________________________
+>
+>
+>
+>
+>
+>
+>
+> Jim Buttafuoco
+> jim at contacttelecom.com <mailto:jim at contacttelecom.com>
+> 603-647-7170 ext. 2222- Office
+> 603-490-3409 - Cell
+> jimbuttafuoco - Skype
+>
+>
+>
+>
+>
+>
+>
+>
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+
+
+From jim at contacttelecom.com  Wed Aug 24 17:10:13 2011
+From: jim at contacttelecom.com (Jim Buttafuoco)
+Date: Wed, 24 Aug 2011 20:10:13 -0400
+Subject: [Slony1-general] how to fix replication after column added to
+	origin outside Slony?
+In-Reply-To: <4E558CE0.6070601@ca.afilias.info>
+References: <CAJM0Wbh-ETRVO3tgz5wrDerhV2igO89fsyVmHNVe_ZUyd_svew@mail.gmail.com>
+	<095486D3-6855-4EA8-86F8-A41363CB112E@contacttelecom.com>
+	<4E558CE0.6070601@ca.afilias.info>
+Message-ID: <AB969379-0B53-4F94-94E3-CAD3E700C42C@contacttelecom.com>
+
+in general I agree, but sometimes you need to get the knife out...
+
+
+Sent from my iPad
+
+On Aug 24, 2011, at 19:44, Steve Singer <ssinger at ca.afilias.info> wrote:
+
+> On 11-08-24 06:28 PM, Jim Buttafuoco wrote:
+>> just alter the table on the other node, I have to do it here all the time.
+> 
+> Your Playing with fire.
+> 
+> With Slony 1.2.x the triggers installed on your table contain information about the structure of your table in the trigger arguments.  The EXECUTE SCRIPT slonik command resets those values.  Also doing any sort of DDL on a 1.2 slave outside of EXECUTE SCRIPT is a bad idea because of how slony 1.2 munges the catalog of slaves.
+> 
+> I think mare would be better off
+> 
+> Doing a EXECUTE SCRIPT(only on=slave node) to add the columns to the slave node.
+> 
+> Then do an EXECUTE SCRIPT(file=some_script.sql , only on=master node) where some_script.sql is some SQL file that does not do much (ie just selects from a table).  When Slonik performs the execute script it will reset the triggers.
+> 
+> Remember EXECUTE SCRIPT in Slony 1.2 takes exclusive locks on all replicated tables.
+> 
+> 
+>> 
+>> On Aug 24, 2011, at 6:24 PM, maretranq wrote:
+>> 
+>>> Hello,
+>>> 
+>>> Is it possible to fix this situation, ideally without starting over?
+>>> 
+>>> A Slony cluster of 2 nodes was deployed and running. Some time later,
+>>> a column was added only to the origin/"master" node outside of Slony
+>>> control. slon is still running on both nodes, but the subscriber node
+>>> is understandably emitting errors, such as:
+>>> 
+>>> ERROR: column "foo" of relation "bar" does not exist
+>>> 
+>>> Does anyone have suggestions on what might be the best way forward?
+>>> 
+>>> Software versions:
+>>> 
+>>> Ubuntu 10.04
+>>> PostgreSQL 8.4.8 (Ubuntu)
+>>> Slony-I 1.2.20 (Ubuntu)
+>>> 
+>>> I apologize if this scenario has been addressed previously; I'd
+>>> greatly appreciate any pointers. What searches I tried did not turn up
+>>> something applicable.
+>>> 
+>>> Thanks!
+>>> 
+>>> mare
+>>> _______________________________________________
+>>> Slony1-general mailing list
+>>> Slony1-general at lists.slony.info <mailto:Slony1-general at lists.slony.info>
+>>> http://lists.slony.info/mailman/listinfo/slony1-general
+>>> 
+>> 
+>> ___________________________________________________________
+>> 
+>> 
+>> 
+>> 
+>> 
+>> 
+>> 
+>> Jim Buttafuoco
+>> jim at contacttelecom.com <mailto:jim at contacttelecom.com>
+>> 603-647-7170 ext. 2222- Office
+>> 603-490-3409 - Cell
+>> jimbuttafuoco - Skype
+>> 
+>> 
+>> 
+>> 
+>> 
+>> 
+>> 
+>> 
+>> 
+>> _______________________________________________
+>> Slony1-general mailing list
+>> Slony1-general at lists.slony.info
+>> http://lists.slony.info/mailman/listinfo/slony1-general
+> 
+> 
+
+From stephane.schildknecht at postgresql.fr  Wed Aug 24 23:23:59 2011
+From: stephane.schildknecht at postgresql.fr (=?ISO-8859-15?Q?=22St=E9phane_A=2E_Schildknecht=22?=)
+Date: Thu, 25 Aug 2011 08:23:59 +0200
+Subject: [Slony1-general] how to fix replication after column added to
+ origin outside Slony?
+In-Reply-To: <AB969379-0B53-4F94-94E3-CAD3E700C42C@contacttelecom.com>
+References: <CAJM0Wbh-ETRVO3tgz5wrDerhV2igO89fsyVmHNVe_ZUyd_svew@mail.gmail.com>	<095486D3-6855-4EA8-86F8-A41363CB112E@contacttelecom.com>	<4E558CE0.6070601@ca.afilias.info>
+	<AB969379-0B53-4F94-94E3-CAD3E700C42C@contacttelecom.com>
+Message-ID: <4E55EA7F.5060902@postgresql.fr>
+
+-----BEGIN PGP SIGNED MESSAGE-----
+Hash: SHA1
+
+Le 25/08/2011 02:10, Jim Buttafuoco a ?crit :
+> in general I agree, but sometimes you need to get the knife out...
+> 
+
+IMHO you are free to do everything you want with your data. Even if you could
+lose them. These are your data.
+
+But you can't tell people that this is The good way of acting.
+
+You can, for sure, alter your tables outside of slony to add some column, on
+every node.
+
+Just be warned that the data of these columns may never be replicated as slony
+does not know everything on these.
+
+It is not the good way of handling DDL with Slony.
+
+Regards,
+- -- 
+St?phane Schildknecht
+Loxodata
+Contact r?gional PostgreSQL
+
+-----BEGIN PGP SIGNATURE-----
+Version: GnuPG v1.4.10 (GNU/Linux)
+Comment: Using GnuPG with Mozilla - http://enigmail.mozdev.org/
+
+iEYEARECAAYFAk5V6n8ACgkQA+REPKWGI0HJhQCgq9vSY0HpjkP45zw6NqMZ4Re5
+uzEAoMIyhHhaFelEYqmZnFsWr9WEtUUG
+=myWH
+-----END PGP SIGNATURE-----
+
+From scott.marlowe at gmail.com  Wed Aug 24 23:30:08 2011
+From: scott.marlowe at gmail.com (Scott Marlowe)
+Date: Thu, 25 Aug 2011 00:30:08 -0600
+Subject: [Slony1-general] how to fix replication after column added to
+ origin outside Slony?
+In-Reply-To: <4E55EA7F.5060902@postgresql.fr>
+References: <CAJM0Wbh-ETRVO3tgz5wrDerhV2igO89fsyVmHNVe_ZUyd_svew@mail.gmail.com>
+	<095486D3-6855-4EA8-86F8-A41363CB112E@contacttelecom.com>
+	<4E558CE0.6070601@ca.afilias.info>
+	<AB969379-0B53-4F94-94E3-CAD3E700C42C@contacttelecom.com>
+	<4E55EA7F.5060902@postgresql.fr>
+Message-ID: <CAOR=d=1R11M7GQjEGg-a-WuQQFFcndfyVxzE2ju2pKXg4x=oNQ@mail.gmail.com>
+
+On Thu, Aug 25, 2011 at 12:23 AM, "St?phane A. Schildknecht"
+<stephane.schildknecht at postgresql.fr> wrote:
+> -----BEGIN PGP SIGNED MESSAGE-----
+> Hash: SHA1
+>
+> Le 25/08/2011 02:10, Jim Buttafuoco a ?crit :
+>> in general I agree, but sometimes you need to get the knife out...
+>>
+>
+> IMHO you are free to do everything you want with your data. Even if you could
+> lose them. These are your data.
+
+My experience with slony is that when you do something stupid, like
+run ddl outside of the execute script, it's best to start replication
+over to be safe.
+
+From maretranq at gmail.com  Thu Aug 25 00:17:07 2011
+From: maretranq at gmail.com (maretranq)
+Date: Thu, 25 Aug 2011 00:17:07 -0700
+Subject: [Slony1-general] how to fix replication after column added to
+ origin outside Slony?
+In-Reply-To: <4E558CE0.6070601@ca.afilias.info>
+References: <CAJM0Wbh-ETRVO3tgz5wrDerhV2igO89fsyVmHNVe_ZUyd_svew@mail.gmail.com>
+	<095486D3-6855-4EA8-86F8-A41363CB112E@contacttelecom.com>
+	<4E558CE0.6070601@ca.afilias.info>
+Message-ID: <CAJM0WbiqsRFMKPuNN3WZV_+pE75En=xpxzyzCvn_vASfFObq6Q@mail.gmail.com>
+
+I decided to go with Steve's suggestion. It looks like replication is
+working again, and it has caught up.
+
+Thank you both very much for your input!
+
+mare
+

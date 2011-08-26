@@ -1687,3 +1687,469 @@ Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
 You are on the CC list for the bug.
 You are the assignee for the bug.
 
+From bugzilla-daemon at main.slony.info  Wed Aug 24 06:19:04 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed, 24 Aug 2011 06:19:04 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 236] New: misformatted log messages
+Message-ID: <bug-236-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=236
+
+           Summary: misformatted log messages
+           Product: Slony-I
+           Version: devel
+          Platform: PC
+        OS/Version: Linux
+            Status: NEW
+          Severity: minor
+          Priority: low
+         Component: slon
+        AssignedTo: slony1-bugs at lists.slony.info
+        ReportedBy: peter_e at gmx.net
+                CC: slony1-bugs at lists.slony.info
+   Estimated Hours: 0.0
+
+
+When log_pid is false and log_timestamp is true (which are the defaults), then
+log messages are formatted like this:
+
+2011-08-23 13:18:55 EESTDEBUG2 remoteListenThread_1: queue event 1,5023210616
+SYNC
+
+with no space between the timestamp and the log message.
+
+It looks like a space should be inserted at an appropriate place somewhere in
+slon_log().
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Aug 24 08:02:59 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed, 24 Aug 2011 08:02:59 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 235] SYNC GROUP size bugs
+In-Reply-To: <bug-235-4@http.www.slony.info/bugzilla/>
+References: <bug-235-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110824150259.9F113290BD4@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=235
+
+--- Comment #4 from Christopher Browne <cbbrowne at ca.afilias.info> 2011-08-24 08:02:59 PDT ---
+(In reply to comment #3)
+> I think the logic behind the "ramping up" is that if the admin says "group at
+> most 3000 SYNCs at a time" (sync_group_maxsize) and "i want each run to take
+> about 60 seconds" (desired_sync_time), and it turns out that we can process
+> about 10 SYNCs per second, then if we just jump straight to 3000 SYNCs, the run
+> would take 5 times the recommended maximum duration.
+> 
+> So the current logic does a small number of SYNCs and then tries to predict
+> (based on some implicit assumption that the number of SYNCs varies linearly
+> with the duration of the SYNC group) what the ideal number of SYNCs would be to
+> hit the desired_sync_time.
+
+That's pretty much right.
+
+We also had a little bit of paranoia about making sure that if there's a
+problem at sync #314314 that we replicate at least up to #314313 before giving
+up.  That's why it starts by processing 1 SYNC at a time, and ramps up.
+
+> Aside from overflow issues, the big problem with this approach is that the
+> number of SYNCs processed per group does *not* necessarily vary linearly with
+> the time it takes for the group to be processed.  Or, if it does vary linearly,
+> it is with a constant offset that can grow substantially if there are a large
+> number of elements in sl_log_1 or sl_log_2.
+
+Quite right, the "linearity" assumption is not particularly valid.  
+
+It's notably invalidated in the case where someone has some huge "UPDATE
+some_big_table SET [something] WHERE [most of the tuples in the table]" query;
+when this commits, it'll add a *huge* amount of work to one and only one SYNC.
+
+> In my case, with > 8 GiB in sl_log_1, a SYNC group of size 1 takes several
+> hundred seconds, and a sync group of size 3000 *also* takes several hundred
+> seconds.  (maybe due to the full tablescan of sl_log_1?) 
+
+That SEQ SCAN is a problem, and further invalidates that "linearity
+assumption."
+
+I'll note that the SEQ SCAN was recognized and fixed in Bug #167, in version
+2.1.  We haven't backpatched because, 2.1 not yet being fully released, there's
+not as much feedback on that as we'd like.
+
+> As a result, the estimate of how many SYNCs to process in a group stays low,
+> which makes slony take even longer to finish processing its data :(
+
+Yep.
+
+If the Seq Scan issue goes away in 2.1, prior to changes to this algorithm,
+then  I think we can treat that as being likely irrelevant.
+
+I'm inclined to revise the logic to get rid of the "desired sync time" part, as
+there's something inherently nonsensical to it.
+
+The direction I'm thinking is to have slon do "start with 1, and then quickly
+increment towards sync_group_maxsize".  
+
+"How quickly?" is a good question that'll get discussed, for sure.  Another
+parameter might be a useful idea, but I'm not sure there's necessarily much 
+value to adding configuration knobs.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Aug 24 09:00:58 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed, 24 Aug 2011 09:00:58 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 235] SYNC GROUP size bugs
+In-Reply-To: <bug-235-4@http.www.slony.info/bugzilla/>
+References: <bug-235-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110824160058.C0C9D290E3D@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=235
+
+--- Comment #5 from Steve Singer <ssinger at ca.afilias.info> 2011-08-24 09:00:58 PDT ---
+ "desired sync time" part, as
+> there's something inherently nonsensical to it.
+> 
+> The direction I'm thinking is to have slon do "start with 1, and then quickly
+> increment towards sync_group_maxsize".  
+> 
+> "How quickly?" is a good question that'll get discussed, for sure.  Another
+> parameter might be a useful idea, but I'm not sure there's necessarily much 
+> value to adding configuration knobs.
+
+I agree that the "desired sync time" is confusing and we should move away
+towards just specifying a max group size.
+
+Does it make more sense to start at max_group_size and reduce that to smaller
+values on failures?  (this only works if slon doens't get restarted/segfault on
+the failures)
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Aug 24 09:11:35 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed, 24 Aug 2011 09:11:35 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 236] misformatted log messages
+In-Reply-To: <bug-236-4@http.www.slony.info/bugzilla/>
+References: <bug-236-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110824161135.30B4E290E3B@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=236
+
+--- Comment #1 from Christopher Browne <cbbrowne at ca.afilias.info> 2011-08-24 09:11:35 PDT ---
+Reviewing slon_log() in misc.c, there are two ways to go:
+
+1.  Add logic that inserts an extra space if logtimestamp is true.
+
+2.  Stow an extra space in the default configuration for log_timestamp_format,
+and impose the burden of spacing on anyone that manages this config parameter.
+
+#2 is a bit easier, and has the merit that it doesn't force whitespace in if
+someone decided to:
+
+- Put some in themselves
+- Use some delimiter themselves (i.e. - if they used [], as in "[%Y-%m-%d
+%H:%M:%S %Z]")
+
+What do you suggest?
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Aug 24 09:16:34 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed, 24 Aug 2011 09:16:34 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 235] SYNC GROUP size bugs
+In-Reply-To: <bug-235-4@http.www.slony.info/bugzilla/>
+References: <bug-235-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110824161634.8B0DD290E36@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=235
+
+--- Comment #6 from Christopher Browne <cbbrowne at ca.afilias.info> 2011-08-24 09:16:34 PDT ---
+(In reply to comment #5)
+>  "desired sync time" part, as
+> > there's something inherently nonsensical to it.
+> > 
+> > The direction I'm thinking is to have slon do "start with 1, and then quickly
+> > increment towards sync_group_maxsize".  
+> > 
+> > "How quickly?" is a good question that'll get discussed, for sure.  Another
+> > parameter might be a useful idea, but I'm not sure there's necessarily much 
+> > value to adding configuration knobs.
+> 
+> I agree that the "desired sync time" is confusing and we should move away
+> towards just specifying a max group size.
+> 
+> Does it make more sense to start at max_group_size and reduce that to smaller
+> values on failures?  (this only works if slon doens't get restarted/segfault on
+> the failures)
+
+Hmm, yeah.
+
+I could see starting with max_group_size, and dividing by two each time it
+fails.  That'll quickly head to 1.
+
+The next question would be of how to increase on success.  Whiteboard time :-).
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Aug 24 09:31:38 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed, 24 Aug 2011 09:31:38 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 231] Bad regex in start_slon.sh
+In-Reply-To: <bug-231-4@http.www.slony.info/bugzilla/>
+References: <bug-231-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110824163138.BE666290E36@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=231
+
+Christopher Browne <cbbrowne at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         Resolution|                            |FIXED
+             Status|ASSIGNED                    |RESOLVED
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Aug 24 10:28:19 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed, 24 Aug 2011 10:28:19 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 229] creating a set then adding a table to a
+ different set can deadlock
+In-Reply-To: <bug-229-4@http.www.slony.info/bugzilla/>
+References: <bug-229-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110824172819.15D15290E3B@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=229
+
+--- Comment #11 from Christopher Browne <cbbrowne at ca.afilias.info> 2011-08-24 10:28:19 PDT ---
+(In reply to comment #10)
+> Sorry I have added the missing patch.
+> You can also see this at https://github.com/ssinger/slony1-engine/tree/bug229
+
+I had success with that...
+
+- Failures of the test without commit #7a8aa60e9a881e7df337ddf6c662a87801f6372b
+
+- Test succeeded with that patch.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Aug 24 11:13:10 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed, 24 Aug 2011 11:13:10 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 235] SYNC GROUP size bugs
+In-Reply-To: <bug-235-4@http.www.slony.info/bugzilla/>
+References: <bug-235-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110824181310.1D479290E30@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=235
+
+--- Comment #7 from Daniel Kahn Gillmor <dkg at fifthhorseman.net> 2011-08-24 11:13:10 PDT ---
+(In reply to comment #5)
+> I agree that the "desired sync time" is confusing and we should move away
+> towards just specifying a max group size.
+
+Yes, fewer configuration options is better :)  We know the db administrator
+wants to keep the sync lag low.  Having fiddly knobs labeled "make the sync lag
+shorter, except sometimes when it makes them longer" isn't terribly helpful.
+
+> Does it make more sense to start at max_group_size and reduce that to smaller
+> values on failures?  (this only works if slon doens't get restarted/segfault on
+> the failures)
+
+The one concern i can see being raised with this approach is that (with a
+radically over-provisioned max_group_size) it's possible for a huge sync group
+to take forever.  However, if there just aren't that many SYNCs available,
+presumably the group would just complete successfully with the set of
+currently-available SYNCs?  In that case, i think the starting-large and
+falling off is better than starting-small and ramping-up.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Aug 24 11:56:26 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed, 24 Aug 2011 11:56:26 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 235] SYNC GROUP size bugs
+In-Reply-To: <bug-235-4@http.www.slony.info/bugzilla/>
+References: <bug-235-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110824185626.6DC3D290E22@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=235
+
+--- Comment #8 from Christopher Browne <cbbrowne at ca.afilias.info> 2011-08-24 11:56:26 PDT ---
+(In reply to comment #7)
+> (In reply to comment #5)
+> > I agree that the "desired sync time" is confusing and we should move away
+> > towards just specifying a max group size.
+> 
+> Yes, fewer configuration options is better :)  We know the db administrator
+> wants to keep the sync lag low.  Having fiddly knobs labeled "make the sync lag
+> shorter, except sometimes when it makes them longer" isn't terribly helpful.
+> 
+> > Does it make more sense to start at max_group_size and reduce that to smaller
+> > values on failures?  (this only works if slon doens't get restarted/segfault on
+> > the failures)
+> 
+> The one concern i can see being raised with this approach is that (with a
+> radically over-provisioned max_group_size) it's possible for a huge sync group
+> to take forever.  However, if there just aren't that many SYNCs available,
+> presumably the group would just complete successfully with the set of
+> currently-available SYNCs?  In that case, i think the starting-large and
+> falling off is better than starting-small and ramping-up.
+
+Yeah, this case concerns me a bit.
+
+The "standard" case where there could be a whole lot of syncs outstanding is
+where a subscription is requested, and there's so much data in the set that it
+takes multiple days to process it.
+
+At that point, there might be thousands of SYNCs outstanding, and it's possible
+that you'll be vulnerable to network glitchiness if slon tries to do the whole
+thing in one fell swoop.  
+
+Mind you, the "fallback" of dividing by 2 upon failure should address that,
+albeit with some potential for several fairly long failed attempted SYNCs until
+the "max" falls to the point where it gets processed OK.
+
+I expect that that's reasonably easily addressed by not setting
+sync_group_maxsize super high.
+
+During such a huge subscription, it's not actually terribly useful to have a
+huge number of SYNCs; it's not a bad idea to set sync_interval a bit higher at
+such times.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Aug 24 12:23:41 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed, 24 Aug 2011 12:23:41 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 233] slonik segfaults on subscribe set,
+ when the set does not exist.
+In-Reply-To: <bug-233-4@http.www.slony.info/bugzilla/>
+References: <bug-233-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110824192341.DBABC290DD7@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=233
+
+Christopher Browne <cbbrowne at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         AssignedTo|slony1-bugs at lists.slony.inf |ssinger at ca.afilias.info
+                   |o                           |
+             Status|NEW                         |ASSIGNED
+
+--- Comment #2 from Christopher Browne <cbbrowne at ca.afilias.info> 2011-08-24 12:23:41 PDT ---
+Patch looks good.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Aug 24 13:41:34 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed, 24 Aug 2011 13:41:34 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 236] misformatted log messages
+In-Reply-To: <bug-236-4@http.www.slony.info/bugzilla/>
+References: <bug-236-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110824204134.EF440290DED@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=236
+
+--- Comment #2 from Christopher Browne <cbbrowne at ca.afilias.info> 2011-08-24 13:41:35 PDT ---
+Created an attachment (id=124)
+ --> (http://www.slony.info/bugzilla/attachment.cgi?id=124)
+Add whitespace to default timestamp format string
+
+Here is a patch expressing "approach #2"
+
+https://github.com/cbbrowne/slony1-engine/commit/3d399cfb34f1c619467a733390a309f1d6a5aabc
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Aug 24 13:41:48 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed, 24 Aug 2011 13:41:48 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 236] misformatted log messages
+In-Reply-To: <bug-236-4@http.www.slony.info/bugzilla/>
+References: <bug-236-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110824204148.90E17290E30@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=236
+
+Christopher Browne <cbbrowne at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         AssignedTo|slony1-bugs at lists.slony.inf |cbbrowne at ca.afilias.info
+                   |o                           |
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Thu Aug 25 00:10:08 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu, 25 Aug 2011 00:10:08 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 236] misformatted log messages
+In-Reply-To: <bug-236-4@http.www.slony.info/bugzilla/>
+References: <bug-236-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110825071008.561F1290E46@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=236
+
+--- Comment #3 from Peter Eisentraut <peter_e at gmx.net> 2011-08-25 00:10:08 PDT ---
+Well, log_pid already imposes a trailing space, so it would make sense if
+log_timestamp did the same.  I can see, however, that solution 2 is simpler and
+backward compatible.
+
+You might as well implement log_line_prefix. :)
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
