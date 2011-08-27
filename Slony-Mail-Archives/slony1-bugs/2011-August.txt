@@ -2153,3 +2153,164 @@ Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
 ------- You are receiving this mail because: -------
 You are on the CC list for the bug.
 
+From bugzilla-daemon at main.slony.info  Thu Aug 25 07:38:54 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu, 25 Aug 2011 07:38:54 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 233] slonik segfaults on subscribe set,
+ when the set does not exist.
+In-Reply-To: <bug-233-4@http.www.slony.info/bugzilla/>
+References: <bug-233-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110825143854.BACF8290E20@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=233
+
+Steve Singer <ssinger at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         Resolution|                            |FIXED
+             Status|ASSIGNED                    |RESOLVED
+
+--- Comment #3 from Steve Singer <ssinger at ca.afilias.info> 2011-08-25 07:38:54 PDT ---
+http://git.postgresql.org/gitweb/?p=slony1-engine.git;a=commit;h=43b89cf4ce1335e8752931016df7a3935ec94d03
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Thu Aug 25 12:52:10 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu, 25 Aug 2011 12:52:10 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 235] SYNC GROUP size bugs
+In-Reply-To: <bug-235-4@http.www.slony.info/bugzilla/>
+References: <bug-235-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110825195210.29948290DAD@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=235
+
+--- Comment #9 from Christopher Browne <cbbrowne at ca.afilias.info> 2011-08-25 12:52:09 PDT ---
+Created an attachment (id=125)
+ --> (http://www.slony.info/bugzilla/attachment.cgi?id=125)
+State diagram for revised SYNC grouping logic
+
+Steve Singer and I whiteboarded up a state diagram describing a proposed
+revised logic for handling SYNC grouping.  I have turned that into a TCM
+diagram, attached.
+
+We basically propose revising the logic to be thus...
+
+- At start time, the initial "max" is set to 1.
+
+- If SYNCs are processed properly, the grouping doubles (e.g. - 1, then 2, 4,
+8, 16, ...), until reaching either the maximum SYNCs outstanding, or the
+configured maximum.
+
+- Any time things fail, we fall back by 1/2.  max of 32 --> max of 16.
+
+- Once we catch up, we're typically processing one or just a few SYNCs at a
+time; if things fall behind, the doubling will kick in, but typically, we only
+*have* a few to process at a time.
+
+We discussed the possibility of starting with an initial "max" being as large
+as possible (e.g. - the configured max value), and using the "halving upon
+failure" to scale back as needed, but this seems to have several disadvantages
+to starting with 1 and doubling:
+
+1.  By starting with just a few SYNCs, there's the hope that we *immediately*
+get some SYNCs replicated, and the subscriber visibly starts to catch up.
+
+Starting with a huge grouping means there's no such quick feedback, which could
+be disconcerting to users.
+
+1a.  More on the "disconcerting" bit...  If the administrator is disconcerted
+by seeing no evident progress, they may decide to kill the slon and retry,
+which would waste any work that has been done.  And the retry will behave
+identically; it'll just look like replication is broken.
+
+Better to let some SYNCs through quickly, if possible.
+
+2.  In 2.1, we expect a fundamentally better behaviour due to the fix of bug
+#167.  A small grouping shouldn't be reverting to SEQ SCAN; we can hope for
+rather better behaviour of that query.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Thu Aug 25 13:28:36 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu, 25 Aug 2011 13:28:36 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 235] SYNC GROUP size bugs
+In-Reply-To: <bug-235-4@http.www.slony.info/bugzilla/>
+References: <bug-235-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110825202836.4BC68290E20@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=235
+
+--- Comment #10 from Daniel Kahn Gillmor <dkg at fifthhorseman.net> 2011-08-25 13:28:36 PDT ---
+(In reply to comment #9)
+> - At start time, the initial "max" is set to 1.
+> 
+> - If SYNCs are processed properly, the grouping doubles (e.g. - 1, then 2, 4,
+> 8, 16, ...), until reaching either the maximum SYNCs outstanding, or the
+> configured maximum.
+> 
+> - Any time things fail, we fall back by 1/2.  max of 32 --> max of 16.
+> 
+> - Once we catch up, we're typically processing one or just a few SYNCs at a
+> time; if things fall behind, the doubling will kick in, but typically, we only
+> *have* a few to process at a time.
+
+This sounds identical to the current scheme with two exceptions: 
+
+ 0) you're not measuring the time consumed, just varying based on failures, and
+
+ 1) at a failure, you fall back by halves instead of reverting to 1
+
+As a result, you're only asking the slon administrator one unanswerable
+question instead of two, so that's an improvement :)
+
+The questions used to be:
+
+ max_sync_group_size: what is the largest number of SYNCs you'd like to process
+at once?
+
+ desired_sync_time: what's the longest time you want a SYNC to take?
+
+The answers any sane admin would give are:
+
+ max_sync_group_size: all outstanding SYNCs
+ desired_sync_time: as soon as possible
+
+Which of course are not legitimate configuration parameters :)
+
+Under your new configuration, you seem to be asking just the first question. 
+Given that the obvious answer to the first question is "all outstanding SYNCs",
+is there any reason to have this knob be settable at all?  if there are roughly
+30 SYNCs created per synchronization pull, then the value will stay at 30, and
+fall back to 15 if there is an error.  If there are 6 SYNCs per pull, it will
+stay at 6 and fall back to 3.  This seems OK to me.
+
+> We discussed the possibility of starting with an initial "max" being as large
+> as possible (e.g. - the configured max value), and using the "halving upon
+> failure" to scale back as needed, but this seems to have several disadvantages
+> to starting with 1 and doubling:
+
+the downside to starting at 1, of course, is if the per-pull overhead is huge
+it takes a long time to run and you just get farther and farther behind while
+slon is incorporating only a handful of updates.
+
+What about parameterizing the initial number of SYNCs to pull in a group?  Sort
+of "how many SYNCs do you expect to have outstanding at each pull?"  That
+parameter seems more legitimately answerable by an admin, and more directly
+relevant for someone who is trying to recover a seriously-lagged replication
+(e.g. "please start off with enormous SYNC groups so we can catch up faster!")
+
+> 2.  In 2.1, we expect a fundamentally better behaviour due to the fix of bug
+> #167.  A small grouping shouldn't be reverting to SEQ SCAN; we can hope for
+> rather better behaviour of that query.
+
+
