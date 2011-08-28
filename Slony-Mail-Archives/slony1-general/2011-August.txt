@@ -3193,3 +3193,183 @@ Thank you both very much for your input!
 
 mare
 
+From mu at forsa.de  Fri Aug 26 04:38:27 2011
+From: mu at forsa.de (marmu)
+Date: Fri, 26 Aug 2011 04:38:27 -0700 (PDT)
+Subject: [Slony1-general] After importing data into my DBs slony
+ replication does not work anymore
+In-Reply-To: <20110824080307.2051cc4b.wmoran@potentialtech.com>
+References: <32325514.post@talk.nabble.com>
+	<20110824080307.2051cc4b.wmoran@potentialtech.com>
+Message-ID: <32341150.post@talk.nabble.com>
+
+
+Hello Bill (and all other readers)!
+
+I only disabled triggers for non-slony tables, not the slony ones.
+
+This is my solution:
+for testing purposes I didn't stop slony before importing the data. after
+importing the data I did the following:
+1) stop all slons (via /etc/init.d)
+2) delete the replication in pgAdmin
+3) reboot --> init.d scripts set up slony
+4) all subscritions are lost (I don't know why)
+5) add a subscrition to the master node via pgAdmin (this is then also
+listed under the slave-node)
+        master-db=#  select * from _cluster.sl_subscribe;
+	 sub_set | sub_provider | sub_receiver | sub_forward | sub_active
+	---------+--------------+--------------+-------------+------------
+	          1 |            1 |            2 | f           | t
+	(1 row)
+	
+	slave-db=#  select * from _cluster.sl_subscribe;
+	 sub_set | sub_provider | sub_receiver | sub_forward | sub_active
+	---------+--------------+--------------+-------------+------------
+	          1 |            1 |            2 | f           | t
+	(1 row)
+6) replication works
+
+Some questions still remain:
+1) Why doesn't slony replicate the data to the slave-DB during the import of
+the data to the master-DB?
+2) I can't tell why my subscription in the slave-script doesn't work. I
+thought it should set up the subscription, but I hab to do it via pgAdmin
+
+my slonik slave set up script:
+cat setup-slonik_slave
+# This file is written by /etc/slony-I/slave-setupmaker - DO NOT EDIT.
+#!/bin/sh
+
+/usr/bin/slonik <<_EOF_
+cluster name = cluster;
+node 1 admin conninfo = 'dbname=master host=localhost user=postgres';
+node 2 admin conninfo = 'dbname=slave host=localhost user=postgres';
+store node (id = 2, event node = 1);
+subscribe set ( id = 1, provider = 1, receiver = 2, forward = no);
+_EOF_
+
+Hopefully this will helo others to solve similar problems. Further I'd
+deeply appreciate help on solving the last two questions I have, which are
+mentioned above.
+
+Big thanks to the whole mailing list and all the guys in the IRC channel!
+You saved me quite some time.
+Have a great weekend.
+Marcus
+
+
+Bill Moran wrote:
+> 
+> 
+> Slony uses triggers.  You disabled the triggers, so Slony no longer works.
+> Even if you re-enable the triggers, information about what data changed
+> has been lost.
+> 
+> Got back and redo your steps but don't disable any triggers.
+> 
+> In response to marmu <mu at forsa.de>:
+>> 
+>> Hello guys,
+>> 
+>> yesterday I finally had slony replication working between two DBs on one
+>> server. To this point in time I only had imported the globals and the
+>> structure of the DBs. When I inserted a row in a table which is part of a
+>> replication set it was immediately replicated. Then I thought it is time
+>> for
+>> the next step: importing the (old) data backed up before.
+>> 
+>> At first I stopped the slons and disables all triggers in my DBs. After I
+>> imported the data into both DBs the replication doesn't work anymore. Of
+>> course I got some errors while importing data into the slave, since
+>> tables
+>> are taking part in the replication:
+>> "Table xxxxxxx is replicated and cannot be modified on a subscriber node
+>> -
+>> role=0"
+>> 
+>> I thought, ok, I will have to import the data of the master-DB first and
+>> then let slony replicate to the slave. But this didn't work. No
+>> replication
+>> taking place and no errors in the slony logs.
+>> 
+>> The sl_status table in the master-DB is empty (0 rows), the sl_status
+>> table
+>> in the slave-DB contains the following row (1 row, formatted for better
+>> display):
+>>  st_origin = 2 | st_received = 1 | st_last_event = 5002159114 |
+>>  st_last_event_ts = 2011-08-24 12:31:37.56454 | st_last_received =
+>> 5002159114 |
+>>  st_last_received_ts = 2011-08-24 12:31:38.598021 | 
+>>  st_last_received_event_ts = 2011-08-24 12:31:37.56454 |
+>> st_lag_num_events =
+>> 0 |
+>>  st_lag_time = 00:16:24.21951
+>> 
+>> Any hints on why the replication won't work after importing data would be
+>> great. Further what would be the correct sequence of actions for moving 2
+>> DBs from one server to a new one (new postgres and slony versions).
+>> 
+>> This is what I did:
+>> 1) export
+>>     1.1) export globals
+>>     1.2) export structure
+>>     1.3) export data
+>> 2) import globals and structure
+>> 3) get slony working (replication was tested at this point and worked)
+>> 4) stop all slons (like "/etc/init.d/slony-slave stop" and
+>> "/etc/init.d/slony-master stop")
+>> 5) disable all triggers (in our case some calculations based on the data
+>> are
+>> taking place, but that is only needed while in production - so I could
+>> have
+>> skipped this for now, but not in the future)
+>> 6) import the data (which was dumped before)
+>> 
+>> Thanks for your time, thoughts and help in advance.
+> 
+> -- 
+> Bill Moran
+> http://www.potentialtech.com
+> http://people.collaborativefusion.com/~wmoran/
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+> 
+> 
+
+-- 
+View this message in context: http://old.nabble.com/After-importing-data-into-my-DBs-slony-replication-does-not-work-anymore-tp32325514p32341150.html
+Sent from the Slony-I -- General mailing list archive at Nabble.com.
+
+
+From kleptog at gmail.com  Fri Aug 26 07:47:59 2011
+From: kleptog at gmail.com (Martijn van O)
+Date: Fri, 26 Aug 2011 16:47:59 +0200
+Subject: [Slony1-general] After importing data into my DBs slony
+ replication does not work anymore
+In-Reply-To: <32341150.post@talk.nabble.com>
+References: <32325514.post@talk.nabble.com>
+	<20110824080307.2051cc4b.wmoran@potentialtech.com>
+	<32341150.post@talk.nabble.com>
+Message-ID: <CADWG95tXPApj147EKZH5jooz5Um4zX3ddTV+pDX1ALcR3YMAAA@mail.gmail.com>
+
+On 26 August 2011 13:38, marmu <mu at forsa.de> wrote:
+>
+> Hello Bill (and all other readers)!
+>
+> I only disabled triggers for non-slony tables, not the slony ones.
+
+Slony works by placing triggers on the non-slony tables. Triggers on
+the slony table would not acheive anything. So you broke it by
+disabling triggers on the non-slony tables.
+
+By an large I don't bother replicating while restoring data. I drop
+the subscription, load the data, add the subscription and then all the
+data is copied in bulk.
+
+Have a nice day,
+-- 
+Martijn van Oosterhout <kleptog at gmail.com> http://svana.org/kleptog/
+
