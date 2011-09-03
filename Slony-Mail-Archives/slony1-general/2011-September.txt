@@ -1,0 +1,213 @@
+From nyamada at millburncorp.com  Thu Sep  1 17:46:30 2011
+From: nyamada at millburncorp.com (Norman Yamada)
+Date: Thu, 1 Sep 2011 20:46:30 -0400
+Subject: [Slony1-general] trying to use pg_upgrade for 8.3 database with
+	Slony 2.0.7
+Message-ID: <954037A4-2219-4FFE-8336-F9FF3A5FFFCD@millburncorp.com>
+
+As was discussed in a previous thread here, pg_upgrade complains that the following slony tables/columns can't be migrated from 8.3.x to 9.0.x:
+
+> sl_table.tab_relname
+> sl_table.tab_nspname
+> sl_table.tab_idxname
+> sl_sequence.seq_relname
+> sl_sequence.seq_nspname
+> vactables.relname
+
+I'd still like to use pg_upgrade on a large 8.3.x database that uses slony 2.0.7. if I do the following actions:
+
+1) stop slony;
+2) alter table sl_table alter column tab_relname type text, alter column tab_nspname type text, alter column tab_idxname type text;
+    alter table sl_sequence alter column seq_relname type text, alter column seq_nspname type text;
+    drop type vactables cascade;
+    CREATE TYPE vactables AS (
+        nspname text,
+        relname text
+   );
+   create function tablestovacuum () ? leaving out function body?
+
+3) pg_upgrade
+
+4) start 9.0, do vacuuming analyze, etc?
+
+5) fix slony back:
+
+  alter table sl_table alter column tab_relname type name, alter column tab_nspname type name, alter column tab_idxname type name;
+    alter table sl_sequence alter column seq_relname type name, alter column seq_nspname type name;
+    drop type vactables cascade;
+    CREATE TYPE vactables AS (
+        nspname name,
+        relname name
+   );
+   create function tablestovacuum () ? leaving out function body?
+
+6) then start slony
+
+Does anyone know if this works? I'm going to try this on a test cluster tomorrow, but wondering if anyone has done this already.
+
+Thanks,
+
+Norman Yamada
+
+
+
+From ssinger_pg at sympatico.ca  Thu Sep  1 16:46:17 2011
+From: ssinger_pg at sympatico.ca (Steve Singer)
+Date: Thu, 1 Sep 2011 19:46:17 -0400
+Subject: [Slony1-general] trying to use pg_upgrade for 8.3 database with
+ Slony 2.0.7
+In-Reply-To: <954037A4-2219-4FFE-8336-F9FF3A5FFFCD@millburncorp.com>
+References: <954037A4-2219-4FFE-8336-F9FF3A5FFFCD@millburncorp.com>
+Message-ID: <BLU0-SMTP52589570133DE3485A028CAC180@phx.gbl>
+
+On Thu, 1 Sep 2011, Norman Yamada wrote:
+
+> As was discussed in a previous thread here, pg_upgrade complains that the following slony tables/columns can't be migrated from 8.3.x to 9.0.x:
+
+Also read over http://bugs.slony.info/bugzilla/show_bug.cgi?id=234
+In addition to the issues you have discussed you will also have to make 
+sure that the 64 bit version of the xid's post upgrade are newer than the 64 
+bit versions after.  You might not see this issue on a new test cluster, 
+you would only see it on a cluster that has had the 32 bit xid wrap around 
+at least once.
+
+An upgrade from 8.3 to 9.0 also will require you to make sure that the 8.4 
+version of the slony stored functions are installed not the 8.3 one.
+
+I have not tried upgrading a slony cluster with pg_upgrade, so there might 
+be additional issues still.
+
+
+>
+>> sl_table.tab_relname
+>> sl_table.tab_nspname
+>> sl_table.tab_idxname
+>> sl_sequence.seq_relname
+>> sl_sequence.seq_nspname
+>> vactables.relname
+>
+> I'd still like to use pg_upgrade on a large 8.3.x database that uses slony 2.0.7. if I do the following actions:
+>
+> 1) stop slony;
+> 2) alter table sl_table alter column tab_relname type text, alter column tab_nspname type text, alter column tab_idxname type text;
+>    alter table sl_sequence alter column seq_relname type text, alter column seq_nspname type text;
+>    drop type vactables cascade;
+>    CREATE TYPE vactables AS (
+>        nspname text,
+>        relname text
+>   );
+>   create function tablestovacuum () ? leaving out function body?
+>
+> 3) pg_upgrade
+>
+> 4) start 9.0, do vacuuming analyze, etc?
+>
+> 5) fix slony back:
+>
+>  alter table sl_table alter column tab_relname type name, alter column tab_nspname type name, alter column tab_idxname type name;
+>    alter table sl_sequence alter column seq_relname type name, alter column seq_nspname type name;
+>    drop type vactables cascade;
+>    CREATE TYPE vactables AS (
+>        nspname name,
+>        relname name
+>   );
+>   create function tablestovacuum () ? leaving out function body?
+>
+> 6) then start slony
+>
+> Does anyone know if this works? I'm going to try this on a test cluster tomorrow, but wondering if anyone has done this already.
+>
+> Thanks,
+>
+> Norman Yamada
+>
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+>
+
+From nyamada at millburncorp.com  Thu Sep  1 18:25:12 2011
+From: nyamada at millburncorp.com (Norman Yamada)
+Date: Thu, 1 Sep 2011 21:25:12 -0400
+Subject: [Slony1-general] trying to use pg_upgrade for 8.3 database with
+ Slony 2.0.7
+In-Reply-To: <BLU0-SMTP52589570133DE3485A028CAC180@phx.gbl>
+References: <954037A4-2219-4FFE-8336-F9FF3A5FFFCD@millburncorp.com>
+	<BLU0-SMTP52589570133DE3485A028CAC180@phx.gbl>
+Message-ID: <D85F869B-6644-460F-8106-D9C1017A5D7A@millburncorp.com>
+
+Thanks, Steve, but I'm not feeling very cheery now..
+ 
+1) The sl_log_1 table has xid's in the range of 260914376 or so? Now the master node is staying on 8.3 for the moment; so I guess we're ok until we move it over.. but then what? what are the implications if the sl_log_1 table has transactions with lower xids in it? can we avoid problems if we make sure all nodes are up to date before the migration of the master node (and hence sl_log_1 is empty?)
+
+2) How do I get the 8.4 version of the slony stored functions installed on the node that's moving up from 8.3 to 9.0? Once I pg_upgrade the box, and recompile and install slony for 9.0, will an update_functions suffice?
+
+Thanks,
+
+Norman
+On Sep 1, 2011, at 7:46 PM, Steve Singer wrote:
+
+> On Thu, 1 Sep 2011, Norman Yamada wrote:
+> 
+>> As was discussed in a previous thread here, pg_upgrade complains that the following slony tables/columns can't be migrated from 8.3.x to 9.0.x:
+> 
+> Also read over http://bugs.slony.info/bugzilla/show_bug.cgi?id=234
+> In addition to the issues you have discussed you will also have to make sure that the 64 bit version of the xid's post upgrade are newer than the 64 bit versions after.  You might not see this issue on a new test cluster, you would only see it on a cluster that has had the 32 bit xid wrap around at least once.
+> 
+> An upgrade from 8.3 to 9.0 also will require you to make sure that the 8.4 version of the slony stored functions are installed not the 8.3 one.
+> 
+> I have not tried upgrading a slony cluster with pg_upgrade, so there might be additional issues still.
+
+
+From ssinger_pg at sympatico.ca  Thu Sep  1 17:58:12 2011
+From: ssinger_pg at sympatico.ca (Steve Singer)
+Date: Thu, 1 Sep 2011 20:58:12 -0400
+Subject: [Slony1-general] trying to use pg_upgrade for 8.3 database with
+ Slony 2.0.7
+In-Reply-To: <D85F869B-6644-460F-8106-D9C1017A5D7A@millburncorp.com>
+References: <954037A4-2219-4FFE-8336-F9FF3A5FFFCD@millburncorp.com>
+	<BLU0-SMTP52589570133DE3485A028CAC180@phx.gbl>
+	<D85F869B-6644-460F-8106-D9C1017A5D7A@millburncorp.com>
+Message-ID: <BLU0-SMTP2654047CE0F8C67A385EA9AC180@phx.gbl>
+
+On Thu, 1 Sep 2011, Norman Yamada wrote:
+
+> Thanks, Steve, but I'm not feeling very cheery now..
+>
+> 1) The sl_log_1 table has xid's in the range of 260914376 or so? Now the 
+> master node is staying on 8.3 for the moment; so I guess we're ok until we 
+> move it over.. but then what? what are the implications if the sl_log_1 
+> table has transactions with lower xids in it? can we avoid problems if we 
+> make sure all nodes are up to date before the migration of the master node 
+> (and hence sl_log_1 is empty?)
+
+This issue was discovered by someone who upgraded via pg_dump and ended up 
+with rows in sl_log_1 that were preventing the cleanup thread from 
+truncating sl_log_1 so there sl_log_2 grew to be pretty big because a log 
+switch couldn't complete.
+
+If both sl_log_1 and sl_log_2 are empty on all nodes when you shutdown for 
+the upgrade then you *might* be okay (off the top of my head I don't see 
+other things that would break, but I was surprised when I discovered most 
+of the other issues mentioned). I would also let a SYNC be processed 
+and confirmed by all nodes before you start adding in new rows to sl_log_1 
+(I am not sure how the logic that selects the transactions that committed 
+between two SYNC events would deal with the xid list in the SYNC event list 
+travelling backwards).
+
+
+
+
+
+> 2) How do I get the 8.4 version of the slony stored functions installed on the node that's moving up from 8.3 to 9.0? Once I pg_upgrade the box, and recompile and install slony for 9.0, will an update_functions suffice?
+
+The slonik UPDATE FUNCTIONS command should install the correct version of 
+the stored functions if you run it after the upgrade.
+
+>
+> Thanks,
+>
+> Norman
+
