@@ -271,3 +271,381 @@ International and any affiliates is monitored, stored and made
 available to regulators if requested.
 ######################################################################
 
+From glynastill at yahoo.co.uk  Thu Sep  8 03:42:35 2011
+From: glynastill at yahoo.co.uk (Glyn Astill)
+Date: Thu, 8 Sep 2011 11:42:35 +0100 (BST)
+Subject: [Slony1-general] pg_dump and replication lag in 2.0.7
+Message-ID: <1315478555.24152.YahooMailNeo@web26003.mail.ukl.yahoo.com>
+
+Hi Guys,
+
+Since we were on slony 1.2 I've been doing full pg_dumps from our servers, and restoring them onto a test setup daily.
+
+Since we've moved to 2.0 I've noticed that those full dumps now cause the subscribers to lag.? I just wanted to ask - is this expected behaviour in 2.0? And is the only real workaround skipping the schema during pg_dump?
+
+It appears to me that cleanupEvent() is waiting for exclusive access to something in the slony schema.? An uneducated guess is that it's going to be that cleanupEvent() is calling logswitch_start() or logswitch_finish() and they are trying to lock sl_config_lock which is blocking. In turn cleanupEvent() can't commit some other update it's done causing createEvent() to block also?
+
+
+Am I wrong in thinking cleanupEvent() didn't used to kick off the logswitching in 1.2?? And am I oversimplifying things by saying why can't the logswitch functions just add NOWAIT when trying to lock sl_config_lock, and skip it if an exception is raised?? Or am I just totally wrong?
+
+
+
+Thanks
+Glyn
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20110908/bace892f/attachment.htm 
+
+From ssinger at ca.afilias.info  Thu Sep  8 07:02:51 2011
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Thu, 08 Sep 2011 10:02:51 -0400
+Subject: [Slony1-general] pg_dump and replication lag in 2.0.7
+In-Reply-To: <1315478555.24152.YahooMailNeo@web26003.mail.ukl.yahoo.com>
+References: <1315478555.24152.YahooMailNeo@web26003.mail.ukl.yahoo.com>
+Message-ID: <4E68CB0B.20200@ca.afilias.info>
+
+On 11-09-08 06:42 AM, Glyn Astill wrote:
+> Hi Guys,
+>
+> Since we were on slony 1.2 I've been doing full pg_dumps from our
+> servers, and restoring them onto a test setup daily.
+>
+> Since we've moved to 2.0 I've noticed that those full dumps now cause
+> the subscribers to lag. I just wanted to ask - is this expected
+> behaviour in 2.0? And is the only real workaround skipping the schema
+> during pg_dump?
+
+Yes this is expected behaviour.  The only work around is to skip the 
+slony schema in pg_dump.
+
+
+>
+> It appears to me that cleanupEvent() is waiting for exclusive access to
+> something in the slony schema. An uneducated guess is that it's going to
+> be that cleanupEvent() is calling logswitch_start() or
+> logswitch_finish() and they are trying to lock sl_config_lock which is
+> blocking. In turn cleanupEvent() can't commit some other update it's
+> done causing createEvent() to block also?
+>
+> Am I wrong in thinking cleanupEvent() didn't used to kick off the
+> logswitching in 1.2? And am I oversimplifying things by saying why can't
+> the logswitch functions just add NOWAIT when trying to lock
+> sl_config_lock, and skip it if an exception is raised? Or am I just
+> totally wrong?
+
+The issue isn't the cleanup event as much as it is the SYNC event.
+When slony generates a SYNC event it gets an exclusive lock on sl_event.
+It can't get this exclusive lock if a pg_dump is running that has read 
+sl_event.  Changing the cleanupEvent() code won't change this.
+
+Slony 1.2 and 2.0 both behave this way, this shouldn't be new behaviour 
+with 2.0.
+
+In Slony 2.1.0 the SYNC event gets the lock on sl_event_lock a table 
+that stores no data and is only used for locking.  You could then 
+exclude just that table from pg_dump but I don't see a lot of value of 
+dumping sl_event anyway.
+
+
+
+
+>
+>
+> Thanks
+> Glyn
+>
+>
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+
+
+From peter at 2ndquadrant.com  Thu Sep  8 07:12:55 2011
+From: peter at 2ndquadrant.com (Peter Geoghegan)
+Date: Thu, 8 Sep 2011 15:12:55 +0100
+Subject: [Slony1-general] pg_dump and replication lag in 2.0.7
+In-Reply-To: <4E68CB0B.20200@ca.afilias.info>
+References: <1315478555.24152.YahooMailNeo@web26003.mail.ukl.yahoo.com>
+	<4E68CB0B.20200@ca.afilias.info>
+Message-ID: <CAEYLb_WXwwnGedrX6vQ0RVgwJ2iViBupV=DPStbThdzXvmCQsA@mail.gmail.com>
+
+On 8 September 2011 15:02, Steve Singer <ssinger at ca.afilias.info> wrote:
+> On 11-09-08 06:42 AM, Glyn Astill wrote:
+>> Hi Guys,
+>>
+>> Since we were on slony 1.2 I've been doing full pg_dumps from our
+>> servers, and restoring them onto a test setup daily.
+>>
+>> Since we've moved to 2.0 I've noticed that those full dumps now cause
+>> the subscribers to lag. I just wanted to ask - is this expected
+>> behaviour in 2.0? And is the only real workaround skipping the schema
+>> during pg_dump?
+>
+> Yes this is expected behaviour. ?The only work around is to skip the
+> slony schema in pg_dump.
+
+Notably, the --exclude-schema option was added to pg_dump specifically
+to facilitate Slony users.
+
+-- 
+Peter Geoghegan ? ? ? http://www.2ndQuadrant.com/
+PostgreSQL Development, 24x7 Support, Training and Services
+
+From glynastill at yahoo.co.uk  Thu Sep  8 08:43:41 2011
+From: glynastill at yahoo.co.uk (Glyn Astill)
+Date: Thu, 8 Sep 2011 16:43:41 +0100 (BST)
+Subject: [Slony1-general] pg_dump and replication lag in 2.0.7
+In-Reply-To: <4E68CB0B.20200@ca.afilias.info>
+References: <1315478555.24152.YahooMailNeo@web26003.mail.ukl.yahoo.com>
+	<4E68CB0B.20200@ca.afilias.info>
+Message-ID: <1315496621.4860.YahooMailNeo@web26004.mail.ukl.yahoo.com>
+
+
+
+>From: Steve Singer <ssinger at ca.afilias.info>
+>
+>Yes this is expected behaviour.? The only work around is to skip the 
+>slony schema in pg_dump.
+>
+>
+
+Ok, cool, I'll do that then.
+
+>
+
+>The issue isn't the cleanup event as much as it is the SYNC event.
+>When slony generates a SYNC event it gets an exclusive lock on sl_event.
+>It can't get this exclusive lock if a pg_dump is running that has read 
+>sl_event.? Changing the cleanupEvent() code won't change this.
+>
+>Slony 1.2 and 2.0 both behave this way, this shouldn't be new behaviour 
+>with 2.0.
+>
+
+Hmm, my nagios graphs disagree (or for some reason were oblivious), we check syncs every 10 minutes and they only started showing warnings the night after we moved to 2.0. The check is basically just looks at sl_status, and flags up a problem if st_lag_num_events or st_lag_time go over a threshold via the following query.
+
+
+??? SELECT st_origin, st_received, st_lag_num_events, round(extract(epoch from st_lag_time)) 
+??? FROM "<my_replication_cluster>".sl_status;
+
+A graph for the weeks leading up to and after the upgrade is attached.? I upgraded on the night of the 25th/26th and ignoring any other downtime where I was obviously fiddling with things, you can see the syncs going out after that date.? As you can imagine, I'm massively embarrassed that it took me 3 months to notice it happening.
+
+
+>In Slony 2.1.0 the SYNC event gets the lock on sl_event_lock a table 
+>that stores no data and is only used for locking.? You could then 
+>exclude just that table from pg_dump but I don't see a lot of value of 
+>dumping sl_event anyway.
+>
+
+Great, thanks.
+
+Glyn
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: syncs.png
+Type: image/png
+Size: 38425 bytes
+Desc: not available
+Url : http://lists.slony.info/pipermail/slony1-general/attachments/20110908/639e4208/attachment-0001.png 
+
+From greg at endpoint.com  Thu Sep  8 08:57:13 2011
+From: greg at endpoint.com (Greg Sabino Mullane)
+Date: Thu, 8 Sep 2011 11:57:13 -0400
+Subject: [Slony1-general] pg_dump and replication lag in 2.0.7
+In-Reply-To: <CAEYLb_WXwwnGedrX6vQ0RVgwJ2iViBupV=DPStbThdzXvmCQsA@mail.gmail.com>
+References: <1315478555.24152.YahooMailNeo@web26003.mail.ukl.yahoo.com>
+	<4E68CB0B.20200@ca.afilias.info>
+	<CAEYLb_WXwwnGedrX6vQ0RVgwJ2iViBupV=DPStbThdzXvmCQsA@mail.gmail.com>
+Message-ID: <20110908155713.GP3865@core.home>
+
+> Notably, the --exclude-schema option was added to pg_dump specifically
+> to facilitate Slony users.
+
+As the author of said feature, I can assure it was not done with Slony 
+in mind. But I'm happy that it helps Slony users. :)
+
+-- 
+Greg Sabino Mullane greg at endpoint.com
+End Point Corporation
+PGP Key: 0x14964AC8
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: not available
+Type: application/pgp-signature
+Size: 163 bytes
+Desc: not available
+Url : http://lists.slony.info/pipermail/slony1-general/attachments/20110908/ea50673a/attachment.pgp 
+
+From vivek at khera.org  Thu Sep  8 09:03:20 2011
+From: vivek at khera.org (Vick Khera)
+Date: Thu, 8 Sep 2011 12:03:20 -0400
+Subject: [Slony1-general] pg_dump and replication lag in 2.0.7
+In-Reply-To: <1315496621.4860.YahooMailNeo@web26004.mail.ukl.yahoo.com>
+References: <1315478555.24152.YahooMailNeo@web26003.mail.ukl.yahoo.com>
+	<4E68CB0B.20200@ca.afilias.info>
+	<1315496621.4860.YahooMailNeo@web26004.mail.ukl.yahoo.com>
+Message-ID: <CALd+dcfjt5szuWW6X6W_+0OWJJZGzWqHPTCdj+V_vdjCvn_KYw@mail.gmail.com>
+
+On Thu, Sep 8, 2011 at 11:43 AM, Glyn Astill <glynastill at yahoo.co.uk> wrote:
+>>Slony 1.2 and 2.0 both behave this way, this shouldn't be new behaviour
+>>with 2.0.
+>>
+>
+> Hmm, my nagios graphs disagree (or for some reason were oblivious), we check syncs every 10 minutes and they only started showing warnings the night after we moved to 2.0. The check is basically just looks at sl_status, and flags up a problem if st_lag_num_events or st_lag_time go over a threshold via the following query.
+>
+
+I disagree as well.  We still run 1.2.x and I never get replication
+lag alarms from our monitoring, and the nightly dump of my big DB
+takes a couple of hours.  I'm still going to add the --exclude-schema
+to it, just because it is useless to dump the slony schema anyway.
+
+From cbbrowne at afilias.info  Thu Sep  8 09:08:26 2011
+From: cbbrowne at afilias.info (Christopher Browne)
+Date: Thu, 8 Sep 2011 12:08:26 -0400
+Subject: [Slony1-general] pg_dump and replication lag in 2.0.7
+In-Reply-To: <4E68CB0B.20200@ca.afilias.info>
+References: <1315478555.24152.YahooMailNeo@web26003.mail.ukl.yahoo.com>
+	<4E68CB0B.20200@ca.afilias.info>
+Message-ID: <CANfbgbY5k=bm+Ey7VYRyutM5oTRpXOKRpOjwrnwQ5PNRMfCY9g@mail.gmail.com>
+
+On Thu, Sep 8, 2011 at 10:02 AM, Steve Singer <ssinger at ca.afilias.info> wrote:
+> In Slony 2.1.0 the SYNC event gets the lock on sl_event_lock a table
+> that stores no data and is only used for locking. ?You could then
+> exclude just that table from pg_dump but I don't see a lot of value of
+> dumping sl_event anyway.
+
+
+From glynastill at yahoo.co.uk  Thu Sep  8 09:14:00 2011
+From: glynastill at yahoo.co.uk (Glyn Astill)
+Date: Thu, 8 Sep 2011 17:14:00 +0100 (BST)
+Subject: [Slony1-general] pg_dump and replication lag in 2.0.7
+In-Reply-To: <CALd+dcfjt5szuWW6X6W_+0OWJJZGzWqHPTCdj+V_vdjCvn_KYw@mail.gmail.com>
+References: <1315478555.24152.YahooMailNeo@web26003.mail.ukl.yahoo.com>
+	<4E68CB0B.20200@ca.afilias.info>
+	<1315496621.4860.YahooMailNeo@web26004.mail.ukl.yahoo.com>
+	<CALd+dcfjt5szuWW6X6W_+0OWJJZGzWqHPTCdj+V_vdjCvn_KYw@mail.gmail.com>
+Message-ID: <1315498440.96977.YahooMailNeo@web26001.mail.ukl.yahoo.com>
+
+
+
+
+
+> From: Vick Khera <vivek at khera.org>
+> On Thu, Sep 8, 2011 at 11:43 AM, Glyn Astill <glynastill at yahoo.co.uk> 
+> wrote:
+>>> Slony 1.2 and 2.0 both behave this way, this shouldn't be new 
+>>> behaviour with 2.0.
+>>> 
+>> 
+>>  Hmm, my nagios graphs disagree (or for some reason were oblivious), we 
+> check syncs every 10 minutes and they only started showing warnings the night 
+> after we moved to 2.0. The check is basically just looks at sl_status, and flags 
+> up a problem if st_lag_num_events or st_lag_time go over a threshold via the 
+> following query.
+>> 
+> 
+> I disagree as well.? We still run 1.2.x and I never get replication
+> lag alarms from our monitoring, and the nightly dump of my big DB
+> takes a couple of hours.? I'm still going to add the --exclude-schema
+> to it, just because it is useless to dump the slony schema anyway.
+
+Great to hear I'm not the only one then Vick.
+
+When we were on 1.2 I purposefully used to dump the slony schema so that we could restore from our subscribers data and use slony baremetal functions to fix the schema corruption automatically.
+
+From ssinger at ca.afilias.info  Thu Sep  8 10:43:29 2011
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Thu, 08 Sep 2011 13:43:29 -0400
+Subject: [Slony1-general] pg_dump and replication lag in 2.0.7
+In-Reply-To: <1315496621.4860.YahooMailNeo@web26004.mail.ukl.yahoo.com>
+References: <1315478555.24152.YahooMailNeo@web26003.mail.ukl.yahoo.com>
+	<4E68CB0B.20200@ca.afilias.info>
+	<1315496621.4860.YahooMailNeo@web26004.mail.ukl.yahoo.com>
+Message-ID: <4E68FEC1.3070604@ca.afilias.info>
+
+On 11-09-08 11:43 AM, Glyn Astill wrote:
+
+>
+>      SELECT st_origin, st_received, st_lag_num_events, round(extract(epoch from st_lag_time))
+>      FROM "<my_replication_cluster>".sl_status;
+>
+> A graph for the weeks leading up to and after the upgrade is attached.  I upgraded on the night of the 25th/26th and ignoring any other downtime where I was obviously fiddling with things, you can see the syncs going out after that date.  As you can imagine, I'm massively embarrassed that it took me 3 months to notice it happening.
+>
+
+st_lag_time is a measure of the difference between now() and the last 
+unconfirmed event.  The pg_dump locks sl_event which prevents the SYNC's 
+from being created so there might not be any unconfirmed events to be 
+measured by this check.
+
+
+
+Sometime between 2.0.4 and 2.0.6 we fixed a bug that prevented SYNC 
+events from being generated from pure slaves. I suspect your check is 
+now measuring the other half of replication (if you do your select from 
+sl_status you should see at least two rows, it isn't clear if your 
+graphing both of them or just one).
+
+If  now()-st_last_event_ts gets too high it means that SYNC events are 
+not being generated.  You might want to alert on both SYNC events not 
+being generated and events not being confirmed.
+
+
+
+>
+> Glyn
+
+
+From glynastill at yahoo.co.uk  Fri Sep  9 01:27:58 2011
+From: glynastill at yahoo.co.uk (Glyn Astill)
+Date: Fri, 9 Sep 2011 09:27:58 +0100 (BST)
+Subject: [Slony1-general] pg_dump and replication lag in 2.0.7
+In-Reply-To: <4E68FEC1.3070604@ca.afilias.info>
+References: <1315478555.24152.YahooMailNeo@web26003.mail.ukl.yahoo.com>
+	<4E68CB0B.20200@ca.afilias.info>
+	<1315496621.4860.YahooMailNeo@web26004.mail.ukl.yahoo.com>
+	<4E68FEC1.3070604@ca.afilias.info>
+Message-ID: <1315556878.6511.YahooMailNeo@web26002.mail.ukl.yahoo.com>
+
+
+
+> From: Steve Singer <ssinger at ca.afilias.info>
+> On 11-09-08 11:43 AM, Glyn Astill wrote: 
+>> 
+>> ? ? ? SELECT st_origin, st_received, st_lag_num_events, round(extract(epoch 
+> from st_lag_time))
+>> ? ? ? FROM "<my_replication_cluster>".sl_status;
+>> 
+>>  A graph for the weeks leading up to and after the upgrade is attached.? I 
+> upgraded on the night of the 25th/26th and ignoring any other downtime where I 
+> was obviously fiddling with things, you can see the syncs going out after that 
+> date.? As you can imagine, I'm massively embarrassed that it took me 3 
+> months to notice it happening.
+>> 
+> 
+> st_lag_time is a measure of the difference between now() and the last 
+> unconfirmed event.? The pg_dump locks sl_event which prevents the SYNC's 
+> from being created so there might not be any unconfirmed events to be measured 
+> by this check.
+> 
+> 
+> Sometime between 2.0.4 and 2.0.6 we fixed a bug that prevented SYNC events from 
+> being generated from pure slaves. I suspect your check is now measuring the 
+> other half of replication (if you do your select from sl_status you should see 
+> at least two rows, it isn't clear if your graphing both of them or just 
+> one).
+> 
+> If? now()-st_last_event_ts gets too high it means that SYNC events are not being 
+> generated.? You might want to alert on both SYNC events not being generated and 
+> events not being confirmed.
+> 
+
+Okay, you know better than me.? However I'm positive that when we were on 1.2 and I was in overnight our slaves were up to date whilst the backups were running, it's only circumstansial of course, but pretty sure I'd have noticed in 3 years if not as I'd query those slaves all the time.
+
+I've excluded the slony scchema from the dump now, so we're all good anyway.? 
+
+Thanks
+Glyn
+
+
