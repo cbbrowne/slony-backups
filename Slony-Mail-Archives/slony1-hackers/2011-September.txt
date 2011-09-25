@@ -318,3 +318,128 @@ Exactly what problem are you having with 2.0.x that makes you think the changes 
 An HTML attachment was scrubbed...
 URL: http://lists.slony.info/pipermail/slony1-hackers/attachments/20110923/c48b2cf3/attachment.htm 
 
+From ssinger at ca.afilias.info  Fri Sep 23 06:41:41 2011
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Fri, 23 Sep 2011 09:41:41 -0400
+Subject: [Slony1-hackers] Re : Request: backporting fix done for bug 218
+ to REL 2.0 STABLE
+In-Reply-To: <1316765599.4047.YahooMailNeo@web29812.mail.ird.yahoo.com>
+References: <1316729273.914.YahooMailNeo@web29811.mail.ird.yahoo.com>	<BLU0-SMTP76E7109015BC5D6AFB7C8AC0C0@phx.gbl>
+	<1316765599.4047.YahooMailNeo@web29812.mail.ird.yahoo.com>
+Message-ID: <4E7C8C95.7060901@ca.afilias.info>
+
+On 11-09-23 04:13 AM, David TECHER wrote:
+> Actually
+>
+> With 2.0 stable, I've noticed that a "SUBSCRIBE SET" and a "WAIT FOR EVENT"
+>
+> with PostgreSQL 8.4, I could have a deadlock done by a
+
+> DETAIL: Process 25451 waits for ExclusiveLock on relation 4867429 of
+> database 4326133; blocked by process 18388.
+> Process 18388 waits for AccessExclusiveLock on relation 4867482 of
+
+Which relations are 4867482 4867429,  I assume one is sl_event, but what 
+is the other?
+
+This sounds related to the changes related to bug218 in the sense that 
+the way locking is done was reworked (we no longer take an exclusive 
+lock on sl_event but instead sl_event_lock) but it is hard to say 
+anything more specific.
+
+It is also non-obvious to me why switching off autovacuum would fix this 
+problem if none of the processes involved are autovacuum.
+
+
+
+> database 4326133; blocked by process 25451.
+> HINT: See server log for query details.
+> CONTEXT: SQL statement "LOCK TABLE _mycluster.sl_event IN EXCLUSIVE
+> MODE; INSERT INTO _mycluster.sl_event (ev_origin, ev_seqno,
+> ev_timestamp, ev_snapshot, ev_type, ev_data1, ev_data2, ev_data3,
+> ev_data4, ev_data5, ev_data6, ev_data7,
+> ev_data8) VALUES ('1', nextval('_mycluster.sl_event_seq'), now(),
+> "pg_catalog".txid_current_snapshot(), $1, $2, $3, $4, $5, $6, $7, $8,
+> $9); SELECT currval('_mycluster.sl_event_seq');"
+> PL/pgSQL function "subscribeset" line 64 at assignment
+> <stdin>:8: Node 2 subscribes set 29
+>
+> with autovacuum on the only workaround, I've found is too let Slony do
+> the vacuum by putting autovacuum off on Slony's tables
+>
+> ALTER TABLE _mycluster.sl_nodelock SET (autovacuum_enabled=off);
+> ALTER TABLE _mycluster.sl_setsync SET (autovacuum_enabled=off);
+> ALTER TABLE _mycluster.sl_table SET (autovacuum_enabled=off);
+> ALTER TABLE _mycluster.sl_sequence SET (autovacuum_enabled=off);
+> ALTER TABLE _mycluster.sl_node SET (autovacuum_enabled=off);
+> ALTER TABLE _mycluster.sl_listen SET (autovacuum_enabled=off);
+> ALTER TABLE _mycluster.sl_path SET (autovacuum_enabled=off);
+> ALTER TABLE _mycluster.sl_subscribe SET (autovacuum_enabled=off);
+> ALTER TABLE _mycluster.sl_set SET (autovacuum_enabled=off);
+> ALTER TABLE _mycluster.sl_event SET (autovacuum_enabled=off);
+> ALTER TABLE _mycluster.sl_confirm SET (autovacuum_enabled=off);
+> ALTER TABLE _mycluster.sl_seqlog SET (autovacuum_enabled=off);
+> ALTER TABLE _mycluster.sl_registry SET (autovacuum_enabled=off);
+> ALTER TABLE _mycluster.sl_seqlastvalue SET (autovacuum_enabled=off);
+> ALTER TABLE _mycluster.sl_config_lock SET (autovacuum_enabled=off);
+> ALTER TABLE _mycluster.sl_archive_counter SET (autovacuum_enabled=off);
+> ALTER TABLE _mycluster.sl_status SET (autovacuum_enabled=off);
+> ALTER TABLE _mycluster.sl_log_1 SET (autovacuum_enabled=off);
+> ALTER TABLE _mycluster.sl_log_2 SET (autovacuum_enabled=off);
+>
+> It works with PostgreSQL 8.4.
+>
+> So I asked myself it is not related to bug 218
+>
+> David
+>
+> ------------------------------------------------------------------------
+> *De :* Steven Singer <sjsinger at sympatico.ca>
+> *? :* David TECHER <davidtecher at yahoo.fr>
+> *Cc :* Slony Hackers <slony1-hackers at lists.slony.info>
+> *Envoy? le :* Vendredi 23 Septembre 2011 0h42
+> *Objet :* Re: [Slony1-hackers] Request: backporting fix done for bug 218
+> to REL 2.0 STABLE
+>
+> On Thu, 22 Sep 2011, David TECHER wrote:
+>
+>  > Hi
+>  >
+>  > I asked myself if it could be possible to backport the fix done for
+> bug 218
+>  > to tag 2.0 STABLE.
+>
+>  >
+>  > I've got several schemas so a lot of tables/sequences to replicate.
+>
+> Exactly what problem are you having with 2.0.x that makes you think the
+> changes for bug 218 (http://www.slony.info/bugzilla/show_bug.cgi?id=218)
+> will fix your problem? The comments on the bug make me think that bug
+> 218 was caused/exposed by other changes to 2.1. A lot of the 'locking'
+> changes in 2.1.0 are somewhat related (changing the table we lock,
+> changing where we take the lock etc...), even that bug had multile
+> commits before all the issues were worked out and I would hesitate to
+> start porting those to 2.0.x piecemeal (particularly since 2.1.0 is so
+> close to being out)
+>
+>
+>
+>
+>
+>
+>  >
+>  > Thanks
+>  >
+>  > Kind regards
+>  >
+>  >
+>
+>
+>
+>
+> _______________________________________________
+> Slony1-hackers mailing list
+> Slony1-hackers at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-hackers
+
+
