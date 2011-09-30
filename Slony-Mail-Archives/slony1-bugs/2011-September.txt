@@ -264,3 +264,129 @@ Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
 ------- You are receiving this mail because: -------
 You are on the CC list for the bug.
 
+From bugzilla-daemon at main.slony.info  Wed Sep 28 08:22:31 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed, 28 Sep 2011 08:22:31 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 241] New: bad output for filename in slonik echo
+	output
+Message-ID: <bug-241-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=241
+
+           Summary: bad output for filename in slonik echo output
+           Product: Slony-I
+           Version: 2.0
+          Platform: PC
+        OS/Version: Linux
+            Status: NEW
+          Severity: enhancement
+          Priority: low
+         Component: slonik
+        AssignedTo: slony1-bugs at lists.slony.info
+        ReportedBy: ssinger at ca.afilias.info
+                CC: slony1-bugs at lists.slony.info
+   Estimated Hours: 0.0
+
+
+As reported on the mailing list.
+
+http://lists.slony.info/pipermail/slony1-general/2011-September/011870.html
+=======
+Its version 2.0.7
+
+u2_newslave.sk:
+
+    include <u2_preamble.sk>;
+    include <gen_newslave.sk>;
+
+
+u2_preamble.sk:
+
+    cluster name = sl;
+
+    define node1_conninfo 'blah blah blah';
+    define node2_conninfo 'more blah';
+
+    node 1 admin conninfo = @node1_conninfo;
+    node 2 admin conninfo = @node2_conninfo;
+
+
+gen_newslave.sk:
+
+    include <gen_sync.sk>;
+
+    echo 'Adding node 2';
+    store node (id=2, comment=@node2_conninfo, event node=1);
+    echo 'Creating paths';
+    store path (server=1, client=2, conninfo=@node1_conninfo);
+    store path (server=2, client=1, conninfo=@node2_conninfo);
+    include <gen_sync.sk>;
+
+    echo 'Subscribing node 2';
+    subscribe set (id=1,provider=1,receiver=2,forward=yes);
+    wait for event (origin=1, confirmed=all, wait on=1, timeout=0);
+    echo 'Subscription created. Slave is copying data. Master can go live.';
+
+
+gen_sync.sk:
+
+    echo 'Waiting for sync';
+    sync (id=1);
+    wait for event (origin=1, confirmed=all, wait on=1, timeout=0);
+    echo 'Synced';
+
+
+Results in
+
+$ slonik u2_newslave.sk
+:1: Waiting for sync
+:4: Synced
+gen_newslave.sk:3: Adding node 2
+gen_newslave.sk:5: Creating paths
+Subscribing node 2:1: Waiting for sync
+Subscribing node 2:4: Synced
+/lib/libnsl.so.1:10: Subscribing node 2
+/lib/libnsl.so.1:13: Subscription created. Slave is copying data. Master can go
+live.
+
+
+========================
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Sep 28 08:26:05 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed, 28 Sep 2011 08:26:05 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 241] bad output for filename in slonik echo
+	output
+In-Reply-To: <bug-241-4@http.www.slony.info/bugzilla/>
+References: <bug-241-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110928152605.82C95290E2C@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=241
+
+--- Comment #1 from Steve Singer <ssinger at ca.afilias.info> 2011-09-28 08:26:05 PDT ---
+I *THINK the problem here is that
+
+in scan.l when processing an include directive we strdup() the filename and
+pass this to pushBuffer().  This sets current_file to the memory allocated by
+strdup.  As the parser runs it stores a pointer to current_file into the
+structures that the parser creates.
+
+When processing of that file ends popBuffer() calls free(current_file).  This
+will deallocate the memory even though the structures created by the parser
+still might point at that memory.
+
+In parser.y should we be calling strdup(current_file) to create a new copy of
+the filename for storing in the parser structures?
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
