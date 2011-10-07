@@ -1,0 +1,57 @@
+From pblumenthal at crsinc.com  Wed Oct  5 12:43:00 2011
+From: pblumenthal at crsinc.com (Pete Blumenthal)
+Date: Wed, 5 Oct 2011 19:43:00 +0000
+Subject: [Slony1-general] Dynamic Schema Changes on high-traffic database
+Message-ID: <71583C0762B8A948A4D9E5898D00FD5D22E3C63F@mbx025-e1-nj-8.exch025.domain.local>
+
+I run a web app which allows users to cause dynamic schema changes-adding columns to tables specifically. This operation doesn't happen often, but it happens often enough that we don't want to have to manually SLONIK EXECUTE SCRIPT every time we want to do a schema change. There is also a possibility of write operations happening on the tables with dynamic schema changes at the same times as the schema changes occur.
+
+Which is preferred solution for dynamic schema changes in production with Slony-I 2.0, Why?
+
+A) Method documented in 3.2.2 (http://slony.info/documentation/2.0/ddlchanges.html) . The constraint that "no other transactions are altering the tables being used by the ddl script while it is running" is problematic.  This is less than preferable because it requires that we either lock the tables being changed before we hand the schema change commands to SLONY EXECUTE SCRIPT, causing an outage for some users and possibly aborting related sequences of write operations, or that we risk less-than-perfect replication by running a DDL change in the middle of write operations to the table being changed without any guarantee of concomitant execution on replicated members of the cluster.
+
+B) Drop and merge back in the tables being altered on-the-fly, without any locks being explicitly invoked. Since it is trivial to know the name of the table whose structure is being changed before the change actually occurs, we could use that information in a task sequence like this (using the altperl scripts, but it could also be done directly on the database):
+1.      Drop the table that is about to be altered (let's call it TABLE_TO_ALTER) from the main replication set. This would (theoretically) mean that write operations were only being performed on the master.
+2.      Run SLONIK EXECUTE SCRIPT on the main replication set, and apply the schema changes to TABLE_TO_ALTER.  I have tested this, and found that whether or not the table is a member of the set, EXECUTE SCRIPT operations are still applied to it on all of the nodes in the set.
+3.      Create a temporary set containing only TABLE_TO_ALTER.
+4.      Subscribe the temporary set to the same nodes as the main replication set.
+5.      Merge the temporary set into the main replication set.
+
+This approach of "stop replication on this table, change the structure of the table, and then re-add it back into the main replication set" sounds preferable because it doesn't risk problems that could be caused by write operations happening near the same time as DDL changes. I understand that it carries a different risk: the risk introduced by removing a table from replication for a short time, and I am willing to accept that.
+
+Would method B) work? Is method A) preferable? How would you implement a solution to this problem?
+
+Thanks for the advice,
+  Pete
+This email message contains information that Corporate Reimbursement Services, Inc. considers confidential and/or proprietary, or may later designate as confidential and proprietary. It is intended only for use of the individual or entity named above and should not be forwarded to any other persons or entities without the express consent of Corporate Reimbursement Services, Inc., nor should it be used for any purpose other than in the course of any potential or actual business relationship with Corporate Reimbursement Services, Inc. If the reader of this message is not the intended recipient, or the employee or agent responsible to deliver it to the intended recipient, you are hereby notified that any dissemination, distribution, or copying of this communication is strictly prohibited. If you have received this communication in error, please notify sender immediately and destroy the original message.
+
+Internal Revenue Service regulations require that certain types of written advice include a disclaimer. To the extent the preceding message contains advice relating to a Federal tax issue, unless expressly stated otherwise the advice is not intended or written to be used, and it cannot be used by the recipient or any other taxpayer, for the purpose of avoiding Federal tax penalties, and was not written to support the promotion or marketing of any transaction or matter discussed herein.
+
+From JanWieck at Yahoo.com  Wed Oct  5 16:37:23 2011
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Wed, 05 Oct 2011 19:37:23 -0400
+Subject: [Slony1-general] Dynamic Schema Changes on high-traffic database
+In-Reply-To: <71583C0762B8A948A4D9E5898D00FD5D22E3C63F@mbx025-e1-nj-8.exch025.domain.local>
+References: <71583C0762B8A948A4D9E5898D00FD5D22E3C63F@mbx025-e1-nj-8.exch025.domain.local>
+Message-ID: <4E8CEA33.7030802@Yahoo.com>
+
+On 10/5/2011 3:43 PM, Pete Blumenthal wrote:
+> I run a web app which allows users to cause dynamic schema changes-adding columns to tables specifically. This operation doesn't happen often, but it happens often enough that we don't want to have to manually SLONIK EXECUTE SCRIPT every time we want to do a schema change. There is also a possibility of write operations happening on the tables with dynamic schema changes at the same times as the schema changes occur.
+>
+> Which is preferred solution for dynamic schema changes in production with Slony-I 2.0, Why?
+
+Applications changing the DB schema during normal production operation 
+have always been problematic. Not only with Slony, but with databases, 
+that do not cover DDL under transactional semantics, too.
+
+Changes that might happen to Slony 2.2 would make it possible to support 
+this in a safe and secure manner, but those changes will most certainly 
+not be backported into any earlier version.
+
+
+Jan
+
+-- 
+Anyone who trades liberty for security deserves neither
+liberty nor security. -- Benjamin Franklin
+
