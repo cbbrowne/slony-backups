@@ -769,3 +769,213 @@ document.
 An HTML attachment was scrubbed...
 URL: http://lists.slony.info/pipermail/slony1-hackers/attachments/20111102/c34e707c/attachment-0001.htm 
 
+From cbbrowne at afilias.info  Fri Nov  4 13:02:23 2011
+From: cbbrowne at afilias.info (Christopher Browne)
+Date: Fri, 4 Nov 2011 16:02:23 -0400
+Subject: [Slony1-hackers] DDL revisions in view of COPY protocol changes
+Message-ID: <CANfbgbb79tVXT5ha8Q0UU=VDkOB8CVtgJieePbHGP-SHZDvHqQ@mail.gmail.com>
+
+I'm in process of revisiting bug #137 in view of COPY protocol, and
+hitting a few issues worthy of asking things a bit broadly...
+
+I'm adding a new table to capture DDL, as per the discussions with Jan/Steve.
+
+Now, the _normal_ schema for this would be something like:
+
+create table @NAMESPACE at .sl_ddl (
+	ddl_origin			int4,
+	ddl_txid			bigint,
+	ddl_actionseq		int8,
+	ddl_query			text
+) WITHOUT OIDS;
+
+Alas, there are parts of the log queries that use "log_txid" and
+"log_actionseq" to generate chunks of queries that I'd really like to
+use, and not regenerate from scratch.
+
+To readily do that, I need to rename 2 of the columns to conform with
+the names on sl_log_1/sl_log_2, thus:
+
+create table @NAMESPACE at .sl_ddl (
+	ddl_origin			int4,
+	log_txid			bigint,
+	log_actionseq		int8,
+	ddl_query			text
+) WITHOUT OIDS;
+
+Is this a horrible inconsistency that I ought to rectify?  Or shall we
+not lose too much sleep over this?
+
+From ssinger at ca.afilias.info  Fri Nov  4 13:11:50 2011
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Fri, 04 Nov 2011 16:11:50 -0400
+Subject: [Slony1-hackers] DDL revisions in view of COPY protocol changes
+In-Reply-To: <CANfbgbb79tVXT5ha8Q0UU=VDkOB8CVtgJieePbHGP-SHZDvHqQ@mail.gmail.com>
+References: <CANfbgbb79tVXT5ha8Q0UU=VDkOB8CVtgJieePbHGP-SHZDvHqQ@mail.gmail.com>
+Message-ID: <4EB44706.9010201@ca.afilias.info>
+
+On 11-11-04 04:02 PM, Christopher Browne wrote:
+> I'm in process of revisiting bug #137 in view of COPY protocol, and
+> hitting a few issues worthy of asking things a bit broadly...
+>
+> I'm adding a new table to capture DDL, as per the discussions with Jan/Steve.
+>
+> Now, the _normal_ schema for this would be something like:
+>
+> create table @NAMESPACE at .sl_ddl (
+> 	ddl_origin			int4,
+> 	ddl_txid			bigint,
+> 	ddl_actionseq		int8,
+> 	ddl_query			text
+> ) WITHOUT OIDS;
+>
+> Alas, there are parts of the log queries that use "log_txid" and
+> "log_actionseq" to generate chunks of queries that I'd really like to
+> use, and not regenerate from scratch.
+>
+> To readily do that, I need to rename 2 of the columns to conform with
+> the names on sl_log_1/sl_log_2, thus:
+>
+> create table @NAMESPACE at .sl_ddl (
+> 	ddl_origin			int4,
+> 	log_txid			bigint,
+> 	log_actionseq		int8,
+> 	ddl_query			text
+> ) WITHOUT OIDS;
+>
+> Is this a horrible inconsistency that I ought to rectify?  Or shall we
+> not lose too much sleep over this?
+
+Does this seem cleaner?
+
+create table @NAMESPACE at .sl_log_ddl (
+	log_origin			int4,
+  	log_txid			bigint,
+  	log_actionseq		int8,
+  	log_query			text
+  ) WITHOUT OIDS;
+
+as a side note:
+
+My current name for the log like table used on a log shipping receiver is
+
+create table $clname.sl_log_archive (
+	log_origin			int4,
+	log_txid			bigint,
+	log_tableid			int4,
+	log_actionseq		int8,
+	log_tablenspname	text,
+	log_tablerelname	text,
+	log_cmdtype			char,
+	log_cmdupdncols		int4,
+	log_cmdargs			text[]
+) WITHOUT OIDS;
+
+(This table will be the target of a COPY .. FROM STDIN but will have 
+triggers on it that always return NULL so it won't never contain data). 
+  See 
+https://github.com/ssinger/slony1-engine/tree/copy-protocol_22_remoteworker 
+for more details.
+
+
+The sl_log_XXXXX convention seems to avoid your naming inconsistency and 
+give some consistency to these various log tables we are creating.  I am 
+also not too attached to these names if you have better ideas.
+
+
+
+> _______________________________________________
+> Slony1-hackers mailing list
+> Slony1-hackers at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-hackers
+
+
+From cbbrowne at afilias.info  Fri Nov  4 13:15:11 2011
+From: cbbrowne at afilias.info (Christopher Browne)
+Date: Fri, 4 Nov 2011 16:15:11 -0400
+Subject: [Slony1-hackers] DDL revisions in view of COPY protocol changes
+In-Reply-To: <4EB44706.9010201@ca.afilias.info>
+References: <CANfbgbb79tVXT5ha8Q0UU=VDkOB8CVtgJieePbHGP-SHZDvHqQ@mail.gmail.com>
+	<4EB44706.9010201@ca.afilias.info>
+Message-ID: <CANfbgbbfwMGG7wLcNTT3MuuEr5fxboEtvf2gQSe-5vZ4OaFSTA@mail.gmail.com>
+
+On Fri, Nov 4, 2011 at 4:11 PM, Steve Singer <ssinger at ca.afilias.info> wrote:
+> Does this seem cleaner?
+>
+> create table @NAMESPACE at .sl_log_ddl (
+> ? ? ? ?log_origin ? ? ? ? ? ? ? ? ? ? ?int4,
+> ? ? ? ?log_txid ? ? ? ? ? ? ? ? ? ? ? ?bigint,
+> ? ? ? ?log_actionseq ? ? ? ? ? int8,
+> ? ? ? ?log_query ? ? ? ? ? ? ? ? ? ? ? text
+> ?) WITHOUT OIDS;
+
+Ah, yes, that seems like a fine justification.  Works for me, I'll
+change forthwith.
+
+From ssinger at ca.afilias.info  Fri Nov  4 13:33:41 2011
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Fri, 04 Nov 2011 16:33:41 -0400
+Subject: [Slony1-hackers] DDL revisions in view of COPY protocol changes
+In-Reply-To: <CANfbgbbfwMGG7wLcNTT3MuuEr5fxboEtvf2gQSe-5vZ4OaFSTA@mail.gmail.com>
+References: <CANfbgbb79tVXT5ha8Q0UU=VDkOB8CVtgJieePbHGP-SHZDvHqQ@mail.gmail.com>	<4EB44706.9010201@ca.afilias.info>
+	<CANfbgbbfwMGG7wLcNTT3MuuEr5fxboEtvf2gQSe-5vZ4OaFSTA@mail.gmail.com>
+Message-ID: <4EB44C25.9060907@ca.afilias.info>
+
+On 11-11-04 04:15 PM, Christopher Browne wrote:
+> On Fri, Nov 4, 2011 at 4:11 PM, Steve Singer<ssinger at ca.afilias.info>  wrote:
+>> Does this seem cleaner?
+>>
+>> create table @NAMESPACE at .sl_log_ddl (
+>>         log_origin                      int4,
+>>         log_txid                        bigint,
+>>         log_actionseq           int8,
+>>         log_query                       text
+>>   ) WITHOUT OIDS;
+>
+> Ah, yes, that seems like a fine justification.  Works for me, I'll
+> change forthwith.
+
+Another thought.
+
+Do we want to be using 'ddl' in these names or something else 
+(sl_log_script?)
+
+The scripts you submit with EXECUTE SCRIPT don't need to contain DDL. 
+If I often do bulk updates/deletes of tables I might choose to route 
+those through slonik/EXECUTE SCRIPT instead of via psql.
+
+Also if I have some function that has side-effects outside the database 
+(or even to non replicated tables) and you want that function to run on 
+all nodes you might also use execute script.
+
+
+
+From cbbrowne at afilias.info  Fri Nov  4 13:48:12 2011
+From: cbbrowne at afilias.info (Christopher Browne)
+Date: Fri, 4 Nov 2011 16:48:12 -0400
+Subject: [Slony1-hackers] DDL revisions in view of COPY protocol changes
+In-Reply-To: <4EB44C25.9060907@ca.afilias.info>
+References: <CANfbgbb79tVXT5ha8Q0UU=VDkOB8CVtgJieePbHGP-SHZDvHqQ@mail.gmail.com>
+	<4EB44706.9010201@ca.afilias.info>
+	<CANfbgbbfwMGG7wLcNTT3MuuEr5fxboEtvf2gQSe-5vZ4OaFSTA@mail.gmail.com>
+	<4EB44C25.9060907@ca.afilias.info>
+Message-ID: <CANfbgbbp0OzV9HYAbquw=6EVFrk_QByrmmtmv8RsGHTPR95uUA@mail.gmail.com>
+
+On Fri, Nov 4, 2011 at 4:33 PM, Steve Singer <ssinger at ca.afilias.info> wrote:
+> Another thought.
+>
+> Do we want to be using 'ddl' in these names or something else
+> (sl_log_script?)
+>
+> The scripts you submit with EXECUTE SCRIPT don't need to contain DDL. If I
+> often do bulk updates/deletes of tables I might choose to route those
+> through slonik/EXECUTE SCRIPT instead of via psql.
+>
+> Also if I have some function that has side-effects outside the database (or
+> even to non replicated tables) and you want that function to run on all
+> nodes you might also use execute script.
+
+Sure, that sounds quite apropos.
+
+Changed already.
+
