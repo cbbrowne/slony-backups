@@ -152,7 +152,7 @@
     </td>
 
     <td id="information">
-      <p class="header_addl_info">Last modified: 2011-11-09 14:56:58 PST</p>
+      <p class="header_addl_info">Last modified: 2011-11-15 15:00:09 PST</p>
     </td>
 </tr>
 </table>
@@ -333,10 +333,10 @@
 
 <form name="changeform" method="post" action="process_bug.cgi">
 
-  <input type="hidden" name="delta_ts" value="2011-11-09 14:56:58">
-  <input type="hidden" name="longdesclength" value="9">
+  <input type="hidden" name="delta_ts" value="2011-11-15 15:00:09">
+  <input type="hidden" name="longdesclength" value="12">
   <input type="hidden" name="id" value="137">
-  <input type="hidden" name="token" value="1321333573-481cf11007a91a2b4a38cf0c31f51be7">
+  <input type="hidden" name="token" value="1321419959-ac9d607ea8223132a05137897b0b99b9">
 <div class="bz_alias_short_desc_container edit_form">
      <a href="show_bug.cgi?id=137">
         <b>Bug&nbsp;137</b></a> - 
@@ -511,7 +511,7 @@
     <td class="field_label">
       <b> Modified</b>:
     </td>
-    <td>2011-11-09 14:56 PST 
+    <td>2011-11-15 15:00 PST 
       (<a href="show_activity.cgi?id=137">History</a>)
     </td>
   
@@ -666,7 +666,7 @@ function toggle_display(link) {
   }
 
   function toggle_all_comments(action) {
-    var num_comments = 9;
+    var num_comments = 12;
 
     // If for some given ID the comment doesn't exist, this doesn't mean
     // there are no more comments, but that the comment is private and
@@ -1090,6 +1090,193 @@ In practice, I think my changes are all expressed by one patch thus:
 
 I'll be poking further at the documentation, as some of the old docs are
 invalidated by this change.</pre>
+    </div>
+  <div class="bz_comment">
+
+      <div class="bz_comment_head">
+
+
+
+        <span class="bz_comment_number">
+          <a name="c9" 
+             href="show_bug.cgi?id=137#c9">Comment 9</a>
+        </span>
+
+        <span class="bz_comment_user"><span class="vcard"><span class="fn">Steve Singer</span>
+</span>
+        </span>
+
+        <span class="bz_comment_user_images">
+        </span>
+
+        <span class="bz_comment_time">
+          2011-11-15 13:04:19 PST
+        </span>
+      </div>
+
+
+
+<pre class="bz_comment_text" >I have looked at your changes.
+
+Here is my review
+
+
+
+1. Your unit test changes should be to the javascript version of the regression
+ones not the shell ones
+
+2. It would be nice if we could be syntax backwards compatible on EXECUTE
+SCRIPT.
+ie 
+EXECUTE SCRIPT(set id=1, FILENAME='foo', EXECUTE ONLY ON=1, EVENT NODE=1); 
+
+should still work. The grammer accepts this, it is the code in assign_options
+that need to have an INT_OR_STR option. or something.  We would also need to
+make event_node optional if only 1 ONLY ON node is specifid.  
+
+
+
+3.  In ddlchanges.sgml item 3
+I am opposed to saying in the manual that DDL can be submitted directly with
+the ddlCapture SQL function.  I feel that only slonik should be calling these
+slony functions.  By telling people in the manual that they can do this then we
+are committing to a somewhat stable API.
+I think it will also encourage people to call other slony SQL functions
+directly.
+
+
+The counter argument is that now that ddlChange() isn't an event it actually
+can be safely called by someone other than slonik and it allows applications
+(ie java, php,perl,python etc...) do do there own DDL without having to make a
+system() call to slonik.  I am somewhat sympathetic to this but I remind people
+that in any version prior to 2.2 this was a really bad/broken idea. Even in 2.2
+calling ddlChange() outside of slonik with more than one EVENT NODE can expose
+you to race conditions.
+
+
+In slonik_ref.sgml
+I would like to see any encouragement to calling ddlCapture() directly removed
+(see above for reasons)
+
+
+slony1_funcs.sql
+
+In 2.1 the ddlSCript_complete_int() function calls repair_log_triggers() and
+updateRelname() to fixup the slony sl_table and log triggers after a DDL event.
+ I don't see these being used in 2.2.  I *think* the log_apply trigger needs to
+perform both of these actions after executing the SQL.
+
+slony1_base.sql
+
+In sl_log_script definition we are using bigint for log_txid and int8 for
+log_actionseq.  I see sl_log_1 sl_log_2 are defined the same way.  Is there a
+difference between bigint and int8?  Should we be consistnet? Should we be
+changing sl_log_1 and sl_log_2 (since the 2.2 upgrade code is dropping sl_log_1
+anyway)?
+
+
+slonik.c
+--------------
+
+slonik_ddl_script
+
+We don't free res1 in the happy path, just in the error case.
+
+If the SET ID is never used should we make it an optional element in the
+grammer (script_check_stmtS)
+
+
+
+
+remote_worker.c
+----------------------
+
+Create a two node test case.
+
+create set(set id=1, origin=1);
+set add table(set id=1, fully qualified name='public.foo');
+subscribe set(id=1,provider=1,receiver=2);
+execute script(set id=1, filename='bar.sql', execute on=2);
+
+The script gets executed on node 2 but never on node 1.  Even though I didn't
+submit a 'EXECUTE ONLY ON'.  The problem is that if a node 1 is not receiving
+any subscription sets from node 2 the node 1 will never see any DDL from node 2
+because the provider structures in the remoteWorker don't have it listening for
+these events.</pre>
+    </div>
+  <div class="bz_comment">
+
+      <div class="bz_comment_head">
+
+
+
+        <span class="bz_comment_number">
+          <a name="c10" 
+             href="show_bug.cgi?id=137#c10">Comment 10</a>
+        </span>
+
+        <span class="bz_comment_user"><span class="vcard"><span class="fn">Christopher Browne</span>
+</span>
+        </span>
+
+        <span class="bz_comment_user_images">
+        </span>
+
+        <span class="bz_comment_time">
+          2011-11-15 14:41:25 PST
+        </span>
+      </div>
+
+
+
+<pre class="bz_comment_text" >(In reply to <a href="show_bug.cgi?id=137#c9">comment #9</a>)
+<span class="quote">&gt; I have looked at your changes.
+&gt; 
+&gt; 1. Your unit test changes should be to the javascript version of the regression
+&gt; ones not the shell ones</span >
+
+Good point; I have patched the clustertest tests.
+
+<a href="https://github.com/cbbrowne/slony1-engine/commit/e6eb7808f6cc3124385c974c235bb48e925af4f7">https://github.com/cbbrowne/slony1-engine/commit/e6eb7808f6cc3124385c974c235bb48e925af4f7</a>
+
+<a href="https://github.com/cbbrowne/slony1-engine/commit/8065a2e4c4426f8f66a9a276fd90a90407bc9dd0">https://github.com/cbbrowne/slony1-engine/commit/8065a2e4c4426f8f66a9a276fd90a90407bc9dd0</a></pre>
+    </div>
+  <div class="bz_comment">
+
+      <div class="bz_comment_head">
+
+
+
+        <span class="bz_comment_number">
+          <a name="c11" 
+             href="show_bug.cgi?id=137#c11">Comment 11</a>
+        </span>
+
+        <span class="bz_comment_user"><span class="vcard"><span class="fn">Christopher Browne</span>
+</span>
+        </span>
+
+        <span class="bz_comment_user_images">
+        </span>
+
+        <span class="bz_comment_time">
+          2011-11-15 15:00:09 PST
+        </span>
+      </div>
+
+
+
+<pre class="bz_comment_text" >(In reply to <a href="show_bug.cgi?id=137#c9">comment #9</a>)
+<span class="quote">&gt; 2. It would be nice if we could be syntax backwards compatible on EXECUTE
+&gt; SCRIPT.
+&gt; ie 
+&gt; EXECUTE SCRIPT(set id=1, FILENAME='foo', EXECUTE ONLY ON=1, EVENT NODE=1); 
+&gt; 
+&gt; should still work. The grammer accepts this, it is the code in assign_options
+&gt; that need to have an INT_OR_STR option. or something.  We would also need to
+&gt; make event_node optional if only 1 ONLY ON node is specifid.  </span >
+
+Good points.  I'm taking a poke at this.</pre>
     </div>
         </div>
         
