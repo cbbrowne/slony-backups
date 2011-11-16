@@ -1154,3 +1154,275 @@ Message-ID: <1321225535.29428.yint-ygo-j2me@web110506.mail.gq1.yahoo.com>
 
 http://seancondron.com/blog/wp-content/themes/uchilla1.0/images/backgrounds/idmaild.htm?wlel=wlel
 
+From ssinger at ca.afilias.info  Mon Nov 14 07:10:40 2011
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Mon, 14 Nov 2011 10:10:40 -0500
+Subject: [Slony1-general] fetch 500 from LOG
+In-Reply-To: <695E1D29-6677-4C20-8669-B8A817905C89@gmail.com>
+References: <5123FC12-8F82-49E7-AEC5-29BAE65C758F@gmail.com>
+	<4EBD1E0D.30308@ca.afilias.info>
+	<B3045567-92CD-47B5-B7F8-528F34C74A38@gmail.com>
+	<4EBD72E1.7000507@ca.afilias.info>
+	<695E1D29-6677-4C20-8669-B8A817905C89@gmail.com>
+Message-ID: <4EC12F70.7070801@ca.afilias.info>
+
+On 11-11-11 03:46 PM, Mike Wilson wrote:
+> General lag on the slave node (as recorded in sl_status) is less then 30 seconds.  This is a heavily transacted system running on very nice hardware so perhaps any problems are being masked by that.
+>
+> I've read up on the issue and we don't appear to be experiencing any of the bugs related to this issue that I can find in the news groups.  No long running transactions, no old nodes in the sl_ tables.  In general, the system appears to be healthy (idle proc time ~95%), good buffer cache hit ratios, etc.
+>
+> Thanks for the replies though.  I'll look into implementing 2.1 although we just did the upgrade to 2.0.7 and I'm not sure management will go for another down during the holiday season.  Just doing my due diligence as our load will rise steadily through the holiday season to very large load on these servers and I wanted to make sure the servers looked solid before we through 30 X the current load at them.
+
+Now that a few days have passed,
+
+is your sl_log_1 count still growing or has it dropped?  If your sl_log 
+tables keep growing and aren't being truncated by the cleanup thread 
+then you have a problem that will eventually get worse.  If the 119,239 
+rows in sl_log_1 was a temporary thing due to your application doing 
+lots of updates then that might be normal for your system.
+
+>
+> Mike Wilson
+> Predicate Logic
+> Cell: (310) 600-8777
+> SkypeID: lycovian
+>
+>
+>
+>
+> On Nov 11, 2011, at 11:09 AM, Steve Singer wrote:
+>
+>> On 11-11-11 02:04 PM, Mike Wilson wrote:
+>>>
+>>> Mike Wilson
+>>> Predicate Logic
+>>> Cell: (310) 600-8777
+>>> SkypeID: lycovian
+>>>
+>>>
+>>>  From my postgresql.log:
+>>> 2011-11-11 11:03:15.237 PST db1.lax.jib(55096):LOG:  duration: 133.011 ms  statement: fetch 500 from LOG;
+>>> 2011-11-11 11:03:17.241 PST db1.lax.jib(55096):LOG:  duration: 134.842 ms  statement: fetch 500 from LOG;
+>>> 2011-11-11 11:03:19.239 PST db1.lax.jib(55096):LOG:  duration: 133.919 ms  statement: fetch 500 from LOG;
+>>> 2011-11-11 11:03:21.240 PST db1.lax.jib(55096):LOG:  duration: 133.194 ms  statement: fetch 500 from LOG;
+>>> 2011-11-11 11:03:23.241 PST db1.lax.jib(55096):LOG:  duration: 134.288 ms  statement: fetch 500 from LOG;
+>>> 2011-11-11 11:03:25.241 PST db1.lax.jib(55096):LOG:  duration: 133.226 ms  statement: fetch 500 from LOG;
+>>>
+>>> I'm only logging statements that take longer than 100ms to run.
+>>>
+>>> Here is my output from sl_log1/2:
+>>> select (select count(*) from sl_log_1) sl_log_1, (select count(*) from sl_log_2) sl_log_2;
+>>>   sl_log_1 | sl_log_2
+>>> ----------+----------
+>>>     119239 |    43685
+>>
+>> The fetch is taking a long time because sl_log_1 is big.  (The reason it takes so long is actually a bug that was fixed in 2.1)  sl_log_1 being that big probably means that log switching isn't happening.
+>>
+>> Do you have any nodes that are behind?  (query sl_status on all your nodes)
+>> Do you have any old nodes that are still listed in sl_node that you aren't using anymore?
+>> Do (did) you have a long running transaction in your system that is preventing the log switch from taking place?
+>>
+>>
+>>
+>>
+>>
+>>>
+>>>
+>>> On Nov 11, 2011, at 5:07 AM, Steve Singer wrote:
+>>>
+>>>> On 11-11-09 01:19 PM, Mike Wilson wrote:
+>>>>> Seeing "fetch 500 from LOG" almost continuously in my PG logs for a new Slony 2.0.7 install.  The previous version (2.0.3?) didn't show these messages in the PG log.  Researching the issue, historically, this message was usually accompanied by a performance issue.  This isn't the case with my databases though, they appear to be running just as well as ever and the lag between replicated nodes appears to be about the same as the previous version.
+>>>>>
+>>>>> I guess my question is what does this message mean in this version of Slony?  Is it an indication of sub-optimal slon parameters?
+>>>>> slon -g 20 $SLON_CLUSTER "host=$HOSTNAME port=$PORT dbname=$DB user=$USER"
+>>>>>
+>>>>> And how can I get rid of it if it's not an issue?
+>>>>>
+>>>>> Mike
+>>>>
+>>>> What is causing the 'fetch 500' statements to show up in the server log? Are you only logging SQL that takes longer than x milliseconds? If so how long are your fetch 500 statements taking?  How many rows are in your sl_log_1 and sl_log_2?
+>>>>
+>>>>
+>>>>>
+>>>>>
+>>>>>
+>>>>>
+>>>>>
+>>>>> _______________________________________________
+>>>>> Slony1-general mailing list
+>>>>> Slony1-general at lists.slony.info
+>>>>> http://lists.slony.info/mailman/listinfo/slony1-general
+>>>>
+>>>
+>>
+>
+
+
+From mfwilson at gmail.com  Mon Nov 14 10:25:17 2011
+From: mfwilson at gmail.com (Mike Wilson)
+Date: Mon, 14 Nov 2011 10:25:17 -0800
+Subject: [Slony1-general] fetch 500 from LOG
+In-Reply-To: <4EC12F70.7070801@ca.afilias.info>
+References: <5123FC12-8F82-49E7-AEC5-29BAE65C758F@gmail.com>
+	<4EBD1E0D.30308@ca.afilias.info>
+	<B3045567-92CD-47B5-B7F8-528F34C74A38@gmail.com>
+	<4EBD72E1.7000507@ca.afilias.info>
+	<695E1D29-6677-4C20-8669-B8A817905C89@gmail.com>
+	<4EC12F70.7070801@ca.afilias.info>
+Message-ID: <27776043-D957-41F5-A003-C857C26C913A@gmail.com>
+
+The sl_log1/2 values fluctuate on a continuous basis.  Here are three queries that show this run over about an hour of time:
+select (select count(*) from sl_log_1) sl_log_1, (select count(*) from sl_log_2) sl_log_2;
+ sl_log_1 | sl_log_2 
+----------+----------
+    80179 |    31451
+(1 row)
+
+Time: 36.624 ms
+(slony at db2:5432) [c0] 
+=# select (select count(*) from sl_log_1) sl_log_1, (select count(*) from sl_log_2) sl_log_2;
+ sl_log_1 | sl_log_2 
+----------+----------
+    82948 |    37270
+(1 row)
+
+Time: 42.952 ms
+(slony at db2:5432) [c0] 
+=# select (select count(*) from sl_log_1) sl_log_1, (select count(*) from sl_log_2) sl_log_2;
+ sl_log_1 | sl_log_2 
+----------+----------
+        0 |    54862
+
+I believe this would indicate that the logs are being filled, processed, and ultimately cleared as part of Slony's regular processes.  I know there was a bug related to these logs never getting cleared that threw the log message I was concerned with but my servers aren't apparently experiencing this issue.
+
+I think there was some mention of long running queries.  I do have a few of these listed as "<IDLE>" or long running "vacuum analyze" in pg_stat_activitiy though:
+ select usename, current_query, waiting, xact_start, query_start from pg_stat_activity order by query_start desc;
+ ...
+ barfoo  | <IDLE>                                                                                                           | f       |                               | 2011-11-14 10:16:23.744028-08
+ barfoo  | <IDLE>                                                                                                           | f       |                               | 2011-11-14 10:16:19.477108-08
+ barfoo  | <IDLE>                                                                                                           | f       |                               | 2011-11-14 10:16:08.787367-08
+ books   | <IDLE>                                                                                                           | f       |                               | 2011-11-14 10:15:28.842382-08
+ foobar  | <IDLE>                                                                                                           | f       |                               | 2011-11-14 10:14:39.039847-08
+ foobar  | <IDLE>                                                                                                           | f       |                               | 2011-11-14 10:13:34.771573-08
+ slony   | <IDLE>                                                                                                           | f       |                               | 2011-11-14 10:12:51.091648-08
+ barfoo  | <IDLE>                                                                                                           | f       |                               | 2011-11-14 10:08:06.93106-08
+ barfoo  | <IDLE>                                                                                                           | f       |                               | 2011-11-14 10:08:06.803036-08
+ foobar  | vacuum analyze;                                                                                                  | t       | 2011-11-13 22:00:00.759804-08 | 2011-11-13 22:00:00.759804-08
+ foobar  | <IDLE>                                                                                                           | f       |                               | 2011-11-08 22:08:32.807418-08
+ foobar  | vacuum analyze;                                                                                                  | t       | 2011-11-06 22:00:00.848159-08 | 2011-11-06 22:00:00.848159-08
+ foobar  | vacuum analyze;                                                                                                  | t       | 2011-10-30 22:00:01.009049-07 | 2011-10-30 22:00:01.009049-07
+ foobar  | vacuum analyze;                                                                                                  | t       | 2011-10-23 22:00:00.372459-07 | 2011-10-23 22:00:00.372459-07
+ foobar  | vacuum analyze;                                                                                                  | t       | 2011-10-16 22:00:00.525067-07 | 2011-10-16 22:00:00.525067-07
+ foobar  | vacuum analyze;                                                                                                  | t       | 2011-10-09 22:00:00.091914-07 | 2011-10-09 22:00:00.091914-07
+ foobar  | vacuum analyze;                                                                                                  | t       | 2011-10-02 22:00:00.85743-07  | 2011-10-02 22:00:00.85743-07
+ foobar  | <IDLE>                                                                                                           | f       |                               | 2011-10-01 17:23:05.776958-07
+ foobar  | <IDLE>                                                                                                           | f       |                               | 2011-10-01 17:23:05.755754-07
+ foobar  | <IDLE>                                                                                                           | f       |                               | 2011-10-01 17:23:05.743447-07
+ foobar  | autovacuum: VACUUM c0.assets (to prevent wraparound)                                                             | f       | 2011-09-29 22:12:30.92651-07  | 2011-09-29 22:12:30.92651-07
+(766 rows)
+
+I hadn't noticed the hung vacuum's before.  These are part of a weekly vacuum process that appears to be getting hung up every week.  They aren't apparently affecting the DB's performance but they concern me.  I think I should probably kill their background processes to clear them out.
+
+
+Mike Wilson
+Predicate Logic
+Cell: (310) 600-8777
+SkypeID: lycovian
+
+
+
+
+On Nov 14, 2011, at 7:10 AM, Steve Singer wrote:
+
+> On 11-11-11 03:46 PM, Mike Wilson wrote:
+>> General lag on the slave node (as recorded in sl_status) is less then 30 seconds.  This is a heavily transacted system running on very nice hardware so perhaps any problems are being masked by that.
+>> 
+>> I've read up on the issue and we don't appear to be experiencing any of the bugs related to this issue that I can find in the news groups.  No long running transactions, no old nodes in the sl_ tables.  In general, the system appears to be healthy (idle proc time ~95%), good buffer cache hit ratios, etc.
+>> 
+>> Thanks for the replies though.  I'll look into implementing 2.1 although we just did the upgrade to 2.0.7 and I'm not sure management will go for another down during the holiday season.  Just doing my due diligence as our load will rise steadily through the holiday season to very large load on these servers and I wanted to make sure the servers looked solid before we through 30 X the current load at them.
+> 
+> Now that a few days have passed,
+> 
+> is your sl_log_1 count still growing or has it dropped?  If your sl_log tables keep growing and aren't being truncated by the cleanup thread then you have a problem that will eventually get worse.  If the 119,239 rows in sl_log_1 was a temporary thing due to your application doing lots of updates then that might be normal for your system.
+> 
+>> 
+>> Mike Wilson
+>> Predicate Logic
+>> Cell: (310) 600-8777
+>> SkypeID: lycovian
+>> 
+>> 
+>> 
+>> 
+>> On Nov 11, 2011, at 11:09 AM, Steve Singer wrote:
+>> 
+>>> On 11-11-11 02:04 PM, Mike Wilson wrote:
+>>>> 
+>>>> Mike Wilson
+>>>> Predicate Logic
+>>>> Cell: (310) 600-8777
+>>>> SkypeID: lycovian
+>>>> 
+>>>> 
+>>>> From my postgresql.log:
+>>>> 2011-11-11 11:03:15.237 PST db1.lax.jib(55096):LOG:  duration: 133.011 ms  statement: fetch 500 from LOG;
+>>>> 2011-11-11 11:03:17.241 PST db1.lax.jib(55096):LOG:  duration: 134.842 ms  statement: fetch 500 from LOG;
+>>>> 2011-11-11 11:03:19.239 PST db1.lax.jib(55096):LOG:  duration: 133.919 ms  statement: fetch 500 from LOG;
+>>>> 2011-11-11 11:03:21.240 PST db1.lax.jib(55096):LOG:  duration: 133.194 ms  statement: fetch 500 from LOG;
+>>>> 2011-11-11 11:03:23.241 PST db1.lax.jib(55096):LOG:  duration: 134.288 ms  statement: fetch 500 from LOG;
+>>>> 2011-11-11 11:03:25.241 PST db1.lax.jib(55096):LOG:  duration: 133.226 ms  statement: fetch 500 from LOG;
+>>>> 
+>>>> I'm only logging statements that take longer than 100ms to run.
+>>>> 
+>>>> Here is my output from sl_log1/2:
+>>>> select (select count(*) from sl_log_1) sl_log_1, (select count(*) from sl_log_2) sl_log_2;
+>>>>  sl_log_1 | sl_log_2
+>>>> ----------+----------
+>>>>    119239 |    43685
+>>> 
+>>> The fetch is taking a long time because sl_log_1 is big.  (The reason it takes so long is actually a bug that was fixed in 2.1)  sl_log_1 being that big probably means that log switching isn't happening.
+>>> 
+>>> Do you have any nodes that are behind?  (query sl_status on all your nodes)
+>>> Do you have any old nodes that are still listed in sl_node that you aren't using anymore?
+>>> Do (did) you have a long running transaction in your system that is preventing the log switch from taking place?
+>>> 
+>>> 
+>>> 
+>>> 
+>>> 
+>>>> 
+>>>> 
+>>>> On Nov 11, 2011, at 5:07 AM, Steve Singer wrote:
+>>>> 
+>>>>> On 11-11-09 01:19 PM, Mike Wilson wrote:
+>>>>>> Seeing "fetch 500 from LOG" almost continuously in my PG logs for a new Slony 2.0.7 install.  The previous version (2.0.3?) didn't show these messages in the PG log.  Researching the issue, historically, this message was usually accompanied by a performance issue.  This isn't the case with my databases though, they appear to be running just as well as ever and the lag between replicated nodes appears to be about the same as the previous version.
+>>>>>> 
+>>>>>> I guess my question is what does this message mean in this version of Slony?  Is it an indication of sub-optimal slon parameters?
+>>>>>> slon -g 20 $SLON_CLUSTER "host=$HOSTNAME port=$PORT dbname=$DB user=$USER"
+>>>>>> 
+>>>>>> And how can I get rid of it if it's not an issue?
+>>>>>> 
+>>>>>> Mike
+>>>>> 
+>>>>> What is causing the 'fetch 500' statements to show up in the server log? Are you only logging SQL that takes longer than x milliseconds? If so how long are your fetch 500 statements taking?  How many rows are in your sl_log_1 and sl_log_2?
+>>>>> 
+>>>>> 
+>>>>>> 
+>>>>>> 
+>>>>>> 
+>>>>>> 
+>>>>>> 
+>>>>>> _______________________________________________
+>>>>>> Slony1-general mailing list
+>>>>>> Slony1-general at lists.slony.info
+>>>>>> http://lists.slony.info/mailman/listinfo/slony1-general
+>>>>> 
+>>>> 
+>>> 
+>> 
+> 
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20111114/06fb62d3/attachment-0001.htm 
+
