@@ -1426,3 +1426,221 @@ On Nov 14, 2011, at 7:10 AM, Steve Singer wrote:
 An HTML attachment was scrubbed...
 URL: http://lists.slony.info/pipermail/slony1-general/attachments/20111114/06fb62d3/attachment-0001.htm 
 
+From kyp404 at gmail.com  Tue Nov 15 04:39:27 2011
+From: kyp404 at gmail.com (kyp404)
+Date: Tue, 15 Nov 2011 13:39:27 +0100
+Subject: [Slony1-general] Transaction error on slave node?
+Message-ID: <CAJuhuhJfY-2QeeHaHz=t7yruGKEJMLV=Ko9MhL44d-QjZ=8Zyg@mail.gmail.com>
+
+Hi all,
+
+We have a master and a slave DB server (both PostgreSQL 8.3, Slony 2.0.1).
+Maybe we were hasty, because we delete ~18 million rows from a table on
+master with one SQL command. Slony log and transfer jobs/transactions to
+the slave node, but on the slave node the slony can't do this job. Slony
+starts the transaction, but after ~7 million delete commands the server
+close the connection.
+
+We found this in the Slony log:
+2011-11-15 11:39:25 CET DEBUG4 remoteHelperThread_1_1: fetch from cursor
+2011-11-15 11:39:25 CET ERROR  remoteHelperThread_1_1: "fetch 500 from LOG;
+" server closed the connection unexpectedly
+        This probably means the server terminated abnormally
+        before or while processing the request.
+2011-11-15 11:39:25 CET DEBUG4 remoteHelperThread_1_1: return 50 unused
+line buffers
+2011-11-15 11:39:25 CET ERROR  remoteWorkerThread_1: "close LOG; "
+PGRES_FATAL_ERROR 2011-11-15 11:39:25 CET ERROR  remoteWorkerThread_1:
+"rollback transaction; set enable_seqsca
+n = default; set enable_indexscan = default; " PGRES_FATAL_ERROR 2011-11-15
+11:39:25 CET DEBUG1 remoteHelperThread_1_1: 2850.992 seconds until close
+cursor
+2011-11-15 11:39:25 CET INFO   remoteHelperThread_1_1: inserts=0 updates=0
+deletes=7220000
+
+We tried to tuning the PostgreSQL and now two times faster, but every
+transaction stop after ~ 7 million rows. We couldn't find error message in
+the PostgreSQL log.
+
+Why stop the transaction? What should we do?
+
+Thank you in advance,
+Kyp
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20111115/a5272fbc/attachment.htm 
+
+From vividy at justware.co.jp  Tue Nov 15 18:12:30 2011
+From: vividy at justware.co.jp (Michael Cheung)
+Date: Wed, 16 Nov 2011 11:12:30 +0900
+Subject: [Slony1-general] drop table error
+Message-ID: <20111116111230.E947.8B406A0E@justware.co.jp>
+
+Hi, all;
+
+I use pg 8.3.16+slony1 2.1.0 now.
+
+I upgrade slony1 from 2.0.2 to 2.1.0 yesterday , anything seems well, 
+but this morning when I do drop table, it retun errors as below.
+
+$ ./slonik_drop_table 139 1 | ./slonik 
+<stdin>:12: Error: exitcode was -1 - must be in range [0-255]
+
+and I confirm my version is 
+$ ./slonik -v
+slonik version 2.1.0
+
+and I do upgrade as below yesterday, 
+$ ./slonik_update_nodes | ./slonik
+it complained something like you can't use truncate trigger, but everything
+seems ok.
+
+Any idea about the drop table error?
+
+Thanks a lot.
+
+Micheal
+
+
+From ssinger_pg at sympatico.ca  Tue Nov 15 19:03:01 2011
+From: ssinger_pg at sympatico.ca (Steve Singer)
+Date: Tue, 15 Nov 2011 22:03:01 -0500
+Subject: [Slony1-general] drop table error
+In-Reply-To: <20111116111230.E947.8B406A0E@justware.co.jp>
+References: <20111116111230.E947.8B406A0E@justware.co.jp>
+Message-ID: <BLU0-SMTP13CFD06AF5FC3387D797CFACC60@phx.gbl>
+
+On Wed, 16 Nov 2011, Michael Cheung wrote:
+
+> Hi, all;
+>
+> I use pg 8.3.16+slony1 2.1.0 now.
+>
+> I upgrade slony1 from 2.0.2 to 2.1.0 yesterday , anything seems well,
+> but this morning when I do drop table, it retun errors as below.
+
+This would be a bug introduced in Slony 2.1.0 (that we weren't aware of 
+until now).
+
+Some of the altperl scripts on an error return -1 but the slonik exit 
+statement was changed to only return values >=0.
+
+If you change the third line from the bottom in slonik_drop_table script 
+line
+
+$slonik .= "    exit -1;\n";
+
+to instead be
+
+$slonik .= "    exit 1;\n";
+
+You should avoid that error.  The slonik_drop_sequence script seems to have 
+the same issue.
+
+I will try to write up a patch later this week.
+
+>
+> $ ./slonik_drop_table 139 1 | ./slonik
+> <stdin>:12: Error: exitcode was -1 - must be in range [0-255]
+>
+> and I confirm my version is
+> $ ./slonik -v
+> slonik version 2.1.0
+>
+> and I do upgrade as below yesterday,
+> $ ./slonik_update_nodes | ./slonik
+> it complained something like you can't use truncate trigger, but everything
+> seems ok.
+>
+> Any idea about the drop table error?
+>
+> Thanks a lot.
+>
+> Micheal
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+>
+
+
+From vividy at justware.co.jp  Tue Nov 15 19:43:45 2011
+From: vividy at justware.co.jp (Michael Cheung)
+Date: Wed, 16 Nov 2011 12:43:45 +0900
+Subject: [Slony1-general] drop table error
+In-Reply-To: <BLU0-SMTP13CFD06AF5FC3387D797CFACC60@phx.gbl>
+References: <20111116111230.E947.8B406A0E@justware.co.jp>
+	<BLU0-SMTP13CFD06AF5FC3387D797CFACC60@phx.gbl>
+Message-ID: <20111116124345.E956.8B406A0E@justware.co.jp>
+
+Steve;
+
+Thanks for your reply.
+
+I will patch slonik_drop_table and slonik_drop_sequence, and wait for your
+official update.
+
+Regards;
+Michael
+
+
+On Tue, 15 Nov 2011 22:03:01 -0500
+"Steve Singer" <ssinger_pg at sympatico.ca> wrote:
+
+> On Wed, 16 Nov 2011, Michael Cheung wrote:
+> 
+> > Hi, all;
+> >
+> > I use pg 8.3.16+slony1 2.1.0 now.
+> >
+> > I upgrade slony1 from 2.0.2 to 2.1.0 yesterday , anything seems well,
+> > but this morning when I do drop table, it retun errors as below.
+> 
+> This would be a bug introduced in Slony 2.1.0 (that we weren't aware of 
+> until now).
+> 
+> Some of the altperl scripts on an error return -1 but the slonik exit 
+> statement was changed to only return values >=0.
+> 
+> If you change the third line from the bottom in slonik_drop_table script 
+> line
+> 
+> $slonik .= "    exit -1;\n";
+> 
+> to instead be
+> 
+> $slonik .= "    exit 1;\n";
+> 
+> You should avoid that error.  The slonik_drop_sequence script seems to have 
+> the same issue.
+> 
+> I will try to write up a patch later this week.
+> 
+> >
+> > $ ./slonik_drop_table 139 1 | ./slonik
+> > <stdin>:12: Error: exitcode was -1 - must be in range [0-255]
+> >
+> > and I confirm my version is
+> > $ ./slonik -v
+> > slonik version 2.1.0
+> >
+> > and I do upgrade as below yesterday,
+> > $ ./slonik_update_nodes | ./slonik
+> > it complained something like you can't use truncate trigger, but everything
+> > seems ok.
+> >
+> > Any idea about the drop table error?
+> >
+> > Thanks a lot.
+> >
+> > Micheal
+> >
+> > _______________________________________________
+> > Slony1-general mailing list
+> > Slony1-general at lists.slony.info
+> > http://lists.slony.info/mailman/listinfo/slony1-general
+> >
+> 
+
+
