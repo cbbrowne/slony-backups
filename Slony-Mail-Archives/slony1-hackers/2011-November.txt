@@ -979,3 +979,74 @@ Sure, that sounds quite apropos.
 
 Changed already.
 
+From cbbrowne at afilias.info  Fri Nov 18 09:32:27 2011
+From: cbbrowne at afilias.info (Christopher Browne)
+Date: Fri, 18 Nov 2011 12:32:27 -0500
+Subject: [Slony1-hackers] question about type consistency
+Message-ID: <CANfbgbb8t9mdKdRkB+JfjnAT3aywqkucZfaiR=Q+e63tFHkDvQ@mail.gmail.com>
+
+Steve Singer was reviewing changes I'm making to DDL handling, and
+noticed something a bit anomalous about the usages of types:
+
+--------------------------------------------------------------------------------------------------------
+In sl_log_script definition we are using bigint for log_txid and int8 for
+log_actionseq.  I see sl_log_1 sl_log_2 are defined the same way.  Is there a
+difference between bigint and int8?  Should we be consistent? Should we be
+changing sl_log_1 and sl_log_2 (since the 2.2 upgrade code is dropping sl_log_1
+anyway)?
+--------------------------------------------------------------------------------------------------------
+
+I note that...
+
+- txid functions tend to use bigint
+
+oxrsdb at localhost->  \df *txid*
+                                     List of functions
+   Schema   |           Name           | Result data type |  Argument
+data types  |  Type
+------------+--------------------------+------------------+-----------------------+--------
+ pg_catalog | txid_current             | bigint           |
+           | normal
+ pg_catalog | txid_current_snapshot    | txid_snapshot    |
+           | normal
+ pg_catalog | txid_snapshot_in         | txid_snapshot    | cstring
+           | normal
+ pg_catalog | txid_snapshot_out        | cstring          |
+txid_snapshot         | normal
+ pg_catalog | txid_snapshot_recv       | txid_snapshot    | internal
+           | normal
+ pg_catalog | txid_snapshot_send       | bytea            |
+txid_snapshot         | normal
+ pg_catalog | txid_snapshot_xip        | SETOF bigint     |
+txid_snapshot         | normal
+ pg_catalog | txid_snapshot_xmax       | bigint           |
+txid_snapshot         | normal
+ pg_catalog | txid_snapshot_xmin       | bigint           |
+txid_snapshot         | normal
+ pg_catalog | txid_visible_in_snapshot | boolean          | bigint,
+txid_snapshot | normal
+(10 rows)
+
+- Sequence column types are generally bigint, too:
+
+oxrsdb at localhost->  create sequence foo;
+CREATE SEQUENCE
+oxrsdb at localhost->  \d foo
+             Sequence "public.foo"
+    Column     |  Type   |        Value
+---------------+---------+---------------------
+ sequence_name | name    | foo
+ last_value    | bigint  | 1
+ start_value   | bigint  | 1
+ increment_by  | bigint  | 1
+ max_value     | bigint  | 9223372036854775807
+ min_value     | bigint  | 1
+ cache_value   | bigint  | 1
+ log_cnt       | bigint  | 1
+ is_cycled     | boolean | f
+ is_called     | boolean | f
+
+In 2.2, we're doing some substantial changes to tables (e.g. -
+dropping and recreating sl_log_1 and 2), so if consistency of types
+would be valuable, it's opportune to change types now.
+

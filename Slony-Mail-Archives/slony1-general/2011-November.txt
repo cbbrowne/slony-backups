@@ -1701,3 +1701,335 @@ first place? Does slony 2.x have the same behavior or has it changed?
 Thanks,
 - Brian F
 
+From maxim.boguk at gmail.com  Thu Nov 17 20:56:34 2011
+From: maxim.boguk at gmail.com (Maxim Boguk)
+Date: Fri, 18 Nov 2011 15:56:34 +1100
+Subject: [Slony1-general] Strange bug with slony 2.0.7 and postgresql 9.1.1
+Message-ID: <CAK-MWwR-_8yXrNAHEDDKpnOid0zBUuDjg567t1yRC8a=9NjmoQ@mail.gmail.com>
+
+Slony 2.0.7 replication just stalled on big update on master (like
+300.000 in batch.. nothing crazy).
+
+Slony log on slave show repeatable (like each 5 minute) error:
+
+2011-11-18 08:46:03 MSKERROR  remoteWorkerThread_4: "insert into
+"_sports".sl_event     (ev_origin, ev_seqno, ev_timestamp,
+ev_snapshot, ev_type     ) values ('4', '5000054127', '2011-11-18
+06:18:44.863299', '922722:922722:', 'SYNC'); insert into
+"_sports".sl_confirm     (con_origin, con_received, con_seqno,
+con_timestamp)    values (4, 3, '5000054127', now()); insert into
+"_sports".sl_event     (ev_origin, ev_seqno, ev_timestamp,
+ev_snapshot, ev_type     ) values ('4', '5000054128', '2011-11-18
+06:18:45.890297', '922731:922731:', 'SYNC'); insert into
+"_sports".sl_confirm   (con_origin, con_received, con_seqno,
+con_timestamp)    values (4, 3, '5000054128', now()); insert into
+"_sports".sl_event     (ev_origin, ev_seqno, ev_timestamp,
+ev_snapshot, ev_type     ) values ('4', '5000054129', '2011-11-18
+06:18:46.921278', '922736:922736:', 'SYNC'); insert into
+"_sports".sl_confirm      (con_origin, con_received, con_seqno,
+con_timestamp)    values (4, 3, '5000054129', now()); commit
+transaction;"
+PGRES_FATAL_ERROR ERROR:  could not serialize access due to read/write
+dependencies among transactions
+DETAIL:  Reason code: Canceled on identification as a pivot, during write.
+HINT:  The transaction might succeed if retried.
+In that case slony just terminate without commiting batch (and
+returned to the life only by watchdog).
+
+
+Or (more rarely and seems harmless):
+2011-11-18 08:49:42 MSKERROR  remoteWorkerThread_4: "update
+"_sports".sl_setsync set     ssy_seqno = '5000054129', ssy_snapshot =
+'922736:922736:',     ssy_action_list = '' where ssy_setid in
+(2,3,5,4,7,6,8) and ssy_seqno < '5000054129'; "
+ERROR:  could not serialize access due to read/write dependencies
+among transactions
+DETAIL:  Reason code: Canceled on identification as a pivot, during write.
+HINT:  The transaction might succeed if retried.
+
+Seem that new in 9.1 implementation of true serializable isolation
+play here (and produce more serializability errors) and Slony not
+ready to deal with serializability errors at that stage.
+
+-- 
+Maxim Boguk
+Senior Postgresql DBA.
+
+Phone RU: +7 910 405 4718
+Phone AU: +61 45 218 5678
+
+Skype: maxim.boguk
+Jabber: maxim.boguk at gmail.com
+
+LinkedIn profile: http://nz.linkedin.com/in/maximboguk
+If they can send one man to the moon... why can't they send them all?
+
+???????: http://mboguk.moikrug.ru/
+???? ?????? ?????, ?? ?? ??? ? ????? ????? - ??????, ?? ? ???? ?????? ?? ???.
+
+From Ger.Timmens at adyen.com  Fri Nov 18 06:13:55 2011
+From: Ger.Timmens at adyen.com (Ger Timmens)
+Date: Fri, 18 Nov 2011 15:13:55 +0100
+Subject: [Slony1-general] --exclude-schema skipping operators?
+In-Reply-To: <mailman.1.1321560002.18770.slony1-general@lists.slony.info>
+References: <mailman.1.1321560002.18770.slony1-general@lists.slony.info>
+Message-ID: <4EC66823.1060602@adyen.com>
+
+If you parse your schema to perl script below, it will be 'slony' clean:
+
+#!/usr/bin/perl
+#
+my $TriggerFound=0;
+my $SchemaToRemove="_replication";
+
+while (<>)
+{
+  if ( /$SchemaToRemove/ )
+  {
+    $TriggerFound=1;
+  }
+  if ($TriggerFound == 0)
+  {
+   print $_;
+  }
+  if (( /;/ ) && ($TriggerFound == 1))
+  {
+    $TriggerFound = 0;
+  }
+}
+
+Regards,
+
+Ger Timmens
+
+On 11/17/2011 09:00 PM, slony1-general-request at lists.slony.info wrote:
+> Send Slony1-general mailing list submissions to
+> 	slony1-general at lists.slony.info
+> 
+> To subscribe or unsubscribe via the World Wide Web, visit
+> 	http://lists.slony.info/mailman/listinfo/slony1-general
+> or, via email, send a message with subject or body 'help' to
+> 	slony1-general-request at lists.slony.info
+> 
+> You can reach the person managing the list at
+> 	slony1-general-owner at lists.slony.info
+> 
+> When replying, please edit your Subject line so it is more specific
+> than "Re: Contents of Slony1-general digest..."
+> 
+> 
+> Today's Topics:
+> 
+>    1. --exclude-schema skipping operators? (Brian Fehrle)
+> 
+> 
+> ----------------------------------------------------------------------
+> 
+> Message: 1
+> Date: Thu, 17 Nov 2011 10:51:55 -0700
+> From: Brian Fehrle <brianf at consistentstate.com>
+> Subject: [Slony1-general] --exclude-schema skipping operators?
+> To: slony1-general at lists.slony.info
+> Message-ID: <4EC549BB.1040205 at consistentstate.com>
+> Content-Type: text/plain; charset=ISO-8859-1; format=flowed
+> 
+> Hi all,
+> (postgres version 8.3, slony version 1.2.21)
+> 
+>      Quick question. I want to create a schema only dump of a database 
+> (pg_dump -s), but I don't want any slony elements in the dump. I 
+> excluded the slony schema via --exclude-schema="_slony", and nothing in 
+> that schema was dumped.
+> 
+> I do however, get some operators dumped that were not in the slony 
+> schema, but reference it.
+> 
+> Example:
+> --
+> -- Name: <=; Type: OPERATOR; Schema: public; Owner: slony
+> --
+> 
+> CREATE OPERATOR <= (
+>      PROCEDURE = _slony.xxidle,
+>      LEFTARG = _slony.xxid,
+>      RIGHTARG = _slony.xxid,
+>      COMMUTATOR = >=,
+>      NEGATOR = >,
+>      RESTRICT = scalarltsel,
+>      JOIN = scalarltjoinsel
+> );
+> ALTER OPERATOR public.<= (_slony.xxid, _slony.xxid) OWNER TO slony;
+> 
+> 
+> This operator lives in the public schema, but since it references things 
+> in _slony, when applying the dump to a new database, it fails (because 
+> the _slony schema isn't created, as intended).
+> 
+> I don't remember ever seeing anything put into the public schema by 
+> slony before, am I mistaken? Or was my original setup of this slony 
+> cluster messed up where it put operators in the wrong schema in the 
+> first place? Does slony 2.x have the same behavior or has it changed?
+> 
+> Thanks,
+> - Brian F
+> 
+> 
+> ------------------------------
+> 
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+> 
+> 
+> End of Slony1-general Digest, Vol 57, Issue 13
+> **********************************************
+
+From cbbrowne at afilias.info  Fri Nov 18 10:18:54 2011
+From: cbbrowne at afilias.info (Christopher Browne)
+Date: Fri, 18 Nov 2011 13:18:54 -0500
+Subject: [Slony1-general] --exclude-schema skipping operators?
+In-Reply-To: <4EC549BB.1040205@consistentstate.com>
+References: <4EC549BB.1040205@consistentstate.com>
+Message-ID: <CANfbgbYNZjTFwwp0Nr8nO_rqby93eQ=1F=yc2xBn8R+bU8PL5w@mail.gmail.com>
+
+On Thu, Nov 17, 2011 at 12:51 PM, Brian Fehrle
+<brianf at consistentstate.com> wrote:
+> Hi all,
+> (postgres version 8.3, slony version 1.2.21)
+>
+> ? ? Quick question. I want to create a schema only dump of a database
+> (pg_dump -s), but I don't want any slony elements in the dump. I
+> excluded the slony schema via --exclude-schema="_slony", and nothing in
+> that schema was dumped.
+>
+> I do however, get some operators dumped that were not in the slony
+> schema, but reference it.
+>
+> Example:
+> --
+> -- Name: <=; Type: OPERATOR; Schema: public; Owner: slony
+> --
+>
+> CREATE OPERATOR <= (
+> ? ? PROCEDURE = _slony.xxidle,
+> ? ? LEFTARG = _slony.xxid,
+> ? ? RIGHTARG = _slony.xxid,
+> ? ? COMMUTATOR = >=,
+> ? ? NEGATOR = >,
+> ? ? RESTRICT = scalarltsel,
+> ? ? JOIN = scalarltjoinsel
+> );
+> ALTER OPERATOR public.<= (_slony.xxid, _slony.xxid) OWNER TO slony;
+>
+>
+> This operator lives in the public schema, but since it references things
+> in _slony, when applying the dump to a new database, it fails (because
+> the _slony schema isn't created, as intended).
+>
+> I don't remember ever seeing anything put into the public schema by
+> slony before, am I mistaken? Or was my original setup of this slony
+> cluster messed up where it put operators in the wrong schema in the
+> first place? Does slony 2.x have the same behavior or has it changed?
+
+That's arguably a bug; I haven't reviewed the code, but it seems not
+overly appropriate for Slony to be creating operators in other than
+its own schema.
+
+After all, someone might not *have* a public schema :-(.
+
+At any rate, that operator is gone as of version 2.  The kind folks
+from Skype got XID functions and such added into core in PostgreSQL
+8.3, and as of Slony 2.0, we use the built-in functions rather than
+having our own XXID type.
+
+From cbbrowne at afilias.info  Fri Nov 18 10:26:18 2011
+From: cbbrowne at afilias.info (Christopher Browne)
+Date: Fri, 18 Nov 2011 13:26:18 -0500
+Subject: [Slony1-general] Strange bug with slony 2.0.7 and postgresql
+	9.1.1
+In-Reply-To: <CAK-MWwR-_8yXrNAHEDDKpnOid0zBUuDjg567t1yRC8a=9NjmoQ@mail.gmail.com>
+References: <CAK-MWwR-_8yXrNAHEDDKpnOid0zBUuDjg567t1yRC8a=9NjmoQ@mail.gmail.com>
+Message-ID: <CANfbgbb4K+E5M7mfn1RpsqE44q5jbgCrh-Nuy1x0cMzDhHvcPA@mail.gmail.com>
+
+On Thu, Nov 17, 2011 at 11:56 PM, Maxim Boguk <maxim.boguk at gmail.com> wrote:
+> PGRES_FATAL_ERROR ERROR: ?could not serialize access due to read/write
+> dependencies among transactions
+> DETAIL: ?Reason code: Canceled on identification as a pivot, during write.
+> HINT: ?The transaction might succeed if retried.
+> In that case slony just terminate without commiting batch (and
+> returned to the life only by watchdog).
+
+That seems like one of the sorts of cases that we could expect there
+being with the new "full serialization" support in 9.1.
+
+Terminating the batch is not notably disastrous; a retry should work fine.
+
+The case that would be troublesome would be if you were trying to set
+up a subscription, and get serialization interruptions often enough
+that you can't get the subscription to "take."
+
+But this seems like the sort of thing that you have to be prepared for
+when you adopt full serialization support.
+
+My inclination is actually to do a bit of a "push back"; I don't think
+it's quite right that Postgres is responding, in this case, by
+indicating that this is a FATAL error.  If we can expect a retry to
+work, that surely isn't FATAL, is it?
+
+From maxim.boguk at gmail.com  Fri Nov 18 14:31:30 2011
+From: maxim.boguk at gmail.com (Maxim Boguk)
+Date: Sat, 19 Nov 2011 09:31:30 +1100
+Subject: [Slony1-general] Strange bug with slony 2.0.7 and postgresql
+	9.1.1
+In-Reply-To: <CANfbgbb4K+E5M7mfn1RpsqE44q5jbgCrh-Nuy1x0cMzDhHvcPA@mail.gmail.com>
+References: <CAK-MWwR-_8yXrNAHEDDKpnOid0zBUuDjg567t1yRC8a=9NjmoQ@mail.gmail.com>
+	<CANfbgbb4K+E5M7mfn1RpsqE44q5jbgCrh-Nuy1x0cMzDhHvcPA@mail.gmail.com>
+Message-ID: <CAK-MWwTAuXD+j1b9g1XZ8TRGQ5H3rkau6_kG6V5D1fHc32EteA@mail.gmail.com>
+
+On Sat, Nov 19, 2011 at 5:26 AM, Christopher Browne
+<cbbrowne at afilias.info> wrote:
+> On Thu, Nov 17, 2011 at 11:56 PM, Maxim Boguk <maxim.boguk at gmail.com> wrote:
+>> PGRES_FATAL_ERROR ERROR: ?could not serialize access due to read/write
+>> dependencies among transactions
+>> DETAIL: ?Reason code: Canceled on identification as a pivot, during write.
+>> HINT: ?The transaction might succeed if retried.
+>> In that case slony just terminate without commiting batch (and
+>> returned to the life only by watchdog).
+>
+> That seems like one of the sorts of cases that we could expect there
+> being with the new "full serialization" support in 9.1.
+>
+> Terminating the batch is not notably disastrous; a retry should work fine.
+
+After replica got lagged more then 3 hours (and slony getting
+deadlocked every 5 minutes or so,
+ as a result - large batch just do not go to through) I decided that
+way don't work.
+
+It seems chance getting into deadlock in my case very close to 100%.
+
+After some attempts I found only one way to deal with that issue:
+stop slony on second replica and on the master db for time sufficient
+to the db chew that large batch (stopping only on master or only on
+second replica was not enough).
+
+So that problem can be really painful and require manual DBA actions.
+
+
+-- 
+Maxim Boguk
+Senior Postgresql DBA.
+
+Phone RU: +7 910 405 4718
+Phone AU: +61 45 218 5678
+
+Skype: maxim.boguk
+Jabber: maxim.boguk at gmail.com
+
+LinkedIn profile: http://nz.linkedin.com/in/maximboguk
+If they can send one man to the moon... why can't they send them all?
+
+???????: http://mboguk.moikrug.ru/
+???? ?????? ?????, ?? ?? ??? ? ????? ????? - ??????, ?? ? ???? ?????? ?? ???.
+
