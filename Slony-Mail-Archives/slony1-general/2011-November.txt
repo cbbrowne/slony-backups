@@ -2033,3 +2033,209 @@ If they can send one man to the moon... why can't they send them all?
 ???????: http://mboguk.moikrug.ru/
 ???? ?????? ?????, ?? ?? ??? ? ????? ????? - ??????, ?? ? ???? ?????? ?? ???.
 
+From maxim.boguk at gmail.com  Sat Nov 19 00:05:23 2011
+From: maxim.boguk at gmail.com (Maxim Boguk)
+Date: Sat, 19 Nov 2011 19:05:23 +1100
+Subject: [Slony1-general] Strange bug with slony 2.0.7 and postgresql
+	9.1.1
+In-Reply-To: <CAK-MWwTAuXD+j1b9g1XZ8TRGQ5H3rkau6_kG6V5D1fHc32EteA@mail.gmail.com>
+References: <CAK-MWwR-_8yXrNAHEDDKpnOid0zBUuDjg567t1yRC8a=9NjmoQ@mail.gmail.com>
+	<CANfbgbb4K+E5M7mfn1RpsqE44q5jbgCrh-Nuy1x0cMzDhHvcPA@mail.gmail.com>
+	<CAK-MWwTAuXD+j1b9g1XZ8TRGQ5H3rkau6_kG6V5D1fHc32EteA@mail.gmail.com>
+Message-ID: <CAK-MWwQxnfDy3F8TtG63L9MTLL3mXbwCHXZXs3kq7+SddL6TfQ@mail.gmail.com>
+
+On Sat, Nov 19, 2011 at 9:31 AM, Maxim Boguk <maxim.boguk at gmail.com> wrote:
+> On Sat, Nov 19, 2011 at 5:26 AM, Christopher Browne
+> <cbbrowne at afilias.info> wrote:
+>> On Thu, Nov 17, 2011 at 11:56 PM, Maxim Boguk <maxim.boguk at gmail.com> wrote:
+>>> PGRES_FATAL_ERROR ERROR: ?could not serialize access due to read/write
+>>> dependencies among transactions
+>>> DETAIL: ?Reason code: Canceled on identification as a pivot, during write.
+>>> HINT: ?The transaction might succeed if retried.
+>>> In that case slony just terminate without commiting batch (and
+>>> returned to the life only by watchdog).
+>>
+>> That seems like one of the sorts of cases that we could expect there
+>> being with the new "full serialization" support in 9.1.
+>>
+>> Terminating the batch is not notably disastrous; a retry should work fine.
+>
+> After replica got lagged more then 3 hours (and slony getting
+> deadlocked every 5 minutes or so,
+> ?as a result - large batch just do not go to through) I decided that
+> way don't work.
+>
+> It seems chance getting into deadlock in my case very close to 100%.
+>
+> After some attempts I found only one way to deal with that issue:
+> stop slony on second replica and on the master db for time sufficient
+> to the db chew that large batch (stopping only on master or only on
+> second replica was not enough).
+>
+> So that problem can be really painful and require manual DBA actions.
+>
+
+Now replication lagging for 9 hours with errors every 40-50 minutes:
+
+2011-11-19 11:01:31 MSKERROR  remoteWorkerThread_1: "update
+"_sports".sl_setsync set     ssy_seqno = '5016038207', ssy_snapshot =
+'501051321:501051321:',     ssy_action_list = '' where ssy_setid in
+(1,9) and ssy_seqno < '5016038207'; " ERROR:  could not serialize
+access due to read/write dependencies among transactions
+DETAIL:  Reason code: Canceled on identification as a pivot, during write.
+HINT:  The transaction might succeed if retried.
+
+again on medium size (500.000) batch update.
+
+It seems 3x-node configuration with slony 2.0.7 + postgresql 9.1 quite
+unstable with batch updates.
+
+Is here everything that I can use to work it more smooth?
+
+
+-- 
+Maxim Boguk
+Senior Postgresql DBA.
+
+Phone RU: +7 910 405 4718
+Phone AU: +61 45 218 5678
+
+Skype: maxim.boguk
+Jabber: maxim.boguk at gmail.com
+
+LinkedIn profile: http://nz.linkedin.com/in/maximboguk
+If they can send one man to the moon... why can't they send them all?
+
+???????: http://mboguk.moikrug.ru/
+???? ?????? ?????, ?? ?? ??? ? ????? ????? - ??????, ?? ? ???? ?????? ?? ???.
+
+From ssinger at ca.afilias.info  Sat Nov 19 18:02:14 2011
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Sat, 19 Nov 2011 21:02:14 -0500
+Subject: [Slony1-general] Strange bug with slony 2.0.7 and postgresql
+ 9.1.1
+In-Reply-To: <CAK-MWwQxnfDy3F8TtG63L9MTLL3mXbwCHXZXs3kq7+SddL6TfQ@mail.gmail.com>
+References: <CAK-MWwR-_8yXrNAHEDDKpnOid0zBUuDjg567t1yRC8a=9NjmoQ@mail.gmail.com>	<CANfbgbb4K+E5M7mfn1RpsqE44q5jbgCrh-Nuy1x0cMzDhHvcPA@mail.gmail.com>	<CAK-MWwTAuXD+j1b9g1XZ8TRGQ5H3rkau6_kG6V5D1fHc32EteA@mail.gmail.com>
+	<CAK-MWwQxnfDy3F8TtG63L9MTLL3mXbwCHXZXs3kq7+SddL6TfQ@mail.gmail.com>
+Message-ID: <4EC85FA6.8090104@ca.afilias.info>
+
+On 11-11-19 03:05 AM, Maxim Boguk wrote:
+> On Sat, Nov 19, 2011 at 9:31 AM, Maxim Boguk<maxim.boguk at gmail.com>  wrote:
+>
+> Now replication lagging for 9 hours with errors every 40-50 minutes:
+>
+> 2011-11-19 11:01:31 MSKERROR  remoteWorkerThread_1: "update
+> "_sports".sl_setsync set     ssy_seqno = '5016038207', ssy_snapshot =
+> '501051321:501051321:',     ssy_action_list = '' where ssy_setid in
+> (1,9) and ssy_seqno<  '5016038207'; " ERROR:  could not serialize
+> access due to read/write dependencies among transactions
+> DETAIL:  Reason code: Canceled on identification as a pivot, during write.
+> HINT:  The transaction might succeed if retried.
+>
+> again on medium size (500.000) batch update.
+>
+> It seems 3x-node configuration with slony 2.0.7 + postgresql 9.1 quite
+> unstable with batch updates.
+>
+> Is here everything that I can use to work it more smooth?
+>
+>
+
+I  wonder out load if the slony remote worker needs to be in a 
+serializable transaction or if READ COMMITTED is good enough.
+
+I also wonder if making the remote listener threads explicit read only 
+transactions would help.
+
+The disorder tests against a 9.1 machine hit many of these read/write 
+dependencies in a test run.   Slony just retries things and it 
+eventually works but I can see how a 500,000 item batch means that you 
+might often encounter an issue before finishing a SYNC.
+
+My unverified guess is that changing this won't break slony but might 
+effect applications querying the slave that depend on the serializable 
+behaviour and maybe it should be a configuration parameter.
+
+There are two places in remote_worker.c where it places the local 
+connection to serializable.
+
+
+
+
+
+From cedric.villemain.debian at gmail.com  Sun Nov 20 02:47:48 2011
+From: cedric.villemain.debian at gmail.com (=?ISO-8859-1?Q?C=E9dric_Villemain?=)
+Date: Sun, 20 Nov 2011 11:47:48 +0100
+Subject: [Slony1-general] Strange bug with slony 2.0.7 and postgresql
+	9.1.1
+In-Reply-To: <4EC85FA6.8090104@ca.afilias.info>
+References: <CAK-MWwR-_8yXrNAHEDDKpnOid0zBUuDjg567t1yRC8a=9NjmoQ@mail.gmail.com>
+	<CANfbgbb4K+E5M7mfn1RpsqE44q5jbgCrh-Nuy1x0cMzDhHvcPA@mail.gmail.com>
+	<CAK-MWwTAuXD+j1b9g1XZ8TRGQ5H3rkau6_kG6V5D1fHc32EteA@mail.gmail.com>
+	<CAK-MWwQxnfDy3F8TtG63L9MTLL3mXbwCHXZXs3kq7+SddL6TfQ@mail.gmail.com>
+	<4EC85FA6.8090104@ca.afilias.info>
+Message-ID: <CAF6yO=3sgL91UarQZyufo9r6o4qzoXLGKXoWFomraCTveacp5w@mail.gmail.com>
+
+2011/11/20 Steve Singer <ssinger at ca.afilias.info>:
+> On 11-11-19 03:05 AM, Maxim Boguk wrote:
+>> On Sat, Nov 19, 2011 at 9:31 AM, Maxim Boguk<maxim.boguk at gmail.com> ?wrote:
+>>
+>> Now replication lagging for 9 hours with errors every 40-50 minutes:
+>>
+>> 2011-11-19 11:01:31 MSKERROR ?remoteWorkerThread_1: "update
+>> "_sports".sl_setsync set ? ? ssy_seqno = '5016038207', ssy_snapshot =
+>> '501051321:501051321:', ? ? ssy_action_list = '' where ssy_setid in
+>> (1,9) and ssy_seqno< ?'5016038207'; " ERROR: ?could not serialize
+>> access due to read/write dependencies among transactions
+>> DETAIL: ?Reason code: Canceled on identification as a pivot, during write.
+>> HINT: ?The transaction might succeed if retried.
+>>
+>> again on medium size (500.000) batch update.
+>>
+>> It seems 3x-node configuration with slony 2.0.7 + postgresql 9.1 quite
+>> unstable with batch updates.
+>>
+>> Is here everything that I can use to work it more smooth?
+>>
+>>
+>
+> I ?wonder out load if the slony remote worker needs to be in a
+> serializable transaction or if READ COMMITTED is good enough.
+>
+> I also wonder if making the remote listener threads explicit read only
+> transactions would help.
+
+if it is a read only transaction, then it is preferable to set it explicitely.
+If I well understood Heikki, it should remove 'pivot' situation. See
+http://wiki.postgresql.org/images/4/4f/SSI-PGConfEU2011.pdf (slide 22
+for the immediate suggestions)
+
+>
+> The disorder tests against a 9.1 machine hit many of these read/write
+> dependencies in a test run. ? Slony just retries things and it
+> eventually works but I can see how a 500,000 item batch means that you
+> might often encounter an issue before finishing a SYNC.
+>
+> My unverified guess is that changing this won't break slony but might
+> effect applications querying the slave that depend on the serializable
+> behaviour and maybe it should be a configuration parameter.
+>
+> There are two places in remote_worker.c where it places the local
+> connection to serializable.
+>
+>
+>
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+>
+
+
+
+-- 
+C?dric Villemain +33 (0)6 20 30 22 52
+http://2ndQuadrant.fr/
+PostgreSQL: Support 24x7 - D?veloppement, Expertise et Formation
+
