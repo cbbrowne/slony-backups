@@ -2239,3 +2239,232 @@ C?dric Villemain +33 (0)6 20 30 22 52
 http://2ndQuadrant.fr/
 PostgreSQL: Support 24x7 - D?veloppement, Expertise et Formation
 
+From vividy at justware.co.jp  Tue Nov 22 05:00:34 2011
+From: vividy at justware.co.jp (Michael Cheung)
+Date: Tue, 22 Nov 2011 22:00:34 +0900
+Subject: [Slony1-general] error while slonik_execute_script(slony
+	2.1.0+postgresql 8.3.16)
+Message-ID: <20111122220034.67D5.8B406A0E@justware.co.jp>
+
+Hi all;
+(postgres version 8.3.16, slony version 2.1.0)
+
+While I run sql to create index on a huge table(named tableA) by slonik_execute_script,
+(actually this operation cost me almost 20 min.)
+And slonik_execute_script command end with following error message.
+
+<stdin>:5: NOTICE:  public.tableB has an invalid configuration on the log trigger. This was not corrected because
+only_lock is true and the table is not locked.
+CONTEXT:  SQL statement "SELECT  "_apl_repl1".repair_log_triggers(true)"
+PL/pgSQL function "ddlscript_complete_int" line 5 at PERFORM
+SQL statement "SELECT  "_apl_repl1".ddlScript_complete_int( $1 , $2 )"
+PL/pgSQL function "ddlscript_complete" line 7 at PERFORM
+
+And I have check the new index on table A on every node, it is created and seems fine.
+And record count on tableB is same on every node. Everything seems well.
+
+But anyone can tell me what happened with this message? And is it safe to just ignore it?
+
+Thanks a lot.
+
+Michael
+
+
+From ssinger at ca.afilias.info  Tue Nov 22 07:25:57 2011
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Tue, 22 Nov 2011 10:25:57 -0500
+Subject: [Slony1-general] error while slonik_execute_script(slony
+ 2.1.0+postgresql 8.3.16)
+In-Reply-To: <20111122220034.67D5.8B406A0E@justware.co.jp>
+References: <20111122220034.67D5.8B406A0E@justware.co.jp>
+Message-ID: <4ECBBF05.4080109@ca.afilias.info>
+
+On 11-11-22 08:00 AM, Michael Cheung wrote:
+> Hi all;
+> (postgres version 8.3.16, slony version 2.1.0)
+>
+> While I run sql to create index on a huge table(named tableA) by slonik_execute_script,
+> (actually this operation cost me almost 20 min.)
+> And slonik_execute_script command end with following error message.
+>
+> <stdin>:5: NOTICE:  public.tableB has an invalid configuration on the log trigger. This was not corrected because
+> only_lock is true and the table is not locked.
+> CONTEXT:  SQL statement "SELECT  "_apl_repl1".repair_log_triggers(true)"
+> PL/pgSQL function "ddlscript_complete_int" line 5 at PERFORM
+> SQL statement "SELECT  "_apl_repl1".ddlScript_complete_int( $1 , $2 )"
+> PL/pgSQL function "ddlscript_complete" line 7 at PERFORM
+>
+> And I have check the new index on table A on every node, it is created and seems fine.
+> And record count on tableB is same on every node. Everything seems well.
+>
+> But anyone can tell me what happened with this message? And is it safe to just ignore it?
+>
+
+If you look at the Slony log trigger on when of your tables it will look 
+something like this:
+
+
+_test_logtrigger AFTER INSERT OR DELETE OR UPDATE ON a FOR EACH ROW 
+EXECUTE PROCEDURE _test.logtrigger('_test', '1', 'kvk')
+
+The 'kvk' means that the first column in the table is part of the key, 
+the second column is not part of a key(primary key or unique 
+constraint), and the third column makes up the second component of the 
+unique key.
+
+If you do something to the table to change this, ie drop the second 
+column.  Then this argument order is no longer correct and slony needs 
+to recreate the logtrigger to have the correct arguments.   Doing that 
+will require an exclusive lock.  If EXECUTE SCRIPT in 2.1 determines 
+that the script has already taken out an exclusive lock on the table 
+then it will just fix the trigger.   However it won't go and obtain the 
+lock.
+
+The function select _test.determineAttKindUnique('public.a','a_pkey'); 
+(where _test is your slony schema name) will tell you want the arguments 
+should be for a particular function.  Compare the output of that for 
+your tableB with the arguments on the trigger (\d in psql).
+
+If you call _test.repair_log_trigger(false) it will take an exclusive 
+lock on the tables it requires and repair the trigger arguments.  (You 
+would need to do that on all nodes).
+
+
+
+
+
+
+> Thanks a lot.
+>
+> Michael
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+
+
+From ssinger at ca.afilias.info  Tue Nov 22 14:26:46 2011
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Tue, 22 Nov 2011 17:26:46 -0500
+Subject: [Slony1-general] Strange bug with slony 2.0.7 and postgresql
+ 9.1.1
+In-Reply-To: <CAF6yO=3sgL91UarQZyufo9r6o4qzoXLGKXoWFomraCTveacp5w@mail.gmail.com>
+References: <CAK-MWwR-_8yXrNAHEDDKpnOid0zBUuDjg567t1yRC8a=9NjmoQ@mail.gmail.com>
+	<CANfbgbb4K+E5M7mfn1RpsqE44q5jbgCrh-Nuy1x0cMzDhHvcPA@mail.gmail.com>
+	<CAK-MWwTAuXD+j1b9g1XZ8TRGQ5H3rkau6_kG6V5D1fHc32EteA@mail.gmail.com>
+	<CAK-MWwQxnfDy3F8TtG63L9MTLL3mXbwCHXZXs3kq7+SddL6TfQ@mail.gmail.com>
+	<4EC85FA6.8090104@ca.afilias.info>
+	<CAF6yO=3sgL91UarQZyufo9r6o4qzoXLGKXoWFomraCTveacp5w@mail.gmail.com>
+Message-ID: <4ECC21A6.5070805@ca.afilias.info>
+
+On 11-11-20 05:47 AM, C?dric Villemain wrote:
+> 2011/11/20 Steve Singer<ssinger at ca.afilias.info>:
+>>
+>> I  wonder out load if the slony remote worker needs to be in a
+>> serializable transaction or if READ COMMITTED is good enough.
+>>
+>> I also wonder if making the remote listener threads explicit read only
+>> transactions would help.
+>
+> if it is a read only transaction, then it is preferable to set it explicitely.
+> If I well understood Heikki, it should remove 'pivot' situation. See
+> http://wiki.postgresql.org/images/4/4f/SSI-PGConfEU2011.pdf (slide 22
+> for the immediate suggestions)
+
+The attached patch makes the remoteListener read only and seems to 
+eliminate the pivot situations involving sl_event and sl_confirm.
+
+Making the remote worker READ COMMITTED seemed to break things.
+
+Maxim do you have a test environment that you can reproduce this 
+situation in, does the attach patch help?
+
+
+
+>
+>>
+>> The disorder tests against a 9.1 machine hit many of these read/write
+>> dependencies in a test run.   Slony just retries things and it
+>> eventually works but I can see how a 500,000 item batch means that you
+>> might often encounter an issue before finishing a SYNC.
+>>
+>> My unverified guess is that changing this won't break slony but might
+>> effect applications querying the slave that depend on the serializable
+>> behaviour and maybe it should be a configuration parameter.
+>>
+>> There are two places in remote_worker.c where it places the local
+>> connection to serializable.
+>>
+>>
+>>
+>>
+>> _______________________________________________
+>> Slony1-general mailing list
+>> Slony1-general at lists.slony.info
+>> http://lists.slony.info/mailman/listinfo/slony1-general
+>>
+>
+>
+>
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: read_only_patch.diff
+Type: text/x-patch
+Size: 1116 bytes
+Desc: not available
+Url : http://lists.slony.info/pipermail/slony1-general/attachments/20111122/45924ada/attachment.bin 
+
+From simon at 2ndQuadrant.com  Wed Nov 23 01:28:35 2011
+From: simon at 2ndQuadrant.com (Simon Riggs)
+Date: Wed, 23 Nov 2011 09:28:35 +0000
+Subject: [Slony1-general] Strange bug with slony 2.0.7 and postgresql
+	9.1.1
+In-Reply-To: <4ECC21A6.5070805@ca.afilias.info>
+References: <CAK-MWwR-_8yXrNAHEDDKpnOid0zBUuDjg567t1yRC8a=9NjmoQ@mail.gmail.com>
+	<CANfbgbb4K+E5M7mfn1RpsqE44q5jbgCrh-Nuy1x0cMzDhHvcPA@mail.gmail.com>
+	<CAK-MWwTAuXD+j1b9g1XZ8TRGQ5H3rkau6_kG6V5D1fHc32EteA@mail.gmail.com>
+	<CAK-MWwQxnfDy3F8TtG63L9MTLL3mXbwCHXZXs3kq7+SddL6TfQ@mail.gmail.com>
+	<4EC85FA6.8090104@ca.afilias.info>
+	<CAF6yO=3sgL91UarQZyufo9r6o4qzoXLGKXoWFomraCTveacp5w@mail.gmail.com>
+	<4ECC21A6.5070805@ca.afilias.info>
+Message-ID: <CA+U5nMKRkdBLb1RQFRu45msPSNNoqqd-BOso2K6f+d61+Vzzzw@mail.gmail.com>
+
+On Tue, Nov 22, 2011 at 10:26 PM, Steve Singer <ssinger at ca.afilias.info> wrote:
+> On 11-11-20 05:47 AM, C?dric Villemain wrote:
+>>
+>> 2011/11/20 Steve Singer<ssinger at ca.afilias.info>:
+>>>
+>>> I ?wonder out load if the slony remote worker needs to be in a
+>>> serializable transaction or if READ COMMITTED is good enough.
+>>>
+>>> I also wonder if making the remote listener threads explicit read only
+>>> transactions would help.
+>>
+>> if it is a read only transaction, then it is preferable to set it
+>> explicitely.
+>> If I well understood Heikki, it should remove 'pivot' situation. See
+>> http://wiki.postgresql.org/images/4/4f/SSI-PGConfEU2011.pdf (slide 22
+>> for the immediate suggestions)
+>
+> The attached patch makes the remoteListener read only and seems to eliminate
+> the pivot situations involving sl_event and sl_confirm.
+
+The attached patch doesn't work because DEFERRABLE only works in
+conjunction with serializable mode.
+New version of patch attached to do this.
+
+> Making the remote worker READ COMMITTED seemed to break things.
+
+The error message generated by serialization is
+ERRCODE_T_R_SERIALIZATION_FAILURE, raised at level ERROR. So the
+"FATAL" error is being generated by Slony not by Postgres.
+
+ISTM that setting the remote worker to REPEATABLE READ would work well
+for this case. Patch attached.
+
+-- 
+?Simon Riggs?????????????????? http://www.2ndQuadrant.com/
+?PostgreSQL Development, 24x7 Support, Training & Services
+
