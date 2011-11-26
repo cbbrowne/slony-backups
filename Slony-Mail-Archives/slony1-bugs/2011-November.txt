@@ -1569,3 +1569,177 @@ Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
 ------- You are receiving this mail because: -------
 You are on the CC list for the bug.
 
+From bugzilla-daemon at main.slony.info  Thu Nov 24 07:10:10 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu, 24 Nov 2011 07:10:10 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 235] SYNC GROUP size bugs
+In-Reply-To: <bug-235-4@http.www.slony.info/bugzilla/>
+References: <bug-235-4@http.www.slony.info/bugzilla/>
+Message-ID: <20111124151010.0EFC0290E6B@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=235
+
+Steve Singer <ssinger at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         AssignedTo|ssinger at ca.afilias.info     |cbbrowne at ca.afilias.info
+
+--- Comment #13 from Steve Singer <ssinger at ca.afilias.info> 2011-11-24 07:10:09 PST ---
+I've taken a lot at the rebased against the current master (2.2).
+
+
+--- 249,263 ----
+  time_t        explain_lastsec;
+  int            explain_thistime;
+
+! typedef enum
+! {
+!     SYNC_INITIAL = 1,
+!     SYNC_PENDING,
+!     SYNC_SUCCESS,
+!     SYNC_FAILURE
+! 
+! } SlonSyncStatus;
+
+SYNC_FAILURE is a state that is never actually set/checked.  In the event of a
+failure applying the sync the remote worker causes the slon to restart
+resetting the count to the inital state.  None of the logic to decrease the
+group size is used.   We should either get the remote_worker to detect+recover
+from this error OR remove the FAILURE state and /2 logic and add a comment that
+we depend on restart.
+
+In confoptions.c  
+{
+        {
+            (const char *) "sync_group_maxsize",
+            gettext_noop("sync group"),
+            gettext_noop("sync group"),
+            SLON_C_INT
+        },
+        &sync_group_maxsize,
+        20,
+        0,
+        10000
+    },
+
+isn't part of you diff but should be.   The description (inside gettext_noop)
+is insufficient.  It should say something like "The maximum number of SYNC
+events that will be applied as part of the same transaction"   
+
+I tested the doubling logic and it seemed fine.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Thu Nov 24 09:22:48 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu, 24 Nov 2011 09:22:48 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 235] SYNC GROUP size bugs
+In-Reply-To: <bug-235-4@http.www.slony.info/bugzilla/>
+References: <bug-235-4@http.www.slony.info/bugzilla/>
+Message-ID: <20111124172248.BED6D290E57@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=235
+
+--- Comment #14 from Christopher Browne <cbbrowne at ca.afilias.info> 2011-11-24 09:22:48 PST ---
+(In reply to comment #13)
+> I've taken a lot at the rebased against the current master (2.2).
+> 
+> 
+> --- 249,263 ----
+>   time_t        explain_lastsec;
+>   int            explain_thistime;
+> 
+> ! typedef enum
+> ! {
+> !     SYNC_INITIAL = 1,
+> !     SYNC_PENDING,
+> !     SYNC_SUCCESS,
+> !     SYNC_FAILURE
+> ! 
+> ! } SlonSyncStatus;
+> 
+> SYNC_FAILURE is a state that is never actually set/checked.  In the event of a
+> failure applying the sync the remote worker causes the slon to restart
+> resetting the count to the inital state.  None of the logic to decrease the
+> group size is used.   We should either get the remote_worker to detect+recover
+> from this error OR remove the FAILURE state and /2 logic and add a comment that
+> we depend on restart.
+
+Agreed, SYNC_FAILURE can't occur, as it is never set in the code.  In
+principle, the code that checks for SYNC_SUCCESS can "accept" SYNC_FAILURE (at
+which point it would does the divide-by-2 logic), but it's fair to say that
+this doesn't really occur.
+
+I don't think it makes sense to try to get the remote worker thread to detect
+failure and keep the old grouping size between invocations of the thread; that
+would be considerable work, with limited value.  So I have added comment that
+the logic for the "not SYNC_SUCCESS" amounts to setting the value to 1, as
+restarting the remote worker thread forces the value back to 1.
+
+https://github.com/cbbrowne/slony1-engine/commit/4e1d743c9c8f1d170abb1473907d5aef8dc06de4
+
+> In confoptions.c  
+> {
+>         {
+>             (const char *) "sync_group_maxsize",
+>             gettext_noop("sync group"),
+>             gettext_noop("sync group"),
+>             SLON_C_INT
+>         },
+>         &sync_group_maxsize,
+>         20,
+>         0,
+>         10000
+>     },
+> 
+> isn't part of you diff but should be.   The description (inside gettext_noop)
+> is insufficient.  It should say something like "The maximum number of SYNC
+> events that will be applied as part of the same transaction"   
+
+Good call.
+
+https://github.com/cbbrowne/slony1-engine/commit/424f4df643e014bd5358dbec47fd3c665efb5ce1
+
+> I tested the doubling logic and it seemed fine.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Thu Nov 24 09:50:07 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu, 24 Nov 2011 09:50:07 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 244] create set is not well parsed
+In-Reply-To: <bug-244-4@http.www.slony.info/bugzilla/>
+References: <bug-244-4@http.www.slony.info/bugzilla/>
+Message-ID: <20111124175007.731F9290E6A@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=244
+
+Christopher Browne <cbbrowne at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         AssignedTo|janwieck at yahoo.com          |ssinger at ca.afilias.info
+
+--- Comment #4 from Christopher Browne <cbbrowne at ca.afilias.info> 2011-11-24 09:50:07 PST ---
+Applies fine, and is a good change.
+
+Would it make any sense to bother addding a regression test for this?
+
+I'd be fine with applying this to master, and wouldn't object to backpatching
+2.0/2.1.
+
+The only additional thing needed (which would certainly vary if applying to old
+branches) is release notes.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
