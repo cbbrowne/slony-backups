@@ -1,0 +1,92 @@
+From zbbentley at gmail.com  Thu Dec  1 09:19:57 2011
+From: zbbentley at gmail.com (Zac Bentley)
+Date: Thu, 1 Dec 2011 12:19:57 -0500
+Subject: [Slony1-general] Catch-up and sl_status, and yum repo
+Message-ID: <CAAFQqzTxsFTEd679GCRnthPFgqnOAB_N=UF5QKHHDA+rNKud_w@mail.gmail.com>
+
+We recently had an issue with a long Slony (2.0) catch-up after 10 days of
+disconnect between a master and a slave. It's possible that it was caused
+by either bug 167 or bug 222. To test this behavior we made a dummy cluster
+on our local LAN, and did the following steps:
+
+1. Initialize a two-node Slony cluster with two identical copies of the
+database.
+2. Allow initial subscription to catch up.
+3. On the slave: drop the network connection to the master.
+4. On the master: run ~4 million update operations.
+5. On the slave: restore the connection to the master.
+
+We did this, and I was able to watch sync events get submitted and received
+in the logs. However, in sl_status, st_lag_num_events and st_lag_time kept
+going up, and the backlogged changes were not propagated (after a couple of
+hours, at least). The LAN link between the two nodes is fast, and neither
+node is lagging due to server/IO/network load. Why is this occurring/what
+did I do wrong?
+
+Also, on what time period do you publish RPMs of Slony to public Yum
+repositories? (i.e. when should we expect to see an RPM of Slony 2.1?)
+
+Thanks!
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20111201/975bada4/attachment.htm 
+
+From ssinger at ca.afilias.info  Thu Dec  1 10:38:32 2011
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Thu, 01 Dec 2011 13:38:32 -0500
+Subject: [Slony1-general] Catch-up and sl_status, and yum repo
+In-Reply-To: <CAAFQqzTxsFTEd679GCRnthPFgqnOAB_N=UF5QKHHDA+rNKud_w@mail.gmail.com>
+References: <CAAFQqzTxsFTEd679GCRnthPFgqnOAB_N=UF5QKHHDA+rNKud_w@mail.gmail.com>
+Message-ID: <4ED7C9A8.20500@ca.afilias.info>
+
+On 11-12-01 12:19 PM, Zac Bentley wrote:
+> We recently had an issue with a long Slony (2.0) catch-up after 10 days
+> of disconnect between a master and a slave. It's possible that it was
+> caused by either bug 167 or bug 222. To test this behavior we made a
+> dummy cluster on our local LAN, and did the following steps:
+>
+> 1. Initialize a two-node Slony cluster with two identical copies of the
+> database.
+> 2. Allow initial subscription to catch up.
+> 3. On the slave: drop the network connection to the master.
+> 4. On the master: run ~4 million update operations.
+> 5. On the slave: restore the connection to the master.
+>
+> We did this, and I was able to watch sync events get submitted and
+> received in the logs. However, in sl_status, st_lag_num_events and
+> st_lag_time kept going up, and the backlogged changes were not
+> propagated (after a couple of hours, at least). The LAN link between the
+> two nodes is fast, and neither node is lagging due to server/IO/network
+> load. Why is this occurring/what did I do wrong?
+
+
+Your 4 million row update was done as a single transaction.  This means 
+that Slony needs to replicate it to the slave as part of a single SYNC. 
+If slony is busy replicating that sync the SYNC won't show up as being 
+replicated until that SYNC is done.  sl_status will show the slave as 
+falling behind while the processing of that SYNC is going on (because it 
+is behind, none of your 4 million rows will be visible on the slave 
+until the transaction commits).
+
+If you run the slon for your slave at debug4 you should see lots of 
+DEBUG messages from the remoteWorkerThread showing progress.  Slony will 
+fetch the rows in groups of 500 at a time with a cursor.  Based on how 
+frequently you see these you can probably estimate how long it will take 
+to do 4 million.
+
+
+
+>
+> Also, on what time period do you publish RPMs of Slony to public Yum
+> repositories? (i.e. when should we expect to see an RPM of Slony 2.1?)
+>
+> Thanks!
+>
+>
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+
+
