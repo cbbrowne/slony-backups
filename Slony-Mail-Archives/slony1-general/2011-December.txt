@@ -525,3 +525,231 @@ Jon
 An HTML attachment was scrubbed...
 URL: http://lists.slony.info/pipermail/slony1-general/attachments/20111208/f99e2af6/attachment.htm 
 
+From ssinger at ca.afilias.info  Thu Dec  8 12:16:30 2011
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Thu, 08 Dec 2011 15:16:30 -0500
+Subject: [Slony1-general] slow slony initial load + monitoring
+In-Reply-To: <4264E6801A11844992616B6359BA478D689B9A@invsci-svr1.invsci.local>
+References: <4264E6801A11844992616B6359BA478D689B9A@invsci-svr1.invsci.local>
+Message-ID: <4EE11B1E.7010708@ca.afilias.info>
+
+On 11-12-08 01:16 AM, Jonathon Soong wrote:
+> Hi guys,
+>
+> I'm new to the list and have setup Slony from Australia to Hong Kong
+> over a VPN - it is not a super fast link.
+>
+> I have done this on one database with around 5 million rows and it was
+> fine - took about 30 minutes to sync up.
+>
+> However with another database that has 90 million+ rows, i'm running
+> into trouble (I did remove indices first)
+>
+> The initial sync seems to be taking too long (15 hours+ when I stopped it).
+>
+> I was wondering how I monitor if anything is actually happening???:
+>
+>
+> 1. I can see on the origin node, that a COPY seems to be occurring -
+> */can anyone tell me if this is correct?/*
+> 16083 postgres 20 0 212m 7876 5480 S 1.7 0.0 0:10.12 postgres: postgres
+> mydatabase::1(39599) COPY
+>
+> 2. I can see on the slave node when I query sl_status that:
+> - st_last_event is *NOT CHANGING*
+> - st_last_event_ts is *NOT CHANGING*
+> - st_last_received is *NOT CHANGING*
+> - st_last_received_ts is *NOT CHANGING
+> *- st_last_received_event_ts is *NOT CHANGING
+> * - st_lag_num_events is *NOT CHANGING*
+> - st_lag_time is increasing (around 18 hours)
+>
+> Are these values expected or should some of them be increasing?
+
+While Slony is in the middle of a COPY operation it does so in a single 
+transaction so you should not expect to see the event confirmation 
+times/events change until the copy operation is complete.
+
+
+
+>
+> 3. The logs on the slave showed this when I started slony, I presume
+> this is correct:
+> NOTICE: truncate of "public"."my_table" succeeded
+
+This is normal.  Each time a new table is started you should see that.
+
+>
+> 4. The logs on the slave now show this repeatedly:
+> 2011-12-08 05:48:47 UTCDEBUG2 remoteListenThread_1: queue event
+> 1,5000001502 SYNC
+> 2011-12-08 05:48:47 UTCDEBUG2 remoteListenThread_1: queue event
+> 1,5000001503 SYNC
+> 2011-12-08 05:48:47 UTCDEBUG2 remoteListenThread_1: queue event
+> 1,5000001504 SYNC
+>
+
+These are unrelated to your copy but are normal.
+
+> 5. sl_log_1 and sl_log_2 are empty on both the master and slave ? am I
+> right in presuming these are only used when things change on an origin
+> node and that they are not used for initial syncs?
+>
+
+a copy/initial subscription will not insert any rows into sl_log_1 or 
+sl_log_2 on the slave.
+
+> What I would *LOVE*, is the ability to see what is happening. e.g.
+> "10,000 rows copied, 89 million to go", type logs.
+> I can't do a select on the slave node as that seems to just hang forever.
+>
+> Any help on what to do would be most appreciated.
+>
+> Note: slony 2.0.7
+>
+
+Slony does not log any progress information as it loops through tuples 
+during a COPY for an initial subscribe set.  You should see disk usage 
+on your slave go up, and maybe relpages in pg_class for your table or 
+the counts in pg_stat_activity.
+
+you should be able to verify that progress is being made though it isn't 
+clear to me how you can use that to get a % complete for your table
+
+> Thanks
+>
+> Jon
+>
+>
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+
+
+From jon at investmentscience.com.au  Thu Dec  8 15:14:23 2011
+From: jon at investmentscience.com.au (Jonathon Soong)
+Date: Fri, 9 Dec 2011 09:44:23 +1030
+Subject: [Slony1-general] slow slony initial load + monitoring
+In-Reply-To: <4EE11B1E.7010708@ca.afilias.info>
+References: <4264E6801A11844992616B6359BA478D689B9A@invsci-svr1.invsci.local>
+	<4EE11B1E.7010708@ca.afilias.info>
+Message-ID: <4264E6801A11844992616B6359BA478D689BA9@invsci-svr1.invsci.local>
+
+Thank you very much Steve, very helpful :)
+
+- Jon 
+
+> -----Original Message-----
+> From: Steve Singer [mailto:ssinger at ca.afilias.info]
+> Sent: Friday, December 09, 2011 6:47 AM
+> To: Jonathon Soong
+> Cc: slony1-general at lists.slony.info
+> Subject: Re: [Slony1-general] slow slony initial load + monitoring
+> 
+> On 11-12-08 01:16 AM, Jonathon Soong wrote:
+> > Hi guys,
+> >
+> > I'm new to the list and have setup Slony from Australia to Hong Kong
+> > over a VPN - it is not a super fast link.
+> >
+> > I have done this on one database with around 5 million rows and it
+was
+> > fine - took about 30 minutes to sync up.
+> >
+> > However with another database that has 90 million+ rows, i'm running
+> > into trouble (I did remove indices first)
+> >
+> > The initial sync seems to be taking too long (15 hours+ when I
+stopped it).
+> >
+> > I was wondering how I monitor if anything is actually happening???:
+> >
+> >
+> > 1. I can see on the origin node, that a COPY seems to be occurring -
+> > */can anyone tell me if this is correct?/*
+> > 16083 postgres 20 0 212m 7876 5480 S 1.7 0.0 0:10.12 postgres:
+> > postgres
+> > mydatabase::1(39599) COPY
+> >
+> > 2. I can see on the slave node when I query sl_status that:
+> > - st_last_event is *NOT CHANGING*
+> > - st_last_event_ts is *NOT CHANGING*
+> > - st_last_received is *NOT CHANGING*
+> > - st_last_received_ts is *NOT CHANGING
+> > *- st_last_received_event_ts is *NOT CHANGING
+> > * - st_lag_num_events is *NOT CHANGING*
+> > - st_lag_time is increasing (around 18 hours)
+> >
+> > Are these values expected or should some of them be increasing?
+> 
+> While Slony is in the middle of a COPY operation it does so in a
+single
+> transaction so you should not expect to see the event confirmation
+> times/events change until the copy operation is complete.
+> 
+> 
+> 
+> >
+> > 3. The logs on the slave showed this when I started slony, I presume
+> > this is correct:
+> > NOTICE: truncate of "public"."my_table" succeeded
+> 
+> This is normal.  Each time a new table is started you should see that.
+> 
+> >
+> > 4. The logs on the slave now show this repeatedly:
+> > 2011-12-08 05:48:47 UTCDEBUG2 remoteListenThread_1: queue event
+> > 1,5000001502 SYNC
+> > 2011-12-08 05:48:47 UTCDEBUG2 remoteListenThread_1: queue event
+> > 1,5000001503 SYNC
+> > 2011-12-08 05:48:47 UTCDEBUG2 remoteListenThread_1: queue event
+> > 1,5000001504 SYNC
+> >
+> 
+> These are unrelated to your copy but are normal.
+> 
+> > 5. sl_log_1 and sl_log_2 are empty on both the master and slave - am
+I
+> > right in presuming these are only used when things change on an
+origin
+> > node and that they are not used for initial syncs?
+> >
+> 
+> a copy/initial subscription will not insert any rows into sl_log_1 or
+> sl_log_2 on the slave.
+> 
+> > What I would *LOVE*, is the ability to see what is happening. e.g.
+> > "10,000 rows copied, 89 million to go", type logs.
+> > I can't do a select on the slave node as that seems to just hang
+forever.
+> >
+> > Any help on what to do would be most appreciated.
+> >
+> > Note: slony 2.0.7
+> >
+> 
+> Slony does not log any progress information as it loops through tuples
+during
+> a COPY for an initial subscribe set.  You should see disk usage on
+your slave go
+> up, and maybe relpages in pg_class for your table or the counts in
+> pg_stat_activity.
+> 
+> you should be able to verify that progress is being made though it
+isn't clear
+> to me how you can use that to get a % complete for your table
+> 
+> > Thanks
+> >
+> > Jon
+> >
+> >
+> >
+> > _______________________________________________
+> > Slony1-general mailing list
+> > Slony1-general at lists.slony.info
+> > http://lists.slony.info/mailman/listinfo/slony1-general
+
+
