@@ -367,3 +367,196 @@ Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
 ------- You are receiving this mail because: -------
 You are on the CC list for the bug.
 
+From bugzilla-daemon at main.slony.info  Tue Dec 13 08:42:04 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Tue, 13 Dec 2011 08:42:04 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 255] New: SSI issues with 9.1
+Message-ID: <bug-255-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=255
+
+           Summary: SSI issues with 9.1
+           Product: Slony-I
+           Version: 2.0
+          Platform: PC
+        OS/Version: Linux
+            Status: NEW
+          Severity: enhancement
+          Priority: low
+         Component: slon
+        AssignedTo: slony1-bugs at lists.slony.info
+        ReportedBy: ssinger at ca.afilias.info
+                CC: slony1-bugs at lists.slony.info
+   Estimated Hours: 0.0
+
+
+As reported on the mailing list
+http://lists.slony.info/pipermail/slony1-general/2011-November/011939.htmllony
+2.0.7 replication just stalled on big update on master (like
+300.000 in batch.. nothing crazy).
+
+Slony log on slave show repeatable (like each 5 minute) error:
+
+2011-11-18 08:46:03 MSKERROR  remoteWorkerThread_4: "insert into
+"_sports".sl_event     (ev_origin, ev_seqno, ev_timestamp,
+ev_snapshot, ev_type     ) values ('4', '5000054127', '2011-11-18
+06:18:44.863299', '922722:922722:', 'SYNC'); insert into
+"_sports".sl_confirm     (con_origin, con_received, con_seqno,
+con_timestamp)    values (4, 3, '5000054127', now()); insert into
+"_sports".sl_event     (ev_origin, ev_seqno, ev_timestamp,
+ev_snapshot, ev_type     ) values ('4', '5000054128', '2011-11-18
+06:18:45.890297', '922731:922731:', 'SYNC'); insert into
+"_sports".sl_confirm   (con_origin, con_received, con_seqno,
+con_timestamp)    values (4, 3, '5000054128', now()); insert into
+"_sports".sl_event     (ev_origin, ev_seqno, ev_timestamp,
+ev_snapshot, ev_type     ) values ('4', '5000054129', '2011-11-18
+06:18:46.921278', '922736:922736:', 'SYNC'); insert into
+"_sports".sl_confirm      (con_origin, con_received, con_seqno,
+con_timestamp)    values (4, 3, '5000054129', now()); commit
+transaction;"
+PGRES_FATAL_ERROR ERROR:  could not serialize access due to read/write
+dependencies among transactions
+DETAIL:  Reason code: Canceled on identification as a pivot, during write.
+HINT:  The transaction might succeed if retried.
+In that case slony just terminate without commiting batch (and
+returned to the life only by watchdog).
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Tue Dec 13 08:47:56 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Tue, 13 Dec 2011 08:47:56 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 255] SSI issues with 9.1
+In-Reply-To: <bug-255-4@http.www.slony.info/bugzilla/>
+References: <bug-255-4@http.www.slony.info/bugzilla/>
+Message-ID: <20111213164756.8D752290E74@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=255
+
+--- Comment #1 from Steve Singer <ssinger at ca.afilias.info> 2011-12-13 08:47:56 PST ---
+Created an attachment (id=138)
+ --> (http://www.slony.info/bugzilla/attachment.cgi?id=138)
+Proposed fix
+
+9.1 to avoid pivot conflicts.
+
+specify SERIALIZABLE for read only deferred transactions.
+Make remote_worker calls to the provider read-only deferred
+Make remote_worker calls on the local con READ COMMITTED.
+Make the remote listener run in a READ ONLY DEFERRED transaction on
+
+Based on a patch by Simon Riggs.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Tue Dec 13 08:56:44 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Tue, 13 Dec 2011 08:56:44 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 255] SSI issues with 9.1
+In-Reply-To: <bug-255-4@http.www.slony.info/bugzilla/>
+References: <bug-255-4@http.www.slony.info/bugzilla/>
+Message-ID: <20111213165644.3BC4D290E74@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=255
+
+Steve Singer <ssinger at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         Resolution|                            |FIXED
+             Status|NEW                         |RESOLVED
+
+--- Comment #2 from Steve Singer <ssinger at ca.afilias.info> 2011-12-13 08:56:44 PST ---
+http://git.postgresql.org/gitweb?p=slony1-engine.git;a=commitdiff;h=c94cd25269f45a614f6bf3b77c7b759d1de71bed
+
+http://git.postgresql.org/gitweb?p=slony1-engine.git;a=commitdiff;h=44aa04906a195b90a9e5fd6552d6fe097bc5a50d
+
+http://git.postgresql.org/gitweb?p=slony1-engine.git;a=commitdiff;h=e689d4fa5f1b4b0eeb9e3f2061b8ba29e5729bb7
+
+Applied against 2.0 2.1 and master(2.2)
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Tue Dec 13 14:16:55 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Tue, 13 Dec 2011 14:16:55 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 256] New: set_config_option has parm change in
+	HEAD
+Message-ID: <bug-256-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=256
+
+           Summary: set_config_option has parm change in HEAD
+           Product: Slony-I
+           Version: devel
+          Platform: PC
+        OS/Version: Linux
+            Status: ASSIGNED
+          Severity: enhancement
+          Priority: low
+         Component: trigger SPI
+        AssignedTo: cbbrowne at ca.afilias.info
+        ReportedBy: cbbrowne at ca.afilias.info
+                CC: slony1-bugs at lists.slony.info
+   Estimated Hours: 0.0
+
+
+Definition in 9.1 and earlier:
+
+extern bool set_config_option(const char *name, const char *value,
+                                  GucContext context, GucSource source,
+                                  GucAction action, bool changeVal);
+
+In HEAD (which becomes 9.2):
+
+
+
+extern int      set_config_option(const char *name, const char *value,
+                                  GucContext context, GucSource source,
+                                  GucAction action, bool changeVal, int
+elevel);
+
+This change induces the following build failure:
+
+gcc -g -O2 -Wall -Wmissing-prototypes -Wmissing-declarations -I../.. -fpic
+-I/var/lib/postgresql/dbs/postgresql-HEAD/include/server/
+-I/var/lib/postgresql/dbs/postgresql-HEAD/include/  -c -o slony1_funcs.o
+slony1_funcs.c
+slony1_funcs.c: In function '_Slony_I_createEvent':
+slony1_funcs.c:146:10: warning: variable 'buf_size' set but not used
+[-Wunused-but-set-variable]
+slony1_funcs.c: In function '_Slony_I_logTrigger':
+slony1_funcs.c:461:4: error: too few arguments to function 'set_config_option'
+/var/lib/postgresql/dbs/postgresql-HEAD/include/server/utils/guc.h:316:12:
+note: declared here
+slony1_funcs.c:502:4: error: too few arguments to function 'set_config_option'
+/var/lib/postgresql/dbs/postgresql-HEAD/include/server/utils/guc.h:316:12:
+note: declared here
+slony1_funcs.c:627:6: error: too few arguments to function 'set_config_option'
+/var/lib/postgresql/dbs/postgresql-HEAD/include/server/utils/guc.h:316:12:
+note: declared here
+slony1_funcs.c:630:6: error: too few arguments to function 'set_config_option'
+/var/lib/postgresql/dbs/postgresql-HEAD/include/server/utils/guc.h:316:12:
+note: declared here
+make[1]: *** [slony1_funcs.o] Error 1
+make[1]: Leaving directory
+`/var/lib/postgresql/slony1-engine.github/src/backend'
+make: *** [all] Error 2
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+

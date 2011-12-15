@@ -1077,3 +1077,233 @@ Contact r?gional PostgreSQL
 http://bistri.me/z8ez4m
 
 
+From ssinger at ca.afilias.info  Tue Dec 13 06:32:59 2011
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Tue, 13 Dec 2011 09:32:59 -0500
+Subject: [Slony1-general] Proposed Failover changes for 2.2
+Message-ID: <4EE7621B.9000405@ca.afilias.info>
+
+I've been working on improving the reliability of the FAILOVER command 
+when multiple nodes fail at the same time.  The changes I've had to make 
+have made the failover time logic very complicated.
+
+An alternative is restrict cluster configurations that can be used with 
+the failover command.
+
+I am proposing something along the lines of:
+
+If you have an origin node that you want to failover then  the failover 
+command would take a list of the failed nodes.  It would then look for 
+backup nodes that meet the following criteria
+
+* The backup node for a given origin is a subscribed forwarder to ALL 
+sets that the failed node is an origin for.
+* The backup node has bi-directional paths to all nodes that the failed 
+origin has paths to
+* Any other nodes that are not being fed from the one of the potential 
+failover targets will be dropped
+
+Out of the nodes that meet the above criteria the failover command would 
+then pick the most ahead node and make that the new origin for the sets 
+from the failed node.
+
+After the failover command finishes you could then use MOVE SET and 
+SUBSCRIBE SET to reshape the cluster as you please.
+
+How would this work:
+
+Example  1:
+1---->2
+
+FAILOVER ( node=(id=1));
+would fail node 1 to 2.
+
+
+Example 2:
+1---->2---->4
+|          .
+\----3......
+(3 and 4 are connected with a PATH but have no subscription using it)
+
+FAILOVER(node=(id=1));
+
+would result in a message such as
+'node 1 has no failover targets'
+
+because node 1 has paths to both 2 and 3, but no other node has paths to 
+both nodes 2 and 3.
+
+
+Example 3:
+1---->2---->4
+|     .
+\-----3
+
+FAILOVER(node=(id=1))
+
+slonik would pick one of 2 or 3 and failover to it.  It would pick the 
+one that is most ahead.
+
+Example 4:
+
+1---->2---->4
+       |
+       v
+       3
+
+FAILOVER (node=(id=1), node=(id=2));
+
+Results in 'no 1 has no failover targets'
+The above cluster can't survive both node 1 and 2 failing at the same time.
+
+
+Example 5:
+
+1(set1)----->2(set1)----->4(set1)
+| (set2)        .
+|               .
+V ...............
+3 (set1,set2)
+|
+|
+5(set2)
+
+Node 3 is the only acceptable failover target.  Node 4 would be 
+unsubscribed or dropped.
+
+
+Example 6
+
+   |<--------------->4 (set2)
+   1(set1)------>2--\
+   |
+   V       .   7
+   3........
+   |
+5   6
+
+In this example node 4 is the origin for set2, it replicates to node 1 
+which is the origin for set 1.  Nodes 2,3 then receive sets 1 and 2 from 
+node 1.  Node 4 is a subscriber for set 1.
+
+FAILOVER( node=(id=1))
+  would give node 2 or 3 as a failover target.  Node 4 would be 
+unsubscribed/dropped from set 1.   It is possible that set 2 would need 
+to be dropped from all nodes.
+
+
+
+I realize that this means some existing clusters will no longer work 
+with failover but I have doubts if the existing failover code will work 
+100% of the time for clusters of that type of configuration anyway.
+
+I also think it is safer for slonik to make the most ahead node the new 
+master and then let you reshape the cluster with move set.  Today if 
+additional things go wrong in the middle of a FAILOVER procedure it can 
+be very difficult to recover the cluster.  I feel that if we just 
+promote the most ahead node to the new master things will be safer.
+
+I am proposing this change for 2.2,  do any users object to this type of 
+change?  Is anyone using slony for failover building non-standard 
+cluster configurations?
+
+
+
+
+
+
+
+From cbbrowne at afilias.info  Tue Dec 13 07:07:04 2011
+From: cbbrowne at afilias.info (Christopher Browne)
+Date: Tue, 13 Dec 2011 10:07:04 -0500
+Subject: [Slony1-general] Proposed Failover changes for 2.2
+In-Reply-To: <4EE7621B.9000405@ca.afilias.info>
+References: <4EE7621B.9000405@ca.afilias.info>
+Message-ID: <CANfbgbY=Q3rGszNjDVUX_qtXAMXKN-Ds6jmfTc938Eq1PN-bdw@mail.gmail.com>
+
+On Tue, Dec 13, 2011 at 9:32 AM, Steve Singer <ssinger at ca.afilias.info> wrote:
+> I also think it is safer for slonik to make the most ahead node the new
+> master and then let you reshape the cluster with move set. ?Today if
+> additional things go wrong in the middle of a FAILOVER procedure it can
+> be very difficult to recover the cluster. ?I feel that if we just
+> promote the most ahead node to the new master things will be safer.
+
+I'm not thrilled with this introducing a rather non-deterministic
+factor into things.
+
+That is, you don't know what reshapings you need to do until *after* FAILOVER.
+
+I suspect we may want a bit of tooling to dump the shape of the
+cluster; I could see people be irritated if tell them...
+
+"After FAILOVER, you'll have to puzzle through some SQL queries
+against, erm, some of the nodes to figure out where things are, before
+reshaping it to the way you now want."
+
+But you're likely right that what may be preferable for Slony to do is
+to do the best failover that it can do, and leave it to admins to
+figure what next.
+
+If there are 3 nodes, then there are 6 different failures that may
+occur (e.g. - 1, 1+2, 1+3, 2, 2+3, 1+2+3).  If node #1 is the origin,
+there are 3 of those cases that permit FAILOVER to succeed (e.g. - 1,
+1+2, 1+3).
+
+And we really can't predict which of those will have occurred until
+they actually have occurred.
+
+(If there are 4 nodes, there would be a rather larger set of possible
+failovers, and the set grows for larger clusters.)
+
+In order for an admin to be properly prepared, they'd need a FAILOVER
+script for each of those cases, and they'd need to pick the right one.
+ I don't imagine it's fundamentally worse for Slony to say "I'll fix
+as well as I can; reshape subscriptions once I'm done."
+
+From gmc at esilibrary.com  Tue Dec 13 07:31:25 2011
+From: gmc at esilibrary.com (Galen Charlton)
+Date: Tue, 13 Dec 2011 10:31:25 -0500
+Subject: [Slony1-general] Strange bug with slony 2.0.7 and postgresql
+ 9.1.1
+In-Reply-To: <4EE23E2A.7000806@ca.afilias.info>
+References: <CAK-MWwR-_8yXrNAHEDDKpnOid0zBUuDjg567t1yRC8a=9NjmoQ@mail.gmail.com>	<CANfbgbb4K+E5M7mfn1RpsqE44q5jbgCrh-Nuy1x0cMzDhHvcPA@mail.gmail.com>	<CAK-MWwTAuXD+j1b9g1XZ8TRGQ5H3rkau6_kG6V5D1fHc32EteA@mail.gmail.com>	<CAK-MWwQxnfDy3F8TtG63L9MTLL3mXbwCHXZXs3kq7+SddL6TfQ@mail.gmail.com>	<4EC85FA6.8090104@ca.afilias.info>	<CAF6yO=3sgL91UarQZyufo9r6o4qzoXLGKXoWFomraCTveacp5w@mail.gmail.com>	<4ECC21A6.5070805@ca.afilias.info>	<CA+U5nMKRkdBLb1RQFRu45msPSNNoqqd-BOso2K6f+d61+Vzzzw@mail.gmail.com>	<4ECCFA52.9030109@ca.afilias.info>	<CA+U5nMJJi2rFO0BEgUUx12mzPO8OwVQ_hpFYsvJeZrjBnQFr_Q@mail.gmail.com>	<4ECD60F9.5040806@ca.afilias.info>
+	<4EE23E2A.7000806@ca.afilias.info>
+Message-ID: <4EE76FCD.9040407@esilibrary.com>
+
+Hi,
+
+On 12/09/2011 11:58 AM, Steve Singer wrote:
+> On 11-11-23 04:09 PM, Steve Singer wrote:
+>
+> Maxim,
+>
+> Did you ever check to see if this patch actually fixes your problem with
+> running Slony against 9.1.x?
+>
+> Did you encounter any other issues with it?
+
+I can't speak to Maxim's specific issue, but I can attest that the patch 
+did resolve a problem I was having trying to replicate a large 9.1.1 
+database using Slony 2.0.7.  Because the origin was being heavily used 
+at the same time that the subscribe set operation was running, the 
+initial copy failed repeatedly since the origin kept running out of 
+predicate locks.  Changing the transaction isolation level from 
+serializable to read committed allowed the copy to succeed.
+
+So, for what it's worth, here's my +1 for including the patch.
+
+Regards,
+
+Galen
+-- 
+Galen Charlton
+Director of Support and Implementation
+Equinox Software, Inc. / The Open Source Experts
+email:  gmc at esilibrary.com
+direct: +1 770-709-5581
+cell:   +1 404-984-4366
+skype:  gmcharlt
+web:    http://www.esilibrary.com/
+Supporting Koha and Evergreen: http://koha-community.org & 
+http://evergreen-ils.org
+
