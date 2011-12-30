@@ -2180,3 +2180,265 @@ On 12/27/2011 8:25 PM, Steve Singer wrote:
 Anyone who trades liberty for security deserves neither
 liberty nor security. -- Benjamin Franklin
 
+From mfwilson at gmail.com  Tue Dec 27 19:16:05 2011
+From: mfwilson at gmail.com (Mike Wilson)
+Date: Tue, 27 Dec 2011 19:16:05 -0800
+Subject: [Slony1-general] log switch to sl_log_1 still in progress -
+	sl_log_2 not truncated
+In-Reply-To: <BLU0-SMTP167E74C602655AC14740D8ACAC0@phx.gbl>
+References: <D8A4C3BD-888E-4695-89F6-8EEA2151A7B0@gmail.com>
+	<BLU0-SMTP30DC24127D473FF537B4D1ACAF0@phx.gbl>
+	<A98DAE90-EC51-4950-8478-39CD86AAD514@gmail.com>
+	<BLU0-SMTP167E74C602655AC14740D8ACAC0@phx.gbl>
+Message-ID: <F98D3238-2CB0-4669-94B3-B3001A328A2D@gmail.com>
+
+Thanks Steve.  I've restored the master/slave slon processes with roughly 5 times the size of the previous parameters to see if it helps.  I'll let it run overnight.  If in the morning we are still falling behind I will take your advice and compile and implement 2.1.0.  Thanks for your help, you rock!
+
+Mike Wilson
+Predicate Logic
+Cell: (310) 600-8777
+SkypeID: lycovian
+
+
+
+
+On Dec 27, 2011, at 5:25 PM, Steve Singer wrote:
+
+> On Tue, 27 Dec 2011, Mike Wilson wrote:
+> 
+>> Thanks for the reply.  Per your questions here is additional information.  For the purposes of this discussion db1 (node: 101) is our Slave and db2 (node:102) is our Slony Master.
+>> 
+>>> On Tue, 27 Dec 2011, Mike Wilson wrote:
+> 
+>>> 
+>>> 2. Now that you have killed the old vacuums you need to determine what if anything slony is doing.
+>> During the period where the replication stopped I found several vacuums that had been running for upwards of 11 days.   I killed the processes (using pg_cancel_backup) and shortly after that started to get pings from Nagios which monitors the sl_status table that replication was falling behind.
+>>> 
+>>> a) Are new SYNC events being generated on the master?
+>> I'm not sure how I determine this.
+> 
+> select max(ev_seqno) FROM sl_event where ev_origin=102;
+> Every few seconds that number should be increasing.
+> 
+>> 
+>> Here is the sl_status table from the master over the same few minutes:
+>> =# select * from sl_status;
+>> st_origin | st_received | st_last_event |      st_last_event_ts      | st_last_received |    st_last_received_ts     | st_last_received_event_ts  | st_lag_num_events |      st_lag_time
+>> -----------+-------------+---------------+----------------------------+------------------+----------------------------+----------------------------+-------------------+------------------------
+>>      102 |         101 |    5004119000 | 2011-12-27 10:06:44.327499 |       5003985169 | 2011-12-27 10:04:16.351454 | 2011-12-24 07:13:35.509854 |            133831 | 3 days 06:40:41.911154
+>> 
+>> =# select * from sl_status;
+>> st_origin | st_received | st_last_event |      st_last_event_ts      | st_last_received |    st_last_received_ts     | st_last_received_event_ts  | st_lag_num_events |      st_lag_time
+>> -----------+-------------+---------------+----------------------------+------------------+----------------------------+----------------------------+-------------------+------------------------
+>>      102 |         101 |    5004119000 | 2011-12-27 10:06:44.327499 |       5003985169 | 2011-12-27 10:04:16.351454 | 2011-12-24 07:13:35.509854 |            133831 | 3 days 06:42:49.222796
+>> 
+>> As you can see the slaves st_last_event value appears to be increasing, whereas the master's appears to be static.
+> 
+> This tells me that (according to the master) the slave has so far processed event (102,5003985169) and the last event generated on the master is (102,5004119000).  This means that your slave is 133,831 events behind.  You didn't tell me what time you run the above query at.
+> 
+> If the above query was run at about 2011-12-27 10:06:xx then it proabably means that replication is now working normally but your slave is behind 133,000 events.
+> 
+> The line from your slave.slon.log below
+> 2011-12-27 14:06:32 PSTINFO   remoteWorkerThread_102: SYNC 5003985339 done in 80.973 seconds
+> 
+> tells me that at 14:06:32 the slave processed a SYNC from the master that took 80 seconds to process.  Every 80 seconds or so you should be seeing another similar line.  The difference in the SYNC # in the previous log line and these one tells you how many SYNC's were processed in that 80.973 seconds.
+> 
+> Now that it is 6-8 or so hours later, is your cluster closing to being caught up or has it fallen more behind?
+> 
+> If your getting caught up then you should be able to estimate when you will be caught up.
+> 
+> If your falling even farther behind then your options are
+> 
+> 1) To unsubscribe + resubscribe the slave.  As I mentioned this morning that if your database is small enough and your network is fast enough this might be faster then letting it get caught up
+> 2) If you can't resubscribe, then tune the the sync_interval(make it larger) on the master and tune the sync_max_groupsize (make it larger) on the slave as described http://www.slony.info/documentation/2.0/slon-config-interval.html to make the master generate fewer syncs and the slave to process more of those syncs together.
+> 3) Consider upgrading your cluster to 2.1.0, you can upgrade from 2.0.7 to 2.1.0 on a cluster that is not caught up.
+> 
+> If my assumptions are correct then this is an instance of slony bug #167 (fixed in 2.1.0) where sync processing in a cluster that is behind takes a lot longer than it should.  Your long running transactions made sl_log get very big and now slony takse longer to process a SYNC then it does to generate a new one.  2.1.0 should process SYNC events in this case much faster.
+> 
+> 
+> 
+> 
+>> Thanks so much for your help thus far.  Please advise with any attempted fixes you can think of or if you can possibly describe what is currently going on.  Cheers.
+>> 
+>>> 
+>>> Steve
+>>> 
+>>>> Under incredible load last week during the Christmas season our primary PG (8.4.7: Slony 2.0.7) stopped replicating.  Now that we are past the Christmas season I need to figure out how to clear the back log of replication rows in sl_log_1/2.  This is all running on our commercial website and if possible I would prefer not to have to restart the PG instance as it would require a scheduled maintenance window on a week where everyone is out of the office.  In an attempt to fix the issue without rebooting the PG instance and I've already restarted the Slony services on the primary PG node as a first attempt at a fix.  This did not get replication working again and I'm still getting the same error from Slony in the logs: log switch to sl_log_1 still in progress - sl_log_2 not truncated
+>>>> 
+>>>>> From my research I can see that this error message is called when the function logswitch_finish() is called.  I did have some hung vacuums during this period of high load on the server but I have killed them with pg_cancel_backend.  From other lock analysis I can see that nothing is currently running or locked in the db (nothing more than a few milliseconds old at least).  I'm certain whatever transaction was in progress that prevented the switch from occurring is long since past.
+>>>> 
+>>>> Any ideas on the best way to get replication working again?  I'm adverse to rebooting the PG instance but I am willing to do it if someone more knowlegable out there thinks it would fix this issue.  We currently are operating without a backup of all of our XMas sales data and I *really* want to get this data replicated.  Any help would be appreciated.
+>>>> 
+>>>> Mike Wilson
+>>>> Predicate Logic
+>>>> Cell: (310) 600-8777
+>>>> SkypeID: lycovian
+>>>> 
+>>>> 
+>>>> 
+>>>> 
+>>>> _______________________________________________
+>>>> Slony1-general mailing list
+>>>> Slony1-general at lists.slony.info
+>>>> http://lists.slony.info/mailman/listinfo/slony1-general
+>>>> 
+>>> 
+>> 
+>> 
+> 
+
+
+From Michael at jibjab.net  Tue Dec 27 21:01:18 2011
+From: Michael at jibjab.net (Michael Wilson)
+Date: Wed, 28 Dec 2011 05:01:18 +0000
+Subject: [Slony1-general] log switch to sl_log_1 still in progress -
+ sl_log_2 not truncated
+In-Reply-To: <4EFA9B18.4060401@Yahoo.com>
+References: <D8A4C3BD-888E-4695-89F6-8EEA2151A7B0@gmail.com>
+	<BLU0-SMTP30DC24127D473FF537B4D1ACAF0@phx.gbl>
+	<A98DAE90-EC51-4950-8478-39CD86AAD514@gmail.com>
+	<BLU0-SMTP167E74C602655AC14740D8ACAC0@phx.gbl>
+	<4EFA9B18.4060401@Yahoo.com>
+Message-ID: <CFB7F086-0C0C-4BB8-A2C3-52236FDB5063@jibjab.net>
+
+Yep.  Just verified that replication is still falling further behind, like a clutch slipping on an icy road.  Interesting actually, reminds me of emergent behavior a little.  OK, tomorrow I will compile 2.1.0.  No easy task on a friggin' old Solaris box!  Anyway, thanks so much for your help.  BTW, PG and Slony power our website which just fronted one of the busiest sites on the Internet this past holiday season.  NoSQL my butt!  Amazingly great tech with Slony and PG.   
+
+Thanks again for the help.
+
+Cheers and Happy New Year!
+
+Mike Wilson
+JibJab Media
+office: (310) 314-4377
+AIM: lycovian
+
+
+
+On Dec 27, 2011, at 8:29 PM, Jan Wieck wrote:
+
+> This looks very much like a prime example of the log selection query problem, we fixed in 2.1. The catch up is getting slower and slower over time, until the log switch succeeds.
+> 
+> 
+> Jan
+> 
+> 
+> On 12/27/2011 8:25 PM, Steve Singer wrote:
+>> On Tue, 27 Dec 2011, Mike Wilson wrote:
+>> 
+>>> Thanks for the reply.  Per your questions here is additional information.  For the purposes of this discussion db1 (node: 101) is our Slave and db2 (node:102) is our Slony Master.
+>>> 
+>>>> On Tue, 27 Dec 2011, Mike Wilson wrote:
+>> 
+>>>> 
+>>>> 2. Now that you have killed the old vacuums you need to determine what if anything slony is doing.
+>>> During the period where the replication stopped I found several vacuums that had been running for upwards of 11 days.   I killed the processes (using pg_cancel_backup) and shortly after that started to get pings from Nagios which monitors the sl_status table that replication was falling behind.
+>>>> 
+>>>> a) Are new SYNC events being generated on the master?
+>>> I'm not sure how I determine this.
+>> 
+>> select max(ev_seqno) FROM sl_event where ev_origin=102;
+>> Every few seconds that number should be increasing.
+>> 
+>>> 
+>>> Here is the sl_status table from the master over the same few minutes:
+>>> =# select * from sl_status;
+>>> st_origin | st_received | st_last_event |      st_last_event_ts      | st_last_received |    st_last_received_ts     | st_last_received_event_ts  | st_lag_num_events |      st_lag_time
+>>> -----------+-------------+---------------+----------------------------+------------------+----------------------------+----------------------------+-------------------+------------------------
+>>>       102 |         101 |    5004119000 | 2011-12-27 10:06:44.327499 |       5003985169 | 2011-12-27 10:04:16.351454 | 2011-12-24 07:13:35.509854 |            133831 | 3 days 06:40:41.911154
+>>> 
+>>> =# select * from sl_status;
+>>> st_origin | st_received | st_last_event |      st_last_event_ts      | st_last_received |    st_last_received_ts     | st_last_received_event_ts  | st_lag_num_events |      st_lag_time
+>>> -----------+-------------+---------------+----------------------------+------------------+----------------------------+----------------------------+-------------------+------------------------
+>>>       102 |         101 |    5004119000 | 2011-12-27 10:06:44.327499 |       5003985169 | 2011-12-27 10:04:16.351454 | 2011-12-24 07:13:35.509854 |            133831 | 3 days 06:42:49.222796
+>>> 
+>>> As you can see the slaves st_last_event value appears to be increasing, whereas the master's appears to be static.
+>> 
+>> This tells me that (according to the master) the slave has so far processed
+>> event (102,5003985169) and the last event generated on the master is
+>> (102,5004119000).  This means that your slave is 133,831 events behind.  You
+>> didn't tell me what time you run the above query at.
+>> 
+>> If the above query was run at about 2011-12-27 10:06:xx then it proabably
+>> means that replication is now working normally but your slave is behind
+>> 133,000 events.
+>> 
+>> The line from your slave.slon.log below
+>> 2011-12-27 14:06:32 PSTINFO   remoteWorkerThread_102: SYNC 5003985339 done in 80.973 seconds
+>> 
+>> tells me that at 14:06:32 the slave processed a SYNC from the master that
+>> took 80 seconds to process.  Every 80 seconds or so you should be seeing
+>> another similar line.  The difference in the SYNC # in the previous
+>> log line and these one tells you how many SYNC's were processed in that
+>> 80.973 seconds.
+>> 
+>> Now that it is 6-8 or so hours later, is your cluster closing to being
+>> caught up or has it fallen more behind?
+>> 
+>> If your getting caught up then you should be able to estimate when you will
+>> be caught up.
+>> 
+>> If your falling even farther behind then your options are
+>> 
+>> 1) To unsubscribe + resubscribe the slave.  As I mentioned this morning that
+>> if your database is small enough and your network is fast enough this
+>> might be faster then letting it get caught up
+>> 2) If you can't resubscribe, then tune the the sync_interval(make it larger)
+>> on the master and tune the sync_max_groupsize (make it larger) on the slave
+>> as described
+>> http://www.slony.info/documentation/2.0/slon-config-interval.html to make
+>> the master generate fewer syncs and the slave to process more of those syncs
+>> together.
+>> 3) Consider upgrading your cluster to 2.1.0, you can upgrade from 2.0.7 to
+>> 2.1.0 on a cluster that is not caught up.
+>> 
+>> If my assumptions are correct then this is an instance of slony bug #167
+>> (fixed in 2.1.0) where sync processing in a cluster that is behind takes a
+>> lot longer than it should.  Your long running transactions made sl_log get
+>> very big and now slony takse longer to process a SYNC then it does to
+>> generate a new one.  2.1.0 should process SYNC events in this case much
+>> faster.
+>> 
+>> 
+>> 
+>> 
+>>> Thanks so much for your help thus far.  Please advise with any attempted
+>>> fixes you can think of or if you can possibly describe what is currently
+>>> going on.  Cheers.
+>>> 
+>>>> 
+>>>> Steve
+>>>> 
+>>>>> Under incredible load last week during the Christmas season our primary PG (8.4.7: Slony 2.0.7) stopped replicating.  Now that we are past the Christmas season I need to figure out how to clear the back log of replication rows in sl_log_1/2.  This is all running on our commercial website and if possible I would prefer not to have to restart the PG instance as it would require a scheduled maintenance window on a week where everyone is out of the office.  In an attempt to fix the issue without rebooting the PG instance and I've already restarted the Slony services on the primary PG node as a first attempt at a fix.  This did not get replication working again and I'm still getting the same error from Slony in the logs: log switch to sl_log_1 still in progress - sl_log_2 not truncated
+>>>>> 
+>>>>>>  From my research I can see that this error message is called when the function logswitch_finish() is called.  I did have some hung vacuums during this period of high load on the server but I have killed them with pg_cancel_backend.  From other lock analysis I can see that nothing is currently running or locked in the db (nothing more than a few milliseconds old at least).  I'm certain whatever transaction was in progress that prevented the switch from occurring is long since past.
+>>>>> 
+>>>>> Any ideas on the best way to get replication working again?  I'm adverse to rebooting the PG instance but I am willing to do it if someone more knowlegable out there thinks it would fix this issue.  We currently are operating without a backup of all of our XMas sales data and I *really* want to get this data replicated.  Any help would be appreciated.
+>>>>> 
+>>>>> Mike Wilson
+>>>>> Predicate Logic
+>>>>> Cell: (310) 600-8777
+>>>>> SkypeID: lycovian
+>>>>> 
+>>>>> 
+>>>>> 
+>>>>> 
+>>>>> _______________________________________________
+>>>>> Slony1-general mailing list
+>>>>> Slony1-general at lists.slony.info
+>>>>> http://lists.slony.info/mailman/listinfo/slony1-general
+>>>>> 
+>>>> 
+>>> 
+>>> 
+>> 
+>> _______________________________________________
+>> Slony1-general mailing list
+>> Slony1-general at lists.slony.info
+>> http://lists.slony.info/mailman/listinfo/slony1-general
+> 
+> 
+> -- 
+> Anyone who trades liberty for security deserves neither
+> liberty nor security. -- Benjamin Franklin
+
+
