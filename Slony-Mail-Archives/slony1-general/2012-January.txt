@@ -1,0 +1,76 @@
+From kleptog at gmail.com  Tue Jan  3 02:49:51 2012
+From: kleptog at gmail.com (Martijn van Oosterhout)
+Date: Tue, 3 Jan 2012 11:49:51 +0100
+Subject: [Slony1-general] Slony-I in strange state after attempted
+	unsubscribe/resubscribe
+Message-ID: <CADWG95soM=he7pH650myFz4FwWSV-qLf9BVmOwgH=xOFRn-Eyg@mail.gmail.com>
+
+Hoi,
+
+We have a Slony-I setup in a slightly weird situation. What happened
+was that the server did a huge delete (millions of rows) in a single
+transaction which caused the replication to start to run behind. For
+some reason in this state it takes forever to apply the change because
+the query to find out what it needs to apply does a sort or something
+because it doesn't want to apply the whole set at once. A single SYNC
+takes 10 minutes.
+
+In any case, the way we fixed it before was to unsubscribe and
+resubscribe the set, because resyncing the whole database is quicker
+than waiting for the deletes to complete. However, this time it broke
+in a new way. The result is that slony thinks it is properly
+subscribed, but the database data has not been resynced, so you get
+some bastard combination of old and new data. Logs below.
+
+Two questions:
+1. Is there a way we could have detected the unsubscribe failed
+(slonik gave no error, but we didn't ask). If so, we can add that to
+the procedure as something to check
+2. Seems like a bug to me, but pilot error is not impossible.
+
+Thanks in advance,
+
+2012-01-01 14:24:27 CETINFO   cleanupThread:    0.002 seconds for cleanupEvent()
+2012-01-01 14:24:27 CETINFO   cleanupThread:    0.006 seconds for vacuuming
+2012-01-01 14:30:55 CETINFO   remoteWorkerThread_1: SYNC 5000990612
+done in 733.067 seconds
+2012-01-01 14:30:55 CETINFO   remoteWorkerThread_1: syncing set 1 with
+50 table(s) from provider 1
+NOTICE:  Slony-I: log switch to sl_log_2 complete - truncate sl_log_1
+CONTEXT:  PL/pgSQL function "cleanupevent" line 99 at assignment
+2012-01-01 14:35:22 CETINFO   cleanupThread:    0.066 seconds for cleanupEvent()
+
+--- unsubscribe happens here ---
+2012-01-01 14:37:58 CETCONFIG unsubscribeSet: sub_set=1
+2012-01-01 14:37:58 CETCONFIG storeListen: li_origin=1 li_receiver=2
+li_provider=1
+--- this is the weird error ---
+2012-01-01 14:44:09 CETERROR  remoteWorkerThread_1: "update
+"_pp_config_rep".sl_setsync set     ssy_seqno = '5000990613',
+ssy_snapshot =  '20587190:20590885:20587190',     ssy_action_list = ''
+where ssy_setid in (1) and ssy_seqno < '5000990613'; " ERROR:  could
+not serialize access due to concurrent update
+2012-01-01 14:44:09 CETERROR  remoteWorkerThread_1: SYNC aborted
+2012-01-01 14:44:21 CETCONFIG remoteWorkerThread_1: update provider
+configuration
+2012-01-01 14:44:21 CETCONFIG remoteWorkerThread_1: helper thread for
+provider 1 terminated
+2012-01-01 14:44:21 CETCONFIG remoteWorkerThread_1: disconnecting from
+data provider 1
+2012-01-01 14:44:21 CETCONFIG storeSubscribe: sub_set=1 sub_provider=1
+sub_forward='t'
+2012-01-01 14:44:21 CETCONFIG storeListen: li_origin=1 li_receiver=2
+li_provider=1
+2012-01-01 14:44:21 CETCONFIG remoteWorkerThread_1: update provider
+configuration
+--- and here it appears slony thinks it is properly subscribed, but
+the database has not been resynced ---
+NOTICE:  Slony-I: Logswitch to sl_log_1 initiated
+CONTEXT:  SQL statement "SELECT "_pp_config_rep".logswitch_start()"
+PL/pgSQL function "cleanupevent" line 101 at PERFORM
+2012-01-01 14:46:29 CETINFO   cleanupThread:    0.015 seconds for cleanupEvent()
+
+
+-- 
+Martijn van Oosterhout <kleptog at gmail.com> http://svana.org/kleptog/
+
