@@ -74,3 +74,493 @@ PL/pgSQL function "cleanupevent" line 101 at PERFORM
 -- 
 Martijn van Oosterhout <kleptog at gmail.com> http://svana.org/kleptog/
 
+From ssinger at ca.afilias.info  Tue Jan  3 08:17:00 2012
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Tue, 03 Jan 2012 11:17:00 -0500
+Subject: [Slony1-general] Slony-I in strange state after attempted
+	unsubscribe/resubscribe
+In-Reply-To: <CADWG95soM=he7pH650myFz4FwWSV-qLf9BVmOwgH=xOFRn-Eyg@mail.gmail.com>
+References: <CADWG95soM=he7pH650myFz4FwWSV-qLf9BVmOwgH=xOFRn-Eyg@mail.gmail.com>
+Message-ID: <4F0329FC.1040409@ca.afilias.info>
+
+On 12-01-03 05:49 AM, Martijn van Oosterhout wrote:
+> Hoi,
+
+What version of Slony are you using?
+What version of Postgresql are you using?
+
+
+>
+> We have a Slony-I setup in a slightly weird situation. What happened
+> was that the server did a huge delete (millions of rows) in a single
+> transaction which caused the replication to start to run behind. For
+> some reason in this state it takes forever to apply the change because
+> the query to find out what it needs to apply does a sort or something
+> because it doesn't want to apply the whole set at once. A single SYNC
+> takes 10 minutes.
+>
+
+I suspect you hit bug #167 (fixed in 2.1.0) that makes sync operations 
+slow when sl_log_x gets big.
+
+
+> In any case, the way we fixed it before was to unsubscribe and
+> resubscribe the set, because resyncing the whole database is quicker
+> than waiting for the deletes to complete. However, this time it broke
+> in a new way. The result is that slony thinks it is properly
+> subscribed, but the database data has not been resynced, so you get
+> some bastard combination of old and new data. Logs below.
+>
+> Two questions:
+> 1. Is there a way we could have detected the unsubscribe failed
+> (slonik gave no error, but we didn't ask). If so, we can add that to
+> the procedure as something to check
+
+The proper procedure should be
+
+unsubscribe(id=1, receiver=2);
+wait for event(origin=2, confirmed=all, wait on=2);
+subscribe set(set id=1, provider=1,receiver=2,forward=yes);
+
+In 2.1 and above slonik should automatically perform the 'wait for event'.
+
+The slonik command 'unsubscribe set' gets submitted to the node being 
+unsubscribed (node 2).   If that command failed then slonik should have 
+caught the error.
+
+
+
+> 2. Seems like a bug to me, but pilot error is not impossible.
+>
+> Thanks in advance,
+>
+> 2012-01-01 14:24:27 CETINFO   cleanupThread:    0.002 seconds for cleanupEvent()
+> 2012-01-01 14:24:27 CETINFO   cleanupThread:    0.006 seconds for vacuuming
+> 2012-01-01 14:30:55 CETINFO   remoteWorkerThread_1: SYNC 5000990612
+> done in 733.067 seconds
+> 2012-01-01 14:30:55 CETINFO   remoteWorkerThread_1: syncing set 1 with
+> 50 table(s) from provider 1
+> NOTICE:  Slony-I: log switch to sl_log_2 complete - truncate sl_log_1
+> CONTEXT:  PL/pgSQL function "cleanupevent" line 99 at assignment
+> 2012-01-01 14:35:22 CETINFO   cleanupThread:    0.066 seconds for cleanupEvent()
+>
+> --- unsubscribe happens here ---
+> 2012-01-01 14:37:58 CETCONFIG unsubscribeSet: sub_set=1
+> 2012-01-01 14:37:58 CETCONFIG storeListen: li_origin=1 li_receiver=2
+> li_provider=1
+> --- this is the weird error ---
+> 2012-01-01 14:44:09 CETERROR  remoteWorkerThread_1: "update
+> "_pp_config_rep".sl_setsync set     ssy_seqno = '5000990613',
+> ssy_snapshot =  '20587190:20590885:20587190',     ssy_action_list = ''
+> where ssy_setid in (1) and ssy_seqno<  '5000990613'; " ERROR:  could
+> not serialize access due to concurrent update
+> 2012-01-01 14:44:09 CETERROR  remoteWorkerThread_1: SYNC aborted
+
+If the receivers remoteWorkerThread_1 is aborted because of the 
+unsubscribe then I don't see this as an issue.
+
+
+
+> 2012-01-01 14:44:21 CETCONFIG remoteWorkerThread_1: update provider
+> configuration
+> 2012-01-01 14:44:21 CETCONFIG remoteWorkerThread_1: helper thread for
+> provider 1 terminated
+> 2012-01-01 14:44:21 CETCONFIG remoteWorkerThread_1: disconnecting from
+> data provider 1
+> 2012-01-01 14:44:21 CETCONFIG storeSubscribe: sub_set=1 sub_provider=1
+> sub_forward='t'
+> 2012-01-01 14:44:21 CETCONFIG storeListen: li_origin=1 li_receiver=2
+> li_provider=1
+> 2012-01-01 14:44:21 CETCONFIG remoteWorkerThread_1: update provider
+> configuration
+> --- and here it appears slony thinks it is properly subscribed, but
+> the database has not been resynced ---
+
+What do you base this statement on?   I do not see anything in the logs 
+you pasted showing me that slon2 has received the SUBSCRIBE_SET or 
+ENABLE_SUBSCRIPTION event.
+
+What is sl_subscribe on node 2 at this point in time?
+Does node 2 have a record in sl_event of it having processed those two 
+events?
+
+
+
+
+
+
+> NOTICE:  Slony-I: Logswitch to sl_log_1 initiated
+> CONTEXT:  SQL statement "SELECT "_pp_config_rep".logswitch_start()"
+> PL/pgSQL function "cleanupevent" line 101 at PERFORM
+> 2012-01-01 14:46:29 CETINFO   cleanupThread:    0.015 seconds for cleanupEvent()
+>
+>
+
+
+From cbbrowne at afilias.info  Tue Jan  3 08:33:09 2012
+From: cbbrowne at afilias.info (Christopher Browne)
+Date: Tue, 3 Jan 2012 11:33:09 -0500
+Subject: [Slony1-general] Slony-I in strange state after attempted
+	unsubscribe/resubscribe
+In-Reply-To: <CADWG95soM=he7pH650myFz4FwWSV-qLf9BVmOwgH=xOFRn-Eyg@mail.gmail.com>
+References: <CADWG95soM=he7pH650myFz4FwWSV-qLf9BVmOwgH=xOFRn-Eyg@mail.gmail.com>
+Message-ID: <CANfbgbbByGLZc_usNnYeF=RVqnadW1XfMMtHcazFH7W0KXdBcg@mail.gmail.com>
+
+On Tue, Jan 3, 2012 at 5:49 AM, Martijn van Oosterhout
+<kleptog at gmail.com> wrote:
+> Hoi,
+>
+> We have a Slony-I setup in a slightly weird situation. What happened
+> was that the server did a huge delete (millions of rows) in a single
+> transaction which caused the replication to start to run behind. For
+> some reason in this state it takes forever to apply the change because
+> the query to find out what it needs to apply does a sort or something
+> because it doesn't want to apply the whole set at once. A single SYNC
+> takes 10 minutes.
+
+If SYNCs before the big one are applying very slowly, then it sounds
+like you're hitting bug #167.
+<http://www.slony.info/bugzilla/show_bug.cgi?id=167>
+
+Note that we fixed that in version 2.1, so I'll guess you're not on 2.1.
+
+In the case of that huge update, that will indeed be applied in a
+single SYNC; once you'd hit that SYNC, it's liable to process for a
+good long time (hours?).
+
+> In any case, the way we fixed it before was to unsubscribe and
+> resubscribe the set, because resyncing the whole database is quicker
+> than waiting for the deletes to complete. However, this time it broke
+> in a new way. The result is that slony thinks it is properly
+> subscribed, but the database data has not been resynced, so you get
+> some bastard combination of old and new data. Logs below.
+
+Unfortunately, the UNSUBSCRIBE request comes in as an event, and it's
+later in the event stream than the SYNC-of-the-million-deletes, so
+it's probably not processing when you think it ought to.
+
+> Two questions:
+> 1. Is there a way we could have detected the unsubscribe failed
+> (slonik gave no error, but we didn't ask). If so, we can add that to
+> the procedure as something to check
+
+It's quite likely that nothing about the UNSUBSCRIBE *did* fail.  It's
+just that it's waiting to process the event until *after* the big clot
+of log data in that huge SYNC that you had.
+
+Unfortunately, that's not remotely the result you were hoping for; you
+were hoping to cancel the set *before* processing the awful huge SYNC.
+
+I don't think we have any particularly wonderful solution to this.  I
+imagined that we had a bug open on having a "Cancel Subscription"
+command, which is pretty nearly similar, but I can't find it.  It
+would be nice to have a "trample on that subscription - it's not valid
+or wanted anymore" command.
+
+From kleptog at gmail.com  Tue Jan  3 09:31:24 2012
+From: kleptog at gmail.com (Martijn van Oosterhout)
+Date: Tue, 3 Jan 2012 18:31:24 +0100
+Subject: [Slony1-general] Slony-I in strange state after attempted
+	unsubscribe/resubscribe
+In-Reply-To: <4F0329FC.1040409@ca.afilias.info>
+References: <CADWG95soM=he7pH650myFz4FwWSV-qLf9BVmOwgH=xOFRn-Eyg@mail.gmail.com>
+	<4F0329FC.1040409@ca.afilias.info>
+Message-ID: <CADWG95tn3K7SWOncK1J89keGb1r8sArEMoqJxxu9Gbn5HEqMDA@mail.gmail.com>
+
+Hoi,
+
+> What version of Slony are you using?
+> What version of Postgresql are you using?
+
+Sorry, I should have mentioned: slony-I 2.0.7, PostgreSQL 9.0.3
+
+> I suspect you hit bug #167 (fixed in 2.1.0) that makes sync operations slow
+> when sl_log_x gets big.
+
+Well, the symptoms look about right. Might see if I can push to get an
+upgrade to at least that version.
+
+> unsubscribe(id=1, receiver=2);
+> wait for event(origin=2, confirmed=all, wait on=2);
+> subscribe set(set id=1, provider=1,receiver=2,forward=yes);
+>
+> In 2.1 and above slonik should automatically perform the 'wait for event'.
+
+Ok, that's good to know. Currently we're doing:
+
+slonik_unsubscribe_set -c /etc/slony_tools.conf 1 2 |slonik
+
+which is quite possibly not the recommended way. But the output is
+just an unsubscribe with a try .. on error .. block around it.
+
+>> --- unsubscribe happens here ---
+>> 2012-01-01 14:37:58 CETCONFIG unsubscribeSet: sub_set=1
+>> 2012-01-01 14:37:58 CETCONFIG storeListen: li_origin=1 li_receiver=2
+>> li_provider=1
+>> --- this is the weird error ---
+>> 2012-01-01 14:44:09 CETERROR ?remoteWorkerThread_1: "update
+>> "_pp_config_rep".sl_setsync set ? ? ssy_seqno = '5000990613',
+>> ssy_snapshot = ?'20587190:20590885:20587190', ? ? ssy_action_list = ''
+>> where ssy_setid in (1) and ssy_seqno< ?'5000990613'; " ERROR: ?could
+>> not serialize access due to concurrent update
+>> 2012-01-01 14:44:09 CETERROR ?remoteWorkerThread_1: SYNC aborted
+>
+> If the receivers remoteWorkerThread_1 is aborted because of the unsubscribe
+> then I don't see this as an issue.
+
+Given the timing I wonder if it's the subscribe that's actually failing...
+
+>> 2012-01-01 14:44:21 CETCONFIG remoteWorkerThread_1: update provider
+>> configuration
+>> 2012-01-01 14:44:21 CETCONFIG remoteWorkerThread_1: helper thread for
+>> provider 1 terminated
+>> 2012-01-01 14:44:21 CETCONFIG remoteWorkerThread_1: disconnecting from
+>> data provider 1
+>> 2012-01-01 14:44:21 CETCONFIG storeSubscribe: sub_set=1 sub_provider=1
+>> sub_forward='t'
+>> 2012-01-01 14:44:21 CETCONFIG storeListen: li_origin=1 li_receiver=2
+>> li_provider=1
+>> 2012-01-01 14:44:21 CETCONFIG remoteWorkerThread_1: update provider
+>> configuration
+>> --- and here it appears slony thinks it is properly subscribed, but
+>> the database has not been resynced ---
+>
+> What do you base this statement on? ? I do not see anything in the logs you
+> pasted showing me that slon2 has received the SUBSCRIBE_SET or
+> ENABLE_SUBSCRIPTION event.
+
+Well, I'm basing it on that the logs repeated this for two days:
+
+2012-01-02 12:31:47 CETINFO   cleanupThread:    0.004 seconds for cleanupEvent()
+NOTICE:  Slony-I: log switch to sl_log_2 complete - truncate sl_log_1
+CONTEXT:  PL/pgSQL function "cleanupevent" line 99 at assignment
+2012-01-02 12:43:15 CETINFO   cleanupThread:    0.079 seconds for cleanupEvent()
+2012-01-02 12:43:15 CETINFO   cleanupThread:    0.006 seconds for vacuuming
+NOTICE:  Slony-I: Logswitch to sl_log_1 initiated
+CONTEXT:  SQL statement "SELECT "_pp_config_rep".logswitch_start()"
+PL/pgSQL function "cleanupevent" line 101 at PERFORM
+2012-01-02 12:54:30 CETINFO   cleanupThread:    0.004 seconds for cleanupEvent()
+NOTICE:  Slony-I: log switch to sl_log_1 complete - truncate sl_log_2
+CONTEXT:  PL/pgSQL function "cleanupevent" line 99 at assignment
+2012-01-02 13:05:14 CETINFO   cleanupThread:    0.096 seconds for cleanupEvent()
+NOTICE:  Slony-I: Logswitch to sl_log_2 initiated
+CONTEXT:  SQL statement "SELECT "_pp_config_rep".logswitch_start()"
+
+So it was doing something, but now you mention it, there are no SYNCs,
+so perhaps it wasn't subscribed.
+
+This is the log for the slave, and it says there "storeSubscribe".
+doesn't that mean it received a SUBSCRIBE_SET?
+
+> What is sl_subscribe on node 2 at this point in time?
+> Does node 2 have a record in sl_event of it having processed those two
+> events?
+
+Unfortunately I don't have that information available, but it looks
+like pilot error (the user claimed there were no errors) after all:
+the subscribe didn't work.
+
+Have a nice day,
+-- 
+Martijn van Oosterhout <kleptog at gmail.com> http://svana.org/kleptog/
+
+From kleptog at gmail.com  Tue Jan  3 09:34:04 2012
+From: kleptog at gmail.com (Martijn van Oosterhout)
+Date: Tue, 3 Jan 2012 18:34:04 +0100
+Subject: [Slony1-general] Slony-I in strange state after attempted
+	unsubscribe/resubscribe
+In-Reply-To: <CANfbgbbByGLZc_usNnYeF=RVqnadW1XfMMtHcazFH7W0KXdBcg@mail.gmail.com>
+References: <CADWG95soM=he7pH650myFz4FwWSV-qLf9BVmOwgH=xOFRn-Eyg@mail.gmail.com>
+	<CANfbgbbByGLZc_usNnYeF=RVqnadW1XfMMtHcazFH7W0KXdBcg@mail.gmail.com>
+Message-ID: <CADWG95uB_xc-aAcVTRodhAYV2VyC-R1vuVS0FzoPNriUw9ckbw@mail.gmail.com>
+
+I responded to I think most of your points in the other email, but
+there is one thing:
+
+On 3 January 2012 17:33, Christopher Browne <cbbrowne at afilias.info> wrote:
+> On Tue, Jan 3, 2012 at 5:49 AM, Martijn van Oosterhout
+> <kleptog at gmail.com> wrote:
+>> In any case, the way we fixed it before was to unsubscribe and
+>> resubscribe the set, because resyncing the whole database is quicker
+>> than waiting for the deletes to complete. However, this time it broke
+>> in a new way. The result is that slony thinks it is properly
+>> subscribed, but the database data has not been resynced, so you get
+>> some bastard combination of old and new data. Logs below.
+>
+> Unfortunately, the UNSUBSCRIBE request comes in as an event, and it's
+> later in the event stream than the SYNC-of-the-million-deletes, so
+> it's probably not processing when you think it ought to.
+
+In our experience whenever the replication is behind, doing an
+unsubscribe is acted upon immediately. I always thought this was by
+design, though I couldn't work out why. But you're saying it shouldn't
+work at all... That's just weird.
+
+I'll have to pay more attention next time to see exactly what happened.
+
+Have a nice day,
+-- 
+Martijn van Oosterhout <kleptog at gmail.com> http://svana.org/kleptog/
+
+From ssinger at ca.afilias.info  Tue Jan  3 10:05:11 2012
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Tue, 03 Jan 2012 13:05:11 -0500
+Subject: [Slony1-general] Slony-I in strange state after attempted
+	unsubscribe/resubscribe
+In-Reply-To: <CADWG95uB_xc-aAcVTRodhAYV2VyC-R1vuVS0FzoPNriUw9ckbw@mail.gmail.com>
+References: <CADWG95soM=he7pH650myFz4FwWSV-qLf9BVmOwgH=xOFRn-Eyg@mail.gmail.com>	<CANfbgbbByGLZc_usNnYeF=RVqnadW1XfMMtHcazFH7W0KXdBcg@mail.gmail.com>
+	<CADWG95uB_xc-aAcVTRodhAYV2VyC-R1vuVS0FzoPNriUw9ckbw@mail.gmail.com>
+Message-ID: <4F034357.3070906@ca.afilias.info>
+
+On 12-01-03 12:34 PM, Martijn van Oosterhout wrote:
+> I responded to I think most of your points in the other email, but
+> there is one thing:
+
+>>
+>> Unfortunately, the UNSUBSCRIBE request comes in as an event, and it's
+>> later in the event stream than the SYNC-of-the-million-deletes, so
+>> it's probably not processing when you think it ought to.
+>
+> In our experience whenever the replication is behind, doing an
+> unsubscribe is acted upon immediately. I always thought this was by
+> design, though I couldn't work out why. But you're saying it shouldn't
+> work at all... That's just weird.
+
+I think Martijn is correct, my understanding of the code in 
+slonik_unsubscribe_set (slonik.c) is that the command gets submitted to 
+the receiver.
+
+
+
+>
+> I'll have to pay more attention next time to see exactly what happened.
+>
+> Have a nice day,
+
+
+From ssinger at ca.afilias.info  Tue Jan  3 10:29:38 2012
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Tue, 03 Jan 2012 13:29:38 -0500
+Subject: [Slony1-general] Slony-I in strange state after attempted
+	unsubscribe/resubscribe
+In-Reply-To: <CADWG95tn3K7SWOncK1J89keGb1r8sArEMoqJxxu9Gbn5HEqMDA@mail.gmail.com>
+References: <CADWG95soM=he7pH650myFz4FwWSV-qLf9BVmOwgH=xOFRn-Eyg@mail.gmail.com>	<4F0329FC.1040409@ca.afilias.info>
+	<CADWG95tn3K7SWOncK1J89keGb1r8sArEMoqJxxu9Gbn5HEqMDA@mail.gmail.com>
+Message-ID: <4F034912.50606@ca.afilias.info>
+
+On 12-01-03 12:31 PM, Martijn van Oosterhout wrote:
+> Hoi,
+>
+>> What version of Slony are you using?
+>> What version of Postgresql are you using?
+>
+> Sorry, I should have mentioned: slony-I 2.0.7, PostgreSQL 9.0.3
+>
+>
+>>
+>> What do you base this statement on?   I do not see anything in the logs you
+>> pasted showing me that slon2 has received the SUBSCRIBE_SET or
+>> ENABLE_SUBSCRIPTION event.
+>
+> Well, I'm basing it on that the logs repeated this for two days:
+>
+> 2012-01-02 12:31:47 CETINFO   cleanupThread:    0.004 seconds for cleanupEvent()
+> NOTICE:  Slony-I: log switch to sl_log_2 complete - truncate sl_log_1
+> CONTEXT:  PL/pgSQL function "cleanupevent" line 99 at assignment
+> 2012-01-02 12:43:15 CETINFO   cleanupThread:    0.079 seconds for cleanupEvent()
+> 2012-01-02 12:43:15 CETINFO   cleanupThread:    0.006 seconds for vacuuming
+> NOTICE:  Slony-I: Logswitch to sl_log_1 initiated
+> CONTEXT:  SQL statement "SELECT "_pp_config_rep".logswitch_start()"
+> PL/pgSQL function "cleanupevent" line 101 at PERFORM
+> 2012-01-02 12:54:30 CETINFO   cleanupThread:    0.004 seconds for cleanupEvent()
+> NOTICE:  Slony-I: log switch to sl_log_1 complete - truncate sl_log_2
+> CONTEXT:  PL/pgSQL function "cleanupevent" line 99 at assignment
+> 2012-01-02 13:05:14 CETINFO   cleanupThread:    0.096 seconds for cleanupEvent()
+> NOTICE:  Slony-I: Logswitch to sl_log_2 initiated
+> CONTEXT:  SQL statement "SELECT "_pp_config_rep".logswitch_start()"
+>
+
+
+The above log messages are normal activities for the cleanup thread. 
+They don't indicate a problem.
+
+
+> So it was doing something, but now you mention it, there are no SYNCs,
+> so perhaps it wasn't subscribed.
+
+If you had a set subscribed you would see messages like
+
+CETINFO remoteWorkerThread_1 syncing set %d with %d table(s) from 
+provider %d
+
+on each sync.
+
+If you are not subscribed to any sets but are processing SYNC events 
+(slon should still be processing SYNC events even if it isn't subscribed 
+to anything)
+You would see
+
+CETDEBUG1 no sets need syncing for this event\n
+
+in the log.  However that message is at the DEBUG level, and if you are 
+running slon at the INFO level you will need to bump up the verbosity of 
+slon to see it.
+
+ From your log snippet I would say either
+
+1) You are not subscribed to the set, and node 2 has not processed the 
+ENABLE_SUBSCRIPTION event.
+
+2) You are subscribed to the set but are not receiving or processing any 
+events from node 1 (for some unknown reason)
+
+Querying sl_status on the master would have told you how far behind the 
+slave is.
+
+
+
+
+>
+> This is the log for the slave, and it says there "storeSubscribe".
+> doesn't that mean it received a SUBSCRIBE_SET?
+>
+
+The message
+
+CETCONFIG storeSubscribe: sub_set=%d sub_provider=%d sub_forward='%s
+
+comes from the function rtcfg_storeSubscribe which gets called both on 
+startup and when a SUBSCRIBE_SET event is processed.
+
+If the ENABLE_SUBSCRIPTION command was processed then it should have 
+called rtcfg_enableSubscription and would have seen
+
+CETCONFIG enableSubscription: sub_set=%d\n"
+
+which I didn't see in the log.
+
+The data copy takes place in response to the ENABLE_SUBSCRIPTION event.
+
+
+
+
+>> What is sl_subscribe on node 2 at this point in time?
+>> Does node 2 have a record in sl_event of it having processed those two
+>> events?
+>
+> Unfortunately I don't have that information available, but it looks
+> like pilot error (the user claimed there were no errors) after all:
+> the subscribe didn't work.
+>
+
+The subscribe event gets submitted to the origin (or the provider, 
+depending on the version of slony, but in this case I think they are the 
+same).   The SUBSCRIBE_SET and ENABLE_SUBSCRIPTION events then need to 
+get replicated to the receiver that will start the copy_set.
+
+
+
+
+> Have a nice day,
+
+
