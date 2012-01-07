@@ -133,3 +133,74 @@ Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
 ------- You are receiving this mail because: -------
 You are on the CC list for the bug.
 
+From bugzilla-daemon at main.slony.info  Thu Jan  5 07:23:50 2012
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu,  5 Jan 2012 07:23:50 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 258] New: cleanup thread can block waiting on a
+	lock
+Message-ID: <bug-258-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=258
+
+           Summary: cleanup thread can block waiting on a lock
+           Product: Slony-I
+           Version: devel
+          Platform: PC
+        OS/Version: Linux
+            Status: NEW
+          Severity: enhancement
+          Priority: low
+         Component: stored procedures
+        AssignedTo: slony1-bugs at lists.slony.info
+        ReportedBy: ssinger at ca.afilias.info
+                CC: slony1-bugs at lists.slony.info
+   Estimated Hours: 0.0
+
+
+We have observed cases where the cleanupThread will block waiting on a lock
+before truncating sl_log_1 (or sl_log_2).  While the cleanup thread is waiting
+no slon remoteHelper threads are able to query the sl_log tables.
+
+Try the following
+
+T1: begin;
+T1: select * FROM _test.sl_log_1;
+T2: begin;
+T2; lock table _test.sl_log_1 in exclusive mode nowait;
+T2: truncate _test.sl_log_1;
+
+T2 blocks on the truncate even though it got the exclusive lock.
+
+If we change the 'lock table' to get an access exclusive lock then it will fail
+due to the nowait.
+
+I propose we modify the cleanup function to do this.
+Patch to be atttached.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Thu Jan  5 10:00:12 2012
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu,  5 Jan 2012 10:00:12 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 258] cleanup thread can block waiting on a lock
+In-Reply-To: <bug-258-4@http.www.slony.info/bugzilla/>
+References: <bug-258-4@http.www.slony.info/bugzilla/>
+Message-ID: <20120105180013.13FCD290E7D@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=258
+
+--- Comment #1 from Steve Singer <ssinger at ca.afilias.info> 2012-01-05 10:00:12 PST ---
+Created an attachment (id=140)
+ --> (http://www.slony.info/bugzilla/attachment.cgi?id=140)
+Fix for bug 258
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
