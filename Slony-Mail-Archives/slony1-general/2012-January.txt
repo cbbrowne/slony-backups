@@ -663,3 +663,72 @@ release candidates but need more time then they should ask.
 
 
 
+From ssinger at ca.afilias.info  Wed Jan 18 13:48:40 2012
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Wed, 18 Jan 2012 16:48:40 -0500
+Subject: [Slony1-general] Cluster reshaping in 2.2
+Message-ID: <4F173E38.8050903@ca.afilias.info>
+
+In Slony 2.2 we have decided to disallow cluster configurations like
+
+  Node 100
+     set 1, set 2----->Node 102
+      |                  set 2
+      |                   |
+      V                   V
+   Node 101----------->Node 103
+      set 1              set 1, set 2
+
+
+A node that receives multiple sets from the same origin will now need to 
+receive those sets from the same provider.  Jan wrote about this
+http://lists.slony.info/pipermail/slony1-general/2011-December/011997.html
+
+A question that has come up is how should the subscribe set command 
+behave when you reshape a cluster.
+
+Say you have
+
+Node 100----------------------->Node 102
+   set 1,set 2                  set 1, set 2
+    |
+    |
+    V
+Node 103
+   set 1, set 2
+
+then you want to make node 103 receive from 102 instead of from 100.
+
+Today you would do
+subscribe set(id=1,provider=102,receiver=103,forward=yes);
+subscribe set(id=2,provider=102,receiver=103,forward=yes);
+
+that won't work anymore because it leaves the cluster in an invalid 
+intermediate state.
+
+We can instead
+
+1)  Make the first subscribe set automatically also move set 2.  This 
+will preserve existing slonik scripts but will mean that the old slonik 
+scripts do something different than they used to (a subscribe set to 
+reshape set 1 might also change the subscription for set 2).
+
+2) Make slonik fail if you try to resubscribe a set with subscribe set 
+that would leave you in an invalid state after the first command. 
+Instead you would need to use a new 'reshape subscription' command that 
+was like 'reshape subscriptions(receiver=103, old provider=101, new 
+provider=101);
+
+3) Make slonik fail if you ever try the subscribe set command in cases 
+where the receiver is already subscribed to the set but from a different 
+provider.  All reshaping would need to go through the 'reshape 
+subscriptions' command described above?
+
+
+I am leaning towards (3).   What do others think?
+
+Steve
+
+
+
+
