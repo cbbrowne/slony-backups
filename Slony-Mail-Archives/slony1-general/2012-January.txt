@@ -886,3 +886,130 @@ quit_sync_finalsync parameter is not accepted correctly by slony 2.1.0.
 Thanks in advance,
 - Brian F
 
+From steve at ssinger.info  Sun Jan 22 08:16:48 2012
+From: steve at ssinger.info (Steve Singer)
+Date: Sun, 22 Jan 2012 11:16:48 -0500
+Subject: [Slony1-general] Slave can't catch up,
+ postgres error 'stack depth limit exceeded'
+In-Reply-To: <4F1BE396.6080909@consistentstate.com>
+References: <4F1BE396.6080909@consistentstate.com>
+Message-ID: <BLU0-SMTP130FABE289127C0F6952168DC850@phx.gbl>
+
+On Sun, 22 Jan 2012, Brian Fehrle wrote:
+
+> Hi all,
+>
+> PostgreSQL 9.1.2
+> Slony 2.1.0
+
+Set max_stack_depth in your postgresql.conf to something higher.
+
+sync_group_maxsize in your slon.conf to something low MIGHT help (ie 1 or 2) 
+but I think the default in 2.1 is pretty low anyway (like 20).
+
+
+
+
+
+>
+> I am having some trouble getting a slon node caught up on events. It's a
+> larger database, 350 or so Gigs, and I added a node to a replication set
+> and while it was doing the initial sync, the server that the slon
+> daemons were running on died. It wasn't until about 5 hours later we got
+> the daemons running on a different node and it restarted (i assume it
+> restarted) the initial sync.
+>
+> From what I can tell, it finished the initial sync, however now it's
+> unable to catch up due to the following error line (reduced in size,
+> don't know how many elements there actually were but the single line had
+> about 18 million characters):
+> 2012-01-22 04:43:07 EST ERROR  remoteWorkerThread_1: "declare LOG cursor
+> for select log_origin, log_txid, log_tableid, log_actionseq,
+> log_cmdtype, octet_length(log_cmddata), case when
+> octet_length(log_cmddata) <= 1024 then log_cmddata else null end from
+> "_myslonycluster".sl_log_1 where log_origin = 1 and log_tableid in
+> (2,3,4,5,6,7,1,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,94,95,96,97,98,99,100,101,102,103,104,105,106,107,108,109,110,111,112,113,114,115,116,117,118,119,120,121,122)
+> and log_txid >= '34299501' and log_txid < '34311624' and
+> "pg_catalog".txid_visible_in_snapshot(log_txid, '34311624:34311624:')
+> and (  log_actionseq <> '2474682'  and  log_actionseq <> '2403310'  and
+> log_actionseq <> '2427861'  and
+> <SNIP, repeated many thousands of times with different numbers>
+> '  and  log_actionseq <> '2520797'  and  log_actionseq <> '2519348'
+> and  log_actionseq <> '2485828'  and  log_actionseq <> '2523367'  and
+> log_actionseq <> '2469096'  and  log_actionseq <> '2520589'  and
+> log_actionseq <> '2414071'  and  log_actionseq <> '2391417' ) order by
+> log_actionseq" PGRES_FATAL_ERROR ERROR:  stack depth limit exceeded
+>
+> I found someone with a similar(ish) issue back in the day, and a
+> function called compress_actionseq was mentioned. I turned up debugging
+> to level 4 and see that it is indeed compressing the actionseq, and I
+> looked at the code and it also looks like the above output IS the
+> compressed sequence.
+>
+> Now, this seems to be a tricky setting to tweak on postgres, so I'd
+> rather not unless I had to. So my thoughts were to hopefully just force
+> slony to try to do smaller syncs at a time. I tried reducing (and for
+> the heck of it increasing) the group size, desired_sync_time,
+> sync_max_rowsize, and sync_max_largemem. However nothing has altered the
+> size of this query that is being executed on the database.
+>
+> Any thoughts, suggestions? The initial sync of slony takes about 14
+> hours, so I'd rather not drop the node and re-attach it. In fact I have
+> two nodes in the same issue, stuck at the same event, so I'd rather just
+> get them both synced up without doing another initial sync.
+>
+> Also, I toyed with the idea of forcing slon daemon to only sync up to a
+> specific event, in hopes to do blocks of say 500 events, however the
+> quit_sync_finalsync parameter is not accepted correctly by slony 2.1.0.
+> (I've submitted a email to this list about this too).
+>
+> Thanks in advance,
+> - Brian F
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+>
+
+
+From steve at ssinger.info  Sun Jan 22 08:21:32 2012
+From: steve at ssinger.info (Steve Singer)
+Date: Sun, 22 Jan 2012 11:21:32 -0500
+Subject: [Slony1-general] Initial subscription disk space issue
+In-Reply-To: <CAAFQqzQFPrFS21Du=jf35LDASG8CVsoa104Aj_9OOhQ9VKYJ3g@mail.gmail.com>
+References: <CAAFQqzQFPrFS21Du=jf35LDASG8CVsoa104Aj_9OOhQ9VKYJ3g@mail.gmail.com>
+Message-ID: <BLU0-SMTP347D7B74B18A48920014423DC850@phx.gbl>
+
+On Fri, 20 Jan 2012, Zac Bentley wrote:
+
+> We have a test cluster of machines that we run Slony
+> (2.0.7/postgres8.4/centos6) on in our facility. In the past, in order to
+> update the cluster to the latest application code, we have simply wiped the
+> servers, reinstalled a fresh configuration of centOS, Slony, postgres etc,
+> restored the same pg_dump to each database, and then created the main
+> replication set and kicked off subscription. This worked for the past few
+> months, but recently, every time I kick off initial subscription, the
+> postgres database files simply grow until the servers run out of disk space.
+> This is more than a doubling of our database size; it is going from 18G
+> (normal) to around 40G. I can watch the Slony logs, and see that a table
+> copy on a very large and complex table in our application has just finished
+> (the table alone is 2GB), and I can watch the postgres server status and see
+> that FinishTableAfterCopy is running on the large table. However, the server
+> always runs out of disk space before subscription can complete. Our
+> application has experienced slow linear growth for the past months, and none
+> of these tables are unusually large. Is there any reason you can think of
+> that subscription has started filling up 2x the database's size on the disk?
+
+It isn't clear to me from your description if the slave is growing or if the 
+master is growing.  Also check which tables are growing/using up the space?
+(pg_size_pretty(pg_total_relation_size())
+
+While the subscription is going on sl_log_1 or sl_log_2 on the master will 
+grow until the entire subscribe process is complete but you would have to be 
+doing a significant transaction volume to double your database size that 
+way.
+
+Steve
+
+
+
