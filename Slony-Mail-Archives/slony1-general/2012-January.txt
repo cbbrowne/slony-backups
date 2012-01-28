@@ -1217,3 +1217,177 @@ problems are found).  If any testers/packages plan on looking at the
 release candidates but need more time then they should ask.
 
 
+From steve at ssinger.info  Thu Jan 26 17:29:56 2012
+From: steve at ssinger.info (Steve Singer)
+Date: Thu, 26 Jan 2012 20:29:56 -0500
+Subject: [Slony1-general] Slave can't catch up,
+ postgres error 'stack depth limit exceeded'
+In-Reply-To: <CAF6yO=37vpmEObQ=Ay3s6=Je4ASOn+Rb1T5bFV3vT9RnQ+QxQw@mail.gmail.com>
+References: <4F1BE396.6080909@consistentstate.com>
+	<BLU0-SMTP130FABE289127C0F6952168DC850@phx.gbl>
+	<CAF6yO=37vpmEObQ=Ay3s6=Je4ASOn+Rb1T5bFV3vT9RnQ+QxQw@mail.gmail.com>
+Message-ID: <BLU0-SMTP2609BC0196E0D7A6311832DDC8E0@phx.gbl>
+
+On Tue, 24 Jan 2012, C?dric Villemain wrote:
+
+> Le 22 janvier 2012 17:16, Steve Singer <steve at ssinger.info> a ?crit :
+>> On Sun, 22 Jan 2012, Brian Fehrle wrote:
+
+>
+> but ... isn't it slony which should not use more than
+> default_stack_size ? can't there be an underlining bug ?
+
+If slony is leaking memory or if the compression routine for the snapshot 
+id's isn't working properly then it is a bug.  I haven't seen any evidence 
+of this (nor have I analyzed the entire contents of his sl_event to figure 
+out if that is the case).
+
+If a single SYNC group really had a lot of active xids such that it exceeded 
+the amount of text that can be passed to a function with the default stack 
+size then this isn't a bug.
+
+In 2.2 on a failed SYNC slon should now dynamically shrink the SYNC group 
+size until it works (or reaches a size of 1).
+
+
+
+>
+>>
+>>
+>>
+>>
+>>
+>>>
+>>> I am having some trouble getting a slon node caught up on events. It's a
+>>> larger database, 350 or so Gigs, and I added a node to a replication set
+>>> and while it was doing the initial sync, the server that the slon
+>>> daemons were running on died. It wasn't until about 5 hours later we got
+>>> the daemons running on a different node and it restarted (i assume it
+>>> restarted) the initial sync.
+>>>
+>>> From what I can tell, it finished the initial sync, however now it's
+>>> unable to catch up due to the following error line (reduced in size,
+>>> don't know how many elements there actually were but the single line had
+>>> about 18 million characters):
+>>> 2012-01-22 04:43:07 EST ERROR ?remoteWorkerThread_1: "declare LOG cursor
+>>> for select log_origin, log_txid, log_tableid, log_actionseq,
+>>> log_cmdtype, octet_length(log_cmddata), case when
+>>> octet_length(log_cmddata) <= 1024 then log_cmddata else null end from
+>>> "_myslonycluster".sl_log_1 where log_origin = 1 and log_tableid in
+>>> (2,3,4,5,6,7,1,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,94,95,96,97,98,99,100,101,102,103,104,105,106,107,108,109,110,111,112,113,114,115,116,117,118,119,120,121,122)
+>>> and log_txid >= '34299501' and log_txid < '34311624' and
+>>> "pg_catalog".txid_visible_in_snapshot(log_txid, '34311624:34311624:')
+>>> and ( ?log_actionseq <> '2474682' ?and ?log_actionseq <> '2403310' ?and
+>>> log_actionseq <> '2427861' ?and
+>>> <SNIP, repeated many thousands of times with different numbers>
+>>> ' ?and ?log_actionseq <> '2520797' ?and ?log_actionseq <> '2519348'
+>>> and ?log_actionseq <> '2485828' ?and ?log_actionseq <> '2523367' ?and
+>>> log_actionseq <> '2469096' ?and ?log_actionseq <> '2520589' ?and
+>>> log_actionseq <> '2414071' ?and ?log_actionseq <> '2391417' ) order by
+>>> log_actionseq" PGRES_FATAL_ERROR ERROR: ?stack depth limit exceeded
+>>>
+>>> I found someone with a similar(ish) issue back in the day, and a
+>>> function called compress_actionseq was mentioned. I turned up debugging
+>>> to level 4 and see that it is indeed compressing the actionseq, and I
+>>> looked at the code and it also looks like the above output IS the
+>>> compressed sequence.
+>>>
+>>> Now, this seems to be a tricky setting to tweak on postgres, so I'd
+>>> rather not unless I had to. So my thoughts were to hopefully just force
+>>> slony to try to do smaller syncs at a time. I tried reducing (and for
+>>> the heck of it increasing) the group size, desired_sync_time,
+>>> sync_max_rowsize, and sync_max_largemem. However nothing has altered the
+>>> size of this query that is being executed on the database.
+>>>
+>>> Any thoughts, suggestions? The initial sync of slony takes about 14
+>>> hours, so I'd rather not drop the node and re-attach it. In fact I have
+>>> two nodes in the same issue, stuck at the same event, so I'd rather just
+>>> get them both synced up without doing another initial sync.
+>>>
+>>> Also, I toyed with the idea of forcing slon daemon to only sync up to a
+>>> specific event, in hopes to do blocks of say 500 events, however the
+>>> quit_sync_finalsync parameter is not accepted correctly by slony 2.1.0.
+>>> (I've submitted a email to this list about this too).
+>>>
+>>> Thanks in advance,
+>>> - Brian F
+>>> _______________________________________________
+>>> Slony1-general mailing list
+>>> Slony1-general at lists.slony.info
+>>> http://lists.slony.info/mailman/listinfo/slony1-general
+>>>
+>>
+>> _______________________________________________
+>> Slony1-general mailing list
+>> Slony1-general at lists.slony.info
+>> http://lists.slony.info/mailman/listinfo/slony1-general
+>
+>
+>
+> -- 
+> C?dric Villemain +33 (0)6 20 30 22 52
+> http://2ndQuadrant.fr/
+> PostgreSQL: Support 24x7 - D?veloppement, Expertise et Formation
+>
+
+From steve at ssinger.info  Thu Jan 26 17:34:13 2012
+From: steve at ssinger.info (Steve Singer)
+Date: Thu, 26 Jan 2012 20:34:13 -0500
+Subject: [Slony1-general] timestamp in unique key
+In-Reply-To: <87fwf4jq1x.fsf@su.eatpbank.ru>
+References: <87fwf4jq1x.fsf@su.eatpbank.ru>
+Message-ID: <BLU0-SMTP47EF2C5A44F0B2E207FC50DC8E0@phx.gbl>
+
+On Wed, 25 Jan 2012, Sergey Suleymanov wrote:
+
+If my memory serves me right,
+
+Postgresql stores more bits of precision for timestamps than get printed as 
+text.  So a timestamp converted to text and added back into the database 
+might not always return true on the equal operator.
+
+I can't think of a work around for slony that doesn't involve adding another 
+column to your table.
+
+Steve
+
+
+>
+>       Hello everybody, I need help.
+>
+>  let's to say, there is a table:
+>
+> \d molot.sens_data
+> ...
+> device_id  | integer                  | not null
+> time_stamp | timestamp with time zone | not null
+> ...
+> Indexes:
+>    "sens_data_device_id_key" UNIQUE, btree (device_id, time_stamp)
+>
+>  slonik script:
+>
+> create set (id=3, origin=1);
+> set add table ( set id=3, origin=1, id=32,
+>                fully qualified name = 'molot.sens_data',
+>                key = 'sens_data_device_id_key');
+> subscribe set ...
+>
+>  Everything is ok, copy_set went well, replication has begun. Inserts are
+>  successfully, but updates and deletes are not.
+>
+>  Append "serial primary key" column really don't want as long (table is
+>  about 250 mil records). Is there any other way?
+>
+>
+>  slony1 - 1.2.21, Pg - 8.4.9
+>
+> --
+>  Sergey Suleymanov
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+>
+
+
