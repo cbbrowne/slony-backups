@@ -1713,3 +1713,128 @@ idea if slony plays well with replicating geometry columns from postgis?
 Thanks,
 - Brian F
 
+From cedric.villemain.debian at gmail.com  Sat Jan 28 13:19:45 2012
+From: cedric.villemain.debian at gmail.com (=?ISO-8859-1?Q?C=E9dric_Villemain?=)
+Date: Sat, 28 Jan 2012 22:19:45 +0100
+Subject: [Slony1-general] Slave can't catch up,
+ postgres error 'stack depth limit exceeded'
+In-Reply-To: <4F23334E.70008@Yahoo.com>
+References: <4F1BE396.6080909@consistentstate.com>
+	<BLU0-SMTP130FABE289127C0F6952168DC850@phx.gbl>
+	<CAF6yO=37vpmEObQ=Ay3s6=Je4ASOn+Rb1T5bFV3vT9RnQ+QxQw@mail.gmail.com>
+	<4F23334E.70008@Yahoo.com>
+Message-ID: <CAF6yO=3_ZeZudxFXjDDLnUk-VRT4YUbzBeZfvr=PXOLjTBOJWQ@mail.gmail.com>
+
+Le 28 janvier 2012 00:29, Jan Wieck <JanWieck at yahoo.com> a ?crit :
+> On 1/24/2012 4:57 AM, C?dric Villemain wrote:
+>>
+>> Le 22 janvier 2012 17:16, Steve Singer<steve at ssinger.info> ?a ?crit :
+>>>
+>>> ?On Sun, 22 Jan 2012, Brian Fehrle wrote:
+>>>
+>>>> ?Hi all,
+>>>>
+>>>> ?PostgreSQL 9.1.2
+>>>> ?Slony 2.1.0
+>>>
+>>>
+>>> ?Set max_stack_depth in your postgresql.conf to something higher.
+>>>
+>>> ?sync_group_maxsize in your slon.conf to something low MIGHT help (ie 1
+>>> or 2)
+>>> ?but I think the default in 2.1 is pretty low anyway (like 20).
+>>
+>>
+>> Immediate workaround is in fact to increase max_stack_depth ( but max
+>> it to (ulimit -s minus 1MB)
+>>
+>> but ... isn't it slony which should not use more than
+>> default_stack_size ? can't there be an underlining bug ?
+>
+>
+> Not a bug per se. Maybe something to improve in a future release.
+>
+> That list of log_actionseq <> clauses only ever occurs on the first sync of
+> a new SUBSCRIBE SET directly from the origin. The subscriber copies all the
+> tables in some state in between two SYNC events. During the first SYNC after
+> that, it needs to filter out all the log rows, that are already incorporated
+> in that data, so it collects them and saves them in that set's sl_setsync
+> row. These are all the actions that happened and committed in between the
+> last SYNC event created on the origin and the copy_set operation starting.
+>
+> If those are many thousands, then this is a mighty busy database or the slon
+> on the origin maybe wasn't running for a while.
+>
+> The improvement for a future release would be to have the remote worker get
+> the log_actionseq list at the beginning of copy_set. If that list is longer
+> than a configurable maximum, it would abort the subscribe and retry in a few
+> seconds. It may take a couple of retries, but it should eventually hit a
+> moment where a SYNC event was created recently enough so that there are only
+> a few hundred log rows to ignore.
+
+Not a bug, I am abusing the word, sorry.
+Good explanations, thanks to you and Steve for that.
+
+Btw, it is nice that an improvement can be done in 2.2, as noted
+upthread the issue here is limited to 9.1: maybe related to SSI taking
+more stack space or any other change in postgresql code. Slony ability
+to workaround the changes of PostgreSQL internals and manage different
+version of PostgreSQL is very nice combo that I am very happy to see
+slony dev-team maintaining.
+
+-- 
+C?dric Villemain +33 (0)6 20 30 22 52
+http://2ndQuadrant.fr/
+PostgreSQL: Support 24x7 - D?veloppement, Expertise et Formation
+
+From cbbrowne at afilias.info  Sat Jan 28 18:08:47 2012
+From: cbbrowne at afilias.info (Christopher Browne)
+Date: Sat, 28 Jan 2012 21:08:47 -0500
+Subject: [Slony1-general] slony and postgis?
+In-Reply-To: <4F234106.7050605@consistentstate.com>
+References: <4F234106.7050605@consistentstate.com>
+Message-ID: <CANfbgbYoT7LQDWGpOAkw0tymKw4h7s8eRz=n7QSOQLype-W8fw@mail.gmail.com>
+
+As long as the data types serialize in a reasonable form, and survive
+pg_dump, they should replicate fine.
+
+Needs to be stable to use it in a primary key.  E.g. , date stamp values
+may reload as a slightly different value due to rounding. If GIS values do
+the same, they may make poor primary keys.  Slony might expose edges you
+mightn't see elsewhere.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20120128/98125a60/attachment.htm 
+
+From steve at ssinger.info  Sat Jan 28 19:48:53 2012
+From: steve at ssinger.info (Steve Singer)
+Date: Sat, 28 Jan 2012 22:48:53 -0500
+Subject: [Slony1-general] slony and postgis?
+In-Reply-To: <CANfbgbYoT7LQDWGpOAkw0tymKw4h7s8eRz=n7QSOQLype-W8fw@mail.gmail.com>
+References: <4F234106.7050605@consistentstate.com>
+	<CANfbgbYoT7LQDWGpOAkw0tymKw4h7s8eRz=n7QSOQLype-W8fw@mail.gmail.com>
+Message-ID: <BLU0-SMTP2840BEB106849765DF1900DC8C0@phx.gbl>
+
+On Sat, 28 Jan 2012, Christopher Browne wrote:
+
+> 
+> As long as the data types serialize in a reasonable form, and survive
+> pg_dump, they should replicate fine.
+> 
+> Needs to be stable to use it in a primary key.? E.g. , date stamp values may
+> reload as a slightly different value due to rounding. If GIS values do the
+> same, they may make poor primary keys.? Slony might expose edges you
+> mightn't see elsewhere.
+
+I sometimes setup replication clusters of GIS data when testing slony and 
+have never had a problems, I can't even recall any edge cases that it 
+exposed.
+
+Making a postgis geometry column part of a primary key is a bad idea/design 
+even if you aren't using slony.
+
+
+> 
+> 
+>
+
