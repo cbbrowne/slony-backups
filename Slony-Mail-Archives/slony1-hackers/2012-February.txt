@@ -126,3 +126,204 @@ http://lists.slony.info/mailman/listinfo/slony1-hackers
 An HTML attachment was scrubbed...
 URL: http://lists.slony.info/pipermail/slony1-hackers/attachments/20120213/5306dafa/attachment.htm 
 
+From davidtecher at yahoo.fr  Thu Feb 16 03:41:22 2012
+From: davidtecher at yahoo.fr (David TECHER)
+Date: Thu, 16 Feb 2012 11:41:22 +0000 (GMT)
+Subject: [Slony1-hackers] Dropping table from one slave without subscribing
+	again
+Message-ID: <1329392482.63506.YahooMailNeo@web29805.mail.ird.yahoo.com>
+
+Hi,
+
+I've got 1 master and 3 slaves. I am using Slony 1.2.22.
+
+We are in Production and for one of the slaves we decided to remove a few tables from replication only on one slave.
+So the same tables will be replicated on the two others slaves.
+
+I had a look on Slony documentation at http://slony.info/documentation/1.2/dropthings.html and I came to the conclusion
+that it shoud be possible to do it using the "old way"
+
+I mean using sections # 15.4.2 and # 15.5 to do something like BUT ONLY ON THIS SLAVE NOT ON THE TWO OTHER SLAVES
+
+
+select _slonyschema.alterTableRestore(40); select _slonyschema.tableDropKey(40); delete from _slonyschema.sl_table where tab_id = 40;
+
+We can not drop the set and build the subscription because it takes a lot of time to build subscription for the entire set. We are on production and our clients are connected.
+
+
+Feel free to tell me if this method is safety.
+
+Thanks.
+
+Kind regards.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-hackers/attachments/20120216/dca8e3ee/attachment.htm 
+
+From cbbrowne at afilias.info  Thu Feb 16 09:23:55 2012
+From: cbbrowne at afilias.info (Christopher Browne)
+Date: Thu, 16 Feb 2012 12:23:55 -0500
+Subject: [Slony1-hackers] Dropping table from one slave without
+ subscribing again
+In-Reply-To: <1329392482.63506.YahooMailNeo@web29805.mail.ird.yahoo.com>
+References: <1329392482.63506.YahooMailNeo@web29805.mail.ird.yahoo.com>
+Message-ID: <CANfbgbYNdukJTyh+kYwiNgtKr_Hu45z=Dh1+cZmWbHkmojqfBQ@mail.gmail.com>
+
+On Thu, Feb 16, 2012 at 6:41 AM, David TECHER <davidtecher at yahoo.fr> wrote:
+> I had a look on Slony documentation at
+> http://slony.info/documentation/1.2/dropthings.html and I came to the
+> conclusion
+> that it shoud be possible to do it using the "old way"
+
+This is, in an important sense, corrupting the cluster, because the
+configuration of the cluster considers all of those tables to be
+subscribed by all the nodes.  If you need to do any switching around
+of nodes (e.g. - moving master, or shuffling around subscriptions to
+point to different sources), the fact that sl_table+sl_set have one
+picture of things, whilst the triggers have another, will make the
+cluster mighty fragile.
+
+What I would do in this case is to separate these few tables into a
+separate replication set, and only replicate that set to certain
+nodes.
+
+That's easiest if you create the two sets in the beginning.
+
+create set (id = 1, origin=1, comment = ' set for most of the tables
+subscribed everywhere');
+set add table (id = 1, set id = 1, ...)
+set add table (id = 2, set id = 1, ...)
+
+create set (id = 2, origin=1, comment='set for the tables that only
+need to be replicated to a few nodes');
+set add table (id = 20, set id = 2, ...)
+set add table (id = 21, set id = 2, ...)
+
+If you're doing "surgery" after the fact, that is, if you only have
+set #1 with all the tables, what I would do is...
+
+- Create the new set
+   create set (id = 2, origin=1, comment='set for the tables that only
+need to be replicated to a few nodes');
+
+- Subscribe it everywhere that set #1 is subscribed.  It has to have
+*identical* subscriptions.
+   (Yes, it's empty at the moment.  That's OK.)
+
+e.g.:
+  subscribe set (id=2, provider=1, receiver=2, forward=yes);
+  subscribe set (id=2, provider=1, receiver=3, forward=yes);
+  subscribe set (id=2, provider=2, receiver=4, forward=yes);
+  subscribe set (id=2, provider=1, receiver=5, forward=yes);
+
+Next, shift the tables that you want partially replicated into set #2
+  set move table (origin=1, id=40, new set=2);
+  set move table (origin=1, id=41, new set=2);
+
+SET MOVE TABLE will refuse to shift the table to the new set unless
+the subscription lists for the two sets are identical.
+
+Once the tables are separated into the second set, you can remove the
+subscriptions for set #2 that aren't needed.
+
+Thus, supposing those tables are only needed by nodes 2 and 3, but not
+by nodes 4 or 5, you can drop the subscriptions:
+
+unsubscribe set (id=2, receiver=4);
+unsubscribe set (id=2, receiver=5);
+
+That's the clean way to handle this.
+
+From davidtecher at yahoo.fr  Fri Feb 17 02:15:29 2012
+From: davidtecher at yahoo.fr (David TECHER)
+Date: Fri, 17 Feb 2012 10:15:29 +0000 (GMT)
+Subject: [Slony1-hackers] Re : Dropping table from one slave without
+	subscribing again
+In-Reply-To: <CANfbgbYNdukJTyh+kYwiNgtKr_Hu45z=Dh1+cZmWbHkmojqfBQ@mail.gmail.com>
+References: <1329392482.63506.YahooMailNeo@web29805.mail.ird.yahoo.com>
+	<CANfbgbYNdukJTyh+kYwiNgtKr_Hu45z=Dh1+cZmWbHkmojqfBQ@mail.gmail.com>
+Message-ID: <1329473729.43680.YahooMailNeo@web29803.mail.ird.yahoo.com>
+
+Hi Christopher,
+
+Thanks for your reply...
+
+I will test your method and will let you know.
+
+
+
+________________________________
+ De?: Christopher Browne <cbbrowne at afilias.info>
+??: David TECHER <davidtecher at yahoo.fr> 
+Cc?: Slony Hackers <slony1-hackers at lists.slony.info> 
+Envoy? le : Jeudi 16 f?vrier 2012 18h23
+Objet?: Re: [Slony1-hackers] Dropping table from one slave without subscribing again
+ 
+On Thu, Feb 16, 2012 at 6:41 AM, David TECHER <davidtecher at yahoo.fr> wrote:
+> I had a look on Slony documentation at
+> http://slony.info/documentation/1.2/dropthings.html and I came to the
+> conclusion
+> that it shoud be possible to do it using the "old way"
+
+This is, in an important sense, corrupting the cluster, because the
+configuration of the cluster considers all of those tables to be
+subscribed by all the nodes.? If you need to do any switching around
+of nodes (e.g. - moving master, or shuffling around subscriptions to
+point to different sources), the fact that sl_table+sl_set have one
+picture of things, whilst the triggers have another, will make the
+cluster mighty fragile.
+
+What I would do in this case is to separate these few tables into a
+separate replication set, and only replicate that set to certain
+nodes.
+
+That's easiest if you create the two sets in the beginning.
+
+create set (id = 1, origin=1, comment = ' set for most of the tables
+subscribed everywhere');
+set add table (id = 1, set id = 1, ...)
+set add table (id = 2, set id = 1, ...)
+
+create set (id = 2, origin=1, comment='set for the tables that only
+need to be replicated to a few nodes');
+set add table (id = 20, set id = 2, ...)
+set add table (id = 21, set id = 2, ...)
+
+If you're doing "surgery" after the fact, that is, if you only have
+set #1 with all the tables, what I would do is...
+
+- Create the new set
+?  create set (id = 2, origin=1, comment='set for the tables that only
+need to be replicated to a few nodes');
+
+- Subscribe it everywhere that set #1 is subscribed.? It has to have
+*identical* subscriptions.
+?  (Yes, it's empty at the moment.? That's OK.)
+
+e.g.:
+? subscribe set (id=2, provider=1, receiver=2, forward=yes);
+? subscribe set (id=2, provider=1, receiver=3, forward=yes);
+? subscribe set (id=2, provider=2, receiver=4, forward=yes);
+? subscribe set (id=2, provider=1, receiver=5, forward=yes);
+
+Next, shift the tables that you want partially replicated into set #2
+? set move table (origin=1, id=40, new set=2);
+? set move table (origin=1, id=41, new set=2);
+
+SET MOVE TABLE will refuse to shift the table to the new set unless
+the subscription lists for the two sets are identical.
+
+Once the tables are separated into the second set, you can remove the
+subscriptions for set #2 that aren't needed.
+
+Thus, supposing those tables are only needed by nodes 2 and 3, but not
+by nodes 4 or 5, you can drop the subscriptions:
+
+unsubscribe set (id=2, receiver=4);
+unsubscribe set (id=2, receiver=5);
+
+That's the clean way to handle this.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-hackers/attachments/20120217/f1672839/attachment.htm 
+
