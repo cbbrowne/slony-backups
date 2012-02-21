@@ -327,3 +327,104 @@ That's the clean way to handle this.
 An HTML attachment was scrubbed...
 URL: http://lists.slony.info/pipermail/slony1-hackers/attachments/20120217/f1672839/attachment.htm 
 
+From davidtecher at yahoo.fr  Sun Feb 19 16:02:23 2012
+From: davidtecher at yahoo.fr (David TECHER)
+Date: Mon, 20 Feb 2012 00:02:23 +0000 (GMT)
+Subject: [Slony1-hackers] Re : Dropping table from one slave without
+	subscribing again
+In-Reply-To: <CANfbgbYNdukJTyh+kYwiNgtKr_Hu45z=Dh1+cZmWbHkmojqfBQ@mail.gmail.com>
+References: <1329392482.63506.YahooMailNeo@web29805.mail.ird.yahoo.com>
+	<CANfbgbYNdukJTyh+kYwiNgtKr_Hu45z=Dh1+cZmWbHkmojqfBQ@mail.gmail.com>
+Message-ID: <1329696143.15706.YahooMailNeo@web29804.mail.ird.yahoo.com>
+
+Christopher
+
+I did a few test using your method and it works like a charm.
+
+I wrote a small article on my blog about your method http://www.davidgis.fr/blog/index.php?2012/02/18/880-dropping-replicated-tables-and-sequences-for-only-one-slave-node
+
+Tomorrow - at work -, I will try to use it with our datas? and will let you know :)
+
+Thanks.
+
+Kind regards.
+
+David.
+
+
+
+________________________________
+ De?: Christopher Browne <cbbrowne at afilias.info>
+??: David TECHER <davidtecher at yahoo.fr> 
+Cc?: Slony Hackers <slony1-hackers at lists.slony.info> 
+Envoy? le : Jeudi 16 f?vrier 2012 18h23
+Objet?: Re: [Slony1-hackers] Dropping table from one slave without subscribing again
+ 
+On Thu, Feb 16, 2012 at 6:41 AM, David TECHER <davidtecher at yahoo.fr> wrote:
+> I had a look on Slony documentation at
+> http://slony.info/documentation/1.2/dropthings.html and I came to the
+> conclusion
+> that it shoud be possible to do it using the "old way"
+
+This is, in an important sense, corrupting the cluster, because the
+configuration of the cluster considers all of those tables to be
+subscribed by all the nodes.? If you need to do any switching around
+of nodes (e.g. - moving master, or shuffling around subscriptions to
+point to different sources), the fact that sl_table+sl_set have one
+picture of things, whilst the triggers have another, will make the
+cluster mighty fragile.
+
+What I would do in this case is to separate these few tables into a
+separate replication set, and only replicate that set to certain
+nodes.
+
+That's easiest if you create the two sets in the beginning.
+
+create set (id = 1, origin=1, comment = ' set for most of the tables
+subscribed everywhere');
+set add table (id = 1, set id = 1, ...)
+set add table (id = 2, set id = 1, ...)
+
+create set (id = 2, origin=1, comment='set for the tables that only
+need to be replicated to a few nodes');
+set add table (id = 20, set id = 2, ...)
+set add table (id = 21, set id = 2, ...)
+
+If you're doing "surgery" after the fact, that is, if you only have
+set #1 with all the tables, what I would do is...
+
+- Create the new set
+?  create set (id = 2, origin=1, comment='set for the tables that only
+need to be replicated to a few nodes');
+
+- Subscribe it everywhere that set #1 is subscribed.? It has to have
+*identical* subscriptions.
+?  (Yes, it's empty at the moment.? That's OK.)
+
+e.g.:
+? subscribe set (id=2, provider=1, receiver=2, forward=yes);
+? subscribe set (id=2, provider=1, receiver=3, forward=yes);
+? subscribe set (id=2, provider=2, receiver=4, forward=yes);
+? subscribe set (id=2, provider=1, receiver=5, forward=yes);
+
+Next, shift the tables that you want partially replicated into set #2
+? set move table (origin=1, id=40, new set=2);
+? set move table (origin=1, id=41, new set=2);
+
+SET MOVE TABLE will refuse to shift the table to the new set unless
+the subscription lists for the two sets are identical.
+
+Once the tables are separated into the second set, you can remove the
+subscriptions for set #2 that aren't needed.
+
+Thus, supposing those tables are only needed by nodes 2 and 3, but not
+by nodes 4 or 5, you can drop the subscriptions:
+
+unsubscribe set (id=2, receiver=4);
+unsubscribe set (id=2, receiver=5);
+
+That's the clean way to handle this.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-hackers/attachments/20120220/da4af93d/attachment.htm 
+
