@@ -678,3 +678,254 @@ Slony1-general at lists.slony.info
 http://lists.slony.info/mailman/listinfo/slony1-general 
 
 
+From smccloud at geo-comm.com  Tue Feb 21 06:25:39 2012
+From: smccloud at geo-comm.com (Shaun McCloud)
+Date: Tue, 21 Feb 2012 14:25:39 +0000
+Subject: [Slony1-general] Slony not replicating changes
+In-Reply-To: <20120219124036.GV2889@tinybird.home>
+References: <7742DD496427B743BC8B7BBF6D380BA0373D145F@EXCHANGE10.geo-comm.local>
+	<20120217164441.GM2889@tinybird.home>
+	<7742DD496427B743BC8B7BBF6D380BA0373D15E1@EXCHANGE10.geo-comm.local>
+	<20120219124036.GV2889@tinybird.home>
+Message-ID: <7742DD496427B743BC8B7BBF6D380BA0373D3A7C@EXCHANGE10.geo-comm.local>
+
+Greg, I populated one table with 100000 bogus records and that worked fine.  If I add a second table it stops working.
+
+The setup is as follows.  We use ESRI replication technology to get data from one ArcSDE instance into a PostgreSQL + PostGIS ArcSDE instance on our server.  We then do a data only pg_dump on that database and a psql load on our "live" database.  Slony is then supposed to replicate the data out to the "live" database on our other servers.  The problem is occurring on the last step :(
+
+Shaun McCloud ? Associate Software Developer
+Geo-Comm, Inc
+601 W. Saint Germain St., Saint Cloud, MN 56301
+Office: 320.240.0040 Fax: 320.240.2389 Toll Free: 888.436.2666
+click here to visit www.geo-comm.com
+ 
+? Think before you print!
+Microsoft Certified Desktop Support Technician (MCDST) 
+Do or do not, there is no try.
+    -Yoda
+
+-----Original Message-----
+From: Greg Sabino Mullane [mailto:greg at endpoint.com] 
+Sent: Sunday, February 19, 2012 06:41
+To: Shaun McCloud
+Cc: slony1-general at lists.slony.info
+Subject: Re: [Slony1-general] Slony not replicating changes
+
+On Fri, Feb 17, 2012 at 04:52:06PM +0000, Shaun McCloud wrote:
+> Before the first COPY statement the dump contains the following.
+> 
+> SET client_encoding = 'UTF8';
+> SET standard_conforming_strings = off; SET check_function_bodies = 
+> false; SET client_min_messages = warning; SET escape_string_warning = 
+> off; SET search_path = sde, pg_catalog;
+
+Nothing unusual there.
+
+> I have had the data replicate correctly once when loading the data for 
+> a single table using COPY, but not since then.
+
+Well I cannot see any other obvious problems, so I would suggest seeing if you can get that single table COPY pg_dump to work again, then expand the scope (if working) or narrow the scope (if not).
+
+> Also, I'm not sure if it matters; but we are using two engines for one 
+> Slony-I service.  One for mostly static data and one for data that can 
+> change quite often.  Each engine has its own DB and the data that can 
+> change quite often is always replicating fine, but it is always edited 
+> using ESRI's Arc Map at some point in the process.
+
+Ah, that could certainly be a factor - can you explain the layout a bit more to the list?
+
+--
+Greg Sabino Mullane greg at endpoint.com
+End Point Corporation
+PGP Key: 0x14964AC8
+
+From ngramsky at cs.umd.edu  Tue Feb 21 08:41:15 2012
+From: ngramsky at cs.umd.edu (NewToSlony)
+Date: Tue, 21 Feb 2012 08:41:15 -0800 (PST)
+Subject: [Slony1-general] Cannot find slony1_funcs on macos despite lib in
+ place
+Message-ID: <33365133.post@talk.nabble.com>
+
+
+Trying to run the example slony config script in the documentation but
+getting the following error:
+
+
+postgres$ /tmp/slonik_example.sh
+<stdin>:8: PGRES_FATAL_ERROR load '$libdir/slony1_funcs';  - ERROR:  could
+not access file "$libdir/slony1_funcs": No such file or directory
+<stdin>:8: Error: the extension for the Slony-I C functions cannot be loaded
+in database 'dbname=my_primary host=localhost user=warfish
+password=coalitions'
+
+Yet the LIBDIR variable is set correctly:
+postgres$ ./pg_config
+BINDIR = /opt/local/lib/postgresql90/bin
+DOCDIR = /opt/local/share/doc/postgresql
+HTMLDIR = /opt/local/share/doc/postgresql
+INCLUDEDIR = /opt/local/include/postgresql90
+PKGINCLUDEDIR = /opt/local/include/postgresql90
+INCLUDEDIR-SERVER = /opt/local/include/postgresql90/server
+LIBDIR = /opt/local/lib/postgresql90
+
+And the lib is present:
+
+ls -l /opt/local/lib/postgresql90/slony1_funcs.so
+-rwxr-xr-x  1 root  admin  34944 Feb 17 16:20
+/opt/local/lib/postgresql90/slony1_funcs.so
+
+
+Script is as follows:
+
+cat /tmp/slonik_example.sh
+#!/bin/sh
+
+CLUSTERNAME=slony_example;
+/opt/local/lib/postgresql90/bin/slonik <<_EOF_
+define CLUSTERNAME slony_example;
+cluster name = @CLUSTERNAME;
+node 1 admin conninfo = 'dbname=my_primary host=localhost user=user1
+password=pw'; 
+node 2 admin conninfo = 'dbname=my_rep host=localhost user=user1
+password=pw';
+#-- 
+# init the first node. Its id MUST be 1. This creates the schema #
+_$CLUSTERNAME containing all replication system specific database # objects.
+#-- 
+init cluster ( id=1, comment='Master Node');
+#--
+# Slony-I organizes tables into sets. The smallest unit a node can #
+subscribe is a set. The following commands create one set containing # all 4
+pgbench tables. The master or origin of the set is node 1. 
+#-- 
+create set (id=1, origin=1, comment='All pgbench tables'); 
+set add table (set id=1, origin=1, id=1, fully qualified
+name='public.pgbench_accounts', comment='accounts table'); 
+set add table (set id=1, origin=1, id=2, fully qualified
+name='public.pgbench_branches', comment='branches table'); 
+set add table (set id=1, origin=1, id=3, fully qualified
+name='public.pgbench_tellers', comment='tellers table'); 
+set add table (set id=1, origin=1, id=4, fully qualified
+name='public.pgbench_history', comment='history table');
+#-- 
+# Create the second node (the slave) tell the 2 nodes how to connect to
+Slony-I 2.1.1 Documentation 10 / 163
+# each other and how they should listen for events.
+#--
+store node (id=2, comment = 'Slave node', event node=1);
+store path (server = 1, client = 2, conninfo='dbname=my_primary
+host=localhost user=user1 password=pw');
+store path (server = 2, client = 1, conninfo='dbname=my_rep host=localhost
+user=user1 password=pw');
+_EOF_
+
+
+
+Read in the doc that likely the lib is not in the correct place or $libdir
+is not set correctly, but everything looks to be in place.  Am I missing
+something else I am not aware of?
+
+
+-- 
+View this message in context: http://old.nabble.com/Cannot-find-slony1_funcs-on-macos-despite-lib-in-place-tp33365133p33365133.html
+Sent from the Slony-I -- General mailing list archive at Nabble.com.
+
+
+From dbrb2002-sql at yahoo.com  Tue Feb 21 19:30:18 2012
+From: dbrb2002-sql at yahoo.com (Brian Trudal)
+Date: Tue, 21 Feb 2012 19:30:18 -0800 (PST)
+Subject: [Slony1-general] Replication Lag - fetch 500 from LOG
+Message-ID: <1329881418.14948.YahooMailNeo@web31807.mail.mud.yahoo.com>
+
+All of a sudden since a day the lag is increasing and server is not getting caught; and all I can see if "fetch 500 from LOG" from pg_stat_activity.. restarted slony across and also killed all sessions in "in transaction"; and still no luck.
+
+Anything that am missing ? 
+
+
+I really appreciate some's answer...
+
+Its on PG 8.4 + slony 2.0.4
+
+Thanks
+Brian
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20120221/6a809324/attachment.htm 
+
+From dbrb2002-sql at yahoo.com  Tue Feb 21 22:04:31 2012
+From: dbrb2002-sql at yahoo.com (Brian Trudal)
+Date: Tue, 21 Feb 2012 22:04:31 -0800 (PST)
+Subject: [Slony1-general] Replication Lag - fetch 500 from LOG
+In-Reply-To: <1329881418.14948.YahooMailNeo@web31807.mail.mud.yahoo.com>
+References: <1329881418.14948.YahooMailNeo@web31807.mail.mud.yahoo.com>
+Message-ID: <1329890671.982.YahooMailNeo@web31805.mail.mud.yahoo.com>
+
+Some slony log info, anyone out there with slony experience ?
+
+slony 10.1.1.2(35428) 2012-02-21 12:56:04 PST 0 LOG:? duration: 502.162 ms? statement: fetch 500 from LOG; 
+slony 10.1.1.2(35428) 2012-02-21 12:56:44 PST 0 LOG:? duration: 547.304 ms? statement: fetch 500 from LOG; 
+slony 10.1.1.2(35428) 2012-02-21 12:56:56 PST 0 LOG:? duration: 595.473 ms? statement: fetch 500 from LOG; 
+slony
+ 10.1.1.3(52676) 2012-02-21 12:57:27 PST 0 LOG:? duration: 1249.432 ms? 
+statement: select "_slony1".cleanupEvent('10 minutes'::interval, 
+'false'::boolean);???????? 
+slony 10.1.1.2(35428) 2012-02-21 12:57:39 PST 0 LOG:? duration: 521.751 ms? statement: fetch 500 from LOG; 
+slony 10.1.1.2(35428) 2012-02-21 12:58:05 PST 0 LOG:? duration:
+ 663.164 ms? statement: fetch 500 from LOG; 
+slony 10.1.1.2(35428) 2012-02-21 12:58:33 PST 0 LOG:? duration: 584.578 ms? statement: fetch 500 from LOG; 
+slony 10.1.1.2(35428) 2012-02-21 12:58:53 PST 0 LOG:? duration: 524.076 ms? statement: fetch 500 from LOG; 
+slony 10.1.1.2(35428) 2012-02-21 12:59:22 PST 0 LOG:? duration: 610.761 ms? statement: fetch 500 from LOG; 
+slony 10.1.1.2(35428) 2012-02-21 12:59:42 PST 0 LOG:? duration: 629.949 ms? statement: fetch 500 from LOG; 
+slony 10.1.1.2(35428) 2012-02-21 13:00:10 PST 0 LOG:? duration: 509.607 ms? statement: fetch 500 from LOG; 
+slony 10.1.1.2(35428) 2012-02-21 13:00:48 PST 0 LOG:? duration: 519.203 ms? statement: fetch 500 from LOG; 
+slony 10.1.1.2(35428) 2012-02-21 13:01:00 PST 0 LOG:? duration: 527.713 ms? statement: fetch 500 from LOG; 
+slony 10.1.1.2(35428) 2012-02-21 13:01:09 PST 0 LOG:? duration:
+ 616.263 ms? statement: fetch 500 from LOG; 
+slony 10.1.1.2(35428) 2012-02-21 13:01:17 PST 0 LOG:? duration: 520.641 ms? statement: fetch 500 from LOG; 
+slony 10.1.1.2(35428) 2012-02-21 13:02:13 PST 0 LOG:? duration: 519.352 ms? statement: fetch 500 from LOG; 
+slony 10.1.1.2(35428) 2012-02-21 13:02:49 PST 0 LOG:? duration: 505.472 ms? statement: fetch 500 from LOG; 
+slony 10.1.1.2(35428) 2012-02-21 13:03:52 PST 0 LOG:? duration: 601.902 ms? statement: fetch 500 from LOG; 
+slony 10.1.1.2(35428) 2012-02-21 13:04:50 PST 0 LOG:? duration: 643.636 ms? statement: fetch 500 from LOG; 
+slony 10.1.1.2(35428) 2012-02-21 13:06:03 PST 0 LOG:? duration: 513.065 ms? statement: fetch 500 from LOG; 
+slony 10.1.1.2(35428) 2012-02-21 13:06:29 PST 0 LOG:? duration: 648.466 ms? statement: fetch 500 from LOG; 
+slony 10.1.1.2(35428) 2012-02-21 13:07:08 PST 0 LOG:? duration:
+ 645.737 ms? statement: fetch 500 from LOG; 
+slony 10.1.1.2(35428) 2012-02-21 13:07:56 PST 0 LOG:? duration: 559.368 ms? statement: fetch 500 from LOG; 
+slony 10.1.1.2(35428) 2012-02-21 13:08:08 PST 0 LOG:? duration: 524.154 ms? statement: fetch 500 from LOG; 
+slony 10.1.1.2(35428) 2012-02-21 13:08:20 PST 0 LOG:? duration: 594.628 ms? statement: fetch 500 from LOG; 
+slony 10.1.1.2(35428) 2012-02-21 13:08:34 PST 0 LOG:? duration: 515.906 ms? statement: fetch 500 from LOG; 
+slony 10.1.1.2(35428) 2012-02-21 13:08:48 PST 0 LOG:? duration: 535.204 ms? statement: fetch 500 from LOG; 
+slony
+ 10.1.1.3(52676) 2012-02-21 13:08:49 PST 0 LOG:? duration: 582.382 ms? 
+statement: select "_slony1".cleanupEvent('10 minutes'::interval, 
+'false'::boolean); 
+
+
+
+________________________________
+ From: Brian Trudal <dbrb2002-sql at yahoo.com>
+To: "slony1-general at lists.slony.info" <slony1-general at lists.slony.info> 
+Sent: Tuesday, February 21, 2012 7:30 PM
+Subject: [Slony1-general] Replication Lag - fetch 500 from LOG
+ 
+
+All of a sudden since a day the lag is increasing and server is not getting caught; and all I can see if "fetch 500 from LOG" from pg_stat_activity.. restarted slony across and also killed all sessions in "in transaction"; and still no luck.
+
+Anything that am missing ? 
+
+
+I really appreciate some's answer...
+
+Its on PG 8.4 + slony 2.0.4
+
+Thanks
+Brian
+
+_______________________________________________
+Slony1-general mailing list
+Slony1-general at lists.slony.info
+http://lists.slony.info/mailman/listinfo/slony1-general
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20120221/5f392a97/attachment.htm 
+
