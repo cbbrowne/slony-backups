@@ -1544,3 +1544,274 @@ http://lists.slony.info/mailman/listinfo/slony1-general
 An HTML attachment was scrubbed...
 URL: http://lists.slony.info/pipermail/slony1-general/attachments/20120222/430aec9d/attachment.htm 
 
+From ssinger at ca.afilias.info  Thu Feb 23 06:05:14 2012
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Thu, 23 Feb 2012 09:05:14 -0500
+Subject: [Slony1-general] Cleanup after drop node
+In-Reply-To: <1329978165.60569.YahooMailNeo@web31806.mail.mud.yahoo.com>
+References: <1329978165.60569.YahooMailNeo@web31806.mail.mud.yahoo.com>
+Message-ID: <4F46479A.4030603@ca.afilias.info>
+
+On 12-02-23 01:22 AM, Brian Trudal wrote:
+> Ok, finally I dropped a node from cluster; and I still see other nodes
+> are still not able to keep up as "Fetch 500 from LOG;" takes a long time...
+>
+> Is there any post cleanup needed, so that all logs/events can be purged
+> for dropped node ?
+>
+
+How far behind are your other nodes now?
+Did the slow log selections due to the that node being behind for 8 days 
+make your other nodes behind as well?
+
+Do not manually delete events from sl_event I don't see that helping things.
+
+
+
+
+>
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+
+
+From francescoboccacci at libero.it  Thu Feb 23 07:38:04 2012
+From: francescoboccacci at libero.it (francescoboccacci at libero.it)
+Date: Thu, 23 Feb 2012 16:38:04 +0100 (CET)
+Subject: [Slony1-general] New slave
+Message-ID: <28401013.47991330011484193.JavaMail.defaultUser@defaultHost>
+
+Hi,
+Currently I have a slony replica with one master and one slave. I need to have 
+an additional slave on my system. 
+I cannot stop the master to create a backup (it requires a lot of time), so my 
+question is: is it possible with slony to populate the new slave database and 
+sync it? 
+With the single master slave I have till now, I started the cluster after 
+populating the slave database with the same data of the master and it works 
+fine. 
+
+Please let me know.
+Thank you,
+Francesco
+
+From cbbrowne at afilias.info  Thu Feb 23 08:46:33 2012
+From: cbbrowne at afilias.info (Christopher Browne)
+Date: Thu, 23 Feb 2012 11:46:33 -0500
+Subject: [Slony1-general] New slave
+In-Reply-To: <28401013.47991330011484193.JavaMail.defaultUser@defaultHost>
+References: <28401013.47991330011484193.JavaMail.defaultUser@defaultHost>
+Message-ID: <CANfbgbZNO_jMyVdF0_BWJfOvWUUBc3EoFpbWFtTZ-prv97P3uA@mail.gmail.com>
+
+On Thu, Feb 23, 2012 at 10:38 AM, francescoboccacci at libero.it
+<francescoboccacci at libero.it> wrote:
+> Hi,
+> Currently I have a slony replica with one master and one slave. I need to have
+> an additional slave on my system.
+> I cannot stop the master to create a backup (it requires a lot of time), so my
+> question is: is it possible with slony to populate the new slave database and
+> sync it?
+> With the single master slave I have till now, I started the cluster after
+> populating the slave database with the same data of the master and it works
+> fine.
+
+Well, when you populated the *first* slave database, that didn't
+require any outage on the origin node, did it?
+
+You simply need to:
+a) Populate the new database with the *schema* from the master.  There
+is no need to capture the data; Slony will delete the data anyways.
+   "pg_dump -s" should do the job.
+   You'll want to exclude the schema that Slony creates, or drop it
+from the new database, if it got loaded
+b) STORE NODE to indicate the new node
+c) Start up slon for the new node
+d) SUBSCRIBE SET against each set that you want on the new node
+
+None of those steps involve an outage of the "master" database.
+
+From greg at endpoint.com  Thu Feb 23 09:40:16 2012
+From: greg at endpoint.com (Greg Sabino Mullane)
+Date: Thu, 23 Feb 2012 12:40:16 -0500
+Subject: [Slony1-general] Slony not replicating changes
+In-Reply-To: <7742DD496427B743BC8B7BBF6D380BA0373D3A7C@EXCHANGE10.geo-comm.local>
+References: <7742DD496427B743BC8B7BBF6D380BA0373D145F@EXCHANGE10.geo-comm.local>
+	<20120217164441.GM2889@tinybird.home>
+	<7742DD496427B743BC8B7BBF6D380BA0373D15E1@EXCHANGE10.geo-comm.local>
+	<20120219124036.GV2889@tinybird.home>
+	<7742DD496427B743BC8B7BBF6D380BA0373D3A7C@EXCHANGE10.geo-comm.local>
+Message-ID: <20120223174016.GD2889@tinybird.home>
+
+On Tue, Feb 21, 2012 at 02:25:39PM +0000, Shaun McCloud wrote:
+> Greg, I populated one table with 100000 bogus records and that 
+> worked fine.  If I add a second table it stops working.
+> 
+> The setup is as follows.  We use ESRI replication technology to get 
+> data from one ArcSDE instance into a PostgreSQL + PostGIS ArcSDE 
+> instance on our server.  We then do a data only pg_dump on that 
+> database and a psql load on our "live" database.  Slony is then 
+> supposed to replicate the data out to the "live" database on our 
+> other servers.  The problem is occurring on the last step :(
+
+Yeah, can't think of what else it might be. Probably the only thing 
+to do at this point, unless others on the list can think of things, 
+is to edit one of the dumps to limit to a few rows, load it via 
+psql, then check the slony tables (e.g. sl_log_1) to see if the 
+triggers fired and how far it got. In other words, where is it 
+breaking down? My guess is that the triggers are not populating 
+the Slony tables for some reason, but there are other steps in which 
+it could break down.
+
+-- 
+Greg Sabino Mullane greg at endpoint.com
+End Point Corporation
+PGP Key: 0x14964AC8
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: not available
+Type: application/pgp-signature
+Size: 163 bytes
+Desc: not available
+Url : http://lists.slony.info/pipermail/slony1-general/attachments/20120223/26962561/attachment.pgp 
+
+From smccloud at geo-comm.com  Thu Feb 23 09:40:53 2012
+From: smccloud at geo-comm.com (Shaun McCloud)
+Date: Thu, 23 Feb 2012 17:40:53 +0000
+Subject: [Slony1-general] Slony not replicating changes
+In-Reply-To: <20120223174016.GD2889@tinybird.home>
+References: <7742DD496427B743BC8B7BBF6D380BA0373D145F@EXCHANGE10.geo-comm.local>
+	<20120217164441.GM2889@tinybird.home>
+	<7742DD496427B743BC8B7BBF6D380BA0373D15E1@EXCHANGE10.geo-comm.local>
+	<20120219124036.GV2889@tinybird.home>
+	<7742DD496427B743BC8B7BBF6D380BA0373D3A7C@EXCHANGE10.geo-comm.local>
+	<20120223174016.GD2889@tinybird.home>
+Message-ID: <7742DD496427B743BC8B7BBF6D380BA0373E431F@EXCHANGE10.geo-comm.local>
+
+Greg,
+
+I managed to get 2.0.4 running on PostgreSQL 8.4.  Using this setup the changes are replicating out.  It must have been something in Slony 1.x & PostgreSQL 8.3 that was the issue.
+
+Shaun McCloud ? Associate Software Developer
+Geo-Comm, Inc
+601 W. Saint Germain St., Saint Cloud, MN 56301
+Office: 320.240.0040 Fax: 320.240.2389 Toll Free: 888.436.2666
+click here to visit www.geo-comm.com
+ 
+? Think before you print!
+Microsoft Certified Desktop Support Technician (MCDST) 
+Do or do not, there is no try.
+    -Yoda
+
+-----Original Message-----
+From: Greg Sabino Mullane [mailto:greg at endpoint.com] 
+Sent: Thursday, February 23, 2012 11:40
+To: Shaun McCloud
+Cc: slony1-general at lists.slony.info
+Subject: Re: [Slony1-general] Slony not replicating changes
+
+On Tue, Feb 21, 2012 at 02:25:39PM +0000, Shaun McCloud wrote:
+> Greg, I populated one table with 100000 bogus records and that worked 
+> fine.  If I add a second table it stops working.
+> 
+> The setup is as follows.  We use ESRI replication technology to get 
+> data from one ArcSDE instance into a PostgreSQL + PostGIS ArcSDE 
+> instance on our server.  We then do a data only pg_dump on that 
+> database and a psql load on our "live" database.  Slony is then 
+> supposed to replicate the data out to the "live" database on our other 
+> servers.  The problem is occurring on the last step :(
+
+Yeah, can't think of what else it might be. Probably the only thing to do at this point, unless others on the list can think of things, is to edit one of the dumps to limit to a few rows, load it via psql, then check the slony tables (e.g. sl_log_1) to see if the triggers fired and how far it got. In other words, where is it breaking down? My guess is that the triggers are not populating the Slony tables for some reason, but there are other steps in which it could break down.
+
+--
+Greg Sabino Mullane greg at endpoint.com
+End Point Corporation
+PGP Key: 0x14964AC8
+
+From greg at endpoint.com  Thu Feb 23 09:44:56 2012
+From: greg at endpoint.com (Greg Sabino Mullane)
+Date: Thu, 23 Feb 2012 12:44:56 -0500
+Subject: [Slony1-general] Slony not replicating changes
+In-Reply-To: <7742DD496427B743BC8B7BBF6D380BA0373E3972@EXCHANGE10.geo-comm.local>
+References: <7742DD496427B743BC8B7BBF6D380BA0373D145F@EXCHANGE10.geo-comm.local>
+	<20120217164441.GM2889@tinybird.home>
+	<7742DD496427B743BC8B7BBF6D380BA0373D15E1@EXCHANGE10.geo-comm.local>
+	<20120219124036.GV2889@tinybird.home>
+	<7742DD496427B743BC8B7BBF6D380BA0373E3972@EXCHANGE10.geo-comm.local>
+Message-ID: <20120223174456.GE2889@tinybird.home>
+
+> Everything appears to work great and according to the steps it 
+> should be working.  But the slave node(s) never get a Replication 
+> Set and the associated data in it.  
+
+Is there anything in the Slony logs?
+
+-- 
+Greg Sabino Mullane greg at endpoint.com
+End Point Corporation
+PGP Key: 0x14964AC8
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: not available
+Type: application/pgp-signature
+Size: 163 bytes
+Desc: not available
+Url : http://lists.slony.info/pipermail/slony1-general/attachments/20120223/0812f630/attachment.pgp 
+
+From dbrb2002-sql at yahoo.com  Thu Feb 23 13:05:49 2012
+From: dbrb2002-sql at yahoo.com (Brian Trudal)
+Date: Thu, 23 Feb 2012 13:05:49 -0800 (PST)
+Subject: [Slony1-general] sl_status empty
+Message-ID: <1330031149.40657.YahooMailNeo@web31802.mail.mud.yahoo.com>
+
+Hi
+
+When I restarted slony, then all of a sudden my sl_status is empty and nothing is getting replicated in the subscriber (node 37) nor its forwarding.
+
+All I can see in the logs...
+
+2012-02-23 14:58:20 CSTCONFIG main: done
+2012-02-23 14:58:20 CSTCONFIG slon: child terminated status: 0; pid: 5254, current worker pid: 5254
+2012-02-23 14:58:20 CSTCONFIG slon: restart of worker
+2012-02-23 14:58:20 CSTCONFIG main: slon version 2.0.4 starting up
+
+...
+2012-02-23 14:58:55 CSTWARN?? remoteWorker_wakeup: node 34 - no worker thread
+2012-02-23 14:58:55 CSTDEBUG2 sched_wakeup_node(): no_id=34 (0 threads + worker signaled)
+2012-02-23 14:58:55 CSTCONFIG storeSubscribe: sub_set=2 sub_provider=36 sub_forward='t'
+2012-02-23 14:58:55 CSTWARN?? remoteWorker_wakeup: node 36 - no worker thread
+...
+
+finally it dies with dup error..
+
+2012-02-23 14:58:55 CSTFATAL? localListenThread: "select "_application".cleanupNodelock(); insert into "_application".sl_nodelock values (??? 37, 0, "pg_catalog".pg_backend_pid()); " - ERROR:? duplicate key value violates unique constraint "sl_nodelock-pkey"
+
+2012-02-23 14:58:55 CSTDEBUG2 slon_abort() from pid=12679
+2012-02-23 14:58:55 CSTINFO?? slon: shutdown requested
+2012-02-23 14:58:55 CSTINFO?? slon: notify worker process to shutdown
+2012-02-23 14:59:15 CSTINFO?? slon: child termination timeout - kill child
+
+Any help on how to fix this will be appreciated.. other nodes are fine in the cluster.
+
+Thanks
+Venu
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20120223/30221b6a/attachment.htm 
+
+From vivek at khera.org  Thu Feb 23 16:45:56 2012
+From: vivek at khera.org (Vick Khera)
+Date: Thu, 23 Feb 2012 19:45:56 -0500
+Subject: [Slony1-general] Cleanup after drop node
+In-Reply-To: <1329978165.60569.YahooMailNeo@web31806.mail.mud.yahoo.com>
+References: <1329978165.60569.YahooMailNeo@web31806.mail.mud.yahoo.com>
+Message-ID: <CALd+dccMk_t3uM_RbpGqoqkysz5yg8qocU6G8kGeYa-6AH6vbg@mail.gmail.com>
+
+On Thu, Feb 23, 2012 at 1:22 AM, Brian Trudal <dbrb2002-sql at yahoo.com> wrote:
+> Is there any post cleanup needed, so that all logs/events can be purged for
+> dropped node ?
+
+How long have you waited to see if slony cleans up all by itself? I've
+seen it take several hours some times.
+
