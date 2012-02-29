@@ -3195,3 +3195,970 @@ On Fri, Feb 24, 2012 at 5:44 PM, Steve Singer <ssinger at ca.afilias.info> wrote
 Ulas Albayrak
 ulas.albayrak at gmail.com
 
+From ssinger at ca.afilias.info  Mon Feb 27 04:54:15 2012
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Mon, 27 Feb 2012 07:54:15 -0500
+Subject: [Slony1-general] Slony replication stops right after start
+ Slony replication stops right after start
+In-Reply-To: <CADEyix1thyeP1G_QdnULgTYv64SpZrX1csiSr1VAi=+erbXk0w@mail.gmail.com>
+References: <CADEyix0+n_Rr=KxArFqcoo0DsWYWJnnT5=z+2duTsLNgk+D+7Q@mail.gmail.com>	<4F479FEA.5080606@ca.afilias.info>	<CADEyix1sHt=VnV3WAZPCzOt_QGceW10Yc+wtXfK+yq7ENWX-wA@mail.gmail.com>	<4F47BE63.9020000@ca.afilias.info>
+	<CADEyix1thyeP1G_QdnULgTYv64SpZrX1csiSr1VAi=+erbXk0w@mail.gmail.com>
+Message-ID: <4F4B7CF7.8080402@ca.afilias.info>
+
+On 12-02-27 05:58 AM, Ulas Albayrak wrote:
+> Hi,
+>
+> None of the tables in any of the sets are being replicated (there are
+> 9 of them in total by the way). The most recent data in all of them is
+> from within half an hour of each other.
+>
+> The s_log_1 and s_log_2 tables on the provider node are currently
+> holding around 10k rows between the two of them. Nothing older that
+> 1,5 hours. Does this mean that Slony thinks everything older than that
+> has already been replicated?
+>
+
+This means that either
+
+1) No changes were made before then to a replicated table
+2) Slony thinks All changes earlier than 1.5 hours ago have been replicated
+3) Changes made before then didn't need to be replicated anywhere (no 
+subscriptions?)
+
+Do the changes you now see in sl_log_1 or sl_log_2 show up on your slave?
+
+
+
+> I don't know if it matters but maybe I should mention that the two
+> machines in the cluster were previously in a cluster where the roles
+> were reversed, i.e. the subscriber used to be the provider and vice
+> versa. After a system failure and a subsequent failover I cleaned the
+> whole cluster (drop node and uninstall node) before attempting to set
+> it up again. I can't help to think that there maybe some lingering
+> configurations that are getting in the way?
+>
+> /Ulas
+>
+> On Fri, Feb 24, 2012 at 5:44 PM, Steve Singer<ssinger at ca.afilias.info>  wrote:
+>> On 12-02-24 10:41 AM, Ulas Albayrak wrote:
+>>
+>>
+>>
+>>> Hi,
+>>>
+>>> Sorry, seems I forgot to post versions:
+>>>
+>>> Slony: 2.0.7
+>>> PostgreSQL:  9.0.5
+>>>
+>>> I restarted the slon deamon with debug=4 on both nodes and this is what I
+>>> got:
+>>>
+>>> Origin:
+>>> 2012-02-24 16:20:50 CETDEBUG2 localListenThread: Received event
+>>> 1,5000002765 SYNC
+>>> 2012-02-24 16:20:50 CETDEBUG2 syncThread: new sl_action_seq 45211 -
+>>> SYNC 5000002766
+>>
+>>
+>> This shows that SYNC events are now being generated on the origin.
+>>
+>>
+>>
+>>> Subscriber:
+>>> 2012-02-24 16:28:53 CETDEBUG2  ssy_action_list length: 0
+>>> 2012-02-24 16:28:53 CETDEBUG2 remoteWorkerThread_1: current local
+>>> log_status is 2
+>>> 2012-02-24 16:28:53 CETDEBUG3 remoteWorkerThread_1: activate helper 1
+>>> 2012-02-24 16:28:53 CETDEBUG4 remoteWorkerThread_1: waiting for log data
+>>> 2012-02-24 16:28:53 CETDEBUG4 remoteHelperThread_1_1: got work to do
+>>> 2012-02-24 16:28:53 CETDEBUG2 remoteWorkerThread_1_1: current remote
+>>> log_status = 1
+>>> 2012-02-24 16:28:53 CETDEBUG4 remoteHelperThread_1_1: allocate line
+>>> buffers
+>>> 2012-02-24 16:28:53 CETDEBUG4 remoteHelperThread_1_1: fetch from cursor
+>>> 2012-02-24 16:28:53 CETDEBUG1 remoteHelperThread_1_1: 0.002 seconds
+>>> delay for first row
+>>> 2012-02-24 16:28:53 CETDEBUG4 remoteHelperThread_1_1: fetched 0 log rows
+>>> 2012-02-24 16:28:53 CETDEBUG4 remoteHelperThread_1_1: return 50 unused
+>>> line buffers
+>>> 2012-02-24 16:28:53 CETDEBUG1 remoteHelperThread_1_1: 0.003 seconds
+>>> until close cursor
+>>> 2012-02-24 16:28:53 CETDEBUG1 remoteHelperThread_1_1: inserts=0
+>>> updates=0 deletes=0
+>>
+>>
+>> This shows that SYNC events are being processed on the slave and there is
+>> nothing to do.  I also notice that you have 8 replication sets.  Are changes
+>> not being replicated to all tables in all the sets or only some of the sets?
+>>
+>> sl_log_1 and sl_log_2 on the origin should have a record of rows that need
+>> to be replicated.  If you insert a row into one of your tables you should
+>> then see that data in sl_log_1 or sl_log_2.  Is this the case.
+>>
+>>
+>>
+>>
+>>> 2012-02-24 16:28:53 CETDEBUG1 remoteWorkerThread_1: sync_helper
+>>> timing:  pqexec (s/count)- provider 0.002/3 - subscriber 0.000/3
+>>> 2012-02-24 16:28:53 CETDEBUG1 remoteWorkerThread_1: sync_helper
+>>> timing:  large tuples 0.000/0
+>>> 2012-02-24 16:28:53 CETDEBUG4 remoteHelperThread_1_1: change helper
+>>> thread status
+>>> 2012-02-24 16:28:53 CETDEBUG4 remoteHelperThread_1_1: send DONE/ERROR
+>>> line to worker
+>>> 2012-02-24 16:28:53 CETDEBUG3 remoteHelperThread_1_1: waiting for
+>>> workgroup to finish
+>>> 2012-02-24 16:28:53 CETDEBUG3 remoteWorkerThread_1: helper 1 finished
+>>> 2012-02-24 16:28:53 CETDEBUG4 remoteWorkerThread_1: returning lines to
+>>> pool
+>>> 2012-02-24 16:28:53 CETDEBUG3 remoteWorkerThread_1: all helpers done.
+>>> 2012-02-24 16:28:53 CETDEBUG4 remoteWorkerThread_1: changing helper 1 to
+>>> IDLE
+>>> 2012-02-24 16:28:53 CETDEBUG2 remoteWorkerThread_1: cleanup
+>>> 2012-02-24 16:28:53 CETDEBUG4 remoteHelperThread_1_1: waiting for work
+>>> 2012-02-24 16:28:53 CETINFO   remoteWorkerThread_1: SYNC 5000002873
+>>> done in 0.014 seconds
+>>> 2012-02-24 16:28:53 CETDEBUG1 remoteWorkerThread_1: SYNC 5000002873
+>>> sync_event timing:  pqexec (s/count)- provider 0.001/1 - subsc
+>>> riber 0.008/1 - IUD 0.001/4
+>>> 2012-02-24 16:28:55 CETDEBUG2 syncThread: new sl_action_seq 1 - SYNC
+>>> 5000001345
+>>> 2012-02-24 16:28:59 CETDEBUG2 localListenThread: Received event
+>>> 2,5000001345 SYNC
+>>> 2012-02-24 16:29:05 CETDEBUG2 syncThread: new sl_action_seq 1 - SYNC
+>>> 5000001346
+>>> 2012-02-24 16:29:11 CETDEBUG2 localListenThread: Received event
+>>> 2,5000001346 SYNC
+>>> 2012-02-24 16:29:11 CETDEBUG2 remoteListenThread_1: queue event
+>>> 1,5000002874 SYNC
+>>> 2012-02-24 16:29:11 CETDEBUG2 remoteListenThread_1: queue event
+>>> 1,5000002875 SYNC
+>>> 2012-02-24 16:29:11 CETDEBUG2 remoteListenThread_1: queue event
+>>> 1,5000002876 SYNC
+>>> 2012-02-24 16:29:11 CETDEBUG2 remoteWorkerThread_1: Received event #1
+>>> from 5000002874 type:SYNC
+>>> 2012-02-24 16:29:11 CETDEBUG1 calc sync size - last time: 1 last
+>>> length: 18011 ideal: 3 proposed size: 3
+>>> 2012-02-24 16:29:11 CETDEBUG2 remoteWorkerThread_1: SYNC 5000002876
+>>> processing
+>>> 2012-02-24 16:29:11 CETDEBUG1 about to monitor_subscriber_query -
+>>> pulling big actionid list for 1
+>>> 2012-02-24 16:29:11 CETINFO   remoteWorkerThread_1: syncing set 1 with
+>>> 9 table(s) from provider 1
+>>> 2012-02-24 16:29:11 CETDEBUG4  ssy_action_list value:
+>>> 2012-02-24 16:29:11 CETDEBUG2  ssy_action_list length: 0
+>>> 2012-02-24 16:29:11 CETINFO   remoteWorkerThread_1: syncing set 2 with
+>>> 15 table(s) from provider 1
+>>> 2012-02-24 16:29:11 CETDEBUG4  ssy_action_list value:
+>>> 2012-02-24 16:29:11 CETDEBUG2  ssy_action_list length: 0
+>>> 2012-02-24 16:29:11 CETINFO   remoteWorkerThread_1: syncing set 3 with
+>>> 4 table(s) from provider 1
+>>> 2012-02-24 16:29:11 CETDEBUG4  ssy_action_list value:
+>>> 2012-02-24 16:29:11 CETDEBUG2  ssy_action_list length: 0
+>>> 2012-02-24 16:29:11 CETINFO   remoteWorkerThread_1: syncing set 4 with
+>>> 6 table(s) from provider 1
+>>> 2012-02-24 16:29:11 CETDEBUG4  ssy_action_list value:
+>>> 2012-02-24 16:29:11 CETDEBUG2  ssy_action_list length: 0
+>>> 2012-02-24 16:29:11 CETINFO   remoteWorkerThread_1: syncing set 5 with
+>>> 3 table(s) from provider 1
+>>> 2012-02-24 16:29:11 CETDEBUG4  ssy_action_list value:
+>>> 2012-02-24 16:29:11 CETDEBUG2  ssy_action_list length: 0
+>>> 2012-02-24 16:29:11 CETINFO   remoteWorkerThread_1: syncing set 6 with
+>>> 4 table(s) from provider 1
+>>> 2012-02-24 16:29:11 CETDEBUG4  ssy_action_list value:
+>>> 2012-02-24 16:29:11 CETDEBUG2  ssy_action_list length: 0
+>>> 2012-02-24 16:29:11 CETINFO   remoteWorkerThread_1: syncing set 7 with
+>>> 3 table(s) from provider 1
+>>> 2012-02-24 16:29:11 CETDEBUG4  ssy_action_list value:
+>>> 2012-02-24 16:29:11 CETDEBUG2  ssy_action_list length: 0
+>>> 2012-02-24 16:29:11 CETINFO   remoteWorkerThread_1: syncing set 8 with
+>>> 23 table(s) from provider 1
+>>> 2012-02-24 16:29:11 CETDEBUG4  ssy_action_list value:
+>>> 2012-02-24 16:29:11 CETDEBUG2  ssy_action_list length: 0
+>>> 2012-02-24 16:29:11 CETINFO   remoteWorkerThread_1: syncing set 9 with
+>>> 8 table(s) from provider 1
+>>
+>>
+>>
+>>
+>>> 2012-02-24 16:29:11 CETDEBUG4  ssy_action_list value:
+>>> 2012-02-24 16:29:11 CETDEBUG2  ssy_action_list length: 0
+>>> 2012-02-24 16:29:11 CETDEBUG2 remoteWorkerThread_1: current local
+>>> log_status is 2
+>>> 2012-02-24 16:29:11 CETDEBUG3 remoteWorkerThread_1: activate helper 1
+>>> 2012-02-24 16:29:11 CETDEBUG4 remoteWorkerThread_1: waiting for log data
+>>> 2012-02-24 16:29:11 CETDEBUG4 remoteHelperThread_1_1: got work to do
+>>> 2012-02-24 16:29:11 CETDEBUG2 remoteWorkerThread_1_1: current remote
+>>> log_status = 1
+>>> 2012-02-24 16:29:11 CETDEBUG4 remoteHelperThread_1_1: allocate line
+>>> buffers
+>>> 2012-02-24 16:29:11 CETDEBUG4 remoteHelperThread_1_1: fetch from cursor
+>>> 2012-02-24 16:29:11 CETDEBUG1 remoteHelperThread_1_1: 0.002 seconds
+>>> delay for first row
+>>> 2012-02-24 16:29:11 CETDEBUG4 remoteHelperThread_1_1: fetched 0 log rows
+>>> 2012-02-24 16:29:11 CETDEBUG4 remoteHelperThread_1_1: return 50 unused
+>>> line buffers
+>>> 2012-02-24 16:29:11 CETDEBUG1 remoteHelperThread_1_1: 0.002 seconds
+>>> until close cursor
+>>> 2012-02-24 16:29:11 CETDEBUG1 remoteHelperThread_1_1: inserts=0
+>>> updates=0 deletes=0
+>>> 2012-02-24 16:29:11 CETDEBUG1 remoteWorkerThread_1: sync_helper
+>>> timing:  pqexec (s/count)- provider 0.002/3 - subscriber 0.000/3
+>>> 2012-02-24 16:29:11 CETDEBUG1 remoteWorkerThread_1: sync_helper
+>>> timing:  large tuples 0.000/0
+>>> 2012-02-24 16:29:11 CETDEBUG4 remoteHelperThread_1_1: change helper
+>>> thread status
+>>> 2012-02-24 16:29:11 CETDEBUG4 remoteHelperThread_1_1: send DONE/ERROR
+>>> line to worker
+>>> 2012-02-24 16:29:11 CETDEBUG3 remoteHelperThread_1_1: waiting for
+>>> workgroup to finish
+>>> 2012-02-24 16:29:11 CETDEBUG3 remoteWorkerThread_1: helper 1 finished
+>>> 2012-02-24 16:29:11 CETDEBUG4 remoteWorkerThread_1: returning lines to
+>>> pool
+>>> 2012-02-24 16:29:11 CETDEBUG3 remoteWorkerThread_1: all helpers done.
+>>> 2012-02-24 16:29:11 CETDEBUG4 remoteWorkerThread_1: changing helper 1 to
+>>> IDLE
+>>> 2012-02-24 16:29:11 CETDEBUG2 remoteWorkerThread_1: cleanup
+>>> 2012-02-24 16:29:11 CETDEBUG4 remoteHelperThread_1_1: waiting for work
+>>> 2012-02-24 16:29:11 CETINFO   remoteWorkerThread_1: SYNC 5000002876
+>>> done in 0.014 seconds
+>>> 2012-02-24 16:29:11 CETDEBUG1 remoteWorkerThread_1: SYNC 5000002876
+>>> sync_event timing:  pqexec (s/count)- provider 0.001/1 - subsc
+>>> riber 0.008/1 - IUD 0.001/4
+>>> 2012-02-24 16:29:11 CETDEBUG2 remoteWorkerThread_1: forward confirm
+>>> 2,5000001346 received by 1
+>>>
+>>> New SYNC events are being generated. I can find several rows in the
+>>> origin's sl_event table with ev_origin=$originid. None of them however
+>>> (including rows with ev_origin=$subscribedid) are older than about 15
+>>> minutes, even though the most recent data in the subscriber db is
+>>> several hours old.
+>>>
+>>> I'm not really sure how to interpret the data in the pg_locks view,
+>>> but none of them (neither origin or subscriber) have any rows where
+>>> the "granted" column isn't set to TRUE, if that means anything?
+>>>
+>>> /Ulas
+>>>
+>>>
+>>> On Fri, Feb 24, 2012 at 3:34 PM, Steve Singer<ssinger at ca.afilias.info>
+>>>   wrote:
+>>>>
+>>>> On 12-02-24 08:21 AM, Ulas Albayrak wrote:
+>>>>
+>>>> You didn't say what version of slony you are using with which version of
+>>>> postgresql.
+>>>>
+>>>> I don't see anything in the logs you posted about the slon for the origin
+>>>> node generating sync events.  At DEBUG2 or higher (at least ons some
+>>>> versions of slony) you should be getting "syncThread: new sl_action_seq
+>>>> %s "
+>>>> type messages in the log for the slon origin.
+>>>>
+>>>> Are new SYNC events being generated in the origin sl_event table with
+>>>> ev_origin=$originid?
+>>>>
+>>>> Many versions of slony require an exclusive lock on sl_event to generate
+>>>> sync events.  Do you have something preventing this?  (ie look in
+>>>> pg_locks
+>>>> to see if the slony sync connection is waiting on a lock).
+>>>>
+>>>>
+>>>>
+>>>>
+>>>>
+>>>>> Hi,
+>>>>>
+>>>>> I have been trying to set up a small Slony cluster (only 2 nodes) for
+>>>>> the last 2 days but I can't get it to work. Everytime I get the same
+>>>>> result: The replication starts of fine. Slony start copying, trying to
+>>>>> get all the tables in the subscribing node up to speed. But somewhere
+>>>>> along the way the 2nd node stops getting updates. Slony replicates all
+>>>>> the data in a specific table up to a specific point in time and then
+>>>>> no more. And this time seems to coincide with when the copying of data
+>>>>> for that specific table started.
+>>>>>
+>>>>> An example to illustrate the scenario:
+>>>>>
+>>>>> Let's say I have set up the whole replication system and then at 12:00
+>>>>> I start the actual replication. Around 12:05 copying of table A from
+>>>>> node 1 to node 2 starts. It finishes but only the data that was
+>>>>> received before  12:05 get copied to node 2. Then at 12:10 copying of
+>>>>> table B starts. Same thing here: Slony copies all the data that was
+>>>>> received before 12:10 to node 2. And this is the same for all tables.
+>>>>>
+>>>>> The logs for the slon deamons show:
+>>>>>
+>>>>> Origin node:
+>>>>> NOTICE:  Slony-I: cleanup stale sl_nodelock entry for pid=21942
+>>>>> CONTEXT:  SQL statement "SELECT "_fleetcluster".cleanupNodelock()"
+>>>>> PL/pgSQL function "cleanupevent" line 83 at PERFORM
+>>>>> NOTICE:  Slony-I: cleanup stale sl_nodelock entry for pid=21945
+>>>>> CONTEXT:  SQL statement "SELECT "_fleetcluster".cleanupNodelock()"
+>>>>> PL/pgSQL function "cleanupevent" line 83 at PERFORM
+>>>>> NOTICE:  Slony-I: Logswitch to sl_log_2 initiated
+>>>>> CONTEXT:  SQL statement "SELECT "_fleetcluster".logswitch_start()"
+>>>>> PL/pgSQL function "cleanupevent" line 101 at PERFORM
+>>>>> 2012-02-24 12:17:39 CETINFO   cleanupThread:    0.019 seconds for
+>>>>> cleanupEvent()
+>>>>> NOTICE:  Slony-I: cleanup stale sl_nodelock entry for pid=21949
+>>>>> CONTEXT:  SQL statement "SELECT "_fleetcluster".cleanupNodelock()"
+>>>>> PL/pgSQL function "cleanupevent" line 83 at PERFORM
+>>>>> NOTICE:  Slony-I: cleanup stale sl_nodelock entry for pid=23779
+>>>>> CONTEXT:  SQL statement "SELECT "_fleetcluster".cleanupNodelock()"
+>>>>> PL/pgSQL function "cleanupevent" line 83 at PERFORM
+>>>>>
+>>>>> Subscribing node:
+>>>>> 2012-02-24 13:20:23 CETINFO   remoteWorkerThread_1: SYNC 5000000856
+>>>>> done in 0.012 seconds
+>>>>> 2012-02-24 13:20:41 CETINFO   remoteWorkerThread_1: syncing set 1 with
+>>>>> 9 table(s) from provider 1
+>>>>> 2012-02-24 13:20:41 CETINFO   remoteWorkerThread_1: syncing set 2 with
+>>>>> 15 table(s) from provider 1
+>>>>> 2012-02-24 13:20:41 CETINFO   remoteWorkerThread_1: syncing set 3 with
+>>>>> 4 table(s) from provider 1
+>>>>> 2012-02-24 13:20:41 CETINFO   remoteWorkerThread_1: syncing set 4 with
+>>>>> 6 table(s) from provider 1
+>>>>> 2012-02-24 13:20:41 CETINFO   remoteWorkerThread_1: syncing set 5 with
+>>>>> 3 table(s) from provider 1
+>>>>> 2012-02-24 13:20:41 CETINFO   remoteWorkerThread_1: syncing set 6 with
+>>>>> 4 table(s) from provider 1
+>>>>> 2012-02-24 13:20:41 CETINFO   remoteWorkerThread_1: syncing set 7 with
+>>>>> 3 table(s) from provider 1
+>>>>> 2012-02-24 13:20:41 CETINFO   remoteWorkerThread_1: syncing set 8 with
+>>>>> 23 table(s) from provider 1
+>>>>> 2012-02-24 13:20:41 CETINFO   remoteWorkerThread_1: syncing set 9 with
+>>>>> 8 table(s) from provider 1
+>>>>> 2012-02-24 13:20:41 CETINFO   remoteWorkerThread_1: SYNC 5000000857
+>>>>> done in 0.014 seconds
+>>>>> 2012-02-24 13:20:43 CETINFO   remoteWorkerThread_1: syncing set 1 with
+>>>>> 9 table(s) from provider 1
+>>>>> 2012-02-24 13:20:43 CETINFO   remoteWorkerThread_1: syncing set 2 with
+>>>>> 15 table(s) from provider 1
+>>>>> 2012-02-24 13:20:43 CETINFO   remoteWorkerThread_1: syncing set 3 with
+>>>>> 4 table(s) from provider 1
+>>>>> 2012-02-24 13:20:43 CETINFO   remoteWorkerThread_1: syncing set 4 with
+>>>>> 6 table(s) from provider 1
+>>>>> 2012-02-24 13:20:43 CETINFO   remoteWorkerThread_1: syncing set 5 with
+>>>>> 3 table(s) from provider 1
+>>>>> 2012-02-24 13:20:43 CETINFO   remoteWorkerThread_1: syncing set 6 with
+>>>>> 4 table(s) from provider 1
+>>>>> 2012-02-24 13:20:43 CETINFO   remoteWorkerThread_1: syncing set 7 with
+>>>>> 3 table(s) from provider 1
+>>>>> 2012-02-24 13:20:43 CETINFO   remoteWorkerThread_1: syncing set 8 with
+>>>>> 23 table(s) from provider 1
+>>>>> 2012-02-24 13:20:43 CETINFO   remoteWorkerThread_1: syncing set 9 with
+>>>>> 8 table(s) from provider 1
+>>>>> 2012-02-24 13:20:43 CETINFO   remoteWorkerThread_1: SYNC 5000000858
+>>>>> done in 0.011 seconds
+>>>>>
+>>>>>
+>>>>>
+>>>>> Have anyone experienced this before or have any idea what could be
+>>>>> causing
+>>>>> this?
+>>>>>
+>>>>
+>>>
+>>>
+>>>
+>>
+>
+>
+>
+
+
+From ulas.albayrak at gmail.com  Mon Feb 27 05:53:29 2012
+From: ulas.albayrak at gmail.com (Ulas Albayrak)
+Date: Mon, 27 Feb 2012 14:53:29 +0100
+Subject: [Slony1-general] Slony replication stops right after start
+ Slony replication stops right after start
+In-Reply-To: <4F4B7CF7.8080402@ca.afilias.info>
+References: <CADEyix0+n_Rr=KxArFqcoo0DsWYWJnnT5=z+2duTsLNgk+D+7Q@mail.gmail.com>
+	<4F479FEA.5080606@ca.afilias.info>
+	<CADEyix1sHt=VnV3WAZPCzOt_QGceW10Yc+wtXfK+yq7ENWX-wA@mail.gmail.com>
+	<4F47BE63.9020000@ca.afilias.info>
+	<CADEyix1thyeP1G_QdnULgTYv64SpZrX1csiSr1VAi=+erbXk0w@mail.gmail.com>
+	<4F4B7CF7.8080402@ca.afilias.info>
+Message-ID: <CADEyix1g9-4W0gTtnL0JV=OhPBxZOJPzR+OMb2yN5tJVCpkx7w@mail.gmail.com>
+
+Hi,
+
+I noted a few specific rows in the sl_log_x tables and later, after
+they had been removed from the sl_log_x table, checked for them in the
+subscriber but they never got inserted. The answer to the question is
+answer #2, Slony thinks All changes earlier than 1.5 hours ago have
+been replicated. I know that changes were made before that time to the
+tables. Those specific tables continuously receive new data.
+
+But if Slony thinks the data has been replicated the question arises
+of why? Do the worker thread on the provider get some sort of
+acknowledgement that the data has  been transferred to the provider?
+And if so, what is this ack based on?
+
+/Ulas
+
+On Mon, Feb 27, 2012 at 1:54 PM, Steve Singer <ssinger at ca.afilias.info> wrote:
+> On 12-02-27 05:58 AM, Ulas Albayrak wrote:
+>>
+>> Hi,
+>>
+>> None of the tables in any of the sets are being replicated (there are
+>> 9 of them in total by the way). The most recent data in all of them is
+>> from within half an hour of each other.
+>>
+>> The s_log_1 and s_log_2 tables on the provider node are currently
+>> holding around 10k rows between the two of them. Nothing older that
+>> 1,5 hours. Does this mean that Slony thinks everything older than that
+>> has already been replicated?
+>>
+>
+> This means that either
+>
+> 1) No changes were made before then to a replicated table
+> 2) Slony thinks All changes earlier than 1.5 hours ago have been replicated
+> 3) Changes made before then didn't need to be replicated anywhere (no
+> subscriptions?)
+>
+> Do the changes you now see in sl_log_1 or sl_log_2 show up on your slave?
+>
+>
+>
+>
+>> I don't know if it matters but maybe I should mention that the two
+>> machines in the cluster were previously in a cluster where the roles
+>> were reversed, i.e. the subscriber used to be the provider and vice
+>> versa. After a system failure and a subsequent failover I cleaned the
+>> whole cluster (drop node and uninstall node) before attempting to set
+>> it up again. I can't help to think that there maybe some lingering
+>> configurations that are getting in the way?
+>>
+>> /Ulas
+>>
+>> On Fri, Feb 24, 2012 at 5:44 PM, Steve Singer<ssinger at ca.afilias.info>
+>> ?wrote:
+>>>
+>>> On 12-02-24 10:41 AM, Ulas Albayrak wrote:
+>>>
+>>>
+>>>
+>>>> Hi,
+>>>>
+>>>> Sorry, seems I forgot to post versions:
+>>>>
+>>>> Slony: 2.0.7
+>>>> PostgreSQL: ?9.0.5
+>>>>
+>>>> I restarted the slon deamon with debug=4 on both nodes and this is what
+>>>> I
+>>>> got:
+>>>>
+>>>> Origin:
+>>>> 2012-02-24 16:20:50 CETDEBUG2 localListenThread: Received event
+>>>> 1,5000002765 SYNC
+>>>> 2012-02-24 16:20:50 CETDEBUG2 syncThread: new sl_action_seq 45211 -
+>>>> SYNC 5000002766
+>>>
+>>>
+>>>
+>>> This shows that SYNC events are now being generated on the origin.
+>>>
+>>>
+>>>
+>>>> Subscriber:
+>>>> 2012-02-24 16:28:53 CETDEBUG2 ?ssy_action_list length: 0
+>>>> 2012-02-24 16:28:53 CETDEBUG2 remoteWorkerThread_1: current local
+>>>> log_status is 2
+>>>> 2012-02-24 16:28:53 CETDEBUG3 remoteWorkerThread_1: activate helper 1
+>>>> 2012-02-24 16:28:53 CETDEBUG4 remoteWorkerThread_1: waiting for log data
+>>>> 2012-02-24 16:28:53 CETDEBUG4 remoteHelperThread_1_1: got work to do
+>>>> 2012-02-24 16:28:53 CETDEBUG2 remoteWorkerThread_1_1: current remote
+>>>> log_status = 1
+>>>> 2012-02-24 16:28:53 CETDEBUG4 remoteHelperThread_1_1: allocate line
+>>>> buffers
+>>>> 2012-02-24 16:28:53 CETDEBUG4 remoteHelperThread_1_1: fetch from cursor
+>>>> 2012-02-24 16:28:53 CETDEBUG1 remoteHelperThread_1_1: 0.002 seconds
+>>>> delay for first row
+>>>> 2012-02-24 16:28:53 CETDEBUG4 remoteHelperThread_1_1: fetched 0 log rows
+>>>> 2012-02-24 16:28:53 CETDEBUG4 remoteHelperThread_1_1: return 50 unused
+>>>> line buffers
+>>>> 2012-02-24 16:28:53 CETDEBUG1 remoteHelperThread_1_1: 0.003 seconds
+>>>> until close cursor
+>>>> 2012-02-24 16:28:53 CETDEBUG1 remoteHelperThread_1_1: inserts=0
+>>>> updates=0 deletes=0
+>>>
+>>>
+>>>
+>>> This shows that SYNC events are being processed on the slave and there is
+>>> nothing to do. ?I also notice that you have 8 replication sets. ?Are
+>>> changes
+>>> not being replicated to all tables in all the sets or only some of the
+>>> sets?
+>>>
+>>> sl_log_1 and sl_log_2 on the origin should have a record of rows that
+>>> need
+>>> to be replicated. ?If you insert a row into one of your tables you should
+>>> then see that data in sl_log_1 or sl_log_2. ?Is this the case.
+>>>
+>>>
+>>>
+>>>
+>>>> 2012-02-24 16:28:53 CETDEBUG1 remoteWorkerThread_1: sync_helper
+>>>> timing: ?pqexec (s/count)- provider 0.002/3 - subscriber 0.000/3
+>>>> 2012-02-24 16:28:53 CETDEBUG1 remoteWorkerThread_1: sync_helper
+>>>> timing: ?large tuples 0.000/0
+>>>> 2012-02-24 16:28:53 CETDEBUG4 remoteHelperThread_1_1: change helper
+>>>> thread status
+>>>> 2012-02-24 16:28:53 CETDEBUG4 remoteHelperThread_1_1: send DONE/ERROR
+>>>> line to worker
+>>>> 2012-02-24 16:28:53 CETDEBUG3 remoteHelperThread_1_1: waiting for
+>>>> workgroup to finish
+>>>> 2012-02-24 16:28:53 CETDEBUG3 remoteWorkerThread_1: helper 1 finished
+>>>> 2012-02-24 16:28:53 CETDEBUG4 remoteWorkerThread_1: returning lines to
+>>>> pool
+>>>> 2012-02-24 16:28:53 CETDEBUG3 remoteWorkerThread_1: all helpers done.
+>>>> 2012-02-24 16:28:53 CETDEBUG4 remoteWorkerThread_1: changing helper 1 to
+>>>> IDLE
+>>>> 2012-02-24 16:28:53 CETDEBUG2 remoteWorkerThread_1: cleanup
+>>>> 2012-02-24 16:28:53 CETDEBUG4 remoteHelperThread_1_1: waiting for work
+>>>> 2012-02-24 16:28:53 CETINFO ? remoteWorkerThread_1: SYNC 5000002873
+>>>> done in 0.014 seconds
+>>>> 2012-02-24 16:28:53 CETDEBUG1 remoteWorkerThread_1: SYNC 5000002873
+>>>> sync_event timing: ?pqexec (s/count)- provider 0.001/1 - subsc
+>>>> riber 0.008/1 - IUD 0.001/4
+>>>> 2012-02-24 16:28:55 CETDEBUG2 syncThread: new sl_action_seq 1 - SYNC
+>>>> 5000001345
+>>>> 2012-02-24 16:28:59 CETDEBUG2 localListenThread: Received event
+>>>> 2,5000001345 SYNC
+>>>> 2012-02-24 16:29:05 CETDEBUG2 syncThread: new sl_action_seq 1 - SYNC
+>>>> 5000001346
+>>>> 2012-02-24 16:29:11 CETDEBUG2 localListenThread: Received event
+>>>> 2,5000001346 SYNC
+>>>> 2012-02-24 16:29:11 CETDEBUG2 remoteListenThread_1: queue event
+>>>> 1,5000002874 SYNC
+>>>> 2012-02-24 16:29:11 CETDEBUG2 remoteListenThread_1: queue event
+>>>> 1,5000002875 SYNC
+>>>> 2012-02-24 16:29:11 CETDEBUG2 remoteListenThread_1: queue event
+>>>> 1,5000002876 SYNC
+>>>> 2012-02-24 16:29:11 CETDEBUG2 remoteWorkerThread_1: Received event #1
+>>>> from 5000002874 type:SYNC
+>>>> 2012-02-24 16:29:11 CETDEBUG1 calc sync size - last time: 1 last
+>>>> length: 18011 ideal: 3 proposed size: 3
+>>>> 2012-02-24 16:29:11 CETDEBUG2 remoteWorkerThread_1: SYNC 5000002876
+>>>> processing
+>>>> 2012-02-24 16:29:11 CETDEBUG1 about to monitor_subscriber_query -
+>>>> pulling big actionid list for 1
+>>>> 2012-02-24 16:29:11 CETINFO ? remoteWorkerThread_1: syncing set 1 with
+>>>> 9 table(s) from provider 1
+>>>> 2012-02-24 16:29:11 CETDEBUG4 ?ssy_action_list value:
+>>>> 2012-02-24 16:29:11 CETDEBUG2 ?ssy_action_list length: 0
+>>>> 2012-02-24 16:29:11 CETINFO ? remoteWorkerThread_1: syncing set 2 with
+>>>> 15 table(s) from provider 1
+>>>> 2012-02-24 16:29:11 CETDEBUG4 ?ssy_action_list value:
+>>>> 2012-02-24 16:29:11 CETDEBUG2 ?ssy_action_list length: 0
+>>>> 2012-02-24 16:29:11 CETINFO ? remoteWorkerThread_1: syncing set 3 with
+>>>> 4 table(s) from provider 1
+>>>> 2012-02-24 16:29:11 CETDEBUG4 ?ssy_action_list value:
+>>>> 2012-02-24 16:29:11 CETDEBUG2 ?ssy_action_list length: 0
+>>>> 2012-02-24 16:29:11 CETINFO ? remoteWorkerThread_1: syncing set 4 with
+>>>> 6 table(s) from provider 1
+>>>> 2012-02-24 16:29:11 CETDEBUG4 ?ssy_action_list value:
+>>>> 2012-02-24 16:29:11 CETDEBUG2 ?ssy_action_list length: 0
+>>>> 2012-02-24 16:29:11 CETINFO ? remoteWorkerThread_1: syncing set 5 with
+>>>> 3 table(s) from provider 1
+>>>> 2012-02-24 16:29:11 CETDEBUG4 ?ssy_action_list value:
+>>>> 2012-02-24 16:29:11 CETDEBUG2 ?ssy_action_list length: 0
+>>>> 2012-02-24 16:29:11 CETINFO ? remoteWorkerThread_1: syncing set 6 with
+>>>> 4 table(s) from provider 1
+>>>> 2012-02-24 16:29:11 CETDEBUG4 ?ssy_action_list value:
+>>>> 2012-02-24 16:29:11 CETDEBUG2 ?ssy_action_list length: 0
+>>>> 2012-02-24 16:29:11 CETINFO ? remoteWorkerThread_1: syncing set 7 with
+>>>> 3 table(s) from provider 1
+>>>> 2012-02-24 16:29:11 CETDEBUG4 ?ssy_action_list value:
+>>>> 2012-02-24 16:29:11 CETDEBUG2 ?ssy_action_list length: 0
+>>>> 2012-02-24 16:29:11 CETINFO ? remoteWorkerThread_1: syncing set 8 with
+>>>> 23 table(s) from provider 1
+>>>> 2012-02-24 16:29:11 CETDEBUG4 ?ssy_action_list value:
+>>>> 2012-02-24 16:29:11 CETDEBUG2 ?ssy_action_list length: 0
+>>>> 2012-02-24 16:29:11 CETINFO ? remoteWorkerThread_1: syncing set 9 with
+>>>> 8 table(s) from provider 1
+>>>
+>>>
+>>>
+>>>
+>>>
+>>>> 2012-02-24 16:29:11 CETDEBUG4 ?ssy_action_list value:
+>>>> 2012-02-24 16:29:11 CETDEBUG2 ?ssy_action_list length: 0
+>>>> 2012-02-24 16:29:11 CETDEBUG2 remoteWorkerThread_1: current local
+>>>> log_status is 2
+>>>> 2012-02-24 16:29:11 CETDEBUG3 remoteWorkerThread_1: activate helper 1
+>>>> 2012-02-24 16:29:11 CETDEBUG4 remoteWorkerThread_1: waiting for log data
+>>>> 2012-02-24 16:29:11 CETDEBUG4 remoteHelperThread_1_1: got work to do
+>>>> 2012-02-24 16:29:11 CETDEBUG2 remoteWorkerThread_1_1: current remote
+>>>> log_status = 1
+>>>> 2012-02-24 16:29:11 CETDEBUG4 remoteHelperThread_1_1: allocate line
+>>>> buffers
+>>>> 2012-02-24 16:29:11 CETDEBUG4 remoteHelperThread_1_1: fetch from cursor
+>>>> 2012-02-24 16:29:11 CETDEBUG1 remoteHelperThread_1_1: 0.002 seconds
+>>>> delay for first row
+>>>> 2012-02-24 16:29:11 CETDEBUG4 remoteHelperThread_1_1: fetched 0 log rows
+>>>> 2012-02-24 16:29:11 CETDEBUG4 remoteHelperThread_1_1: return 50 unused
+>>>> line buffers
+>>>> 2012-02-24 16:29:11 CETDEBUG1 remoteHelperThread_1_1: 0.002 seconds
+>>>> until close cursor
+>>>> 2012-02-24 16:29:11 CETDEBUG1 remoteHelperThread_1_1: inserts=0
+>>>> updates=0 deletes=0
+>>>> 2012-02-24 16:29:11 CETDEBUG1 remoteWorkerThread_1: sync_helper
+>>>> timing: ?pqexec (s/count)- provider 0.002/3 - subscriber 0.000/3
+>>>> 2012-02-24 16:29:11 CETDEBUG1 remoteWorkerThread_1: sync_helper
+>>>> timing: ?large tuples 0.000/0
+>>>> 2012-02-24 16:29:11 CETDEBUG4 remoteHelperThread_1_1: change helper
+>>>> thread status
+>>>> 2012-02-24 16:29:11 CETDEBUG4 remoteHelperThread_1_1: send DONE/ERROR
+>>>> line to worker
+>>>> 2012-02-24 16:29:11 CETDEBUG3 remoteHelperThread_1_1: waiting for
+>>>> workgroup to finish
+>>>> 2012-02-24 16:29:11 CETDEBUG3 remoteWorkerThread_1: helper 1 finished
+>>>> 2012-02-24 16:29:11 CETDEBUG4 remoteWorkerThread_1: returning lines to
+>>>> pool
+>>>> 2012-02-24 16:29:11 CETDEBUG3 remoteWorkerThread_1: all helpers done.
+>>>> 2012-02-24 16:29:11 CETDEBUG4 remoteWorkerThread_1: changing helper 1 to
+>>>> IDLE
+>>>> 2012-02-24 16:29:11 CETDEBUG2 remoteWorkerThread_1: cleanup
+>>>> 2012-02-24 16:29:11 CETDEBUG4 remoteHelperThread_1_1: waiting for work
+>>>> 2012-02-24 16:29:11 CETINFO ? remoteWorkerThread_1: SYNC 5000002876
+>>>> done in 0.014 seconds
+>>>> 2012-02-24 16:29:11 CETDEBUG1 remoteWorkerThread_1: SYNC 5000002876
+>>>> sync_event timing: ?pqexec (s/count)- provider 0.001/1 - subsc
+>>>> riber 0.008/1 - IUD 0.001/4
+>>>> 2012-02-24 16:29:11 CETDEBUG2 remoteWorkerThread_1: forward confirm
+>>>> 2,5000001346 received by 1
+>>>>
+>>>> New SYNC events are being generated. I can find several rows in the
+>>>> origin's sl_event table with ev_origin=$originid. None of them however
+>>>> (including rows with ev_origin=$subscribedid) are older than about 15
+>>>> minutes, even though the most recent data in the subscriber db is
+>>>> several hours old.
+>>>>
+>>>> I'm not really sure how to interpret the data in the pg_locks view,
+>>>> but none of them (neither origin or subscriber) have any rows where
+>>>> the "granted" column isn't set to TRUE, if that means anything?
+>>>>
+>>>> /Ulas
+>>>>
+>>>>
+>>>> On Fri, Feb 24, 2012 at 3:34 PM, Steve Singer<ssinger at ca.afilias.info>
+>>>> ?wrote:
+>>>>>
+>>>>>
+>>>>> On 12-02-24 08:21 AM, Ulas Albayrak wrote:
+>>>>>
+>>>>> You didn't say what version of slony you are using with which version
+>>>>> of
+>>>>> postgresql.
+>>>>>
+>>>>> I don't see anything in the logs you posted about the slon for the
+>>>>> origin
+>>>>> node generating sync events. ?At DEBUG2 or higher (at least ons some
+>>>>> versions of slony) you should be getting "syncThread: new sl_action_seq
+>>>>> %s "
+>>>>> type messages in the log for the slon origin.
+>>>>>
+>>>>> Are new SYNC events being generated in the origin sl_event table with
+>>>>> ev_origin=$originid?
+>>>>>
+>>>>> Many versions of slony require an exclusive lock on sl_event to
+>>>>> generate
+>>>>> sync events. ?Do you have something preventing this? ?(ie look in
+>>>>> pg_locks
+>>>>> to see if the slony sync connection is waiting on a lock).
+>>>>>
+>>>>>
+>>>>>
+>>>>>
+>>>>>
+>>>>>> Hi,
+>>>>>>
+>>>>>> I have been trying to set up a small Slony cluster (only 2 nodes) for
+>>>>>> the last 2 days but I can't get it to work. Everytime I get the same
+>>>>>> result: The replication starts of fine. Slony start copying, trying to
+>>>>>> get all the tables in the subscribing node up to speed. But somewhere
+>>>>>> along the way the 2nd node stops getting updates. Slony replicates all
+>>>>>> the data in a specific table up to a specific point in time and then
+>>>>>> no more. And this time seems to coincide with when the copying of data
+>>>>>> for that specific table started.
+>>>>>>
+>>>>>> An example to illustrate the scenario:
+>>>>>>
+>>>>>> Let's say I have set up the whole replication system and then at 12:00
+>>>>>> I start the actual replication. Around 12:05 copying of table A from
+>>>>>> node 1 to node 2 starts. It finishes but only the data that was
+>>>>>> received before ?12:05 get copied to node 2. Then at 12:10 copying of
+>>>>>> table B starts. Same thing here: Slony copies all the data that was
+>>>>>> received before 12:10 to node 2. And this is the same for all tables.
+>>>>>>
+>>>>>> The logs for the slon deamons show:
+>>>>>>
+>>>>>> Origin node:
+>>>>>> NOTICE: ?Slony-I: cleanup stale sl_nodelock entry for pid=21942
+>>>>>> CONTEXT: ?SQL statement "SELECT "_fleetcluster".cleanupNodelock()"
+>>>>>> PL/pgSQL function "cleanupevent" line 83 at PERFORM
+>>>>>> NOTICE: ?Slony-I: cleanup stale sl_nodelock entry for pid=21945
+>>>>>> CONTEXT: ?SQL statement "SELECT "_fleetcluster".cleanupNodelock()"
+>>>>>> PL/pgSQL function "cleanupevent" line 83 at PERFORM
+>>>>>> NOTICE: ?Slony-I: Logswitch to sl_log_2 initiated
+>>>>>> CONTEXT: ?SQL statement "SELECT "_fleetcluster".logswitch_start()"
+>>>>>> PL/pgSQL function "cleanupevent" line 101 at PERFORM
+>>>>>> 2012-02-24 12:17:39 CETINFO ? cleanupThread: ? ?0.019 seconds for
+>>>>>> cleanupEvent()
+>>>>>> NOTICE: ?Slony-I: cleanup stale sl_nodelock entry for pid=21949
+>>>>>> CONTEXT: ?SQL statement "SELECT "_fleetcluster".cleanupNodelock()"
+>>>>>> PL/pgSQL function "cleanupevent" line 83 at PERFORM
+>>>>>> NOTICE: ?Slony-I: cleanup stale sl_nodelock entry for pid=23779
+>>>>>> CONTEXT: ?SQL statement "SELECT "_fleetcluster".cleanupNodelock()"
+>>>>>> PL/pgSQL function "cleanupevent" line 83 at PERFORM
+>>>>>>
+>>>>>> Subscribing node:
+>>>>>> 2012-02-24 13:20:23 CETINFO ? remoteWorkerThread_1: SYNC 5000000856
+>>>>>> done in 0.012 seconds
+>>>>>> 2012-02-24 13:20:41 CETINFO ? remoteWorkerThread_1: syncing set 1 with
+>>>>>> 9 table(s) from provider 1
+>>>>>> 2012-02-24 13:20:41 CETINFO ? remoteWorkerThread_1: syncing set 2 with
+>>>>>> 15 table(s) from provider 1
+>>>>>> 2012-02-24 13:20:41 CETINFO ? remoteWorkerThread_1: syncing set 3 with
+>>>>>> 4 table(s) from provider 1
+>>>>>> 2012-02-24 13:20:41 CETINFO ? remoteWorkerThread_1: syncing set 4 with
+>>>>>> 6 table(s) from provider 1
+>>>>>> 2012-02-24 13:20:41 CETINFO ? remoteWorkerThread_1: syncing set 5 with
+>>>>>> 3 table(s) from provider 1
+>>>>>> 2012-02-24 13:20:41 CETINFO ? remoteWorkerThread_1: syncing set 6 with
+>>>>>> 4 table(s) from provider 1
+>>>>>> 2012-02-24 13:20:41 CETINFO ? remoteWorkerThread_1: syncing set 7 with
+>>>>>> 3 table(s) from provider 1
+>>>>>> 2012-02-24 13:20:41 CETINFO ? remoteWorkerThread_1: syncing set 8 with
+>>>>>> 23 table(s) from provider 1
+>>>>>> 2012-02-24 13:20:41 CETINFO ? remoteWorkerThread_1: syncing set 9 with
+>>>>>> 8 table(s) from provider 1
+>>>>>> 2012-02-24 13:20:41 CETINFO ? remoteWorkerThread_1: SYNC 5000000857
+>>>>>> done in 0.014 seconds
+>>>>>> 2012-02-24 13:20:43 CETINFO ? remoteWorkerThread_1: syncing set 1 with
+>>>>>> 9 table(s) from provider 1
+>>>>>> 2012-02-24 13:20:43 CETINFO ? remoteWorkerThread_1: syncing set 2 with
+>>>>>> 15 table(s) from provider 1
+>>>>>> 2012-02-24 13:20:43 CETINFO ? remoteWorkerThread_1: syncing set 3 with
+>>>>>> 4 table(s) from provider 1
+>>>>>> 2012-02-24 13:20:43 CETINFO ? remoteWorkerThread_1: syncing set 4 with
+>>>>>> 6 table(s) from provider 1
+>>>>>> 2012-02-24 13:20:43 CETINFO ? remoteWorkerThread_1: syncing set 5 with
+>>>>>> 3 table(s) from provider 1
+>>>>>> 2012-02-24 13:20:43 CETINFO ? remoteWorkerThread_1: syncing set 6 with
+>>>>>> 4 table(s) from provider 1
+>>>>>> 2012-02-24 13:20:43 CETINFO ? remoteWorkerThread_1: syncing set 7 with
+>>>>>> 3 table(s) from provider 1
+>>>>>> 2012-02-24 13:20:43 CETINFO ? remoteWorkerThread_1: syncing set 8 with
+>>>>>> 23 table(s) from provider 1
+>>>>>> 2012-02-24 13:20:43 CETINFO ? remoteWorkerThread_1: syncing set 9 with
+>>>>>> 8 table(s) from provider 1
+>>>>>> 2012-02-24 13:20:43 CETINFO ? remoteWorkerThread_1: SYNC 5000000858
+>>>>>> done in 0.011 seconds
+>>>>>>
+>>>>>>
+>>>>>>
+>>>>>> Have anyone experienced this before or have any idea what could be
+>>>>>> causing
+>>>>>> this?
+>>>>>>
+>>>>>
+>>>>
+>>>>
+>>>>
+>>>
+>>
+>>
+>>
+>
+
+
+
+-- 
+Ulas Albayrak
+ulas.albayrak at gmail.com
+
+From stephane.schildknecht at postgresql.fr  Mon Feb 27 06:02:09 2012
+From: stephane.schildknecht at postgresql.fr (=?ISO-8859-15?Q?=22St=E9phane_A=2E_Schildknecht=22?=)
+Date: Mon, 27 Feb 2012 15:02:09 +0100
+Subject: [Slony1-general] Syntax error?
+In-Reply-To: <4E6FA67E54034BA294B3DB3660A34B8D@CMOTUM25PC>
+References: <33357837.post@talk.nabble.com>
+	<4E6FA67E54034BA294B3DB3660A34B8D@CMOTUM25PC>
+Message-ID: <4F4B8CE1.1030401@postgresql.fr>
+
+Le 20/02/2012 18:56, Efra?n D?ctor a ?crit :
+> Delete the _EOF_ at the end of the script.
+> 
+> -----Mensaje original----- 
+> From: NewToSlony
+> Sent: Monday, February 20, 2012 10:45 AM
+> To: slony1-general at lists.slony.info
+> Subject: [Slony1-general] Syntax error?
+> 
+> 
+> Hi,
+> 
+> I'm trying to use the example in the 2.1.1 documentation but I keep getting
+> a syntax error.  I've noted that the doc shows
+> cluster name = $CLUSTERNAME;
+> is a valid syntax but unless I change the $ to a @ I get a syntax error,
+> thus as I'm new and unsure I don't know if there are errors in the
+> documentation or something I am missing.  Never the less, my script as as
+> follows:
+> 
+> 
+> #!/bin/sh
+> 
+> CLUSTERNAME= slony_example;
+> /opt/local/lib/postgresql90/bin/slonik <<_EOL_
+> define CLUSTERNAME slony_example;
+> cluster name = @CLUSTERNAME;
+> node 1 admin conninfo = 'dbname=my_primary host=localhost user=user';
+> node 2 admin conninfo = 'dbname=my_rep host=localhost user=user';
+> #-- 
+> # init the first node. Its id MUST be 1. This creates the schema #
+> _$CLUSTERNAME containing all replication system specific database # objects.
+> #-- 
+> init cluster ( id=1, comment='Master Node');
+> #--
+> # Slony-I organizes tables into sets. The smallest unit a node can #
+> subscribe is a set. The following commands create one set containing # all 4
+> pgbench tables. The master or origin of the set is node 1.
+> #-- 
+> create set (id=1, origin=1, comment='All pgbench tables');
+> set add table (set id=1, origin=1, id=1, fully qualified
+> name='public.pgbench_accounts', comment='accounts table');
+> set add table (set id=1, origin=1, id=2, fully qualified
+> name='public.pgbench_branches', comment='branches table');
+> set add table (set id=1, origin=1, id=3, fully qualified
+> name='public.pgbench_tellers', comment='tellers table');
+> set add table (set id=1, origin=1, id=4, fully qualified
+> name='public.pgbench_history', comment='history table');
+> #-- 
+> # Create the second node (the slave) tell the 2 nodes how to connect to
+> Slony-I 2.1.1 Documentation 10 / 163
+> # each other and how they should listen for events.
+> #--
+> store node (id=2, comment = 'Slave node', event node=1);
+> store path (server = 1, client = 2, conninfo='dbname=my_primary
+> host=localhost user=user');
+> store path (server = 2, client = 1, conninfo='dbname=my_rep host=localhost
+> user=user');
+> _EOF_
+> 
+> 
+> Yet I get the following syntax error:
+> 
+> 
+> /tmp/slonik_example.sh: line 3: slony_example: command not found
+> <stdin>:24: ERROR: syntax error at or near _EOF_
+> 
+
+You started with _EOL_.
+You then have to end with the same mark, instead of the _EOF_ you used at the end.
+
+-- 
+St?phane Schildknecht
+http://www.Loxodata.com
+Contact r?gional PostgreSQL
+http://bistri.me/sas
+
+
+From stephane.schildknecht at postgresql.fr  Mon Feb 27 06:10:10 2012
+From: stephane.schildknecht at postgresql.fr (=?ISO-8859-15?Q?=22St=E9phane_A=2E_Schildknecht=22?=)
+Date: Mon, 27 Feb 2012 15:10:10 +0100
+Subject: [Slony1-general] Cannot find slony1_funcs on macos despite lib
+ in place
+In-Reply-To: <33365133.post@talk.nabble.com>
+References: <33365133.post@talk.nabble.com>
+Message-ID: <4F4B8EC2.20208@postgresql.fr>
+
+Le 21/02/2012 17:41, NewToSlony a ?crit :
+> 
+> Trying to run the example slony config script in the documentation but
+> getting the following error:
+> 
+> 
+> postgres$ /tmp/slonik_example.sh
+> <stdin>:8: PGRES_FATAL_ERROR load '$libdir/slony1_funcs';  - ERROR:  could
+> not access file "$libdir/slony1_funcs": No such file or directory
+> <stdin>:8: Error: the extension for the Slony-I C functions cannot be loaded
+> in database 'dbname=my_primary host=localhost user=warfish
+> password=coalitions'
+> 
+> Yet the LIBDIR variable is set correctly:
+> postgres$ ./pg_config
+> BINDIR = /opt/local/lib/postgresql90/bin
+> DOCDIR = /opt/local/share/doc/postgresql
+> HTMLDIR = /opt/local/share/doc/postgresql
+> INCLUDEDIR = /opt/local/include/postgresql90
+> PKGINCLUDEDIR = /opt/local/include/postgresql90
+> INCLUDEDIR-SERVER = /opt/local/include/postgresql90/server
+> LIBDIR = /opt/local/lib/postgresql90
+> 
+> And the lib is present:
+> 
+> ls -l /opt/local/lib/postgresql90/slony1_funcs.so
+> -rwxr-xr-x  1 root  admin  34944 Feb 17 16:20
+> /opt/local/lib/postgresql90/slony1_funcs.so
+> 
+
+Could it be a permission problem on the libraries, as they seem to be property
+of root?
+
+-- 
+St?phane Schildknecht
+http://www.Loxodata.com
+Contact r?gional PostgreSQL
+http://bistri.me/sas
+
+
+From ssinger at ca.afilias.info  Mon Feb 27 06:41:22 2012
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Mon, 27 Feb 2012 09:41:22 -0500
+Subject: [Slony1-general] Slony replication stops right after start
+ Slony replication stops right after start
+In-Reply-To: <CADEyix1g9-4W0gTtnL0JV=OhPBxZOJPzR+OMb2yN5tJVCpkx7w@mail.gmail.com>
+References: <CADEyix0+n_Rr=KxArFqcoo0DsWYWJnnT5=z+2duTsLNgk+D+7Q@mail.gmail.com>	<4F479FEA.5080606@ca.afilias.info>	<CADEyix1sHt=VnV3WAZPCzOt_QGceW10Yc+wtXfK+yq7ENWX-wA@mail.gmail.com>	<4F47BE63.9020000@ca.afilias.info>	<CADEyix1thyeP1G_QdnULgTYv64SpZrX1csiSr1VAi=+erbXk0w@mail.gmail.com>	<4F4B7CF7.8080402@ca.afilias.info>
+	<CADEyix1g9-4W0gTtnL0JV=OhPBxZOJPzR+OMb2yN5tJVCpkx7w@mail.gmail.com>
+Message-ID: <4F4B9612.6010503@ca.afilias.info>
+
+On 12-02-27 08:53 AM, Ulas Albayrak wrote:
+> Hi,
+>
+> I noted a few specific rows in the sl_log_x tables and later, after
+> they had been removed from the sl_log_x table, checked for them in the
+> subscriber but they never got inserted. The answer to the question is
+> answer #2, Slony thinks All changes earlier than 1.5 hours ago have
+> been replicated. I know that changes were made before that time to the
+> tables. Those specific tables continuously receive new data.
+>
+> But if Slony thinks the data has been replicated the question arises
+> of why? Do the worker thread on the provider get some sort of
+> acknowledgement that the data has  been transferred to the provider?
+> And if so, what is this ack based on?
+>
+
+The slon threads figure out which rows in sl_log belong to a particular 
+SYNC event based on the transaction id's stored as part of the sync 
+event.  Slon then replicates these rows and stores a confirmation (that 
+gets sent back to the master) in sl_confirm.
+
+Do you have any rows in sl_confirm with con_origin=$master where the 
+con_seqno is bigger than the largets ev_seqno in sl_event with 
+ev_origin=$master ?  (this situation should not be possible).
+
+
+
+> /Ulas
+>
+
+
