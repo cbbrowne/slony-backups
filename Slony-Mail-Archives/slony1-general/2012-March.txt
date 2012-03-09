@@ -388,3 +388,242 @@ Laura
 An HTML attachment was scrubbed...
 URL: http://lists.slony.info/pipermail/slony1-general/attachments/20120307/ee9e7537/attachment.htm 
 
+From atsaloli.tech at gmail.com  Wed Mar  7 12:59:31 2012
+From: atsaloli.tech at gmail.com (Aleksey Tsalolikhin)
+Date: Wed, 7 Mar 2012 12:59:31 -0800
+Subject: [Slony1-general] A 154 GB table swelled to 527 GB on the Slony
+	slave. How to compact it?
+In-Reply-To: <CA+jMWodz_6rhfCd9APKf3vkun-kp-gSW=-TgH_Fo+SPoQw2X8A@mail.gmail.com>
+References: <CA+jMWodz_6rhfCd9APKf3vkun-kp-gSW=-TgH_Fo+SPoQw2X8A@mail.gmail.com>
+Message-ID: <CA+jMWodFkAtogPhwk+Tik5Gind+WSFrQZAmkJb6th0OpSD-17A@mail.gmail.com>
+
+Hello,
+
+?We're replicating a PostgreSQL 8.4.x database using Slony1-1.2.x
+
+?The origin database "data/base" directory is 197 GB in size.
+
+?The slave database "data/base" directory is 562 GB in size and is
+?over 75% filesystem utilization which has set off the "disk free" siren.
+
+?My biggest table* measures 154 GB on the origin, and 533 GB on
+?the slave. ?(*As reported by
+
+?SELECT relname as "Table", pg_size_pretty(pg_total_relation_size(relid))
+? As "Size" from pg_catalog.pg_statio_user_tables
+? ORDER BY pg_total_relation_size(relid) DESC;
+?)
+
+?I took a peek at this table on the slave using pgadmin3. The table
+?has auto-vacuum enabled, and TOAST autovacuum enabled.
+
+?There are 8.6 million live tuples, and 1.5 million dead tuples.
+
+?Last autovacuum was over a month ago.
+
+?Last autoanalyze was 3 hours ago.
+
+?Table size is 4 Gigs, and TOAST table size is 527 Gigs.
+?Indexes size is 3 Gigs.
+
+?Autovacuum threshold is 20%, and the table is just under that threshold.
+
+?I ran vacuum analyze verbose. ?But the filesystem is still at 76%
+utilization.
+?In fact, now, the "data/base" directory has grown to 565 GB.
+
+?Why is my slave bigger than my master? ?How can I compact it, please?
+
+Best,
+Aleksey
+
+From ssinger at ca.afilias.info  Wed Mar  7 14:29:06 2012
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Wed, 07 Mar 2012 17:29:06 -0500
+Subject: [Slony1-general] Slow sync
+In-Reply-To: <1331117844.5271.YahooMailNeo@web28504.mail.ukl.yahoo.com>
+References: <1331117844.5271.YahooMailNeo@web28504.mail.ukl.yahoo.com>
+Message-ID: <4F57E132.3050607@ca.afilias.info>
+
+On 12-03-07 05:57 AM, Laura Passigni wrote:
+> Hi,
+> I have a big database (about 1350GB) with Slony replica (1 master and 1
+> slave).
+> Last week I have had a network crash between master and slave server.
+> Unfortunately there was a bulk import in progress in the master
+> database. As result the slave server was not in sync with the master for
+> few days.
+> There are now about 80.000 records in the sl_event table and the sync is
+> very slow. I have seen in the log file that the sync of each event
+> requires about 1500/2000 seconds. It is a very huge time.
+> Is there something that I can do? Is there some faster way to sync the
+> databases?
+> Thank you,
+> Laura
+>
+
+It is possible that your issue is what we have been referring to as bug 
+167.  This has been fixed in slony 2.1.0.  What happens is that when 
+sl_log_1 or sl_log_2 grows beyond a certain size the query turns into a 
+sequential scan.
+
+Other than upgrading,  you need to push the sync interval up so you 
+generate fewer syncs, and increase the sync_groupsize so it processes 
+more syncs together.  This might allow slony to catch up.  Once it is 
+caught up your sl_log tables will get truncated and you can go back to 
+normal settings/operations.
+
+
+>
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+
+
+From ssinger at ca.afilias.info  Wed Mar  7 14:37:55 2012
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Wed, 07 Mar 2012 17:37:55 -0500
+Subject: [Slony1-general] A 154 GB table swelled to 527 GB on the Slony
+ slave. How to compact it?
+In-Reply-To: <CA+jMWodFkAtogPhwk+Tik5Gind+WSFrQZAmkJb6th0OpSD-17A@mail.gmail.com>
+References: <CA+jMWodz_6rhfCd9APKf3vkun-kp-gSW=-TgH_Fo+SPoQw2X8A@mail.gmail.com>
+	<CA+jMWodFkAtogPhwk+Tik5Gind+WSFrQZAmkJb6th0OpSD-17A@mail.gmail.com>
+Message-ID: <4F57E343.8050808@ca.afilias.info>
+
+On 12-03-07 03:59 PM, Aleksey Tsalolikhin wrote:
+> Hello,
+
+
+If the problem is that your table is bloated
+
+The CLUSTER command 
+http://www.postgresql.org/docs/8.4/static/sql-cluster.html will compact 
+your table.  The VACUUM command does not normally return unused space to 
+the operating system (some exceptions apply)
+
+
+
+
+
+>
+>   We're replicating a PostgreSQL 8.4.x database using Slony1-1.2.x
+>
+>   The origin database "data/base" directory is 197 GB in size.
+>
+>   The slave database "data/base" directory is 562 GB in size and is
+>   over 75% filesystem utilization which has set off the "disk free" siren.
+>
+>   My biggest table* measures 154 GB on the origin, and 533 GB on
+>   the slave.  (*As reported by
+>
+>   SELECT relname as "Table", pg_size_pretty(pg_total_relation_size(relid))
+>    As "Size" from pg_catalog.pg_statio_user_tables
+>    ORDER BY pg_total_relation_size(relid) DESC;
+>   )
+>
+>   I took a peek at this table on the slave using pgadmin3. The table
+>   has auto-vacuum enabled, and TOAST autovacuum enabled.
+>
+>   There are 8.6 million live tuples, and 1.5 million dead tuples.
+>
+>   Last autovacuum was over a month ago.
+>
+>   Last autoanalyze was 3 hours ago.
+>
+>   Table size is 4 Gigs, and TOAST table size is 527 Gigs.
+>   Indexes size is 3 Gigs.
+>
+>   Autovacuum threshold is 20%, and the table is just under that threshold.
+>
+>   I ran vacuum analyze verbose.  But the filesystem is still at 76%
+> utilization.
+>   In fact, now, the "data/base" directory has grown to 565 GB.
+>
+>   Why is my slave bigger than my master?  How can I compact it, please?
+>
+> Best,
+> Aleksey
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+
+
+From atsaloli.tech at gmail.com  Wed Mar  7 16:28:40 2012
+From: atsaloli.tech at gmail.com (Aleksey Tsalolikhin)
+Date: Wed, 7 Mar 2012 16:28:40 -0800
+Subject: [Slony1-general] A 154 GB table swelled to 527 GB on the Slony
+ slave. How to compact it?
+In-Reply-To: <4F57E343.8050808@ca.afilias.info>
+References: <CA+jMWodz_6rhfCd9APKf3vkun-kp-gSW=-TgH_Fo+SPoQw2X8A@mail.gmail.com>
+	<CA+jMWodFkAtogPhwk+Tik5Gind+WSFrQZAmkJb6th0OpSD-17A@mail.gmail.com>
+	<4F57E343.8050808@ca.afilias.info>
+Message-ID: <CA+jMWoduFmhK4Ak5ZdCTKWH9GKW91psU-a4wU2DTxih5K52RBw@mail.gmail.com>
+
+On Wed, Mar 7, 2012 at 2:37 PM, Steve Singer <ssinger at ca.afilias.info> wrote:
+> On 12-03-07 03:59 PM, Aleksey Tsalolikhin wrote:
+>>
+>> Hello,
+>
+>
+>
+> If the problem is that your table is bloated
+>
+> The CLUSTER command
+> http://www.postgresql.org/docs/8.4/static/sql-cluster.html will compact your
+> table. ?The VACUUM command does not normally return unused space to the
+> operating system (some exceptions apply)
+
+Thank you, Steve.
+
+I used "check_postgres" to check for bloat and it reported wasted size
+only 1 GB.
+
+table XYZ rows:8674174 pages:463848 shouldbe:318436 (1.5X) wasted
+size:1191215104 (1 GB)
+
+This does not seem much compared to table size on the master,
+154 GB,and on the slave, 527 GB.
+
+I can't run CLUSTER because I don't have another 500 GB free...  I am running
+VACUUM FULL right now to return the unused disk space to the OS.
+I wondering if it will free 1 GB or 300 GB.  I expect 1 GB, based on the
+check_postgres "bloat" check results.
+
+I'll run check_postgres "bloat" check again after the VACUUM FULL finishes.
+
+This table does use TOAST and most of the data is in TOAST...  I wonder if the
+1 GB size includes TOAST.
+
+Best,
+Aleksey
+
+From atsaloli.tech at gmail.com  Wed Mar  7 18:31:14 2012
+From: atsaloli.tech at gmail.com (Aleksey Tsalolikhin)
+Date: Wed, 7 Mar 2012 18:31:14 -0800
+Subject: [Slony1-general] A 154 GB table swelled to 527 GB on the Slony
+ slave. How to compact it?
+In-Reply-To: <CA+jMWoduFmhK4Ak5ZdCTKWH9GKW91psU-a4wU2DTxih5K52RBw@mail.gmail.com>
+References: <CA+jMWodz_6rhfCd9APKf3vkun-kp-gSW=-TgH_Fo+SPoQw2X8A@mail.gmail.com>
+	<CA+jMWodFkAtogPhwk+Tik5Gind+WSFrQZAmkJb6th0OpSD-17A@mail.gmail.com>
+	<4F57E343.8050808@ca.afilias.info>
+	<CA+jMWoduFmhK4Ak5ZdCTKWH9GKW91psU-a4wU2DTxih5K52RBw@mail.gmail.com>
+Message-ID: <CA+jMWofTnhin+yMnfg-OYYPO95VA+gassY+8MfA_dh8B4aKEzA@mail.gmail.com>
+
+On Wed, Mar 7, 2012 at 4:28 PM, Aleksey Tsalolikhin
+<atsaloli.tech at gmail.com> wrote:
+> On Wed, Mar 7, 2012 at 2:37 PM, Steve Singer <ssinger at ca.afilias.info> wrote:
+>>
+>>
+>> If the problem is that your table is bloated
+
+I ran VACUUM FULL on this table, but it is still over 500 GB in size.
+
+ "check_postgres --action=bloat" now returns OK.  So it's not bloat.
+ What else could it be, please?
+
+ Best,
+ Aleksey
+
