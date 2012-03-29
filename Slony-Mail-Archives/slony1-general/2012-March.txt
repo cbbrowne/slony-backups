@@ -1607,3 +1607,266 @@ should be able to use the subscribe command in 2.1 or earlier.
 > http://lists.slony.info/mailman/listinfo/slony1-general
 
 
+From brianp at occinc.com  Tue Mar 27 04:59:26 2012
+From: brianp at occinc.com (Brian Peschel)
+Date: Tue, 27 Mar 2012 06:59:26 -0500
+Subject: [Slony1-general] Problem with Slony implementation of PostGIS
+Message-ID: <4F71AB9E.8030503@occinc.com>
+
+(I am sending this to both the PostGIS and Slony support lists as I am 
+not sure of the correct location).
+
+I have run into a problem with how PostGIS and Slony are reacting with 
+each other.  Let me say upfront, I am a PostGIS newbee and know just 
+about nothing about Slony.  And I know this email is long, but I want to 
+make sure I included everything.  This is on a Posgtres 8.3.1, PostGIS 
+1.3, and Slony 1.2.20
+
+I created a PostGIS table like this:
+create table b_temp as select 11459815 as msg_no, 0 as rev_no, 
+GeometryFromText('POLYGON((1 1, 2 2, 3 3, 1 1))') as geom1,  
+GeometryFromText('POLYGON((1 1, 2 2, 3 3, 3 3, 1 1))') as geom2;
+
+Notice that geom2 has a repeated point of geom1, but other than that 
+they are the same:
+select geom1 = geom2, ST_Equals(geom1, geom2), ST_OrderingEquals(geom1, 
+geom2) from b_temp;
+  ?column? | st_equals | st_orderingequals
+----------+-----------+-------------------
+  t        | t         | f
+
+I then slon'd this table to another node, but didn't start slony on the 
+other node so I could look at slony log tables.
+
+Apparently, on an update, slon looks at the data before and after and 
+compares if anything has changed.  Then sets the update command for the 
+second node appropriately.  Say for example:
+update b_temp set rev_no = 1;
+Looking in sl_log_1, I see:
+log_origin | log_xid  | log_tableid | log_actionseq | log_cmdtype 
+|                                                                                                      
+log_cmddata
+------------+----------+-------------+---------------+-------------+----------------------------------------------------------
+           1 | 82987244 |         217 |      55210696 | U           | 
+"rev_no"='1' where "msg_no"='11459815' and "rev_no"='0'
+
+That is about what I expected.  Things get interesting if you do a 
+non-update.  For example, do this:
+update b_temp set rev_no = 1;
+
+Looking in sl_log_1, I see:
+log_origin | log_xid  | log_tableid | log_actionseq | log_cmdtype 
+|                                                                                                      
+log_cmddata
+------------+----------+-------------+---------------+-------------+----------------------------------------------------------------
+           1 | 82987244 |         217 |      55210696 | U           | 
+"msg_no"='11459815'where "msg_no"='11459815' and "rev_no"='0'
+
+Again, not too surprising as the data in the table before and after the 
+update are the same.  The problem comes in with updating the geometric.  
+Say I want to remove the repeated point in geom2.  So I do this update:
+update b_temp set geom2 = geom1;
+
+Doing a point count in node 1 shows the geom changed:
+select st_npoints(geom1), st_npoints(geom2) from b_temp;
+  st_npoints | st_npoints
+------------+------------
+           4 |          4
+
+Which is exactly what I expected.  But if you look on node 2 (after slon 
+is started)
+select st_npoints(geom1), st_npoints(geom2) from b_temp;
+  st_npoints | st_npoints
+------------+------------
+           4 |          5
+
+which is not what I expected.  Looking into sl_log_1 I see:
+log_origin | log_xid  | log_tableid | log_actionseq | log_cmdtype 
+|                                                                                                      
+log_cmddata
+------------+----------+-------------+---------------+-------------+----------------------------------------------------------------
+           1 | 82987244 |         217 |      55210696 | U           | 
+"msg_no"='11459815'where "msg_no"='11459815' and "rev_no"='0'
+
+Also, not what I expected.
+
+I believe the problem comes back to the PostGIS = operator that slony is 
+using to compare the before and after data.  Because the PostGIS = 
+operator ignores directionality, these two geometrics are considered the 
+same even though they are not.  This causes issues where the data in my 
+secondary node is different that the data in my primary node even though 
+the two nodes are slon'd.  Which, in my mind, is a huge issue.
+
+So, am I missing something?  Is there some way to get slony to use The 
+PostGIS function st_orderingequals() rather than = or st_equals()?  Or 
+is there some way to get slony to do a binary bit comparison of the two 
+geometrics?  if it helps, this is the slony trigger on the table in the 
+master database:
+
+     _ks_slony_logtrigger_217 AFTER INSERT OR DELETE OR UPDATE ON b_temp 
+FOR EACH ROW EXECUTE PROCEDURE _ks_slony.logtrigger('_ks_slony', '217', 
+'kkv')
+
+Thanks for the long read....
+
+- Brian
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20120327/6e2a76dc/attachment.htm 
+
+From ssinger at ca.afilias.info  Tue Mar 27 06:28:17 2012
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Tue, 27 Mar 2012 09:28:17 -0400
+Subject: [Slony1-general] Problem with Slony implementation of PostGIS
+In-Reply-To: <4F71AB9E.8030503@occinc.com>
+References: <4F71AB9E.8030503@occinc.com>
+Message-ID: <4F71C071.6090809@ca.afilias.info>
+
+On 12-03-27 07:59 AM, Brian Peschel wrote:
+
+Slony looks for the '=' operator on the geometry type and uses that to 
+decide if the column has changed.
+
+Postgis seems to points the '=' operator at ST_Geometry_eq which returns 
+true even if the two geometries are different (as in your example below).
+
+Options I can think of include:
+1) Deleting the '=' operator on two geometry types.  If you do this 
+slony will fallback to using text comparision.  I am not sure what this 
+will break in your application (or in postgis)
+
+2) Modify slony_funcs.c to not use the operator on geometry types.  This 
+would be around  the comment 'If we have an equal operator...' in 
+slony1_funcs.c
+3) You could probably create an additional column in your table that is 
+a text representation of the geometry.  You would have a trigger on the 
+master table such that every time the geometry *changed* you updated the 
+text representation column, which slony would then see as a change.  You 
+then have a trigger on the slave that updates the geometry column every 
+time the text representation changes.  {kind of ugly}
+
+
+
+
+> (I am sending this to both the PostGIS and Slony support lists as I am
+> not sure of the correct location).
+>
+> I have run into a problem with how PostGIS and Slony are reacting with
+> each other. Let me say upfront, I am a PostGIS newbee and know just
+> about nothing about Slony. And I know this email is long, but I want to
+> make sure I included everything. This is on a Posgtres 8.3.1, PostGIS
+> 1.3, and Slony 1.2.20
+>
+> I created a PostGIS table like this:
+> create table b_temp as select 11459815 as msg_no, 0 as rev_no,
+> GeometryFromText('POLYGON((1 1, 2 2, 3 3, 1 1))') as geom1,
+> GeometryFromText('POLYGON((1 1, 2 2, 3 3, 3 3, 1 1))') as geom2;
+>
+> Notice that geom2 has a repeated point of geom1, but other than that
+> they are the same:
+> select geom1 = geom2, ST_Equals(geom1, geom2), ST_OrderingEquals(geom1,
+> geom2) from b_temp;
+> ?column? | st_equals | st_orderingequals
+> ----------+-----------+-------------------
+> t | t | f
+>
+> I then slon'd this table to another node, but didn't start slony on the
+> other node so I could look at slony log tables.
+>
+> Apparently, on an update, slon looks at the data before and after and
+> compares if anything has changed. Then sets the update command for the
+> second node appropriately. Say for example:
+> update b_temp set rev_no = 1;
+> Looking in sl_log_1, I see:
+> log_origin | log_xid | log_tableid | log_actionseq | log_cmdtype |
+> log_cmddata
+> ------------+----------+-------------+---------------+-------------+----------------------------------------------------------
+> 1 | 82987244 | 217 | 55210696 | U | "rev_no"='1' where
+> "msg_no"='11459815' and "rev_no"='0'
+>
+> That is about what I expected. Things get interesting if you do a
+> non-update. For example, do this:
+> update b_temp set rev_no = 1;
+>
+> Looking in sl_log_1, I see:
+> log_origin | log_xid | log_tableid | log_actionseq | log_cmdtype |
+> log_cmddata
+> ------------+----------+-------------+---------------+-------------+----------------------------------------------------------------
+> 1 | 82987244 | 217 | 55210696 | U | "msg_no"='11459815'where
+> "msg_no"='11459815' and "rev_no"='0'
+>
+> Again, not too surprising as the data in the table before and after the
+> update are the same. The problem comes in with updating the geometric.
+> Say I want to remove the repeated point in geom2. So I do this update:
+> update b_temp set geom2 = geom1;
+>
+> Doing a point count in node 1 shows the geom changed:
+> select st_npoints(geom1), st_npoints(geom2) from b_temp;
+> st_npoints | st_npoints
+> ------------+------------
+> 4 | 4
+>
+> Which is exactly what I expected. But if you look on node 2 (after slon
+> is started)
+> select st_npoints(geom1), st_npoints(geom2) from b_temp;
+> st_npoints | st_npoints
+> ------------+------------
+> 4 | 5
+>
+> which is not what I expected. Looking into sl_log_1 I see:
+> log_origin | log_xid | log_tableid | log_actionseq | log_cmdtype |
+> log_cmddata
+> ------------+----------+-------------+---------------+-------------+----------------------------------------------------------------
+> 1 | 82987244 | 217 | 55210696 | U | "msg_no"='11459815'where
+> "msg_no"='11459815' and "rev_no"='0'
+>
+> Also, not what I expected.
+>
+> I believe the problem comes back to the PostGIS = operator that slony is
+> using to compare the before and after data. Because the PostGIS =
+> operator ignores directionality, these two geometrics are considered the
+> same even though they are not. This causes issues where the data in my
+> secondary node is different that the data in my primary node even though
+> the two nodes are slon'd. Which, in my mind, is a huge issue.
+>
+> So, am I missing something? Is there some way to get slony to use The
+> PostGIS function st_orderingequals() rather than = or st_equals()? Or is
+> there some way to get slony to do a binary bit comparison of the two
+> geometrics? if it helps, this is the slony trigger on the table in the
+> master database:
+>
+> _ks_slony_logtrigger_217 AFTER INSERT OR DELETE OR UPDATE ON b_temp FOR
+> EACH ROW EXECUTE PROCEDURE _ks_slony.logtrigger('_ks_slony', '217', 'kkv')
+>
+> Thanks for the long read....
+>
+> - Brian
+>
+>
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+
+
+From dbrb2002-sql at yahoo.com  Tue Mar 27 13:48:14 2012
+From: dbrb2002-sql at yahoo.com (Brian Trudal)
+Date: Tue, 27 Mar 2012 13:48:14 -0700 (PDT)
+Subject: [Slony1-general] CLONE prepare
+Message-ID: <1332881294.58103.YahooMailNeo@web31811.mail.mud.yahoo.com>
+
+Hi there
+
+I couldn't get much info from docs; can someone explain what CLONE PREPARE does ? Essentially I wanted to clone a subscriber1 to new subscriber3; but wanted to confirm; after the clone prepare; does the first subscriber1 will stop replicating from origin or it will continue to replicate ?
+
+What happens to other subscribers in the origin node if there are more than one subscribers already ?
+
+Also, do we need to skip the dumping of slony schema (_{clustername}) during the dump + restore while cloning new subscriber ? 
+
+--
+brian
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20120327/9d0f998c/attachment.htm 
+
