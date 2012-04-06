@@ -38,3 +38,150 @@ Size: 1068 bytes
 Desc: image002.jpg
 Url : http://lists.slony.info/pipermail/slony1-general/attachments/20120403/00163103/attachment-0001.jpg 
 
+From ssinger at ca.afilias.info  Wed Apr  4 08:33:29 2012
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Wed, 04 Apr 2012 11:33:29 -0400
+Subject: [Slony1-general] Query to see when Slony is done replicating
+ changes?
+In-Reply-To: <7742DD496427B743BC8B7BBF6D380BA037766C7D@EXCHANGE10.geo-comm.local>
+References: <7742DD496427B743BC8B7BBF6D380BA037766C7D@EXCHANGE10.geo-comm.local>
+Message-ID: <4F7C69C9.2030006@ca.afilias.info>
+
+On 12-04-03 01:51 PM, Shaun McCloud wrote:
+> Hello,
+>
+> I?m wondering if its possible to query any of the databases in my
+> cluster to see when Slony is done replicating changes to a single node.
+> I was going to use the Acks Outstanding statistic but then realized that
+> the slave nodes that my controller service is waiting to update (and do
+> not have Slony running on) will keep adding to that count. If there is
+> no statistic to query, is my assumption that tables are replicated in
+> the order they are added to the replication set correct?
+>
+
+Slony replicates SYNC events.  Those SYNC events might have associated 
+rows in sl_log_1 or sl_log_2 (that need to be replicated) or there might 
+be no changes associated with a SYNC event.
+
+The slon process on the master generates SYNC events x seconds.  When 
+that SYNC event is replicated to a slave any data changes will also be 
+replicated to the slave so that the slave is 'caught up' with the master 
+as of that SYNC event.
+
+So if node 100 is our master and node 200 is a slave.
+
+sl_event
+ev_origin ,ev_seqno,ev_type,.....
+100       , 1, SYNC
+
+is generated
+
+then you know that this event has been replicated to the slave when the 
+slaves sl_confirm tables has a row like
+
+sl_confirm
+-----------
+con_origin, con_received, con_seqno
+100,       200,         1
+
+
+When the confirmation makes it back to the master then the sl_confirm on 
+the master would have that row also
+
+
+
+
+
+
+
+
+> As for why I can?t just let the changes replicate to all slaves at once,
+> it is because of a no single point of failure for the web app that is
+> reading the replicated data.
+>
+> *Shaun McCloud ? Associate Software Developer
+> Geo-Comm, Inc*
+> 601 W. Saint Germain St., Saint Cloud, MN 56301
+> *Office:* 320.240.0040 *Fax:* 320.240.2389 *Toll Free:* 888.436.2666
+> */click here to visit /**/www.geo-comm.com/* <http://www.geo-comm.com/>
+>
+> <http://www.linkedin.com/companies/geocomm> <http://twitter.com/_geocomm>
+>
+> PThink before you print!
+>
+> *Microsoft Certified Desktop Support Technician (MCDST)*
+>
+>
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+
+
+From greg at endpoint.com  Wed Apr  4 14:44:54 2012
+From: greg at endpoint.com (Greg Sabino Mullane)
+Date: Wed, 4 Apr 2012 17:44:54 -0400
+Subject: [Slony1-general] Query to see when Slony is done replicating
+ changes?
+In-Reply-To: <7742DD496427B743BC8B7BBF6D380BA037766C7D@EXCHANGE10.geo-comm.local>
+References: <7742DD496427B743BC8B7BBF6D380BA037766C7D@EXCHANGE10.geo-comm.local>
+Message-ID: <20120404214454.GJ2947@tinybird.home>
+
+On Tue, Apr 03, 2012 at 05:51:58PM +0000, Shaun McCloud wrote:
+> I'm wondering if its possible to query any of the databases 
+> in my cluster to see when Slony is done replicating changes 
+> to a single node.
+
+It might help to expand on what you mean exactly by "done 
+replicating changes", as replication is an ongoing process, 
+but you could use the replicate_row action of check_postgres.pl:
+
+http://bucardo.org/check_postgres/check_postgres.pl.html
+
+Since Slony does things in order, you know that if this check 
+works, the node is "caught up" and has finished anything that might 
+have been going on before the check started. It simply flips a value on 
+a replicated table and reports back how long until that value 
+propagates to another slave (or slaves).
+
+-- 
+Greg Sabino Mullane greg at endpoint.com
+End Point Corporation
+PGP Key: 0x14964AC8
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: not available
+Type: application/pgp-signature
+Size: 163 bytes
+Desc: not available
+Url : http://lists.slony.info/pipermail/slony1-general/attachments/20120404/c8acbfe4/attachment.pgp 
+
+From johan at snowflake.nu  Thu Apr  5 02:47:58 2012
+From: johan at snowflake.nu (=?ISO-8859-1?Q?Johan_W=E4rlander?=)
+Date: Thu, 5 Apr 2012 11:47:58 +0200
+Subject: [Slony1-general] Second replication set as a subset of the first?
+In-Reply-To: <CAMVaVjYV9XnC6MVcRssEH+AAnbTE1WXEf6qEx6pD0YhyW3_+ag@mail.gmail.com>
+References: <CAMVaVjYV9XnC6MVcRssEH+AAnbTE1WXEf6qEx6pD0YhyW3_+ag@mail.gmail.com>
+Message-ID: <CAMVaVjZ8jvVnTNStqLdf0vQqJ5ROTmS4aUZ8YD_Sgu=s4VjVgA@mail.gmail.com>
+
+Hello!
+
+I've recently rebuilt a Slony setup that was structured as master-slave
+pairs, each in a separate Slony cluster. Now it's a single cluster instead,
+running Slony 2.1.1 with multiple levels of slaves ; node1 -> node2 ->
+{node3, node4}. These all subscribe to set 1,with *all* tables from node1.
+
+I'd like to add node5, which should appear below node2 and subscribe to
+just a small subset of the tables from node1.
+
+Do I just add a new set with these particular tables, even though they
+already exist in set1? Will this add a lot of traffic, or simply reuse the
+existing logs?
+
+Grateful for any suggestions,
+Johan
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20120405/60281433/attachment.htm 
+
