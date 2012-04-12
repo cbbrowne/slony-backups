@@ -359,3 +359,741 @@ before when adding new tables, and those operate flawlessly.
 
 Your strategy seems correct.
 
+From vivek at khera.org  Tue Apr 10 07:24:15 2012
+From: vivek at khera.org (Vick Khera)
+Date: Tue, 10 Apr 2012 10:24:15 -0400
+Subject: [Slony1-general] confusing sl_status output and replication stalled
+Message-ID: <CALd+dceoj9-gNheqVkLMoBisyXkagF=9hrHVFx=c9g0nm9fuwg@mail.gmail.com>
+
+Yesterday I set up a DB to replicate.  It was previously set up with
+slony 1.2 but the backup server died, so I took the opportunity to
+move to 2.1.  I did the dropnode and uninstallnode to clean up the
+master.
+
+I followed my normal, init, create set, subscribe sequence that has
+always worked.  I had done the same thing about a week ago with the
+other DB on this same server pair.
+
+When I left work yesterday, it was dutifully copying the DB.  This
+morning I went to check and the master has not generated an event
+since 2012-04-10 05:35:49.782917-04.
+
+The sl_status on the master shows this:
+
+
+-[ RECORD 1 ]-------------+------------------------------
+st_origin                 | 20
+st_received               | 31
+st_last_event             | 5000008023
+st_last_event_ts          | 2012-04-10 05:35:49.782917-04
+st_last_received          | 5000008023
+st_last_received_ts       | 2012-04-10 05:35:50.00566-04
+st_last_received_event_ts | 2012-04-10 05:35:49.782917-04
+st_lag_num_events         | 0
+st_lag_time               | 04:27:58.674963
+
+I verified that no replication is flowing by updating one row in a
+table.  The lag_time and lag_num_events seem to be contradictory to
+me.
+
+The logs on the master show nothing exciting at this timestamp.  In
+fact, the whole of the logs I have (which only go back to about 10pm
+last night), says basically this:
+
+
+2012-04-09 21:51:17.872892500 DEBUG1 calc sync size - last time: 1
+last length: 18010 ideal: 3 proposed size: 3
+2012-04-09 21:51:17.873042500 DEBUG1 remoteWorkerThread_31: no sets
+need syncing for this event
+2012-04-09 21:51:19.876883500 DEBUG1 calc sync size - last time: 1
+last length: 2003 ideal: 29 proposed size: 3
+2012-04-09 21:51:19.877031500 DEBUG1 remoteWorkerThread_31: no sets
+need syncing for this event
+
+This is logged over and over and over.  The "length" is slightly
+different on each log, but only by a few.
+
+The logs on the replica at the time of the last event shown in the
+status line are shown below. There is nothing remarkable in the
+postgres.log files around this time, either.
+
+Restarting slons on both ends did not change anything.
+
+Versions:
+
+Origin: FreeBSD 7.2, slony1 2.1.1, postgres 8.3.18
+Replica: FreeBSD 9.0, slony1 2.1.1, postgres 9.1.3
+
+
+I'm pretty sure I did not do anything incorrectly.  The DB I set up to
+replicate on this pair of machines last week is properly replicating
+still.
+
+What should I look to fix?  The DB is small enough that re-starting
+from scratch is not out of the question.
+
+
+
+Logs from replica up to the point I restarted it:
+
+
+2012-04-10 05:34:49.969486500 DEBUG1 calc sync size - last time: 1
+last length: 2003 ideal: 29 proposed size: 3
+2012-04-10 05:34:49.970585500 DEBUG1 about to monitor_subscriber_query
+- pulling big actionid list for 20
+2012-04-10 05:34:49.973240500 INFO   remoteWorkerThread_20: syncing
+set 1 with 52 table(s) from provider 20
+2012-04-10 05:34:49.976524500 DEBUG1 remoteHelperThread_20_20: 0.002
+seconds delay for first row
+2012-04-10 05:34:49.977010500 DEBUG1 remoteHelperThread_20_20: 0.003
+seconds until close cursor
+2012-04-10 05:34:49.977028500 DEBUG1 remoteHelperThread_20_20:
+inserts=0 updates=0 deletes=0 truncates=0
+2012-04-10 05:34:49.977031500 DEBUG1 remoteWorkerThread_20:
+sync_helper timing:  pqexec (s/count)- provider 0.003/3 - subscriber
+0.000/3
+2012-04-10 05:34:49.977035500 DEBUG1 remoteWorkerThread_20:
+sync_helper timing:  large tuples 0.000/0
+2012-04-10 05:34:49.978175500 INFO   remoteWorkerThread_20: SYNC
+5000008017 done in 0.008 seconds
+2012-04-10 05:34:49.978202500 DEBUG1 remoteWorkerThread_20: SYNC
+5000008017 sync_event timing:  pqexec (s/count)- provider 0.001/2 -
+subscriber 0.004/2 - IUD 0.000/0
+2012-04-10 05:35:07.978560500 DEBUG1 calc sync size - last time: 1
+last length: 18009 ideal: 3 proposed size: 3
+2012-04-10 05:35:07.979742500 DEBUG1 about to monitor_subscriber_query
+- pulling big actionid list for 20
+2012-04-10 05:35:07.982419500 INFO   remoteWorkerThread_20: syncing
+set 1 with 52 table(s) from provider 20
+2012-04-10 05:35:07.985717500 DEBUG1 remoteHelperThread_20_20: 0.002
+seconds delay for first row
+2012-04-10 05:35:07.986202500 DEBUG1 remoteHelperThread_20_20: 0.003
+seconds until close cursor
+2012-04-10 05:35:07.986226500 DEBUG1 remoteHelperThread_20_20:
+inserts=0 updates=0 deletes=0 truncates=0
+2012-04-10 05:35:07.986228500 DEBUG1 remoteWorkerThread_20:
+sync_helper timing:  pqexec (s/count)- provider 0.003/3 - subscriber
+0.000/3
+2012-04-10 05:35:07.986232500 DEBUG1 remoteWorkerThread_20:
+sync_helper timing:  large tuples 0.000/0
+2012-04-10 05:35:07.987233500 INFO   remoteWorkerThread_20: SYNC
+5000008018 done in 0.008 seconds
+2012-04-10 05:35:07.987250500 DEBUG1 remoteWorkerThread_20: SYNC
+5000008018 sync_event timing:  pqexec (s/count)- provider 0.001/2 -
+subscriber 0.004/2 - IUD 0.000/0
+2012-04-10 05:35:09.981610500 DEBUG1 calc sync size - last time: 1
+last length: 2003 ideal: 29 proposed size: 3
+2012-04-10 05:35:09.982726500 DEBUG1 about to monitor_subscriber_query
+- pulling big actionid list for 20
+2012-04-10 05:35:09.985421500 INFO   remoteWorkerThread_20: syncing
+set 1 with 52 table(s) from provider 20
+2012-04-10 05:35:09.988536500 DEBUG1 remoteHelperThread_20_20: 0.002
+seconds delay for first row
+2012-04-10 05:35:09.989020500 DEBUG1 remoteHelperThread_20_20: 0.003
+seconds until close cursor
+2012-04-10 05:35:09.989044500 DEBUG1 remoteHelperThread_20_20:
+inserts=0 updates=0 deletes=0 truncates=0
+2012-04-10 05:35:09.989047500 DEBUG1 remoteWorkerThread_20:
+sync_helper timing:  pqexec (s/count)- provider 0.002/3 - subscriber
+0.000/3
+2012-04-10 05:35:09.989050500 DEBUG1 remoteWorkerThread_20:
+sync_helper timing:  large tuples 0.000/0
+2012-04-10 05:35:09.990168500 INFO   remoteWorkerThread_20: SYNC
+5000008019 done in 0.008 seconds
+2012-04-10 05:35:09.990190500 DEBUG1 remoteWorkerThread_20: SYNC
+5000008019 sync_event timing:  pqexec (s/count)- provider 0.001/2 -
+subscriber 0.004/2 - IUD 0.000/0
+2012-04-10 05:35:27.990339500 DEBUG1 calc sync size - last time: 1
+last length: 18008 ideal: 3 proposed size: 3
+2012-04-10 05:35:27.991575500 DEBUG1 about to monitor_subscriber_query
+- pulling big actionid list for 20
+2012-04-10 05:35:27.994443500 INFO   remoteWorkerThread_20: syncing
+set 1 with 52 table(s) from provider 20
+2012-04-10 05:35:27.997586500 DEBUG1 remoteHelperThread_20_20: 0.002
+seconds delay for first row
+2012-04-10 05:35:27.998073500 DEBUG1 remoteHelperThread_20_20: 0.003
+seconds until close cursor
+2012-04-10 05:35:27.998098500 DEBUG1 remoteHelperThread_20_20:
+inserts=0 updates=0 deletes=0 truncates=0
+2012-04-10 05:35:27.998100500 DEBUG1 remoteWorkerThread_20:
+sync_helper timing:  pqexec (s/count)- provider 0.002/3 - subscriber
+0.000/3
+2012-04-10 05:35:27.998124500 DEBUG1 remoteWorkerThread_20:
+sync_helper timing:  large tuples 0.000/0
+2012-04-10 05:35:27.999188500 INFO   remoteWorkerThread_20: SYNC
+5000008020 done in 0.009 seconds
+2012-04-10 05:35:27.999206500 DEBUG1 remoteWorkerThread_20: SYNC
+5000008020 sync_event timing:  pqexec (s/count)- provider 0.001/2 -
+subscriber 0.004/2 - IUD 0.000/0
+2012-04-10 05:35:29.994615500 DEBUG1 calc sync size - last time: 1
+last length: 2004 ideal: 29 proposed size: 3
+2012-04-10 05:35:29.995579500 DEBUG1 about to monitor_subscriber_query
+- pulling big actionid list for 20
+2012-04-10 05:35:29.998284500 INFO   remoteWorkerThread_20: syncing
+set 1 with 52 table(s) from provider 20
+2012-04-10 05:35:30.001519500 DEBUG1 remoteHelperThread_20_20: 0.002
+seconds delay for first row
+2012-04-10 05:35:30.002015500 DEBUG1 remoteHelperThread_20_20: 0.003
+seconds until close cursor
+2012-04-10 05:35:30.002041500 DEBUG1 remoteHelperThread_20_20:
+inserts=0 updates=0 deletes=0 truncates=0
+2012-04-10 05:35:30.002043500 DEBUG1 remoteWorkerThread_20:
+sync_helper timing:  pqexec (s/count)- provider 0.003/3 - subscriber
+0.000/3
+2012-04-10 05:35:30.002071500 DEBUG1 remoteWorkerThread_20:
+sync_helper timing:  large tuples 0.000/0
+2012-04-10 05:35:30.003135500 INFO   remoteWorkerThread_20: SYNC
+5000008021 done in 0.008 seconds
+2012-04-10 05:35:30.003153500 DEBUG1 remoteWorkerThread_20: SYNC
+5000008021 sync_event timing:  pqexec (s/count)- provider 0.001/2 -
+subscriber 0.004/2 - IUD 0.000/0
+2012-04-10 05:35:48.002553500 DEBUG1 calc sync size - last time: 1
+last length: 18008 ideal: 3 proposed size: 3
+2012-04-10 05:35:48.003694500 DEBUG1 about to monitor_subscriber_query
+- pulling big actionid list for 20
+2012-04-10 05:35:48.006392500 INFO   remoteWorkerThread_20: syncing
+set 1 with 52 table(s) from provider 20
+2012-04-10 05:35:48.010208500 DEBUG1 remoteHelperThread_20_20: 0.003
+seconds delay for first row
+2012-04-10 05:35:48.010704500 DEBUG1 remoteHelperThread_20_20: 0.003
+seconds until close cursor
+2012-04-10 05:35:48.010727500 DEBUG1 remoteHelperThread_20_20:
+inserts=0 updates=0 deletes=0 truncates=0
+2012-04-10 05:35:48.010730500 DEBUG1 remoteWorkerThread_20:
+sync_helper timing:  pqexec (s/count)- provider 0.003/3 - subscriber
+0.000/3
+2012-04-10 05:35:48.010760500 DEBUG1 remoteWorkerThread_20:
+sync_helper timing:  large tuples 0.000/0
+2012-04-10 05:35:48.011887500 INFO   remoteWorkerThread_20: SYNC
+5000008022 done in 0.009 seconds
+2012-04-10 05:35:48.011905500 DEBUG1 remoteWorkerThread_20: SYNC
+5000008022 sync_event timing:  pqexec (s/count)- provider 0.001/2 -
+subscriber 0.004/2 - IUD 0.000/0
+2012-04-10 05:35:50.005622500 DEBUG1 calc sync size - last time: 1
+last length: 2003 ideal: 29 proposed size: 3
+2012-04-10 05:35:50.006807500 DEBUG1 about to monitor_subscriber_query
+- pulling big actionid list for 20
+2012-04-10 05:35:50.009542500 INFO   remoteWorkerThread_20: syncing
+set 1 with 52 table(s) from provider 20
+2012-04-10 05:35:50.012900500 DEBUG1 remoteHelperThread_20_20: 0.002
+seconds delay for first row
+2012-04-10 05:35:50.013507500 DEBUG1 remoteHelperThread_20_20: 0.003
+seconds until close cursor
+2012-04-10 05:35:50.013532500 DEBUG1 remoteHelperThread_20_20:
+inserts=0 updates=0 deletes=0 truncates=0
+2012-04-10 05:35:50.013535500 DEBUG1 remoteWorkerThread_20:
+sync_helper timing:  pqexec (s/count)- provider 0.002/3 - subscriber
+0.000/3
+2012-04-10 05:35:50.013538500 DEBUG1 remoteWorkerThread_20:
+sync_helper timing:  large tuples 0.000/0
+2012-04-10 05:35:50.014538500 INFO   remoteWorkerThread_20: SYNC
+5000008023 done in 0.009 seconds
+2012-04-10 05:35:50.014566500 DEBUG1 remoteWorkerThread_20: SYNC
+5000008023 sync_event timing:  pqexec (s/count)- provider 0.001/2 -
+subscriber 0.004/2 - IUD 0.000/0
+2012-04-10 05:42:49.135088500 NOTICE:  Slony-I: Logswitch to sl_log_1 initiated
+2012-04-10 05:42:49.135091500 CONTEXT:  SQL statement "SELECT
+"_listserver".logswitch_start()"
+2012-04-10 05:42:49.135093500 PL/pgSQL function "cleanupevent" line 96
+at PERFORM
+2012-04-10 05:42:49.136708500 INFO   cleanupThread:    0.007 seconds
+for cleanupEvent()
+2012-04-10 05:42:49.137023500 DEBUG1 cleanupThread: minxid: 914784
+2012-04-10 05:42:49.148330500 DEBUG1 cleanupThread: number of tables to clean: 0
+2012-04-10 05:42:49.148355500 INFO   cleanupThread:    0.011 seconds
+for vacuuming
+2012-04-10 05:53:12.962525500 NOTICE:  Slony-I: log switch to sl_log_1
+complete - truncate sl_log_2
+2012-04-10 05:53:12.962529500 CONTEXT:  PL/pgSQL function
+"cleanupevent" line 94 at assignment
+2012-04-10 05:53:12.998818500 INFO   cleanupThread:    0.042 seconds
+for cleanupEvent()
+2012-04-10 06:04:36.665595500 NOTICE:  Slony-I: Logswitch to sl_log_2 initiated
+2012-04-10 06:04:36.665599500 CONTEXT:  SQL statement "SELECT
+"_listserver".logswitch_start()"
+2012-04-10 06:04:36.665601500 PL/pgSQL function "cleanupevent" line 96
+at PERFORM
+2012-04-10 06:04:36.666893500 INFO   cleanupThread:    0.006 seconds
+for cleanupEvent()
+2012-04-10 06:15:29.657504500 NOTICE:  Slony-I: log switch to sl_log_2
+complete - truncate sl_log_1
+2012-04-10 06:15:29.657508500 CONTEXT:  PL/pgSQL function
+"cleanupevent" line 94 at assignment
+2012-04-10 06:15:29.762306500 INFO   cleanupThread:    0.111 seconds
+for cleanupEvent()
+2012-04-10 06:15:29.762954500 DEBUG1 cleanupThread: minxid: 917868
+2012-04-10 06:15:29.776761500 DEBUG1 cleanupThread: number of tables to clean: 0
+2012-04-10 06:15:29.776800500 INFO   cleanupThread:    0.014 seconds
+for vacuuming
+2012-04-10 06:26:16.397469500 NOTICE:  Slony-I: Logswitch to sl_log_1 initiated
+2012-04-10 06:26:16.397472500 CONTEXT:  SQL statement "SELECT
+"_listserver".logswitch_start()"
+2012-04-10 06:26:16.397475500 PL/pgSQL function "cleanupevent" line 96
+at PERFORM
+2012-04-10 06:26:16.413889500 INFO   cleanupThread:    0.021 seconds
+for cleanupEvent()
+2012-04-10 06:37:55.058224500 NOTICE:  Slony-I: log switch to sl_log_1
+complete - truncate sl_log_2
+2012-04-10 06:37:55.058227500 CONTEXT:  PL/pgSQL function
+"cleanupevent" line 94 at assignment
+2012-04-10 06:37:55.095899500 INFO   cleanupThread:    0.045 seconds
+for cleanupEvent()
+2012-04-10 06:48:22.843065500 NOTICE:  Slony-I: Logswitch to sl_log_2 initiated
+2012-04-10 06:48:22.843069500 CONTEXT:  SQL statement "SELECT
+"_listserver".logswitch_start()"
+2012-04-10 06:48:22.843071500 PL/pgSQL function "cleanupevent" line 96
+at PERFORM
+2012-04-10 06:48:22.844274500 INFO   cleanupThread:    0.007 seconds
+for cleanupEvent()
+2012-04-10 06:48:22.844680500 DEBUG1 cleanupThread: minxid: 921509
+2012-04-10 06:48:22.858273500 DEBUG1 cleanupThread: number of tables to clean: 0
+2012-04-10 06:48:22.858310500 INFO   cleanupThread:    0.014 seconds
+for vacuuming
+2012-04-10 06:59:57.970356500 NOTICE:  Slony-I: log switch to sl_log_2
+complete - truncate sl_log_1
+2012-04-10 06:59:57.970359500 CONTEXT:  PL/pgSQL function
+"cleanupevent" line 94 at assignment
+2012-04-10 06:59:58.030446500 INFO   cleanupThread:    0.066 seconds
+for cleanupEvent()
+2012-04-10 07:11:06.624593500 NOTICE:  Slony-I: Logswitch to sl_log_1 initiated
+2012-04-10 07:11:06.624596500 CONTEXT:  SQL statement "SELECT
+"_listserver".logswitch_start()"
+2012-04-10 07:11:06.624598500 PL/pgSQL function "cleanupevent" line 96
+at PERFORM
+2012-04-10 07:11:06.626036500 INFO   cleanupThread:    0.006 seconds
+for cleanupEvent()
+2012-04-10 07:21:41.656625500 NOTICE:  Slony-I: log switch to sl_log_1
+complete - truncate sl_log_2
+2012-04-10 07:21:41.656628500 CONTEXT:  PL/pgSQL function
+"cleanupevent" line 94 at assignment
+2012-04-10 07:21:41.743337500 INFO   cleanupThread:    0.092 seconds
+for cleanupEvent()
+2012-04-10 07:21:41.744003500 DEBUG1 cleanupThread: minxid: 924619
+2012-04-10 07:21:41.756041500 DEBUG1 cleanupThread: number of tables to clean: 0
+2012-04-10 07:21:41.756077500 INFO   cleanupThread:    0.012 seconds
+for vacuuming
+2012-04-10 07:33:27.381353500 NOTICE:  Slony-I: Logswitch to sl_log_2 initiated
+2012-04-10 07:33:27.381356500 CONTEXT:  SQL statement "SELECT
+"_listserver".logswitch_start()"
+2012-04-10 07:33:27.381358500 PL/pgSQL function "cleanupevent" line 96
+at PERFORM
+2012-04-10 07:33:27.389331500 INFO   cleanupThread:    0.013 seconds
+for cleanupEvent()
+2012-04-10 07:45:16.467253500 NOTICE:  Slony-I: log switch to sl_log_2
+complete - truncate sl_log_1
+2012-04-10 07:45:16.467256500 CONTEXT:  PL/pgSQL function
+"cleanupevent" line 94 at assignment
+2012-04-10 07:45:16.527380500 INFO   cleanupThread:    0.066 seconds
+for cleanupEvent()
+2012-04-10 07:57:08.352485500 NOTICE:  Slony-I: Logswitch to sl_log_1 initiated
+2012-04-10 07:57:08.352488500 CONTEXT:  SQL statement "SELECT
+"_listserver".logswitch_start()"
+2012-04-10 07:57:08.352493500 PL/pgSQL function "cleanupevent" line 96
+at PERFORM
+2012-04-10 07:57:08.353528500 INFO   cleanupThread:    0.005 seconds
+for cleanupEvent()
+2012-04-10 07:57:08.353792500 DEBUG1 cleanupThread: minxid: 928158
+2012-04-10 07:57:08.364604500 DEBUG1 cleanupThread: number of tables to clean: 0
+2012-04-10 07:57:08.364624500 INFO   cleanupThread:    0.011 seconds
+for vacuuming
+2012-04-10 08:08:19.444508500 NOTICE:  Slony-I: log switch to sl_log_1
+complete - truncate sl_log_2
+2012-04-10 08:08:19.444512500 CONTEXT:  PL/pgSQL function
+"cleanupevent" line 94 at assignment
+2012-04-10 08:08:19.497679500 INFO   cleanupThread:    0.062 seconds
+for cleanupEvent()
+2012-04-10 08:20:02.446460500 NOTICE:  Slony-I: Logswitch to sl_log_2 initiated
+2012-04-10 08:20:02.446463500 CONTEXT:  SQL statement "SELECT
+"_listserver".logswitch_start()"
+2012-04-10 08:20:02.446464500 PL/pgSQL function "cleanupevent" line 96
+at PERFORM
+2012-04-10 08:20:02.447564500 INFO   cleanupThread:    0.006 seconds
+for cleanupEvent()
+2012-04-10 08:30:26.285213500 NOTICE:  Slony-I: log switch to sl_log_2
+complete - truncate sl_log_1
+2012-04-10 08:30:26.285216500 CONTEXT:  PL/pgSQL function
+"cleanupevent" line 94 at assignment
+2012-04-10 08:30:26.322580500 INFO   cleanupThread:    0.043 seconds
+for cleanupEvent()
+2012-04-10 08:30:26.323128500 DEBUG1 cleanupThread: minxid: 931518
+2012-04-10 08:30:26.335580500 DEBUG1 cleanupThread: number of tables to clean: 0
+2012-04-10 08:30:26.335616500 INFO   cleanupThread:    0.012 seconds
+for vacuuming
+2012-04-10 08:41:27.217247500 NOTICE:  Slony-I: Logswitch to sl_log_1 initiated
+2012-04-10 08:41:27.217250500 CONTEXT:  SQL statement "SELECT
+"_listserver".logswitch_start()"
+2012-04-10 08:41:27.217252500 PL/pgSQL function "cleanupevent" line 96
+at PERFORM
+2012-04-10 08:41:27.218533500 INFO   cleanupThread:    0.006 seconds
+for cleanupEvent()
+2012-04-10 08:52:47.346424500 NOTICE:  Slony-I: log switch to sl_log_1
+complete - truncate sl_log_2
+2012-04-10 08:52:47.346427500 CONTEXT:  PL/pgSQL function
+"cleanupevent" line 94 at assignment
+2012-04-10 08:52:47.383147500 INFO   cleanupThread:    0.041 seconds
+for cleanupEvent()
+2012-04-10 09:03:05.473715500 NOTICE:  Slony-I: Logswitch to sl_log_2 initiated
+2012-04-10 09:03:05.473719500 CONTEXT:  SQL statement "SELECT
+"_listserver".logswitch_start()"
+2012-04-10 09:03:05.473721500 PL/pgSQL function "cleanupevent" line 96
+at PERFORM
+2012-04-10 09:03:05.474930500 INFO   cleanupThread:    0.007 seconds
+for cleanupEvent()
+2012-04-10 09:03:05.475164500 DEBUG1 cleanupThread: minxid: 934871
+2012-04-10 09:03:05.485908500 DEBUG1 cleanupThread: number of tables to clean: 0
+2012-04-10 09:03:05.485928500 INFO   cleanupThread:    0.011 seconds
+for vacuuming
+2012-04-10 09:13:34.729921500 NOTICE:  Slony-I: log switch to sl_log_2
+complete - truncate sl_log_1
+2012-04-10 09:13:34.729924500 CONTEXT:  PL/pgSQL function
+"cleanupevent" line 94 at assignment
+2012-04-10 09:13:34.766498500 INFO   cleanupThread:    0.043 seconds
+for cleanupEvent()
+2012-04-10 09:25:15.279623500 NOTICE:  Slony-I: cleanup stale
+sl_nodelock entry for pid=36103
+2012-04-10 09:25:15.279626500 CONTEXT:  SQL statement "SELECT
+"_listserver".cleanupNodelock()"
+2012-04-10 09:25:15.279628500 PL/pgSQL function "cleanupevent" line 82
+at PERFORM
+2012-04-10 09:25:15.281075500 NOTICE:  Slony-I: Logswitch to sl_log_1 initiated
+2012-04-10 09:25:15.281078500 CONTEXT:  SQL statement "SELECT
+"_listserver".logswitch_start()"
+2012-04-10 09:25:15.281079500 PL/pgSQL function "cleanupevent" line 96
+at PERFORM
+2012-04-10 09:25:15.282365500 INFO   cleanupThread:    0.007 seconds
+for cleanupEvent()
+2012-04-10 09:25:30.415269500 CONFIG slon: child terminated signal: 9;
+pid: 58636, current worker pid: 58636
+2012-04-10 09:25:30.415273500 INFO   slon: done
+2012-04-10 09:25:30.415275500 INFO   slon: exit(0)
+
+From vivek at khera.org  Tue Apr 10 08:05:22 2012
+From: vivek at khera.org (Vick Khera)
+Date: Tue, 10 Apr 2012 11:05:22 -0400
+Subject: [Slony1-general] confusing sl_status output and replication
+	stalled
+In-Reply-To: <CALd+dceoj9-gNheqVkLMoBisyXkagF=9hrHVFx=c9g0nm9fuwg@mail.gmail.com>
+References: <CALd+dceoj9-gNheqVkLMoBisyXkagF=9hrHVFx=c9g0nm9fuwg@mail.gmail.com>
+Message-ID: <CALd+dcd_S9P1NbRu3z8=egYVX-ytztg+YpDCkjqiwBvZHhiRoQ@mail.gmail.com>
+
+On Tue, Apr 10, 2012 at 10:24 AM, Vick Khera <vivek at khera.org> wrote:
+> The sl_status on the master shows this:
+>
+>
+> -[ RECORD 1 ]-------------+------------------------------
+> st_origin ? ? ? ? ? ? ? ? | 20
+> st_received ? ? ? ? ? ? ? | 31
+> st_last_event ? ? ? ? ? ? | 5000008023
+> st_last_event_ts ? ? ? ? ?| 2012-04-10 05:35:49.782917-04
+> st_last_received ? ? ? ? ?| 5000008023
+> st_last_received_ts ? ? ? | 2012-04-10 05:35:50.00566-04
+> st_last_received_event_ts | 2012-04-10 05:35:49.782917-04
+> st_lag_num_events ? ? ? ? | 0
+> st_lag_time ? ? ? ? ? ? ? | 04:27:58.674963
+
+Wow. no idea how (nor can I see anything obvious in the logs) but
+suddenly now I see this:
+
+
+-[ RECORD 1 ]-------------+------------------------------
+st_origin                 | 20
+st_received               | 31
+st_last_event             | 5000008284
+st_last_event_ts          | 2012-04-10 11:03:00.694014-04
+st_last_received          | 5000008282
+st_last_received_ts       | 2012-04-10 11:02:41.186753-04
+st_last_received_event_ts | 2012-04-10 11:02:40.667261-04
+st_lag_num_events         | 2
+st_lag_time               | 00:00:21.678165
+
+and my test row is updated on the replica...
+
+From smccloud at geo-comm.com  Tue Apr 10 13:49:30 2012
+From: smccloud at geo-comm.com (Shaun McCloud)
+Date: Tue, 10 Apr 2012 20:49:30 +0000
+Subject: [Slony1-general] cleanup_interval
+Message-ID: <7742DD496427B743BC8B7BBF6D380BA037840FD9@EXCHANGE10.geo-comm.local>
+
+How do you change the cleanup_interval option on a Windows cluster?  I have tried adding it to the engine file and that doesn't change anything and everything I've found online shows how to do it in a *NIX cluster, not a Windows one.
+
+Shaun McCloud - Associate Software Developer
+Geo-Comm, Inc
+601 W. Saint Germain St., Saint Cloud, MN 56301
+Office: 320.240.0040 Fax: 320.240.2389 Toll Free: 888.436.2666
+click here to visit www.geo-comm.com<http://www.geo-comm.com/>
+[cid:image001.jpg at 01CD1731.83E40E90]<http://www.linkedin.com/companies/geocomm> [cid:image002.jpg at 01CD1731.83E40E90] <http://twitter.com/_geocomm>
+P Think before you print!
+Microsoft Certified Desktop Support Technician (MCDST)
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20120410/947ebec0/attachment.htm 
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: image001.jpg
+Type: image/jpeg
+Size: 1129 bytes
+Desc: image001.jpg
+Url : http://lists.slony.info/pipermail/slony1-general/attachments/20120410/947ebec0/attachment.jpg 
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: image002.jpg
+Type: image/jpeg
+Size: 1068 bytes
+Desc: image002.jpg
+Url : http://lists.slony.info/pipermail/slony1-general/attachments/20120410/947ebec0/attachment-0001.jpg 
+
+From ssinger at ca.afilias.info  Tue Apr 10 14:51:40 2012
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Tue, 10 Apr 2012 17:51:40 -0400
+Subject: [Slony1-general] cleanup_interval
+In-Reply-To: <7742DD496427B743BC8B7BBF6D380BA037840FD9@EXCHANGE10.geo-comm.local>
+References: <7742DD496427B743BC8B7BBF6D380BA037840FD9@EXCHANGE10.geo-comm.local>
+Message-ID: <4F84AB6C.2030704@ca.afilias.info>
+
+On 12-04-10 04:49 PM, Shaun McCloud wrote:
+
+The "cleanup_interval" setting in your slon.conf file? I think that is 
+the same as on Unix
+
+The path to your conf file should be available on the command line 
+string in the Windows Service window/application.
+
+
+
+
+> How do you change the cleanup_interval option on a Windows cluster? I
+> have tried adding it to the engine file and that doesn?t change anything
+> and everything I?ve found online shows how to do it in a *NIX cluster,
+> not a Windows one.
+>
+> *Shaun McCloud ? Associate Software Developer
+> Geo-Comm, Inc*
+> 601 W. Saint Germain St., Saint Cloud, MN 56301
+> *Office:* 320.240.0040 *Fax:* 320.240.2389 *Toll Free:* 888.436.2666
+> */click here to visit /**/www.geo-comm.com/* <http://www.geo-comm.com/>
+>
+> <http://www.linkedin.com/companies/geocomm> <http://twitter.com/_geocomm>
+>
+> PThink before you print!
+>
+> *Microsoft Certified Desktop Support Technician (MCDST)*
+>
+>
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+
+
+From ngramsky at cs.umd.edu  Tue Apr 10 20:59:20 2012
+From: ngramsky at cs.umd.edu (NewToSlony)
+Date: Tue, 10 Apr 2012 20:59:20 -0700 (PDT)
+Subject: [Slony1-general]  Can you delete rows from the slave database?
+Message-ID: <33665986.post@talk.nabble.com>
+
+
+If I am replicating from one database to another, can I delete rows from the
+slave database and not have Slony re-populate those rows (provided the rows
+in the master database have not been updated)?
+-- 
+View this message in context: http://old.nabble.com/Can-you-delete-rows-from-the-slave-database--tp33665986p33665986.html
+Sent from the Slony-I -- General mailing list archive at Nabble.com.
+
+
+From scott.marlowe at gmail.com  Tue Apr 10 22:03:32 2012
+From: scott.marlowe at gmail.com (Scott Marlowe)
+Date: Tue, 10 Apr 2012 23:03:32 -0600
+Subject: [Slony1-general] Can you delete rows from the slave database?
+In-Reply-To: <33665986.post@talk.nabble.com>
+References: <33665986.post@talk.nabble.com>
+Message-ID: <CAOR=d=35gRi47HdvVcrLz7jMm9LNQzSBeQ_+q-7gBn6qWHj3kw@mail.gmail.com>
+
+You CAN do it, but whether or not you SHOULD do it is questionable.
+What are you trying to accomplish here?  If you try to update master
+rows that are no longer in the slave db you'll have problems.
+
+On Tue, Apr 10, 2012 at 9:59 PM, NewToSlony <ngramsky at cs.umd.edu> wrote:
+>
+> If I am replicating from one database to another, can I delete rows from the
+> slave database and not have Slony re-populate those rows (provided the rows
+> in the master database have not been updated)?
+> --
+> View this message in context: http://old.nabble.com/Can-you-delete-rows-from-the-slave-database--tp33665986p33665986.html
+> Sent from the Slony-I -- General mailing list archive at Nabble.com.
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+
+
+
+-- 
+To understand recursion, one must first understand recursion.
+
+From gangulynj at gmail.com  Wed Apr 11 00:23:00 2012
+From: gangulynj at gmail.com (Lakshmi Priya)
+Date: Wed, 11 Apr 2012 12:53:00 +0530
+Subject: [Slony1-general] Can you delete rows from the slave database?
+In-Reply-To: <CAOR=d=35gRi47HdvVcrLz7jMm9LNQzSBeQ_+q-7gBn6qWHj3kw@mail.gmail.com>
+References: <33665986.post@talk.nabble.com>
+	<CAOR=d=35gRi47HdvVcrLz7jMm9LNQzSBeQ_+q-7gBn6qWHj3kw@mail.gmail.com>
+Message-ID: <CAOy5HfOWGh=EhZ9xcDcMiowhUFy6S9vKQ0ODCeyUx7rmhom9HQ@mail.gmail.com>
+
+Can any one say,what this error shows that..??
+
+<stdin>:8: loading of file /usr/local/pgsql/share//slony1_funcs.sql:
+PGRES_FATAL_ERROR ERROR:  Slonik version: 2.0.6 != Slony-I version in PG
+build 2.1.1.
+
+On Wed, Apr 11, 2012 at 10:33 AM, Scott Marlowe <scott.marlowe at gmail.com>wrote:
+
+> You CAN do it, but whether or not you SHOULD do it is questionable.
+> What are you trying to accomplish here?  If you try to update master
+> rows that are no longer in the slave db you'll have problems.
+>
+> On Tue, Apr 10, 2012 at 9:59 PM, NewToSlony <ngramsky at cs.umd.edu> wrote:
+> >
+> > If I am replicating from one database to another, can I delete rows from
+> the
+> > slave database and not have Slony re-populate those rows (provided the
+> rows
+> > in the master database have not been updated)?
+> > --
+> > View this message in context:
+> http://old.nabble.com/Can-you-delete-rows-from-the-slave-database--tp33665986p33665986.html
+> > Sent from the Slony-I -- General mailing list archive at Nabble.com.
+> >
+> > _______________________________________________
+> > Slony1-general mailing list
+> > Slony1-general at lists.slony.info
+> > http://lists.slony.info/mailman/listinfo/slony1-general
+>
+>
+>
+> --
+> To understand recursion, one must first understand recursion.
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20120411/175b5c8b/attachment.htm 
+
+From gangulynj at gmail.com  Wed Apr 11 00:24:46 2012
+From: gangulynj at gmail.com (Lakshmi Priya)
+Date: Wed, 11 Apr 2012 12:54:46 +0530
+Subject: [Slony1-general] Error in slony
+Message-ID: <CAOy5HfMfq7YoGu8CyysrFNWedn8yaQpE+_pOq6jK2oVgU=A3iw@mail.gmail.com>
+
+Can any one say what this error meant..??
+
+<stdin>:8: loading of file /usr/local/pgsql/share//slony1_funcs.sql:
+PGRES_FATAL_ERROR ERROR:  Slonik version: 2.0.6 != Slony-I version in PG
+build 2.1.1.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20120411/a1e9bc6c/attachment.htm 
+
+From glynastill at yahoo.co.uk  Wed Apr 11 01:26:00 2012
+From: glynastill at yahoo.co.uk (Glyn Astill)
+Date: Wed, 11 Apr 2012 09:26:00 +0100 (BST)
+Subject: [Slony1-general] Error in slony
+In-Reply-To: <CAOy5HfMfq7YoGu8CyysrFNWedn8yaQpE+_pOq6jK2oVgU=A3iw@mail.gmail.com>
+References: <CAOy5HfMfq7YoGu8CyysrFNWedn8yaQpE+_pOq6jK2oVgU=A3iw@mail.gmail.com>
+Message-ID: <1334132760.48765.YahooMailNeo@web171403.mail.ir2.yahoo.com>
+
+It means that the version of the functions in your schema does not match the compiled version of slony.? I'm guessing you need to run "update functions"
+
+
+
+
+>________________________________
+> From: Lakshmi Priya <gangulynj at gmail.com>
+>To: slony1-general at lists.slony.info 
+>Sent: Wednesday, 11 April 2012, 8:24
+>Subject: [Slony1-general] Error in slony
+> 
+>
+>Can any one say what this error meant..??
+>
+>
+><stdin>:8: loading of file /usr/local/pgsql/share//slony1_funcs.sql: PGRES_FATAL_ERROR ERROR: ?Slonik version: 2.0.6 != Slony-I version in PG build 2.1.1. 
+>_______________________________________________
+>Slony1-general mailing list
+>Slony1-general at lists.slony.info
+>http://lists.slony.info/mailman/listinfo/slony1-general
+>
+>
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20120411/532f8036/attachment-0001.htm 
+
+From glynastill at yahoo.co.uk  Wed Apr 11 03:05:50 2012
+From: glynastill at yahoo.co.uk (Glyn Astill)
+Date: Wed, 11 Apr 2012 11:05:50 +0100 (BST)
+Subject: [Slony1-general] Error in slony
+In-Reply-To: <CAOy5HfPUZfBTbHOv3FtqFfK38wvGUwqE11WZfsTTwU2qKhT=uA@mail.gmail.com>
+References: <CAOy5HfMfq7YoGu8CyysrFNWedn8yaQpE+_pOq6jK2oVgU=A3iw@mail.gmail.com>
+	<1334132760.48765.YahooMailNeo@web171403.mail.ir2.yahoo.com>
+	<CAOy5HfPUZfBTbHOv3FtqFfK38wvGUwqE11WZfsTTwU2qKhT=uA@mail.gmail.com>
+Message-ID: <1334138750.37552.YahooMailNeo@web171402.mail.ir2.yahoo.com>
+
+Please don't reply off list.
+
+First check the version of the slony binaries installed across your servers, and the slonik tool you are using are the same and the version you want to be using.? Then run update functions as follows.
+
+
+http://slony.info/documentation/2.1/stmtupdatefunctions.html
+
+
+
+
+>________________________________
+> From: Lakshmi Priya <gangulynj at gmail.com>
+>To: Glyn Astill <glynastill at yahoo.co.uk> 
+>Sent: Wednesday, 11 April 2012, 10:44
+>Subject: Re: [Slony1-general] Error in slony
+> 
+>
+>How to run the Update functions..
+>
+>
+>On Wed, Apr 11, 2012 at 1:56 PM, Glyn Astill <glynastill at yahoo.co.uk> wrote:
+>
+>It means that the version of the functions in your schema does not match the compiled version of slony.? I'm guessing you need to run "update functions"
+>>
+>>
+>>
+>>
+>>>________________________________
+>>> From: Lakshmi Priya <gangulynj at gmail.com>
+>>>To: slony1-general at lists.slony.info 
+>>>Sent: Wednesday, 11 April 2012, 8:24
+>>>Subject: [Slony1-general] Error in slony
+>>> 
+>>>
+>>>
+>>>Can any one say what this error meant..??
+>>>
+>>>
+>>><stdin>:8: loading of file /usr/local/pgsql/share//slony1_funcs.sql: PGRES_FATAL_ERROR ERROR: ?Slonik version: 2.0.6 != Slony-I version in PG build 2.1.1. 
+>>>_______________________________________________
+>>>Slony1-general mailing list
+>>>Slony1-general at lists.slony.info
+>>>http://lists.slony.info/mailman/listinfo/slony1-general
+>>>
+>>>
+>>>
+>
+>
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20120411/06425bab/attachment.htm 
+
