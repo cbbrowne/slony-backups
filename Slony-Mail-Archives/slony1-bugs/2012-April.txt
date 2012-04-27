@@ -1,0 +1,153 @@
+From bugzilla-daemon at main.slony.info  Wed Apr 25 06:16:04 2012
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed, 25 Apr 2012 06:16:04 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 264] New: Slon generate catastrophically large
+	query
+Message-ID: <bug-264-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=264
+
+           Summary: Slon generate catastrophically large query
+           Product: Slony-I
+           Version: 2.0
+          Platform: PC
+        OS/Version: Linux
+            Status: NEW
+          Severity: major
+          Priority: low
+         Component: slon
+        AssignedTo: slony1-bugs at lists.slony.info
+        ReportedBy: paulro at yandex.ru
+                CC: slony1-bugs at lists.slony.info
+   Estimated Hours: 0.0
+
+
+Hello
+
+OS Linux 2.4
+PostgreSQL 8.4.3
+Slony 2.0.7
+
+We have an issue with slony service, it generates a query which database can't
+execute. It is related with size of a query (~12 mb). We suppose that this  
+happens after initial sync when database fully copied.
+
+ERROR:  stack depth limit exceeded
+
+How we can work around this problem ?
+We can't increase "max_stack_depth" because it was allready set to max value.  
+
+Postgresql LOG: 
+
+2012-03-28 19:44:33 MSKERROR:  stack depth limit exceeded
+2012-03-28 19:44:33 MSKHINT:  Increase the configuration parameter
+"max_stack_depth", after ensuring the platform's stack depth limit is adequate.
+2012-03-28 19:44:33 MSKSTATEMENT:  
+declare LOG cursor for select * from (  
+select log_origin, log_txid, log_tableid, log_actionseq, log_cmdtype,
+octet_length(log_cmddata),     
+              case when octet_length(log_cmddata) <= 8192 then log_cmddata else
+null end 
+from "_storage".sl_log_1 
+where log_origin = 1 and (  (
+     log_tableid in
+(117,10,23,43,85,99,100,101,11,13,8,37,38,55,56,86,1,2,25,32,6,3,22,42,7,9,12,16,21,30,33,26,27,28,29,31,5,34,44,45,14,15,48,49,50,51,35,39,40,52,53,54,24,46,47,57,58,4,17,18,19,20,36,41,59,60,61,62,63,64,65,66,67,68,69,70,71,79,92,72,73,74,75,98,102,76,77,78,80,81,82,83,84,87,103,88,89,90,91,93,94,95,96,97,104,105,106,107,108,109,110,111,112,113,114,115,116)
+        and (log_txid < '629996' and
+"pg_catalog".txid_visible_in_snapshot(log_txid, '629996:629996:'))
+        and (log_txid >= '629981' or log_txid IN (select * from
+"pg_catalog".txid_snapshot_xip('629981:629981:'))) and (  log_actionseq <>
+'2848'  and  log_actionseq <> '36761'  and  log_actionseq <> '2026'  and 
+log_actionseq <> '10295'  and  log_actionseq <> '11890'  and  log_actionseq <>
+'46770'  and  log_actionseq <> '22262'  and  log_actionseq <> '43007'  and 
+log_actionseq <> '39118'  and  log_actionseq <> '39665'  and  log_actionseq <>
+'6122'  and  log_actionseq <> '49059'  and  log_actionseq <> '40448'  and 
+log_actionseq <> '12267'  and  log_actionseq <> '23772'  and  log_actionseq <>
+'28365'  and  log_actionseq <> '48394 ... etc
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Apr 25 13:52:44 2012
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed, 25 Apr 2012 13:52:44 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 264] Slon generate catastrophically large query
+In-Reply-To: <bug-264-4@http.www.slony.info/bugzilla/>
+References: <bug-264-4@http.www.slony.info/bugzilla/>
+Message-ID: <20120425205244.DBB6C290F27@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=264
+
+--- Comment #1 from Christopher Browne <cbbrowne at ca.afilias.info> 2012-04-25 13:52:44 PDT ---
+It seems as though there has been a change in behaviour...
+
+This was *supposed* to have been fixed by patch
+http://git.postgresql.org/gitweb/?p=slony1-engine.git;a=commit;h=43b650085fe7195b6d4b5f97b7b9bb84d92feea1
+
+That patch compresses sequences of adjacent log_actionseq numbers together.
+
+Unfortunately, it appears from the bits of the query that are included that the
+values are no longer in any sort of adjacent order.
+
+I don't see any ORDER BY clauses against the queries that seem likely to be
+pulling data that goes into ssy_action_list (which is what gets compressed by
+compress_actionseq()); I expect that adding ORDER BY 1 would do the trick,
+albeit at some non-zero cost to some queries that would now require sorts.
+
+Note that compress_actionseq() takes the representation that you see, and
+replaces any runs possible with "... and log_actionseq not between '%d' and
+'%d'".  If there are large numbers of consecutive log_actionseq values, then a
+LOT of those will get compressed into a few clauses.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Apr 25 13:59:55 2012
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed, 25 Apr 2012 13:59:55 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 264] Slon generate catastrophically large query
+In-Reply-To: <bug-264-4@http.www.slony.info/bugzilla/>
+References: <bug-264-4@http.www.slony.info/bugzilla/>
+Message-ID: <20120425205955.CD5B5290F50@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=264
+
+--- Comment #2 from Christopher Browne <cbbrowne at ca.afilias.info> 2012-04-25 13:59:55 PDT ---
+The following patch might resolve the issue.  (Not tested!!!  I'm just
+speculating that this might be the fix.)
+
+https://github.com/cbbrowne/slony1-engine/commit/e6703d512066a727ead262cdb01d2d494ccfbaa6
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Thu Apr 26 01:45:14 2012
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu, 26 Apr 2012 01:45:14 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 264] Slon generate catastrophically large query
+In-Reply-To: <bug-264-4@http.www.slony.info/bugzilla/>
+References: <bug-264-4@http.www.slony.info/bugzilla/>
+Message-ID: <20120426084514.3172E290F42@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=264
+
+--- Comment #3 from Paul <paulro at yandex.ru> 2012-04-26 01:45:13 PDT ---
+Hello Christopher Browne 
+
+I take patch for testing.
+I will tell you how to get the results.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
