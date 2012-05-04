@@ -1,0 +1,103 @@
+From ssinger at ca.afilias.info  Wed May  2 14:39:49 2012
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Wed, 02 May 2012 17:39:49 -0400
+Subject: [Slony1-general] Logship files printing incorrectly
+In-Reply-To: <CAKWMdJbsQYdQ_PoVoseQj=NcCf2Y0ZVro16Ba7yydFGoxz4Sjg@mail.gmail.com>
+References: <CAKWMdJbsQYdQ_PoVoseQj=NcCf2Y0ZVro16Ba7yydFGoxz4Sjg@mail.gmail.com>
+Message-ID: <4FA1A9A5.1030503@ca.afilias.info>
+
+On 12-04-11 09:24 AM, Richard Yen wrote:
+> Hi,
+
+Richard,
+
+We've looked a bit at the files you sent me.
+
+Jan was able to reproduce a very similar type of file where two 
+processes were writing to the same file in "w' mode (like slony does).
+
+Are any of the above possible:
+
+1. You had multiple slon daemons writing to the same log archive 
+directory (maybe for different clusters?)
+
+2.  The mechanism you used for copying the .sql files could have caused 
+processes to try to write to the same file on the destination machine
+
+If the answer to both of those is no then maybe there is a bug in how 
+archive file numbers are assigned in remote_worker.c:archive_open.
+We don't YET see any obvious faults with this logic but if this logic 
+somehow assigned 2 slon worker threads the same id then you could get a 
+file like you sent us.
+
+
+For others on the list the files looked like:
+
+------------------------------------------------------------------
+-- Slony-I log shipping archive
+-- Node 5, Event 5000002252
+------------------------------------------------------------------
+set session_replication_role to replica;
+start transaction;
+select "_cluster".archiveTracking_offline('9750225', '2012-04-23 
+10:43:10.921274');
+-- end of log archiving header
+------------------------------------------------------------------
+-- start of Slony-I data
+------------------------------------------------------------------
+
+------------------------------------------------------------------
+-- End Of Archive Log
+------------------------------------------------------------------
+commit;
+vacuum analyze "_cluster".sl_archive_tracking;
+@@@@@@@@@@@
+...random SQL like text
+
+where @@@ is really kilobytes of the NULL character (0x0).
+
+We feel that one thread/process had written a longer version of the file 
+while another process/thread had the same file open with a different 
+file handle in "w" mode and it truncated the file, while the first 
+process/thread still had the handle open pointing later on in the file.
+
+Steve
+
+>
+> I've recently come across a situation where slony logshipping files were
+> being written incorrectly.  Normally, the files are written in this order:
+> - Begin transaction
+> - Set archive tracking index
+> - INSERTs/UPDATEs/DELETEs
+> - Set sequences
+> - Vacuum
+> - Commit
+>
+> I noticed that in my particular instance, the files were being written
+> as such:
+> - Begin transaction
+> - Set archive tracking index
+> - Vacuum
+> - Commit
+> - INSERTs/UPDATEs/DELETEs
+> - Set sequences
+>
+> Obviously, this sounds pretty dangerous, and I actually encountered the
+> situation where my logship destination got corrupted, and needed to
+> rebuild that node.
+>
+> Would anyone have any insight into why this happens?
+>
+> Using 2.0.6 on CentOS, with Postgres 8.4.5
+>
+> Thanks!
+> --Richard
+>
+>
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+
+
