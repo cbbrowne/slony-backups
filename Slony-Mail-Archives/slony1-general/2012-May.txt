@@ -199,3 +199,75 @@ anything in that direction, in terms of duplicated events.
 An HTML attachment was scrubbed...
 URL: http://lists.slony.info/pipermail/slony1-general/attachments/20120504/896a2a0c/attachment.htm 
 
+From JanWieck at Yahoo.com  Sat May  5 07:14:16 2012
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Sat, 05 May 2012 10:14:16 -0400
+Subject: [Slony1-general] Logship files printing incorrectly
+In-Reply-To: <4FA1A9A5.1030503@ca.afilias.info>
+References: <CAKWMdJbsQYdQ_PoVoseQj=NcCf2Y0ZVro16Ba7yydFGoxz4Sjg@mail.gmail.com>
+	<4FA1A9A5.1030503@ca.afilias.info>
+Message-ID: <4FA535B8.5030408@Yahoo.com>
+
+On 5/2/2012 5:39 PM, Steve Singer wrote:
+
+> Jan was able to reproduce a very similar type of file where two
+> processes were writing to the same file in "w' mode (like slony does).
+
+Some more details about that:
+
+The log file I have seen contains an OK but empty archive log at the 
+beginning. All the usual content but just no data. Then follow ASCII NUL 
+bytes up to exactly 32K, followed by some log data starting in the 
+middle of a statement but not properly terminated by the final commit 
+and vacuum statements.
+
+The way I can create a file with a similar pattern is as follows:
+
+
+proc1: FILE *fp = fopen("file", "w");
+proc1: fprintf(fp, "data from proc1\n"); // continue doing that until
+                                          // over 32K written
+
+proc2: FILE *fp = fopen("file", "w");
+proc2: fprintf(fp, "data from proc2\n");
+proc2: fclose(fp);
+
+proc1: fprintf(fp, "data from proc1\n");
+proc1: fclose(fp);
+
+
+What happens here is that both processes use fprintf(), like slon, and 
+fprintf uses an internal buffer of 32K. When proc1 has written over 32K, 
+the buffer had been flushed and the underlying file descriptor's lseek 
+position is at 32K.
+
+Now comes proc2 and opens the file also for writing. The underlying file 
+descriptor is created with O_CREAT only, which means that the file gets 
+truncated. proc2 writes its stuff and closes the file.
+
+When proc1 finally closes the file it flushes its second buffer. Since 
+the file was not opened in append mode, the truncate that happened in 
+the meantime does not affect the lseek position in its file descriptor, 
+so it writes that buffer at the 32K position and the OS fills in the 
+void with NUL bytes.
+
+I have attached a small patch against 2.0 that changes the opening of 
+the temporary archive file to use O_CREAT|O_EXCL and then fdopen(3). 
+This would cause proc2 above to fail with an error because the file 
+already exists. This will tell you in the slon logs which slon is 
+actually doing this.
+
+
+Jan
+
+-- 
+Anyone who trades liberty for security deserves neither
+liberty nor security. -- Benjamin Franklin
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: archive_fdopen.diff
+Type: text/x-patch
+Size: 1379 bytes
+Desc: not available
+Url : http://lists.slony.info/pipermail/slony1-general/attachments/20120505/abcbd91b/attachment.bin 
+
