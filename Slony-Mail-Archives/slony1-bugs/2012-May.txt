@@ -158,3 +158,69 @@ Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
 You are on the CC list for the bug.
 You are the assignee for the bug.
 
+From bugzilla-daemon at main.slony.info  Wed May 16 06:10:48 2012
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed, 16 May 2012 06:10:48 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 266] Slony-I: old key column
+ tbl_stock_2012.comments IS NULL on UPDATE
+In-Reply-To: <bug-266-4@http.www.slony.info/bugzilla/>
+References: <bug-266-4@http.www.slony.info/bugzilla/>
+Message-ID: <20120516131048.EEEA7290C71@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=266
+
+--- Comment #1 from Steve Singer <ssinger at ca.afilias.info> 2012-05-16 06:10:48 PDT ---
+In Slony 1.2 and earlier most DDL changes need to be done via EXECUTE SCRIPT.
+You should not be adding columns to tables outside of EXECUTE SCRIPT.  EXECUTE
+SCRIPT in 1.2 is a heavy locking operation.
+http://www.slony.info/documentation/1.2/ddlchanges.html
+
+Are the trigger arguments on the table corrupt/incorrect? The bug you link to
+talks about the attkind parameter.  Running EXECUTE SCRIPT (this will lock all
+tables) will rebuild the attkind attributes.  In some cases this might fix
+problems introduced by doing ALTER TABLE outside of an execute script.
+
+
+I consider Slony 1.2.x EOL I do not think we will be releasing any new versions
+or fixes for slony 1.2.x
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed May 16 06:47:31 2012
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed, 16 May 2012 06:47:31 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 266] Slony-I: old key column
+ tbl_stock_2012.comments IS NULL on UPDATE
+In-Reply-To: <bug-266-4@http.www.slony.info/bugzilla/>
+References: <bug-266-4@http.www.slony.info/bugzilla/>
+Message-ID: <20120516134731.2E389290CA5@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=266
+
+--- Comment #2 from Jan Wieck <janwieck at yahoo.com> 2012-05-16 06:47:31 PDT ---
+This isn't anything we could fix in 1.2 anyway.
+
+I presume that you dropped some columns that physically appeared before the key
+column(s) used by Slony to identify rows. Even if you added them back later,
+the physical order of columns has changed and the log trigger's idea of which
+columns are key columns is out of sync with the current table structure.
+
+The really bad news is that this may already have corrupted data on your
+replica. Let me assume that tbl_stock_2012 had only one key column and that now
+comments is wrongly used as that key column. Any update or delete where
+comments is not NULL will succeed properly on the origin, but will then
+update/delete all rows on the replica that have that same value in comments.
+
+You will need to verify that the tables are still in sync or consider
+rebuilding the replication setup from scratch.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
