@@ -288,3 +288,228 @@ Great, try to keep the messages on the mailing list.
 An HTML attachment was scrubbed...
 URL: http://lists.slony.info/pipermail/slony1-general/attachments/20120606/0c163a2a/attachment.htm 
 
+From zbentley at crsinc.com  Thu Jun  7 07:03:24 2012
+From: zbentley at crsinc.com (Zac Bentley)
+Date: Thu, 7 Jun 2012 14:03:24 +0000
+Subject: [Slony1-general] Slony initial subscription is causing
+ out-of-memory kernel panics. Why?
+Message-ID: <9275DB4EA36C2542985A16A04243E85A591F9A@mbx025-e1-nj-8.exch025.domain.local>
+
+Context:
+
+We run Slony 2.0 with Postgres 8.4 on two CentOS 6 servers--one master, and one slave. Our database is about 30GB in size, which isn't unusual, but we do have a couple of tables that are more than 5GB each.
+
+Recently, we needed to re-build our Slony cluster. I turned off Slony, restored identical database snapshots on the master and the slave, set up my slony.conf and slon_tools.conf, started the slons, ran slonik_init_cluster | slonik, then slonik_create_set 1 | slonik (we only have one replication set), and finally slonik_subscribe_set 1 2 | slonik. Everything looked good, and I was able to watch subscription progress in the logs.
+
+Then the server stopped responding. I rebooted it, and saw "Kernel panic - not syncing: Out of memory and no killable processes" after it had killed everything it could.
+
+It happens during the subscription process when our first "large" (3GB) table is encountered. The logs report "so and so bytes copied for table" for the table in question, then a few dozen queued SYNC events, and then they detect a child process crash and log a watchdog-initialized restart.
+
+
+
+What I've tried:
+
+First I blew away the database completely, re ran initdb, and then restored the identical snapshots again. Same kernel panic. Then I blew it away, uninstalled Postgres and Slony, and reinstalled them. I double-checked all of our memory-based settings in postgresql.conf, and they are all at stock/recommended levels (i.e. shared_buffers is at 1/4 of RAM etc etc). I ran a VACUUM ANALYZE FULL on the database before initializing the Slony cluster. As a last-ditch effort, I completely reinstalled the OS and all base software on the db servers and started from scratch. Same result every time: kernel panic, out of memory. It happens on the slave server, which runs both of the slons.
+
+
+
+Question:
+
+Why is this happening?
+
+Our database has grown fairly linearly over the past few months (at the beginning of the year it was about 23GB, now it's 30), and every other time I have had to re-initialize the Slony cluster on these same servers, it has worked fine.
+
+
+Zac Bentley
+Systems Administrator
+Corporate Reimbursement Services, Inc.
+www.crsinc.com<http://www.crsinc.com/>
+617-467-1949
+
+
+This email message contains information that Corporate Reimbursement Services, Inc. considers confidential and/or proprietary, or may later designate as confidential and proprietary. It is intended only for use of the individual or entity named above and should not be forwarded to any other persons or entities without the express consent of Corporate Reimbursement Services, Inc., nor should it be used for any purpose other than in the course of any potential or actual business relationship with Corporate Reimbursement Services, Inc. If the reader of this message is not the intended recipient, or the employee or agent responsible to deliver it to the intended recipient, you are hereby notified that any dissemination, distribution, or copying of this communication is strictly prohibited. If you have received this communication in error, please notify sender immediately and destroy the original message.
+
+Internal Revenue Service regulations require that certain types of written advice include a disclaimer. To the extent the preceding message contains advice relating to a Federal tax issue, unless expressly stated otherwise the advice is not intended or written to be used, and it cannot be used by the recipient or any other taxpayer, for the purpose of avoiding Federal tax penalties, and was not written to support the promotion or marketing of any transaction or matter discussed herein.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20120607/2a743884/attachment.htm 
+
+From ssinger at ca.afilias.info  Thu Jun  7 07:11:10 2012
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Thu, 07 Jun 2012 10:11:10 -0400
+Subject: [Slony1-general] Slony initial subscription is causing
+ out-of-memory kernel panics. Why?
+In-Reply-To: <9275DB4EA36C2542985A16A04243E85A591F9A@mbx025-e1-nj-8.exch025.domain.local>
+References: <9275DB4EA36C2542985A16A04243E85A591F9A@mbx025-e1-nj-8.exch025.domain.local>
+Message-ID: <4FD0B67E.5090705@ca.afilias.info>
+
+On 12-06-07 10:03 AM, Zac Bentley wrote:
+
+1.  Exactly which version of slony is this 2.0.7 ?
+
+2.  If you watch your server (ie with top) as this happens which 
+processes grow in memory?  postgres or slon?  How big do they grow to 
+before things start being killed?  Does the memory usage grow gradually 
+over time or does it stay low and then spike right before the crash?
+
+3. Does the SUBSCRIBE SET  actually finish before the crash?
+
+4. If after the crash you restart postgresql and slon (but don't delete 
+anything, perform an initdb or reinstall slony) what happens?
+
+
+
+
+> *Context:*
+>
+> We run Slony 2.0 with Postgres 8.4 on two CentOS 6 servers--one master,
+> and one slave. Our database is about 30GB in size, which isn't unusual,
+> but we do have a couple of tables that are more than 5GB each.
+>
+> Recently, we needed to re-build our Slony cluster. I turned off Slony,
+> restored identical database snapshots on the master and the slave, set
+> up my slony.conf and slon_tools.conf, started the slons, ran
+> |slonik_init_cluster | slonik|, then|slonik_create_set 1 | slonik|(we
+> only have one replication set), and finally|slonik_subscribe_set 1 2 |
+> slonik|. Everything looked good, and I was able to watch subscription
+> progress in the logs.
+>
+> Then the server stopped responding. I rebooted it, and saw "Kernel panic
+> - not syncing: Out of memory and no killable processes" after it had
+> killed everything it could.
+>
+> It happens during the subscription process when our first ?large? (3GB)
+> table is encountered. The logs report ?so and so bytes copied for table?
+> for the table in question, then a few dozen queued SYNC events, and then
+> they detect a child process crash and log a watchdog-initialized restart.
+>
+> *What I've tried:*
+>
+> First I blew away the database completely, re ran|initdb|, and then
+> restored the identical snapshots again. Same kernel panic. Then I blew
+> it away, uninstalled Postgres and Slony, and reinstalled them. I
+> double-checked all of our memory-based settings in postgresql.conf, and
+> they are all at stock/recommended levels (i.e.|shared_buffers|is at 1/4
+> of RAM etc etc). I ran a|VACUUM ANALYZE FULL |on the database before
+> initializing the Slony cluster. As a last-ditch effort, I completely
+> reinstalled the OS and all base software on the db servers and started
+> from scratch. Same result every time: kernel panic, out of memory. It
+> happens on the slave server, which runs both of the slons.
+>
+> *Question:*
+>
+> Why is this happening?
+>
+> Our database has grown fairly linearly over the past few months (at the
+> beginning of the year it was about 23GB, now it's 30), and every other
+> time I have had to re-initialize the Slony cluster on these same
+> servers, it has worked fine.
+>
+> Zac Bentley
+>
+> Systems Administrator
+>
+> Corporate Reimbursement Services, Inc.
+>
+> www.crsinc.com <http://www.crsinc.com/>
+>
+> 617-467-1949
+>
+> This email message contains information that Corporate Reimbursement
+> Services, Inc. considers confidential and/or proprietary, or may later
+> designate as confidential and proprietary. It is intended only for use
+> of the individual or entity named above and should not be forwarded to
+> any other persons or entities without the express consent of Corporate
+> Reimbursement Services, Inc., nor should it be used for any purpose
+> other than in the course of any potential or actual business
+> relationship with Corporate Reimbursement Services, Inc. If the reader
+> of this message is not the intended recipient, or the employee or agent
+> responsible to deliver it to the intended recipient, you are hereby
+> notified that any dissemination, distribution, or copying of this
+> communication is strictly prohibited. If you have received this
+> communication in error, please notify sender immediately and destroy the
+> original message.
+>
+> Internal Revenue Service regulations require that certain types of
+> written advice include a disclaimer. To the extent the preceding message
+> contains advice relating to a Federal tax issue, unless expressly stated
+> otherwise the advice is not intended or written to be used, and it
+> cannot be used by the recipient or any other taxpayer, for the purpose
+> of avoiding Federal tax penalties, and was not written to support the
+> promotion or marketing of any transaction or matter discussed herein.
+>
+>
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+
+
+From zbentley at crsinc.com  Thu Jun  7 07:22:14 2012
+From: zbentley at crsinc.com (Zac Bentley)
+Date: Thu, 7 Jun 2012 14:22:14 +0000
+Subject: [Slony1-general] Slony initial subscription is causing
+ out-of-memory kernel panics. Why?
+In-Reply-To: <4FD0B67E.5090705@ca.afilias.info>
+References: <9275DB4EA36C2542985A16A04243E85A591F9A@mbx025-e1-nj-8.exch025.domain.local>
+	<4FD0B67E.5090705@ca.afilias.info>
+Message-ID: <9275DB4EA36C2542985A16A04243E85A592005@mbx025-e1-nj-8.exch025.domain.local>
+
+1. 2.0.7, correct.
+2. I don't know for certain. I'm running another initial subscribe right now but it will take some time before it gets to the critical point. I would assume that the Slons are the ones eating memory, since I know from experience that the OOM killer will kill Postgres quite readily. Something that the OOM killer can't touch is leading to the system running out of memory, so I'd assume the Slons.
+3. No, it doesn't. It gets part of the way through subscription of a large table and then the lots start showing watchdog-restarts, 4 or 5 times, and then the system kernel panics.
+4. If I restart them after the crash without touching anything, the subscription process starts again from the very beginning.
+
+Zac Bentley
+Systems Administrator
+Corporate Reimbursement Services, Inc.
+www.crsinc.com
+617-467-1949
+
+This email message contains information that Corporate Reimbursement Services, Inc. considers confidential and/or proprietary, or may later designate as confidential and proprietary. It is intended only for use of the individual or entity named above and should not be forwarded to any other persons or entities without the express consent of Corporate Reimbursement Services, Inc., nor should it be used for any purpose other than in the course of any potential or actual business relationship with Corporate Reimbursement Services, Inc. If the reader of this message is not the intended recipient, or the employee or agent responsible to deliver it to the intended recipient, you are hereby notified that any dissemination, distribution, or copying of this communication is strictly prohibited. If you have received this communication in error, please notify sender immediately and destroy the original message.
+
+Internal Revenue Service regulations require that certain types of written advice include a disclaimer. To the extent the preceding message contains advice relating to a Federal tax issue, unless expressly stated otherwise the advice is not intended or written to be used, and it cannot be used by the recipient or any other taxpayer, for the purpose of avoiding Federal tax penalties, and was not written to support the promotion or marketing of any transaction or matter discussed herein.
+
+From ssinger at ca.afilias.info  Thu Jun  7 07:28:53 2012
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Thu, 07 Jun 2012 10:28:53 -0400
+Subject: [Slony1-general] Slony initial subscription is causing
+ out-of-memory kernel panics. Why?
+In-Reply-To: <9275DB4EA36C2542985A16A04243E85A592005@mbx025-e1-nj-8.exch025.domain.local>
+References: <9275DB4EA36C2542985A16A04243E85A591F9A@mbx025-e1-nj-8.exch025.domain.local>
+	<4FD0B67E.5090705@ca.afilias.info>
+	<9275DB4EA36C2542985A16A04243E85A592005@mbx025-e1-nj-8.exch025.domain.local>
+Message-ID: <4FD0BAA5.3000902@ca.afilias.info>
+
+On 12-06-07 10:22 AM, Zac Bentley wrote:
+> 1. 2.0.7, correct.
+> 2. I don't know for certain. I'm running another initial subscribe right now but it will take some time before it gets to the critical point. I would assume that the Slons are the ones eating memory, since I know from experience that the OOM killer will kill Postgres quite readily. Something that the OOM killer can't touch is leading to the system running out of memory, so I'd assume the Slons.
+
+Keep an eye on it.  I can't think of a reason why the slon memory 
+footprint should grow like that.
+
+> 3. No, it doesn't. It gets part of the way through subscription of a large table and then the lots start showing watchdog-restarts, 4 or 5 times, and then the system kernel panics.
+
+What is the reason/message given for the slon workers being killed? Is 
+the OOM killer, killing them?
+
+Off the top of my head I can't think of a reason why the OOM killer 
+couldn't kill a slon.  (should the OOM killer be killing slons is a 
+different question).
+
+
+
+> 4. If I restart them after the crash without touching anything, the subscription process starts again from the very beginning.
+>
+> Zac Bentley
+> Systems Administrator
+> Corporate Reimbursement Services, Inc.
+> www.crsinc.com
+> 617-467-1949
+>
+> This email message contains information that Corporate Reimbursement Services, Inc. considers confidential and/or proprietary, or may later designate as confidential and proprietary. It is intended only for use of the individual or entity named above and should not be forwarded to any other persons or entities without the express consent of Corporate Reimbursement Services, Inc., nor should it be used for any purpose other than in the course of any potential or actual business relationship with Corporate Reimbursement Services, Inc. If the reader of this message is not the intended recipient, or the employee or agent responsible to deliver it to the intended recipient, you are hereby notified that any dissemination, distribution, or copying of this communication is strictly prohibited. If you have received this communication in error, please notify sender immediately and destroy the original message.
+>
+> Internal Revenue Service regulations require that certain types of written advice include a disclaimer. To the extent the preceding message contains advice relating to a Federal tax issue, unless expressly stated otherwise the advice is not intended or written to be used, and it cannot be used by the recipient or any other taxpayer, for the purpose of avoiding Federal tax penalties, and was not written to support the promotion or marketing of any transaction or matter discussed herein.
+
+
