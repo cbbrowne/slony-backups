@@ -3284,3 +3284,208 @@ Blog: htt://raghavt.blogspot.com/
 An HTML attachment was scrubbed...
 URL: http://lists.slony.info/pipermail/slony1-general/attachments/20120619/e06edab3/attachment.htm 
 
+From ssinger at ca.afilias.info  Tue Jun 19 05:19:13 2012
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Tue, 19 Jun 2012 08:19:13 -0400
+Subject: [Slony1-general] Adding third node going in waiting
+In-Reply-To: <CANwAqWg9tL6zt2HhMSY+7JEcMbKii2kxcDt2CkL9UfA5Po9DZQ@mail.gmail.com>
+References: <CANwAqWg9tL6zt2HhMSY+7JEcMbKii2kxcDt2CkL9UfA5Po9DZQ@mail.gmail.com>
+Message-ID: <4FE06E41.3010507@ca.afilias.info>
+
+On 12-06-19 02:57 AM, Raghav wrote:
+> Hi Steve,
+>
+> Firstly, Thanks for all the help to my other thread I raised and helping
+> me in moving forward with my testing.
+> Am playing a bit with Slony these days on high end replication solutions.
+>
+> Am using Slony-I 2.1.0, I followed the documentation for adding the node
+> to the existing replication, however when I try to subscribe the new
+> node its going into waiting. Am doing in localhost of same cluster with
+> multiple databases.
+>
+
+> 1. Create database
+> create database slave2;
+>
+> 2. Restore the master structure to slave2;
+>
+> pg_dump -h localhost -s -p 5432 -d master | psql slave
+>
+> 3. Drop _myrep schema which copied by pg_dump to slave ( Note: This is
+> not documented, I suspect when we copy masterdb schema structure u also
+> get the _slonyschema as well. Which throw error as _slonyschema
+> existing. Do we really need master _slonyschema to new node ?)
+
+No you do not need to dump the slonyschema, you can exclude that from 
+your dump.
+
+
+>
+> psql -d slave -c "drop schema _myrep cascade;"
+>
+> 4. below is the script to add new node:
+>
+> #!/bin/bash
+>
+> slonik <<_eof_
+> cluster name = myrep;
+> node 1 admin conninfo='host=127.0.0.1 dbname=master user=postgres
+> port=5432';
+> node 2 admin conninfo='host=127.0.0.1 dbname=slave1 user=postgres
+> port=5432';
+> node 3 admin conninfo='host=127.0.0.1 dbname=slave2 user=postgres
+> port=5432';
+>
+> store node (id = 3, event node = 1, comment = 'Slave2 Node For The
+> Primary postgres');
+>
+> #Setting Store Paths ...
+> echo 'Stored all nodes in the slony catalogs';
+> store path(server = 1, client = 3, conninfo='host=127.0.0.1
+> dbname=master user=postgres port=5432');
+> store path(server = 3, client = 1, conninfo='host=127.0.0.1
+> dbname=slave2 user=postgres port=5432');
+> _eof_
+>
+> This goes fine..
+>
+> 5. When I do subscribe its going into waiting stage.
+>
+> Subscribe script:
+>
+> #!/bin/bash
+> # Subscribe node
+>
+> slonik <<_eof_
+> cluster name = myrep;
+> node 1 admin conninfo='host=127.0.0.1 dbname=master user=postgres
+> port=5432';
+> node 2 admin conninfo='host=127.0.0.1 dbname=slave user=postgres port=5432';
+> node 3 admin conninfo='host=127.0.0.1 dbname=slave2 user=postgres
+> port=5432';
+>
+> try { subscribe set (id = 1, provider = 1 , receiver = 3, forward = yes,
+> omit copy = false); } on error { exit 1; } echo 'Subscribed nodes to set 1';
+> _eof_
+>
+> output of the subscribe node;
+> -bash-4.1$ ./new_node_subscribe-set.sh
+> waiting for events  (3,5000000001) only at (3,0) to be confirmed on node 1
+> waiting for events  (3,5000000001) only at (3,0) to be confirmed on node 1
+> waiting for events  (3,5000000001) only at (3,0) to be confirmed on node 1
+>
+> I found the link which pointing to some bug. Correct me, how to achive this.
+
+Did you start the slon daemon for the new node?  If not, starting the 
+slon daemon for the new node should allow things to replicate.
+
+
+>
+> http://www.slony.info/bugzilla/show_bug.cgi?id=223
+>
+>
+> --
+> Regards
+> Raghav
+> Blog: htt://raghavt.blogspot.com/ <http://raghavt.blogspot.com/>
+>
+>
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+
+
+From efraindector at motumweb.com  Tue Jun 19 09:43:46 2012
+From: efraindector at motumweb.com (=?utf-8?Q?Efra=C3=ADn_D=C3=A9ctor?=)
+Date: Tue, 19 Jun 2012 11:43:46 -0500
+Subject: [Slony1-general] How to perform updates on a table slave
+Message-ID: <B1919E8234324713B17E4114699AE877@CMOTUM25PC>
+
+Hello.
+
+We want to use Slony to keep our 2 servers replicated, however several tables are being accesed by Java processes that perform updates on them, Slony doesn?t this allow to happen. Is there a way to allow this?.
+
+Thank you.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20120619/a0138eb0/attachment.htm 
+
+From ragavendra.dba at gmail.com  Tue Jun 19 10:01:55 2012
+From: ragavendra.dba at gmail.com (Raghav)
+Date: Tue, 19 Jun 2012 22:31:55 +0530
+Subject: [Slony1-general] How to perform updates on a table slave
+In-Reply-To: <B1919E8234324713B17E4114699AE877@CMOTUM25PC>
+References: <B1919E8234324713B17E4114699AE877@CMOTUM25PC>
+Message-ID: <CANwAqWj=MMKHKrorZyVhP_cAp=veHTjJifbbLxEvPn7yQka8EA@mail.gmail.com>
+
+>
+> We want to use Slony to keep our 2 servers replicated, however several
+> tables are being accesed by Java processes that perform updates on them,
+> Slony doesn?t this allow to happen. Is there a way to allow this?.
+>
+> Thank you.
+>
+> Its a data violation. Slave data are replicated from Primary, so slave
+data will be treated as read-only data not as write data by any user/app.
+Slony created disable triggers on Slave. So no write access is allowed.
+
+--
+Regards
+Raghav
+Blog: htt://raghavt.blogspot.com/
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20120619/c5fad515/attachment.htm 
+
+From ragavendra.dba at gmail.com  Tue Jun 19 10:03:11 2012
+From: ragavendra.dba at gmail.com (Raghav)
+Date: Tue, 19 Jun 2012 22:33:11 +0530
+Subject: [Slony1-general] Adding third node going in waiting
+In-Reply-To: <4FE06E41.3010507@ca.afilias.info>
+References: <CANwAqWg9tL6zt2HhMSY+7JEcMbKii2kxcDt2CkL9UfA5Po9DZQ@mail.gmail.com>
+	<4FE06E41.3010507@ca.afilias.info>
+Message-ID: <CANwAqWhJNks5gvMA0a4uDJPZAM04y4Mxz18tZM1zt4rCt6KQSQ@mail.gmail.com>
+
+>
+>
+>> 3. Drop _myrep schema which copied by pg_dump to slave ( Note: This is
+>> not documented, I suspect when we copy masterdb schema structure u also
+>> get the _slonyschema as well. Which throw error as _slonyschema
+>> existing. Do we really need master _slonyschema to new node ?)
+>>
+>
+> No you do not need to dump the slonyschema, you can exclude that from your
+> dump.
+>
+> Yes, I did the step 1 under section 3.2.4. Because, add replication node
+will be on the existing replication, so the dump mentioned in the
+documentation will include the slony schema. Need to changed in
+documentation.
+
+http://slony.info/documentation/2.1/modifyingthings.html
+
+ output of the subscribe node;
+>> -bash-4.1$ ./new_node_subscribe-set.sh
+>> waiting for events  (3,5000000001) only at (3,0) to be confirmed on node 1
+>> waiting for events  (3,5000000001) only at (3,0) to be confirmed on node 1
+>> waiting for events  (3,5000000001) only at (3,0) to be confirmed on node 1
+>>
+>> I found the link which pointing to some bug. Correct me, how to achive
+>> this.
+>>
+>
+> Did you start the slon daemon for the new node?  If not, starting the slon
+> daemon for the new node should allow things to replicate
+>
+
+Small things, create big problems .. :). Yes after starting Slave slon
+daemon, everything goes well.
+
+--Raghav
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20120619/2c3dcb38/attachment.htm 
+
