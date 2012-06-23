@@ -3554,3 +3554,201 @@ Blog: htt://raghavt.blogspot.com/
 An HTML attachment was scrubbed...
 URL: http://lists.slony.info/pipermail/slony1-general/attachments/20120620/4af9c1e7/attachment.htm 
 
+From ssinger at ca.afilias.info  Thu Jun 21 13:32:30 2012
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Thu, 21 Jun 2012 16:32:30 -0400
+Subject: [Slony1-general] Slony 2.2.0 beta 1 released
+Message-ID: <4FE384DE.6090305@ca.afilias.info>
+
+The Slony team is pleased to announce the release of the first beta for 
+Slony 2.2.0.
+
+Slony 2.2.0 will be the next major release of the Slony-I replication 
+system for PostgreSQL.
+
+Key features of this release include:
+
+* The storage and transport and application of the slony log 
+(sl_log_1/sl_log_2) has changed providing performance improvements. Data 
+is now stored in a different format and the postgresql COPY protocol and 
+triggers are used to replicate and apply changes to replicas.
+
+* DDL handling with the EXECUTE SCRIPT command has changed.  The DDL is 
+no longer stored as a special event in sl_event but is instead stored in 
+sl_log_script and is processed as part of a SYNC event inline with data 
+changes.
+
+* FAILOVER has been reworked to be more reliable but not all nodes can 
+be used as failover targets.
+
+* A RESUBSCRIBE NODE command was added because the provider of a 
+subscribed set can no longer be changed with the SUBSCRIBE SET command 
+in some cases.  All sets from a particular origin must send data to 
+receivers through the same path/forwarder nodes. This must remain  true 
+during cluster reshaping.
+
+
+Numerous bug fixes.  See the release notes for details.
+
+The release notes are available at
+http://git.postgresql.org/gitweb/?p=slony1-engine.git;a=blob;f=RELEASE;h=b7d490e0baed29115a7825b95469ad8d818ec954;hb=95ce397039c653a447ff783ff60abe76c4619c8f
+
+Slony-I 2.2.0 beta 1 can be downloaded from:
+
+http://www.slony.info/downloads/2.2/source/slony1-2.2.0.b1.tar.bz2
+http://www.slony.info/downloads/2.2/source/slony1-2.2.0.b1-docs.tar.bz2
+
+This release is a beta release. Users are encouraged to try the release 
+out and report bugs.
+
+
+
+From ssinger at ca.afilias.info  Thu Jun 21 15:02:25 2012
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Thu, 21 Jun 2012 18:02:25 -0400
+Subject: [Slony1-general] Swapping Providers
+In-Reply-To: <CANwAqWggSUrkzSP8bnc11+udsnUZb-gy9xhndjLPPXv-nLsV7w@mail.gmail.com>
+References: <CANwAqWggSUrkzSP8bnc11+udsnUZb-gy9xhndjLPPXv-nLsV7w@mail.gmail.com>
+Message-ID: <4FE399F1.2070807@ca.afilias.info>
+
+On 12-06-20 12:28 PM, Raghav wrote:
+> Hi Steve,
+>
+> Below is the scenario I want to achieve.
+>
+>
+>                        Warm-Standby
+> Master  ------------------------------------------------ DR-Master
+>      |
+>      |    Replication built on  Slony 2.1.
+>      |
+>     V
+> Slave
+>
+> Given is actually setup of production, master/slave replication with log
+> archive shipping using slony 2.1. And, Master with DR setup on same data
+> center as DR-Master with Warm Standby configuration running fine with
+> minimal lag.
+>
+> Q: What I want to achieve ?
+> A:  Swap the Masters. Means, now slave should receive events from
+> DR-Master once it get promoted to Master as shown below
+
+Have you read 'Controlled Switchover' 
+http://www.slony.info/documentation/2.1/failover.html
+
+I think the MOVE SET command is what you want.
+
+You setup 'DR Master' as a subscriber to your sets just like 'slave' 
+was.  You then MOVE SET to make 'DR Master' the new origin.  'slave' 
+will receive updates from 'DR Master' instead of 'Master' , assuming you 
+have a complete path network in place.
+
+
+
+>
+>             Master   DR Master
+>
+>                  |            |
+>                 X           |    Replication built on  Slony 2.1.
+>
+>                  |            |
+>
+>                 V            |
+>
+>             Slave <------|
+>
+>
+> I believed, the DR-Master will have the same _slonyschema except the
+> primary hostname. So, I have changed on both DR-Master & Slave of
+> sl_path of primary hostname as fix.
+> Assuming that, I have tested on my local box with below steps.
+>
+> 1. Stop slony between master,slave.
+> 2. Take the _slonyschema dump of Master (In case any problem).
+> 3. Promote the DR-Master.
+> 4. update the _slonyschem.sl_path of column pa_conninfo with primary
+> hostname on DR-Master & Slave.
+> 5. Start slony daemons on DR-Master & Slave.
+>
+> Above steps won't work all the time, I did many times, very few times I
+> could able to send events from DR-master to Slave with proper numbering
+> of .SQL files.(log archives).
+> I would request to recommend the correct procedure for swapping providers.
+>
+> --
+> Regards
+> Raghav
+> Blog: htt://raghavt.blogspot.com/ <http://raghavt.blogspot.com/>
+>
+>
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+
+
+From ragavendra.dba at gmail.com  Thu Jun 21 20:27:31 2012
+From: ragavendra.dba at gmail.com (Raghav)
+Date: Fri, 22 Jun 2012 08:57:31 +0530
+Subject: [Slony1-general] Swapping Providers
+In-Reply-To: <4FE399F1.2070807@ca.afilias.info>
+References: <CANwAqWggSUrkzSP8bnc11+udsnUZb-gy9xhndjLPPXv-nLsV7w@mail.gmail.com>
+	<4FE399F1.2070807@ca.afilias.info>
+Message-ID: <CANwAqWjYFZ3Oiz3nS_=628Y-1YaZpLxXJJ_SGpKbQbsCgn_W1g@mail.gmail.com>
+
+>
+>
+>> Q: What I want to achieve ?
+>> A:  Swap the Masters. Means, now slave should receive events from
+>> DR-Master once it get promoted to Master as shown below
+>>
+>
+> Have you read 'Controlled Switchover' http://www.slony.info/**
+> documentation/2.1/failover.**html<http://www.slony.info/documentation/2.1/failover.html>
+>
+> I think the MOVE SET command is what you want.
+>
+> You setup 'DR Master' as a subscriber to your sets just like 'slave' was.
+>  You then MOVE SET to make 'DR Master' the new origin.  'slave' will
+> receive updates from 'DR Master' instead of 'Master' , assuming you have a
+> complete path network in place.
+>
+> Thank you Steve. Make sense to me.
+
+Sorry to say, my question was how to avoid resubscribing DR-Master to slave
+and then promoting it to master. Since, complete information of master is
+available on dr-master.
+
+Due to my curiosity level :)  I tested again with different approach.
+Since, DR Master is Streaming replication READ-ONLY server it will have
+same _slonyschema of all what's there on Master, just the connection string
+changes needed. So, I thought changing the connection string should fix.
+
+I read this part of documentation and implemented below steps not for once,
+couple of times, this time it never failed.
+http://slony.info/documentation/2.1/stmtstorepath.html
+
+1. Stop slon on Master/Slave
+2. change store paths with function on DR-master.
+aquent_cdb=# select
+_myrep.storepath(1,2,'host=*dr-master.com*dbname=master user=postgres
+port=5432',10);   ///Note: previsouly it was
+from master.com
+ storepath
+------------
+ 5000000017
+(1 row)
+4. Repeat the step 3 on slave to change the provider info.
+5. Start slon on DR-Master/slave.
+
+Above steps, went fine and all write operations on dr-master(newly promoted
+as master) started publishing on slave.
+Correct me if this approach is doable.
+
+--Raghav
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20120622/a0935899/attachment.htm 
+
