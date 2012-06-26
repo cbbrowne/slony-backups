@@ -3850,3 +3850,230 @@ taken care that 'slave' node never pass master events ahead.
 An HTML attachment was scrubbed...
 URL: http://lists.slony.info/pipermail/slony1-general/attachments/20120622/b04ab9fd/attachment.htm 
 
+From JanWieck at Yahoo.com  Sun Jun 24 06:14:53 2012
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Sun, 24 Jun 2012 09:14:53 -0400
+Subject: [Slony1-general] Swapping Providers
+In-Reply-To: <CANwAqWjYFZ3Oiz3nS_=628Y-1YaZpLxXJJ_SGpKbQbsCgn_W1g@mail.gmail.com>
+References: <CANwAqWggSUrkzSP8bnc11+udsnUZb-gy9xhndjLPPXv-nLsV7w@mail.gmail.com>
+	<4FE399F1.2070807@ca.afilias.info>
+	<CANwAqWjYFZ3Oiz3nS_=628Y-1YaZpLxXJJ_SGpKbQbsCgn_W1g@mail.gmail.com>
+Message-ID: <4FE712CD.20204@Yahoo.com>
+
+On 6/21/2012 11:27 PM, Raghav wrote:
+>
+>         Q: What I want to achieve ?
+>         A:  Swap the Masters. Means, now slave should receive events from
+>         DR-Master once it get promoted to Master as shown below
+>
+>
+>     Have you read 'Controlled Switchover'
+>     http://www.slony.info/__documentation/2.1/failover.__html
+>     <http://www.slony.info/documentation/2.1/failover.html>
+>
+>     I think the MOVE SET command is what you want.
+>
+>     You setup 'DR Master' as a subscriber to your sets just like 'slave'
+>     was.  You then MOVE SET to make 'DR Master' the new origin.  'slave'
+>     will receive updates from 'DR Master' instead of 'Master' , assuming
+>     you have a complete path network in place.
+>
+> Thank you Steve. Make sense to me.
+>
+> Sorry to say, my question was how to avoid resubscribing DR-Master to
+> slave and then promoting it to master. Since, complete information of
+> master is available on dr-master.
+>
+> Due to my curiosity level :)  I tested again with different approach.
+> Since, DR Master is Streaming replication READ-ONLY server it will have
+> same _slonyschema of all what's there on Master, just the connection
+> string changes needed. So, I thought changing the connection string
+> should fix.
+
+Using streaming replication for the DR Master could present a problem. 
+Since it is in the same data center the following may seem unlikely. But 
+what can happen is that the DR Master is further behind in replication 
+than the Slony Slave at the moment, disaster strikes and the Master 
+becomes unavailable. We never know ahead what will cause the Master to 
+go down and how fast it will be.
+
+What if the death is affecting the network interface of Master first. At 
+first it is just losing a few packets and some of them are packets from 
+the WAL sender to the DR Master. It will take several seconds for the 
+TCP/IP protocol to detect that and retransmit. Time enough for several 
+more transactions to commit and Slony to replicate them. And before the 
+DR Master can catch up, the motherboard finally fails with a puff of smoke.
+
+What will happen with your below steps in this situation is that the 
+Slave has some changes, that the DR Master doesn't have. The DR Master 
+(now Master) will generate new SYNC events and the first (few) will have 
+the same event number as ones, that the Slave had replicated from the 
+old Master. They will be ignored by the Slave. So at the end the DR 
+Master will be missing some changes made to the old Master and the Slave 
+will be missing other changes that had been made against the DR Master.
+
+
+Jan
+
+>
+> I read this part of documentation and implemented below steps not for
+> once, couple of times, this time it never failed.
+> http://slony.info/documentation/2.1/stmtstorepath.html
+>
+> 1. Stop slon on Master/Slave
+> 2. change store paths with function on DR-master.
+> aquent_cdb=# select _myrep.storepath(1,2,'host=*dr-master.com
+> <http://dr-master.com>* dbname=master user=postgres port=5432',10);
+> ///Note: previsouly it was from master.com <http://master.com>
+>   storepath
+> ------------
+>   5000000017
+> (1 row)
+> 4. Repeat the step 3 on slave to change the provider info.
+> 5. Start slon on DR-Master/slave.
+>
+> Above steps, went fine and all write operations on dr-master(newly
+> promoted as master) started publishing on slave.
+> Correct me if this approach is doable.
+>
+> --Raghav
+>
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+>
+
+
+-- 
+Anyone who trades liberty for security deserves neither
+liberty nor security. -- Benjamin Franklin
+
+
+
+From ragavendra.dba at gmail.com  Mon Jun 25 00:36:06 2012
+From: ragavendra.dba at gmail.com (Raghav)
+Date: Mon, 25 Jun 2012 13:06:06 +0530
+Subject: [Slony1-general] Swapping Providers
+In-Reply-To: <4FE712CD.20204@Yahoo.com>
+References: <CANwAqWggSUrkzSP8bnc11+udsnUZb-gy9xhndjLPPXv-nLsV7w@mail.gmail.com>
+	<4FE399F1.2070807@ca.afilias.info>
+	<CANwAqWjYFZ3Oiz3nS_=628Y-1YaZpLxXJJ_SGpKbQbsCgn_W1g@mail.gmail.com>
+	<4FE712CD.20204@Yahoo.com>
+Message-ID: <CANwAqWhtDm3QCCt8HqQGBBB1Ye_tp64jXJ2dUgApfxZqYzfmZg@mail.gmail.com>
+
+>
+>
+> Using streaming replication for the DR Master could present a problem.
+> Since it is in the same data center the following may seem unlikely. But
+> what can happen is that the DR Master is further behind in replication than
+> the Slony Slave at the moment, disaster strikes and the Master becomes
+> unavailable. We never know ahead what will cause the Master to go down and
+> how fast it will be.
+>
+
+What if the death is affecting the network interface of Master first. At
+> first it is just losing a few packets and some of them are packets from the
+> WAL sender to the DR Master. It will take several seconds for the TCP/IP
+> protocol to detect that and retransmit. Time enough for several more
+> transactions to commit and Slony to replicate them. And before the DR
+> Master can catch up, the motherboard finally fails with a puff of smoke.
+>
+> What will happen with your below steps in this situation is that the Slave
+> has some changes, that the DR Master doesn't have. The DR Master (now
+> Master) will generate new SYNC events and the first (few) will have the
+> same event number as ones, that the Slave had replicated from the old
+> Master. They will be ignored by the Slave. So at the end the DR Master will
+> be missing some changes made to the old Master and the Slave will be
+> missing other changes that had been made against the DR Master.
+>
+>
+Great Analysis Jan... I thought all of those what you mentioned. All you
+mentioned are very true.
+But, Thumb rule of all the thoughts is that, Master should be on top in
+Events numbering, Slave events should be always lower. For example if
+Master current events are in sequence of say '5000000023', then slave
+should be < 5000000023. If your Slave events tops the Master Event Seq
+number, then all your efforts go waste, even after promoting DR-Master as
+master.
+
+I sticked to this rule only as Steve mentioned. I tried to maintain my
+DR-Master (Streaming Replication) to be topper in Events and did not allow
+Slave to cross master event number.
+
+Simple test case would be, create master/slave/dr_master on one port with
+the rule I mentioned above.
+
+1. Setup replication with two databases master/slave with one table
+replication and maintain SYNC.
+2. Now Stop Slon on master & slave.
+3. Here, assume we are promoting DR-master as Master. So,create new
+database as dr-master with template=master on same port, bcoz, its going to
+be the same as Master with Events when you stopped Slony in Step 2.
+
+4. Now change the sl_path with store path() function on DR-Master & Slave.
+Since, now DR-master would be the provider.
+
+dr_master=# select _myrep.storepath(1,2,'host=127.0.0.1 dbname=dr_master
+user=postgres port=5432',10);
+ storepath
+------------
+ 5000000021
+(1 row)
+
+On Slave
+
+slave1=# select _myrep.storepath(1,2,'host=127.0.0.1 dbname=dr_master
+user=postgres port=5432',10);
+ storepath
+------------
+ 5000000012
+(1 row)
+
+See above, my Dr-Master events number is greater than slave.
+
+5. Now start slon process for dr-master/slave and you should see syncs.
+
+-bash-4.1$ psql -d dr_master -c "select max(ev_seqno) from _myrep.sl_event;"
+    max
+------------
+ 5000000025
+(1 row)
+
+-bash-4.1$ psql -d slave1 -c "select max(ev_seqno) from _myrep.sl_event;"
+    max
+------------
+ 5000000023
+(1 row)
+
+Here onwards any DML's work smoothly.
+
+--Raghav
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20120625/51855fbd/attachment.htm 
+
+From mail at kraev.me  Mon Jun 25 01:21:32 2012
+From: mail at kraev.me (=?KOI8-R?B?69LBxdcg89TB0w==?=)
+Date: Mon, 25 Jun 2012 15:21:32 +0700
+Subject: [Slony1-general] Change encoding
+Message-ID: <CAFm2241eJt8yrHAkKFkoVkry1JF4gdxbHV4gE6=iiha8ZQ221g@mail.gmail.com>
+
+Hi all.
+
+Can some one tell me plase - is it possible to use slony to change
+database encoding, may be piping data via iconv somehow or relay on
+server side encoding.
+The whole idea is to convert big db from koi8 to utf8 with small
+downtime. Slony looks flexible enough but is it really possible ?
+
+Thanks
+
+-- 
+????? ?.?.
+????????? ?????????????. ??????????.
+
+Stanislav A. Kraev
+Unix admin at Academsoft
+
