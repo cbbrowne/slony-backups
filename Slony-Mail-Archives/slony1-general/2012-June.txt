@@ -4077,3 +4077,228 @@ Thanks
 Stanislav A. Kraev
 Unix admin at Academsoft
 
+From JanWieck at Yahoo.com  Mon Jun 25 05:45:31 2012
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Mon, 25 Jun 2012 08:45:31 -0400
+Subject: [Slony1-general] Swapping Providers
+In-Reply-To: <CANwAqWhtDm3QCCt8HqQGBBB1Ye_tp64jXJ2dUgApfxZqYzfmZg@mail.gmail.com>
+References: <CANwAqWggSUrkzSP8bnc11+udsnUZb-gy9xhndjLPPXv-nLsV7w@mail.gmail.com>
+	<4FE399F1.2070807@ca.afilias.info>
+	<CANwAqWjYFZ3Oiz3nS_=628Y-1YaZpLxXJJ_SGpKbQbsCgn_W1g@mail.gmail.com>
+	<4FE712CD.20204@Yahoo.com>
+	<CANwAqWhtDm3QCCt8HqQGBBB1Ye_tp64jXJ2dUgApfxZqYzfmZg@mail.gmail.com>
+Message-ID: <4FE85D6B.5090607@Yahoo.com>
+
+On 6/25/2012 3:36 AM, Raghav wrote:
+>
+>     Using streaming replication for the DR Master could present a
+>     problem. Since it is in the same data center the following may seem
+>     unlikely. But what can happen is that the DR Master is further
+>     behind in replication than the Slony Slave at the moment, disaster
+>     strikes and the Master becomes unavailable. We never know ahead what
+>     will cause the Master to go down and how fast it will be.
+>
+>     What if the death is affecting the network interface of Master
+>     first. At first it is just losing a few packets and some of them are
+>     packets from the WAL sender to the DR Master. It will take several
+>     seconds for the TCP/IP protocol to detect that and retransmit. Time
+>     enough for several more transactions to commit and Slony to
+>     replicate them. And before the DR Master can catch up, the
+>     motherboard finally fails with a puff of smoke.
+>
+>     What will happen with your below steps in this situation is that the
+>     Slave has some changes, that the DR Master doesn't have. The DR
+>     Master (now Master) will generate new SYNC events and the first
+>     (few) will have the same event number as ones, that the Slave had
+>     replicated from the old Master. They will be ignored by the Slave.
+>     So at the end the DR Master will be missing some changes made to the
+>     old Master and the Slave will be missing other changes that had been
+>     made against the DR Master.
+>
+>
+> Great Analysis Jan... I thought all of those what you mentioned. All you
+> mentioned are very true.
+> But, Thumb rule of all the thoughts is that, Master should be on top in
+> Events numbering, Slave events should be always lower. For example if
+> Master current events are in sequence of say '5000000023', then slave
+> should be < 5000000023. If your Slave events tops the Master Event Seq
+> number, then all your efforts go waste, even after promoting DR-Master
+> as master.
+>
+> I sticked to this rule only as Steve mentioned. I tried to maintain my
+> DR-Master (Streaming Replication) to be topper in Events and did not
+> allow Slave to cross master event number.
+>
+> Simple test case would be, create master/slave/dr_master on one port
+> with the rule I mentioned above.
+>
+> 1. Setup replication with two databases master/slave with one table
+> replication and maintain SYNC.
+> 2. Now Stop Slon on master & slave.
+> 3. Here, assume we are promoting DR-master as Master. So,create new
+> database as dr-master with template=master on same port, bcoz, its going
+> to be the same as Master with Events when you stopped Slony in Step 2.
+>
+> 4. Now change the sl_path with store path() function on DR-Master &
+> Slave. Since, now DR-master would be the provider.
+>
+> dr_master=# select _myrep.storepath(1,2,'host=127.0.0.1 dbname=dr_master
+> user=postgres port=5432',10);
+>   storepath
+> ------------
+>   5000000021
+> (1 row)
+>
+> On Slave
+>
+> slave1=# select _myrep.storepath(1,2,'host=127.0.0.1 dbname=dr_master
+> user=postgres port=5432',10);
+>   storepath
+> ------------
+>   5000000012
+> (1 row)
+>
+> See above, my Dr-Master events number is greater than slave.
+
+This analysis is flawed. The two event numbers are from different 
+origins and therefore, don't compare to each other. The combination of 
+ev_origin,ev_seqno can never be higher on any node, than it is on the 
+origin itself.
+
+Your disaster recovery plan assumes, that streaming replication will 
+ALLWAYS be faster than Slony replication. But that is only true for 
+synchronous streaming replication. If you use asynchronous streaming 
+replication, then one tiny network glitch and your DR-master will be 
+several seconds behind while the Slony replica may be not. If the master 
+blows up in that moment, your plan fails.
+
+To simulate this problem, Steve and I were pointing out, do the following:
+
+1. Create your setup as before.
+2. Stop the streaming replication (simulating the network communication 
+problem)
+3. Update a row on the master and wait for the SYNC to replicate.
+4. Stop the slon processes. DO NOT let the streaming replica catch up 
+with the now DEAD master. Assume the master and all its data, including 
+WAL, have become unavailable.
+5. Promote DR-master and do the two store path commands.
+6. Start slon processes.
+7. Update another row on the new master.
+8. Compare table content on master and slave.
+
+You can detect the problem before step 5 by comparing the ev_seqno with 
+ev_origin=old-master on the DR-master and slave. Whichever is higher 
+should be promoted to master. In the unlikely case that it is the Slony 
+slave, you will have to rebuild the DR-master from scratch, though.
+
+
+Jan
+
+-- 
+Anyone who trades liberty for security deserves neither
+liberty nor security. -- Benjamin Franklin
+
+
+
+From ragavendra.dba at gmail.com  Mon Jun 25 09:45:54 2012
+From: ragavendra.dba at gmail.com (Raghav)
+Date: Mon, 25 Jun 2012 22:15:54 +0530
+Subject: [Slony1-general] Swapping Providers
+In-Reply-To: <4FE85D6B.5090607@Yahoo.com>
+References: <CANwAqWggSUrkzSP8bnc11+udsnUZb-gy9xhndjLPPXv-nLsV7w@mail.gmail.com>
+	<4FE399F1.2070807@ca.afilias.info>
+	<CANwAqWjYFZ3Oiz3nS_=628Y-1YaZpLxXJJ_SGpKbQbsCgn_W1g@mail.gmail.com>
+	<4FE712CD.20204@Yahoo.com>
+	<CANwAqWhtDm3QCCt8HqQGBBB1Ye_tp64jXJ2dUgApfxZqYzfmZg@mail.gmail.com>
+	<4FE85D6B.5090607@Yahoo.com>
+Message-ID: <CANwAqWgYAAxRmrJ5B2nh00_NuL=Djz4gMm2K_8AKUrhtw4CVkA@mail.gmail.com>
+
+>
+> This analysis is flawed. The two event numbers are from different origins
+> and therefore, don't compare to each other. The combination of
+> ev_origin,ev_seqno can never be higher on any node, than it is on the
+> origin itself.
+>
+> Thanks Jan. For correcting me, let me recheck thoroughly from my side why
+I concluded on the seqno.
+
+
+> Your disaster recovery plan assumes, that streaming replication will
+> ALLWAYS be faster than Slony replication. But that is only true for
+> synchronous streaming replication. If you use asynchronous streaming
+> replication, then one tiny network glitch and your DR-master will be
+> several seconds behind while the Slony replica may be not. If the master
+> blows up in that moment, your plan fails.
+>
+> Yes, very much true and completely agreed. Aim is to not to have any lag
+between Master & DR-Master.
+As you said, in any case if Master & DR-Master are not in Sync due to
+network or any lag then my whole plan collapses. So, I made my goal clear
+here, that I need to STOP slony between Master & Slave long before
+promoting DR-master as Master, to make sure nothing is left on Master to
+update on DR-master.
+
+
+> To simulate this problem, Steve and I were pointing out, do the following:
+>
+> 1. Create your setup as before.
+> 2. Stop the streaming replication (simulating the network communication
+> problem)
+> 3. Update a row on the master and wait for the SYNC to replicate.
+> 4. Stop the slon processes. DO NOT let the streaming replica catch up with
+> the now DEAD master. Assume the master and all its data, including WAL,
+> have become unavailable.
+> 5. Promote DR-master and do the two store path commands.
+> 6. Start slon processes.
+> 7. Update another row on the new master.
+> 8. Compare table content on master and slave.
+>
+> You can detect the problem before step 5 by comparing the ev_seqno with
+> ev_origin=old-master on the DR-master and slave. Whichever is higher should
+> be promoted to master. In the unlikely case that it is the Slony slave, you
+> will have to rebuild the DR-master from scratch, though.
+>
+>
+Exactly, these are the steps I followed and succeded, as pointed I never
+simulated Step 2,3 in my testing, because If MASTER and newly promoted
+DR-Master are not same in any case then the success is nowhere near by
+surroundings :) .
+
+I will surely retake the test with the steps mentioned on my two VM's and
+update my finding.
+
+Once again, Thank you very much to you & Steve for helping me in this
+scenario.
+
+--
+Regards
+Raghav
+Blog: htt://raghavt.blogspot.com/
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20120625/287d3b38/attachment.htm 
+
+From ragavendra.dba at gmail.com  Mon Jun 25 09:55:48 2012
+From: ragavendra.dba at gmail.com (Raghav)
+Date: Mon, 25 Jun 2012 22:25:48 +0530
+Subject: [Slony1-general] Swapping Providers
+In-Reply-To: <CANwAqWgYAAxRmrJ5B2nh00_NuL=Djz4gMm2K_8AKUrhtw4CVkA@mail.gmail.com>
+References: <CANwAqWggSUrkzSP8bnc11+udsnUZb-gy9xhndjLPPXv-nLsV7w@mail.gmail.com>
+	<4FE399F1.2070807@ca.afilias.info>
+	<CANwAqWjYFZ3Oiz3nS_=628Y-1YaZpLxXJJ_SGpKbQbsCgn_W1g@mail.gmail.com>
+	<4FE712CD.20204@Yahoo.com>
+	<CANwAqWhtDm3QCCt8HqQGBBB1Ye_tp64jXJ2dUgApfxZqYzfmZg@mail.gmail.com>
+	<4FE85D6B.5090607@Yahoo.com>
+	<CANwAqWgYAAxRmrJ5B2nh00_NuL=Djz4gMm2K_8AKUrhtw4CVkA@mail.gmail.com>
+Message-ID: <CANwAqWgt-5m9Own3E7aR9ueB3sZuCAdDiYK9Pxr6ftEmAOMjAg@mail.gmail.com>
+
+Also, one more point on step 3, there cannot be any DML's until this
+operation is done successfully, because, in step 2 you are stopping SR and
+doing DML's on Step 3, which is clearly know fact that your DR-master dont
+have any effect made in Step 3.
+
+--Raghav
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20120625/aa79c8b4/attachment-0001.htm 
+
