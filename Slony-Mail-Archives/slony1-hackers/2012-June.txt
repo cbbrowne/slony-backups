@@ -1,0 +1,60 @@
+From ssinger at ca.afilias.info  Thu Jun 28 14:04:35 2012
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Thu, 28 Jun 2012 17:04:35 -0400
+Subject: [Slony1-hackers] provider selection in 2.2
+Message-ID: <4FECC6E3.4050308@ca.afilias.info>
+
+Jan/Chris this is in reference to the adjust_provider_info issue I was 
+talking to you about the other day.
+
+Everyone else:
+
+In master/2.2 I've been getting the occasional failure of one of the 
+disorder tests ('merge set', before any set merging takes place).  What 
+happens is one of the subscriber nodes (often node 3) will try to pull 
+data in sync_event from a node that is not the provider or origin (often 
+node 5).  This node is too far behind so the sync fails.
+
+I had attached with gdb and saw that the wd->provider chain contains two 
+nodes, a) The origin node 1 and b) the node that it was not far enough 
+behind.  The SYNC event it is processing comes from event_provider=1
+
+The adjust_provider_info function seems to process some event that came 
+from listener 5. It logs the following:
+
+just after the subscription to set 1 finishes.
+
+2012-06-28 15:40:34,803 [db3 stdout] DEBUG . - 2012-06-28 15:40:34 EDT 
+CONFIG remoteWorkerThread_1: added active set 1 to provider 1
+2012-06-28 15:40:34,803 [db3 stdout] DEBUG . - 2012-06-28 15:40:34 EDT 
+CONFIG remoteWorkerThread_1: added event provider provider 5
+
+The 'added event provider provider 5' is debugging I added to the if 
+block in 'step 4' of adjust_provider info.
+
+What I *suspect* is happening is that
+* Node 3 is not yet subscribed to any sets
+* remoteListener_5 on node 3 queues up the subscription events and a 
+SYNC event from node 1
+* The subscription finishes
+* adjust_provider_info is called it adds node 1 as a provider since it 
+is the origin of the set.  It also adds node 5 as a provider since it is 
+where the event was received from (step 4).
+* We process the SYNC event from node 1.
+
+In sync_event we expect BOTH of those providers in the provider list (1 
+and 5) to be far enough ahead.
+
+Is adjust_provider_info wrong to add a node in step 4 if it has already 
+added a node in step 2?
+Or is the logic in sync_event wrong?
+Or should we flushing/rebuilding the provider list at some point (If so 
+when/where?)
+
+My guess is that we need to make adjust_provider_info smart enough such 
+that if it receives an event with origin=1 from a provider !=1 that it 
+doesn't add that node to the list  as part of step 4 if node 1 is 
+already in the provider list.
+
+Thoughts?
+
