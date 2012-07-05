@@ -1,0 +1,2362 @@
+From bugzilla-daemon at main.slony.info  Wed Aug  3 12:07:43 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed,  3 Aug 2011 12:07:43 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 173] Slonik ABORT command
+In-Reply-To: <bug-173-4@http.www.slony.info/bugzilla/>
+References: <bug-173-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110803190743.4FBB7290E33@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=173
+
+--- Comment #3 from Christopher Browne <cbbrowne at ca.afilias.info> 2011-08-03 12:07:43 PDT ---
+Perhaps this should be extended to a fuller "conditional" to mostly replace the
+present TRY block concept.  Have to think about that some more...
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Thu Aug  4 13:28:26 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu,  4 Aug 2011 13:28:26 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 228] New: 'drop node' in a try block
+Message-ID: <bug-228-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=228
+
+           Summary: 'drop node' in a try block
+           Product: Slony-I
+           Version: devel
+          Platform: PC
+        OS/Version: Linux
+            Status: NEW
+          Severity: enhancement
+          Priority: low
+         Component: slonik
+        AssignedTo: slony1-bugs at lists.slony.info
+        ReportedBy: ssinger at ca.afilias.info
+                CC: slony1-bugs at lists.slony.info
+   Estimated Hours: 0.0
+
+
+In doing some testing against the 2.1.0 beta I tried executing some 
+slonik code like
+
+try {
+   drop node(id=3, event node=1);
+}
+on error {
+   echo "node already gone";
+}
+store node(id=3, event node=1);
+
+A script like this will fail in the current 2.1.0 betas and this 
+shouldn't surprise anyone who has read about the new features in 2.1.0
+
+A drop node requires that the cluster be somewhat caught up (at least to 
+the extent that any events from the drop'd node that have been confirmed 
+elsewhere are confirmed everywhere).  This means that drop node has an 
+implicit 'wait for event' before it.   However you can't have 'wait for 
+events' inside a try block.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Thu Aug  4 13:41:21 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu,  4 Aug 2011 13:41:21 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 228] 'drop node' in a try block
+In-Reply-To: <bug-228-4@http.www.slony.info/bugzilla/>
+References: <bug-228-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110804204121.DE465290DF6@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=228
+
+Steve Singer <ssinger at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         AssignedTo|slony1-bugs at lists.slony.inf |ssinger at ca.afilias.info
+                   |o                           |
+             Status|NEW                         |ASSIGNED
+
+--- Comment #1 from Steve Singer <ssinger at ca.afilias.info> 2011-08-04 13:41:21 PDT ---
+Created an attachment (id=117)
+ --> (http://www.slony.info/bugzilla/attachment.cgi?id=117)
+patch for a possible fix
+
+This patch allows the first useful command in a try block to be a waiting
+operation.  It will rollback the transaction and create a new one after the
+wait.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Mon Aug  8 06:31:35 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Mon,  8 Aug 2011 06:31:35 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 229] New: creating a set then adding a table to
+ a different set can deadlock
+Message-ID: <bug-229-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=229
+
+           Summary: creating a set then adding a table to a different set
+                    can deadlock
+           Product: Slony-I
+           Version: devel
+          Platform: PC
+        OS/Version: Linux
+            Status: NEW
+          Severity: enhancement
+          Priority: low
+         Component: slonik
+        AssignedTo: slony1-bugs at lists.slony.info
+        ReportedBy: ssinger at ca.afilias.info
+                CC: slony1-bugs at lists.slony.info
+   Estimated Hours: 0.0
+
+
+A tester has reported in In 2.1.0 beta3:
+
+A slonik script such as 
+
+create set(id=2, origin=2 ,comment='second set');
+create set(id=3, origin=3 ,comment='second set');
+set add table(set id=2,origin=2,  tables='disorder.do_item_*');
+
+----
+
+can hang slonik where slonik keeps waiting for an event confirmation that it
+never sees.
+
+The issue seems to be that the add table code will:
+
+1. Open a transaction and obtain a lock on sl_config_lock on the origin node
+(node 2)
+2. perform an implicit 'wait for event' to ensure that the last event submitted
+to node 3 (the previous origin) has propagated.
+
+However because slonik has a lock on sl_config_lock on node 2, the slon for
+node 2 (the remote worker) might not be able to replicate events to node 2 (the
+store node) because applying a many events to node 2 requires obtaining the
+sl_config_lock (and sometimes the sl_event_lock).
+
+slonik should not be invoking the implicit 'wait for' behaviour when it is
+holding an open transaction.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Mon Aug  8 11:16:52 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Mon,  8 Aug 2011 11:16:52 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 229] creating a set then adding a table to a
+ different set can deadlock
+In-Reply-To: <bug-229-4@http.www.slony.info/bugzilla/>
+References: <bug-229-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110808181652.DE91D290E37@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=229
+
+Steve Singer <ssinger at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         AssignedTo|slony1-bugs at lists.slony.inf |ssinger at ca.afilias.info
+                   |o                           |
+             Status|NEW                         |ASSIGNED
+
+--- Comment #1 from Steve Singer <ssinger at ca.afilias.info> 2011-08-08 11:16:52 PDT ---
+Created an attachment (id=118)
+ --> (http://www.slony.info/bugzilla/attachment.cgi?id=118)
+test case
+
+Test case bug
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Mon Aug  8 11:17:08 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Mon,  8 Aug 2011 11:17:08 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 229] creating a set then adding a table to a
+ different set can deadlock
+In-Reply-To: <bug-229-4@http.www.slony.info/bugzilla/>
+References: <bug-229-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110808181708.5DD0E290E24@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=229
+
+--- Comment #2 from Steve Singer <ssinger at ca.afilias.info> 2011-08-08 11:17:08 PDT ---
+Created an attachment (id=119)
+ --> (http://www.slony.info/bugzilla/attachment.cgi?id=119)
+fix for bug
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Mon Aug  8 11:18:50 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Mon,  8 Aug 2011 11:18:50 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 229] creating a set then adding a table to a
+ different set can deadlock
+In-Reply-To: <bug-229-4@http.www.slony.info/bugzilla/>
+References: <bug-229-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110808181850.B2362290E36@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=229
+
+Steve Singer <ssinger at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         AssignedTo|ssinger at ca.afilias.info     |janwieck at yahoo.com
+
+--- Comment #3 from Steve Singer <ssinger at ca.afilias.info> 2011-08-08 11:18:50 PDT ---
+Please arrange for a review to this fix
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Mon Aug  8 12:39:36 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Mon,  8 Aug 2011 12:39:36 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 228] 'drop node' in a try block
+In-Reply-To: <bug-228-4@http.www.slony.info/bugzilla/>
+References: <bug-228-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110808193936.CF819290E20@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=228
+
+--- Comment #2 from Christopher Browne <cbbrowne at ca.afilias.info> 2011-08-08 12:39:36 PDT ---
+Another alternative would be for conditionals to be handled in an "abort if
+{conditions} fashion", as described in bug #173.
+
+I think you've observed that this isn't necessarily a reason to "abort," so
+perhaps that should change to "conditional execution."
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Mon Aug  8 12:40:39 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Mon,  8 Aug 2011 12:40:39 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 173] Slonik ABORT command
+In-Reply-To: <bug-173-4@http.www.slony.info/bugzilla/>
+References: <bug-173-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110808194039.DCC0F290E24@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=173
+
+--- Comment #4 from Christopher Browne <cbbrowne at ca.afilias.info> 2011-08-08 12:40:40 PDT ---
+As observed in bug #228, there would be some use in having conditionals used to
+pick between blocks of Slonik code.  We're not necessarily going to want to
+abort.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Mon Aug  8 13:20:28 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Mon,  8 Aug 2011 13:20:28 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 229] creating a set then adding a table to a
+ different set can deadlock
+In-Reply-To: <bug-229-4@http.www.slony.info/bugzilla/>
+References: <bug-229-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110808202028.8627E290E20@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=229
+
+--- Comment #4 from Steve Singer <ssinger at ca.afilias.info> 2011-08-08 13:20:28 PDT ---
+I don't know if this is related to this change, another recent change but
+
+I am occasionally (as in 1 or two tests will hit this through a full disorder
+run ) getting something like
+
+@5ef4b65d - 2011-08-08 14:37:58 EDTDEBUG2 remoteWorkerThread_4: Received event
+#4 from 5000000002 type:STORE_PATH
+2011-08-08 14:37:58,028 [slonik add pathsstderr] ERROR
+info.slony.clustertest.testcoordinator.slony.SlonikScript slonik add pa
+ths:java.lang.UNIXProcess at 5d79a22d - <stdin>:19: PGRES_FATAL_ERROR lock table
+"_disorder_replica".sl_event_lock, "_disorder_re
+plica".sl_config_lock;select "_disorder_replica".storePath(5, 2, 'dbname=test5
+host=localhost port=5432 user=slon password=slo
+n', 10);  - ERROR:  duplicate key value violates unique constraint
+"sl_node-pkey"
+2011-08-08 14:37:58,028 [slonik add pathsstderr] ERROR
+info.slony.clustertest.testcoordinator.slony.SlonikScript slonik add pa
+ths:java.lang.UNIXProcess at 5d79a22d - CONTEXT:  SQL statement "insert into
+"_disorder_replica".sl_node (no_id, no_active, no_co
+mment) values ( $1 , 'f',  $2 )"
+2011-08-08 14:37:58,028 [slonik add pathsstderr] ERROR
+info.slony.clustertest.testcoordinator.slony.SlonikScript slonik add pa
+ths:java.lang.UNIXProcess at 5d79a22d - PL/pgSQL function "storenode_int" line 22
+at SQL statement
+
+
+as I test this change.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Mon Aug  8 13:39:12 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Mon,  8 Aug 2011 13:39:12 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 218] slon often has to retry transactions due to
+ concurrent update in 2.1.0.b2
+In-Reply-To: <bug-218-4@http.www.slony.info/bugzilla/>
+References: <bug-218-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110808203912.A1019290E36@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=218
+
+Steve Singer <ssinger at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         Resolution|FIXED                       |
+             Status|RESOLVED                    |REOPENED
+
+--- Comment #22 from Steve Singer <ssinger at ca.afilias.info> 2011-08-08 13:39:12 PDT ---
+It looks like the merge issues on this ended up merging in the version of this
+fix that has remote_worker obtain sl_config_lock then sl_event_lock  compared
+to slonik that obtains sl_event_lock then sl_config_lock.
+
+See my review up thread dated "2011-06-08 08:46:13 PDT" on this bug.
+
+I see the occasional deadlock with the disorder tests due to this.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Tue Aug  9 07:37:02 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Tue,  9 Aug 2011 07:37:02 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 218] slon often has to retry transactions due to
+ concurrent update in 2.1.0.b2
+In-Reply-To: <bug-218-4@http.www.slony.info/bugzilla/>
+References: <bug-218-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110809143702.2EA07290D0F@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=218
+
+--- Comment #23 from Steve Singer <ssinger at ca.afilias.info> 2011-08-09 07:37:02 PDT ---
+Created an attachment (id=120)
+ --> (http://www.slony.info/bugzilla/attachment.cgi?id=120)
+Patch to fix order of locking
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Aug 10 12:51:37 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed, 10 Aug 2011 12:51:37 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 228] 'drop node' in a try block
+In-Reply-To: <bug-228-4@http.www.slony.info/bugzilla/>
+References: <bug-228-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110810195137.6B7D2290E37@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=228
+
+Steve Singer <ssinger at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         AssignedTo|ssinger at ca.afilias.info     |janwieck at yahoo.com
+
+--- Comment #3 from Steve Singer <ssinger at ca.afilias.info> 2011-08-10 12:51:37 PDT ---
+Please review
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Aug 10 13:18:31 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed, 10 Aug 2011 13:18:31 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 230] New: Timestamps stopped showing up in the
+ slon_log on some platforms
+Message-ID: <bug-230-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=230
+
+           Summary: Timestamps stopped showing up in the slon_log on some
+                    platforms
+           Product: Slony-I
+           Version: devel
+          Platform: PC
+        OS/Version: Linux
+            Status: NEW
+          Severity: enhancement
+          Priority: low
+         Component: slon
+        AssignedTo: slony1-bugs at lists.slony.info
+        ReportedBy: ssinger at ca.afilias.info
+                CC: slony1-bugs at lists.slony.info
+   Estimated Hours: 0.0
+
+
+Created an attachment (id=121)
+ --> (http://www.slony.info/bugzilla/attachment.cgi?id=121)
+patch attached
+
+Timestamps on some platforms stopped showing up in the slog log with 2.1.0
+
+AIX/PowerPC is one example this was observed one.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Aug 10 13:19:53 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed, 10 Aug 2011 13:19:53 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 230] Timestamps stopped showing up in the
+ slon_log on some platforms
+In-Reply-To: <bug-230-4@http.www.slony.info/bugzilla/>
+References: <bug-230-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110810201953.E6865290E36@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=230
+
+Steve Singer <ssinger at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         AssignedTo|slony1-bugs at lists.slony.inf |cbbrowne at ca.afilias.info
+                   |o                           |
+             Status|NEW                         |ASSIGNED
+
+--- Comment #1 from Steve Singer <ssinger at ca.afilias.info> 2011-08-10 13:19:54 PDT ---
+Please review
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Aug 10 13:58:56 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed, 10 Aug 2011 13:58:56 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 230] Timestamps stopped showing up in the
+ slon_log on some platforms
+In-Reply-To: <bug-230-4@http.www.slony.info/bugzilla/>
+References: <bug-230-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110810205856.10F06290E28@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=230
+
+--- Comment #2 from Steve Singer <ssinger at ca.afilias.info> 2011-08-10 13:58:56 PDT ---
+This patch will need to be applied to REL_2_0_STABLE.  This worked in 2.0.6 but
+was broken with 2.0.7
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Aug 10 14:20:16 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed, 10 Aug 2011 14:20:16 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 218] slon often has to retry transactions due to
+ concurrent update in 2.1.0.b2
+In-Reply-To: <bug-218-4@http.www.slony.info/bugzilla/>
+References: <bug-218-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110810212016.A3648290DB2@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=218
+
+Steve Singer <ssinger at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         AssignedTo|ssinger at ca.afilias.info     |cbbrowne at ca.afilias.info
+
+--- Comment #24 from Steve Singer <ssinger at ca.afilias.info> 2011-08-10 14:20:16 PDT ---
+Chris please my patch to fix the locking ordering. You can also see that commit
+https://github.com/ssinger/slony1-engine/commit/6cf2ba44eccdd10de07d64e8526ed5bcb1cd80c0
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Aug 10 14:24:51 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed, 10 Aug 2011 14:24:51 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 230] Timestamps stopped showing up in the
+ slon_log on some platforms
+In-Reply-To: <bug-230-4@http.www.slony.info/bugzilla/>
+References: <bug-230-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110810212451.2E415290E28@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=230
+
+--- Comment #3 from Christopher Browne <cbbrowne at ca.afilias.info> 2011-08-10 14:24:51 PDT ---
+The definition seems generally reasonable.
+
+One caveat is that ~ isn't portable when applied to signed operands, so if we
+have any platforms where bool has, underlying it, a signed type, then there
+could be some unhappiness.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Aug 10 14:58:17 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed, 10 Aug 2011 14:58:17 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 230] Timestamps stopped showing up in the
+ slon_log on some platforms
+In-Reply-To: <bug-230-4@http.www.slony.info/bugzilla/>
+References: <bug-230-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110810215817.184A3290E28@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=230
+
+Christopher Browne <cbbrowne at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         AssignedTo|cbbrowne at ca.afilias.info    |ssinger at ca.afilias.info
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Aug 10 15:01:18 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed, 10 Aug 2011 15:01:18 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 231] New: Bad regex in start_slon.sh
+Message-ID: <bug-231-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=231
+
+           Summary: Bad regex in start_slon.sh
+           Product: Slony-I
+           Version: 2.0
+          Platform: PC
+        OS/Version: Linux
+            Status: ASSIGNED
+          Severity: enhancement
+          Priority: low
+         Component: core scripts
+        AssignedTo: cbbrowne at ca.afilias.info
+        ReportedBy: cbbrowne at ca.afilias.info
+                CC: slony1-bugs at lists.slony.info
+   Estimated Hours: 0.0
+
+
+-PID_LINE=`grep pid_file $SLON_CONF | cut -d "#" -f 1 | grep
+"^[:space:]*pid_file='.*'"`
++PID_LINE=`grep pid_file $SLON_CONF | cut -d "#" -f 1 | grep
+"^[[:space:]]*pid_file='.*'"`
+
+Needs an extra "[]" nesting
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Aug 10 15:13:03 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed, 10 Aug 2011 15:13:03 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 218] slon often has to retry transactions due to
+ concurrent update in 2.1.0.b2
+In-Reply-To: <bug-218-4@http.www.slony.info/bugzilla/>
+References: <bug-218-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110810221303.640F9290E28@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=218
+
+Christopher Browne <cbbrowne at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         AssignedTo|cbbrowne at ca.afilias.info    |ssinger at ca.afilias.info
+
+--- Comment #25 from Christopher Browne <cbbrowne at ca.afilias.info> 2011-08-10 15:13:03 PDT ---
+(In reply to comment #24)
+> Chris please my patch to fix the locking ordering. You can also see that commit
+> https://github.com/ssinger/slony1-engine/commit/6cf2ba44eccdd10de07d64e8526ed5bcb1cd80c0
+
+Ah, quite right.
+
+It's easy to see all the cases, and with the patch, they are now all consistent
+in locking sl_event_lock before sl_config_lock.
+
+slonik/slonpostgres at cbbrowne [06:11:41] [~/slony1-engine.github/src] [master *]
+-> % grep sl_config */*.c | grep sl_event
+slon/remote_worker.c:                                                          
+                 "lock table %s.sl_event_lock,%s.sl_config_lock;",
+slon/remote_worker.c:                                                          
+ "lock table %s.sl_event_lock,%s.sl_config_lock;"
+slon/remote_worker.c:                                                          
+ "lock table %s.sl_event_lock, %s.sl_config_lock;"
+slon/remote_worker.c:                                                          
+ "lock table %s.sl_event_lock,%s.sl_config_lock;"
+slonik/slonik.c:                                 "lock table
+\"_%s\".sl_event_lock, \"_%s\".sl_config_lock;"
+slonik/slonik.c:                                 "lock table
+\"_%s\".sl_event_lock, \"_%s\".sl_config_lock;"
+slonik/slonik.c:                                 "lock table
+\"_%s\".sl_event_lock, \"_%s\".sl_config_lock;"
+slonik/slonpostgres at cbbrowne [06:11:41] [~/slony1-engine.github/src] [master *]
+-> % grep sl_config */*.c | grep sl_event
+zsh: correct 'sl_event' to 'slevent' [nyae]? n
+slon/remote_worker.c:                                                          
+                 "lock table %s.sl_event_lock,%s.sl_config_lock;",
+slon/remote_worker.c:                                                          
+ "lock table %s.sl_event_lock,%s.sl_config_lock;"
+slon/remote_worker.c:                                                          
+ "lock table %s.sl_event_lock, %s.sl_config_lock;"
+slon/remote_worker.c:                                                          
+ "lock table %s.sl_event_lock,%s.sl_config_lock;"
+slonik/slonik.c:                                 "lock table
+\"_%s\".sl_event_lock, \"_%s\".sl_config_lock;"
+slonik/slonik.c:                                 "lock table
+\"_%s\".sl_event_lock, \"_%s\".sl_config_lock;"
+slonik/slonik.c:                                 "lock table
+\"_%s\".sl_event_lock, \"_%s\".sl_config_lock;"
+slonik/slonik.c:                                                 "lock table
+\"_%s\".sl_event_lock, \"_%s\".sl_config_lock;"
+slonik/slonik.c:                                                 "lock table
+\"_%s\".sl_event_lock, \"_%s\".sl_config_lock;"
+slonik/slonik.c:                                 "lock table
+\"_%s\".sl_event_lock, \"_%s\".sl_config_lock;"
+slonik/slonik.c:                                 "lock table
+\"_%s\".sl_event_lock, \"_%s\".sl_config_lock;"
+slonik/slonik.c:                                 "lock table
+\"_%s\".sl_event_lock, \"_%s\".sl_config_lock;"
+slonik/slonik.c:                                 "lock table
+\"_%s\".sl_event_lock, \"_%s\".sl_config_lock;"
+slonik/slonik.c:                                 "lock table
+\"_%s\".sl_event_lock, \"_%s\".sl_config_lock;"
+slonik/slonik.c:                                 "lock table
+\"_%s\".sl_event_lock, \"_%s\".sl_config_lock;"
+slonik/slonik.c:                                 "lock table
+\"_%s\".sl_event_lock, \"_%s\".sl_config_lock;"
+slonik/slonik.c:                                 "lock table
+\"_%s\".sl_event_lock, \"_%s\".sl_config_lock;"
+slonik/slonik.c:                                 "lock table
+\"_%s\".sl_event_lock, \"_%s\".sl_config_lock;",
+slonik/slonik.c:                                 "lock table
+\"_%s\".sl_event_lock, \"_%s\".sl_config_lock;",
+slonik/slonik.c:                                 "lock table
+\"_%s\".sl_event_lock, \"_%s\".sl_config_lock;"
+slonik/slonik.c:                                 "lock table
+\"_%s\".sl_event_lock, \"_%s\".sl_config_lock;"
+slonik/slonik.c:                                 "lock table
+\"_%s\".sl_event_lock, \"_%s\".sl_config_lock;"
+slonik/slonik.c:                                 "lock table
+\"_%s\".sl_event_lock, \"_%s\".sl_config_lock;"
+slonik/slonik.c:                                 "lock table
+\"_%s\".sl_event_lock, \"_%s\".sl_config_lock;"
+slonik/slonik.c:                                 "lock table
+\"_%s\".sl_event_lock, \"_%s\".sl_config_lock;"
+slonik/slonik.c:                                 "lock table
+\"_%s\".sl_event_lock, \"_%s\".sl_config_lock;"
+slonik/slonik.c:                                 "lock table
+\"_%s\".sl_event_lock, \"_%s\".sl_config_lock;"
+slonik/slonik.c:                                 "lock table
+\"_%s\".sl_event_lock, \"_%s\".sl_config_lock;"
+ik.c:                                                 "lock table
+\"_%s\".sl_event_lock, \"_%s\".sl_config_lock;"
+slonik/slonik.c:                                                 "lock table
+\"_%s\".sl_event_lock, \"_%s\".sl_config_lock;"
+slonik/slonik.c:                                 "lock table
+\"_%s\".sl_event_lock, \"_%s\".sl_config_lock;"
+slonik/slonik.c:                                 "lock table
+\"_%s\".sl_event_lock, \"_%s\".sl_config_lock;"
+slonik/slonik.c:                                 "lock table
+\"_%s\".sl_event_lock, \"_%s\".sl_config_lock;"
+slonik/slonik.c:                                 "lock table
+\"_%s\".sl_event_lock, \"_%s\".sl_config_lock;"
+slonik/slonik.c:                                 "lock table
+\"_%s\".sl_event_lock, \"_%s\".sl_config_lock;"
+slonik/slonik.c:                                 "lock table
+\"_%s\".sl_event_lock, \"_%s\".sl_config_lock;"
+slonik/slonik.c:                                 "lock table
+\"_%s\".sl_event_lock, \"_%s\".sl_config_lock;"
+slonik/slonik.c:                                 "lock table
+\"_%s\".sl_event_lock, \"_%s\".sl_config_lock;"
+slonik/slonik.c:                                 "lock table
+\"_%s\".sl_event_lock, \"_%s\".sl_config_lock;",
+slonik/slonik.c:                                 "lock table
+\"_%s\".sl_event_lock, \"_%s\".sl_config_lock;",
+slonik/slonik.c:                                 "lock table
+\"_%s\".sl_event_lock, \"_%s\".sl_config_lock;"
+slonik/slonik.c:                                 "lock table
+\"_%s\".sl_event_lock, \"_%s\".sl_config_lock;"
+slonik/slonik.c:                                 "lock table
+\"_%s\".sl_event_lock, \"_%s\".sl_config_lock;"
+slonik/slonik.c:                                 "lock table
+\"_%s\".sl_event_lock, \"_%s\".sl_config_lock;"
+slonik/slonik.c:                                 "lock table
+\"_%s\".sl_event_lock, \"_%s\".sl_config_lock;"
+slonik/slonik.c:                                 "lock table
+\"_%s\".sl_event_lock, \"_%s\".sl_config_lock;"
+slonik/slonik.c:                                 "lock table
+\"_%s\".sl_event_lock, \"_%s\".sl_config_lock;"
+slonik/slonik.c:                                 "lock table
+\"_%s\".sl_event_lock, \"_%s\".sl_config_lock;"
+slonik/slonik.c:                                 "lock table
+\"_%s\".sl_event_lock, \"_%s\".sl_config_lock;"
+ik.c:                                 "lock table \"_%s\".sl_event_lock,
+\"_%s\".sl_config_lock;"
+slonik/slonik.c:                                 "lock table
+\"_%s\".sl_event_lock, \"_%s\".sl_config_lock;"
+slonik/slonik.c:                                 "lock table
+\"_%s\".sl_event_lock, \"_%s\".sl_config_lock;"
+slonik/slonik.c:                                 "lock table
+\"_%s\".sl_event_lock, \"_%s\".sl_config_lock;",
+slonik/slonik.c:                                 "lock table
+\"_%s\".sl_event_lock, \"_%s\".sl_config_lock;",
+slonik/slonik.c:                                 "lock table
+\"_%s\".sl_event_lock, \"_%s\".sl_config_lock;"
+slonik/slonik.c:                                 "lock table
+\"_%s\".sl_event_lock, \"_%s\".sl_config_lock;"
+slonik/slonik.c:                                 "lock table
+\"_%s\".sl_event_lock, \"_%s\".sl_config_lock;"
+slonik/slonik.c:                                 "lock table
+\"_%s\".sl_event_lock, \"_%s\".sl_config_lock;"
+slonik/slonik.c:                                 "lock table
+\"_%s\".sl_event_lock, \"_%s\".sl_config_lock;"
+slonik/slonik.c:                                 "lock table
+\"_%s\".sl_event_lock, \"_%s\".sl_config_lock;"
+slonik/slonik.c:                                 "lock table
+\"_%s\".sl_event_lock, \"_%s\".sl_config_lock;"
+slonik/slonik.c:                                 "lock table
+\"_%s\".sl_event_lock, \"_%s\".sl_config_lock;"
+slonik/slonik.c:                                 "lock table
+\"_%s\".sl_event_lock, \"_%s\".sl_config_lock;"
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Aug 10 15:17:16 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed, 10 Aug 2011 15:17:16 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 231] Bad regex in start_slon.sh
+In-Reply-To: <bug-231-4@http.www.slony.info/bugzilla/>
+References: <bug-231-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110810221716.4DFCA290E36@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=231
+
+Christopher Browne <cbbrowne at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         AssignedTo|cbbrowne at ca.afilias.info    |ssinger at ca.afilias.info
+
+--- Comment #1 from Christopher Browne <cbbrowne at ca.afilias.info> 2011-08-10 15:17:16 PDT ---
+Patch at github...
+
+https://github.com/cbbrowne/slony1-engine/tree/bug231
+
+https://github.com/cbbrowne/slony1-engine/commit/4cf47fbb3ffa0bf8b2cfbb6c08aab6f850795ebd
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Thu Aug 11 04:46:12 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu, 11 Aug 2011 04:46:12 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 230] Timestamps stopped showing up in the
+ slon_log on some platforms
+In-Reply-To: <bug-230-4@http.www.slony.info/bugzilla/>
+References: <bug-230-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110811114612.72B24290E20@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=230
+
+--- Comment #4 from Steve Singer <ssinger at ca.afilias.info> 2011-08-11 04:46:12 PDT ---
+(In reply to comment #3)
+> The definition seems generally reasonable.
+> 
+> One caveat is that ~ isn't portable when applied to signed operands, so if we
+> have any platforms where bool has, underlying it, a signed type, then there
+> could be some unhappiness.
+
+I suspect this is the root cause of the unhappiness to begin with, I think this
+patch makes the casting happen on both sides of the operator.
+
+Should we just do
+
+#define true (bool) 1
+#define false (bool) 0
+
+?
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Thu Aug 11 05:02:49 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu, 11 Aug 2011 05:02:49 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 218] slon often has to retry transactions due to
+ concurrent update in 2.1.0.b2
+In-Reply-To: <bug-218-4@http.www.slony.info/bugzilla/>
+References: <bug-218-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110811120249.A99BC290E06@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=218
+
+Steve Singer <ssinger at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         Resolution|                            |FIXED
+             Status|REOPENED                    |RESOLVED
+
+--- Comment #26 from Steve Singer <ssinger at ca.afilias.info> 2011-08-11 05:02:49 PDT ---
+This patch has been committed
+http://git.postgresql.org/gitweb/?p=slony1-engine.git;a=commit;h=3019664f5a44cb1dd12dad644c17a89d13452242
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Thu Aug 11 05:15:31 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu, 11 Aug 2011 05:15:31 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 231] Bad regex in start_slon.sh
+In-Reply-To: <bug-231-4@http.www.slony.info/bugzilla/>
+References: <bug-231-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110811121531.C0D54290D1B@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=231
+
+Steve Singer <ssinger at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         AssignedTo|ssinger at ca.afilias.info     |cbbrowne at ca.afilias.info
+
+--- Comment #2 from Steve Singer <ssinger at ca.afilias.info> 2011-08-11 05:15:31 PDT ---
+This looks fine.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Fri Aug 12 14:07:31 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Fri, 12 Aug 2011 14:07:31 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 228] 'drop node' in a try block
+In-Reply-To: <bug-228-4@http.www.slony.info/bugzilla/>
+References: <bug-228-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110812210731.B9737290D6C@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=228
+
+Jan Wieck <janwieck at yahoo.com> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         AssignedTo|janwieck at yahoo.com          |ssinger at ca.afilias.info
+
+--- Comment #4 from Jan Wieck <janwieck at yahoo.com> 2011-08-12 14:07:31 PDT ---
+Looks good to me. Please apply.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Fri Aug 12 14:14:34 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Fri, 12 Aug 2011 14:14:34 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 229] creating a set then adding a table to a
+ different set can deadlock
+In-Reply-To: <bug-229-4@http.www.slony.info/bugzilla/>
+References: <bug-229-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110812211434.3A6F9290DF1@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=229
+
+Jan Wieck <janwieck at yahoo.com> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         AssignedTo|janwieck at yahoo.com          |ssinger at ca.afilias.info
+
+--- Comment #5 from Jan Wieck <janwieck at yahoo.com> 2011-08-12 14:14:34 PDT ---
+Unless the whole sequence is done in a try block, I am wondering if the
+automatic wait caused by switching event nodes is happening at the wrong moment
+here. It appears that it takes place AFTER the transaction for the "set add
+table" has taken out the lock.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Mon Aug 15 05:57:49 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Mon, 15 Aug 2011 05:57:49 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 228] 'drop node' in a try block
+In-Reply-To: <bug-228-4@http.www.slony.info/bugzilla/>
+References: <bug-228-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110815125749.A11BD290E36@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=228
+
+Steve Singer <ssinger at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         Resolution|                            |FIXED
+             Status|ASSIGNED                    |RESOLVED
+
+--- Comment #5 from Steve Singer <ssinger at ca.afilias.info> 2011-08-15 05:57:49 PDT ---
+Patch applied
+
+http://git.postgresql.org/gitweb/?p=slony1-engine.git;a=commit;h=b9ceb3c7694db9b516f2aca274f5d93171678109
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Mon Aug 15 06:04:30 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Mon, 15 Aug 2011 06:04:30 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 229] creating a set then adding a table to a
+ different set can deadlock
+In-Reply-To: <bug-229-4@http.www.slony.info/bugzilla/>
+References: <bug-229-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110815130430.24826290E34@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=229
+
+--- Comment #6 from Steve Singer <ssinger at ca.afilias.info> 2011-08-15 06:04:30 PDT ---
+(In reply to comment #5)
+> Unless the whole sequence is done in a try block, I am wondering if the
+> automatic wait caused by switching event nodes is happening at the wrong moment
+> here. It appears that it takes place AFTER the transaction for the "set add
+> table" has taken out the lock.
+
+The point of the patch is supposed to avoid that.
+
+With this patch the intended behaviour is
+
+1. Open a transaction against the new origin and lock sl_event_lock
+2. Get ready to submit a SYNC event to the next origin. This triggers an 
+   implicit wait for waiting on the old origin until it sees the sl_confirm.
+3. Once the old origin is caught up the SYNC is submtted to the new origin.
+4. The transaction commits
+5. Open a new transaction getting ready for the set add table.
+
+Steps 1-4 should ensure that everything is caught up before the transaction in
+step 5 is opened.
+
+Does my patch not do what I think? Or should I commit it
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Mon Aug 15 10:45:23 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Mon, 15 Aug 2011 10:45:23 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 230] Timestamps stopped showing up in the
+ slon_log on some platforms
+In-Reply-To: <bug-230-4@http.www.slony.info/bugzilla/>
+References: <bug-230-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110815174523.E943F290E3B@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=230
+
+Steve Singer <ssinger at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         Resolution|                            |FIXED
+             Status|ASSIGNED                    |RESOLVED
+
+--- Comment #5 from Steve Singer <ssinger at ca.afilias.info> 2011-08-15 10:45:23 PDT ---
+Following discussion with Chris a  false 0  , true 1 version of the patch was
+committed.
+
+http://git.postgresql.org/gitweb?p=slony1-engine.git;a=commitdiff;h=c0fddaed8f0a97f79e023daeca9f39e3be38b45b
+http://git.postgresql.org/gitweb?p=slony1-engine.git;a=commitdiff;h=cc3b4d9106d55ee4fb5f9e1befb6328b059b7b8b
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Mon Aug 15 11:36:39 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Mon, 15 Aug 2011 11:36:39 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 231] Bad regex in start_slon.sh
+In-Reply-To: <bug-231-4@http.www.slony.info/bugzilla/>
+References: <bug-231-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110815183639.7B2A3290E41@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=231
+
+--- Comment #3 from Christopher Browne <cbbrowne at ca.afilias.info> 2011-08-15 11:36:39 PDT ---
+Committed to master
+
+http://git.postgresql.org/gitweb/?p=slony1-engine.git;a=commit;h=51feef7b6feb7c64ca10df62197881d0ce332b01
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Mon Aug 15 12:50:03 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Mon, 15 Aug 2011 12:50:03 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 229] creating a set then adding a table to a
+ different set can deadlock
+In-Reply-To: <bug-229-4@http.www.slony.info/bugzilla/>
+References: <bug-229-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110815195003.1CDC1290DED@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=229
+
+Christopher Browne <cbbrowne at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         AssignedTo|ssinger at ca.afilias.info     |cbbrowne at ca.afilias.info
+
+--- Comment #7 from Christopher Browne <cbbrowne at ca.afilias.info> 2011-08-15 12:50:03 PDT ---
+I'll take a peek.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Mon Aug 15 14:56:55 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Mon, 15 Aug 2011 14:56:55 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 229] creating a set then adding a table to a
+ different set can deadlock
+In-Reply-To: <bug-229-4@http.www.slony.info/bugzilla/>
+References: <bug-229-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110815215655.C82A9290DF6@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=229
+
+Christopher Browne <cbbrowne at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         AssignedTo|cbbrowne at ca.afilias.info    |ssinger at ca.afilias.info
+
+--- Comment #8 from Christopher Browne <cbbrowne at ca.afilias.info> 2011-08-15 14:56:55 PDT ---
+Having some trouble "taking a look" - the patch refers to
+clustertest/disorder/tests/WaitForTest.js, which doesn't seem to be in any tree
+I can see.
+
+Possibly you've got a private branch that's not visible?
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Tue Aug 16 00:51:00 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Tue, 16 Aug 2011 00:51:00 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 232] New: slony error handling capabilities
+Message-ID: <bug-232-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=232
+
+           Summary: slony error handling capabilities
+           Product: Slony-I
+           Version: 2.0
+          Platform: PC
+        OS/Version: Linux
+            Status: NEW
+          Severity: enhancement
+          Priority: low
+         Component: slon
+        AssignedTo: slony1-bugs at lists.slony.info
+        ReportedBy: jjyynan2008 at 163.com
+                CC: slony1-bugs at lists.slony.info
+   Estimated Hours: 0.0
+
+
+Hello:
+
+A master database, A, slave database B, Synchronized table t_test, t_test2 use
+slony-clustering. If the database table A's t_test modified table structure ..
+ie add or delete some of the columns. Synchronization process is slony will
+complain and stop synchronization. The other tables in database B will not be
+synchronized.
+
+I hope the error does not affect other t_test2 error-free synchronization of
+the table ...
+
+Thank you
+
+
+I am sorry my English is poor....
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Tue Aug 16 04:54:41 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Tue, 16 Aug 2011 04:54:41 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 229] creating a set then adding a table to a
+ different set can deadlock
+In-Reply-To: <bug-229-4@http.www.slony.info/bugzilla/>
+References: <bug-229-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110816115441.18760290E28@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=229
+
+--- Comment #9 from Steve Singer <ssinger at ca.afilias.info> 2011-08-16 04:54:40 PDT ---
+Created an attachment (id=122)
+ --> (http://www.slony.info/bugzilla/attachment.cgi?id=122)
+create the WaitForTest
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Tue Aug 16 04:55:14 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Tue, 16 Aug 2011 04:55:14 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 229] creating a set then adding a table to a
+ different set can deadlock
+In-Reply-To: <bug-229-4@http.www.slony.info/bugzilla/>
+References: <bug-229-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110816115514.9AF06290E28@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=229
+
+--- Comment #10 from Steve Singer <ssinger at ca.afilias.info> 2011-08-16 04:55:14 PDT ---
+Sorry I have added the missing patch.
+You can also see this at https://github.com/ssinger/slony1-engine/tree/bug229
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Tue Aug 16 05:01:24 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Tue, 16 Aug 2011 05:01:24 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 232] slony error handling capabilities
+In-Reply-To: <bug-232-4@http.www.slony.info/bugzilla/>
+References: <bug-232-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110816120124.703EB290E28@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=232
+
+--- Comment #1 from Steve Singer <ssinger at ca.afilias.info> 2011-08-16 05:01:24 PDT ---
+I don't understand the bug you are trying to report.
+The title is "error handling capabilities" what issue are you having with the
+error handling capabilities?
+
+If you add columns to a table on the master replication will stop until those
+columns have been added (by you) on the slave.  This is expected slony
+behaviour.
+
+Slony replicates in groups of tables to together so that the slave is always a
+consistent snapshot of the master.
+
+If I have a table "customers" and another one "sales" and a user on the master
+does
+
+insert into customers (customer_id,...) values (1,...)
+insert into sales (customer_id,...) values (1,...)
+
+
+Slony will never replicate the insert into the sales table without having first
+replicated  the insert into the customer table.  This is by design.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Thu Aug 18 06:43:36 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu, 18 Aug 2011 06:43:36 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 233] New: slonik segfaults on subscribe set,
+ when the set does not exist.
+Message-ID: <bug-233-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=233
+
+           Summary: slonik segfaults on subscribe set, when the set does
+                    not exist.
+           Product: Slony-I
+           Version: 2.0
+          Platform: PC
+        OS/Version: Linux
+            Status: NEW
+          Severity: enhancement
+          Priority: low
+         Component: slonik
+        AssignedTo: slony1-bugs at lists.slony.info
+        ReportedBy: ssinger at ca.afilias.info
+                CC: slony1-bugs at lists.slony.info
+   Estimated Hours: 0.0
+
+
+If you try a slonik command like
+
+subscribe set(id=9999, provider=1,receiver=2);
+
+where set id 9999 does not exist:
+
+#0  0xaf5c2c29 in ____strtol_l_internal (nptr=0x0, endptr=0x0,
+base=10, group=0, loc=0xaf6cd360) at strtol_l.c:298
+#1  0xaf5c29d8 in strtol (nptr=0x0, endptr=0x0, base=10) at strtol.c:110
+#2  0x1747b8b1 in atoi (stmt=0x1749bb68) at /usr/include/stdlib.h:286
+#3  slonik_subscribe_set (stmt=0x1749bb68) at slonik.c:3506
+#4  0x1747deca in script_exec_stmts (script=<value optimized out>,
+hdr=0x1749bb68) at slonik.c:1416
+#5  0x1747e281 in script_exec_stmts (script=<value optimized out>,
+hdr=0x1749bdd0) at slonik.c:1127
+#6  0x1747e372 in script_exec (script=0x1749be18) at slonik.c:1091
+#7  0x1747f2a5 in main (argc=1, argv=0xb8f874f4) at slonik.c:156
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Thu Aug 18 06:46:43 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu, 18 Aug 2011 06:46:43 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 233] slonik segfaults on subscribe set,
+ when the set does not exist.
+In-Reply-To: <bug-233-4@http.www.slony.info/bugzilla/>
+References: <bug-233-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110818134643.E0A93290E34@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=233
+
+--- Comment #1 from Steve Singer <ssinger at ca.afilias.info> 2011-08-18 06:46:43 PDT ---
+Created an attachment (id=123)
+ --> (http://www.slony.info/bugzilla/attachment.cgi?id=123)
+fix for bug
+
+Fix for patch.
+Based against REL_2_0_STABLE.
+https://github.com/ssinger/slony1-engine/commit/ea2861bfd7fac5587977e6420047ef34d2aeb686
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Thu Aug 18 07:44:39 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu, 18 Aug 2011 07:44:39 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 234] New: pg_dump + restore of a slony node
+ leaves the node corrupt
+Message-ID: <bug-234-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=234
+
+           Summary: pg_dump + restore of a slony node leaves the node
+                    corrupt
+           Product: Slony-I
+           Version: devel
+          Platform: PC
+        OS/Version: Linux
+            Status: NEW
+          Severity: enhancement
+          Priority: low
+         Component: stored procedures
+        AssignedTo: slony1-bugs at lists.slony.info
+        ReportedBy: ssinger at ca.afilias.info
+                CC: slony1-bugs at lists.slony.info
+   Estimated Hours: 0.0
+
+
+If you have a slony node with transaction ids in the range of say 26005477
+
+Then pg_dump the database
+
+Then create a new postgresql cluster (with initdb).
+
+Then restore the dumped database to that new cluster.
+
+The transaction ids assigned to new SYNC events or new rows in sl_log will be
+reset, ie in the range  1214.  This is smaller than 26005477 even though it
+happened after.
+
+At a minimum rows in sl_log_1 won't be cleaned up until the current snapshot
+ids reach 26005477 this will prevent log switching from happening.
+
+
+It is also possible that data might be applied in the wrong order or not at
+all, but that part hasn't yet been verified.
+
+It would be good if REPAIR CONFIG could correct this situation.  If not the
+slon sync thread should at least be able to detect the situation and log an
+error.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Thu Aug 18 08:28:01 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu, 18 Aug 2011 08:28:01 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 234] pg_dump + restore of a slony node leaves
+	the node corrupt
+In-Reply-To: <bug-234-4@http.www.slony.info/bugzilla/>
+References: <bug-234-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110818152801.71C77290DED@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=234
+
+--- Comment #1 from Steve Singer <ssinger at ca.afilias.info> 2011-08-18 08:28:01 PDT ---
+If you try to use pg_upgrade with slony you will hit a somewhat similar problem
+in that pg_upgrade does not bring over the transaction id epoch so the 64 bit
+transaction id numbers  that slony gets after the pg_upgrade might seem earlier
+than the ones from before.
+
+
+pg_resetxlog has a -e option that allows you to set the transaction id epoch. 
+This *might* solve the problem (when using pg_upgrade).
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Thu Aug 18 13:59:27 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu, 18 Aug 2011 13:59:27 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 232] slony error handling capabilities
+In-Reply-To: <bug-232-4@http.www.slony.info/bugzilla/>
+References: <bug-232-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110818205927.1F90B290DCC@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=232
+
+Steve Singer <ssinger at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         Resolution|                            |INVALID
+             Status|NEW                         |RESOLVED
+
+--- Comment #2 from Steve Singer <ssinger at ca.afilias.info> 2011-08-18 13:59:27 PDT ---
+I am marking this as INVALID since I do not see a bug here.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Tue Aug 23 11:40:51 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Tue, 23 Aug 2011 11:40:51 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 235] New: SYNC GROUP size bugs
+Message-ID: <bug-235-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=235
+
+           Summary: SYNC GROUP size bugs
+           Product: Slony-I
+           Version: 2.0
+          Platform: PC
+        OS/Version: Linux
+            Status: NEW
+          Severity: enhancement
+          Priority: low
+         Component: slon
+        AssignedTo: slony1-bugs at lists.slony.info
+        ReportedBy: ssinger at ca.afilias.info
+                CC: slony1-bugs at lists.slony.info
+   Estimated Hours: 0.0
+
+
+This bug was reported on the slony mailing list
+
+I think there is a bug in slony's sync group size calculations.  In
+particular, the calculation of the next sync group size appears to be
+vulnerable to integer overflow.
+
+I'm in a situation where one node is seriously lagged, and i need to
+catch up quickly.  So i've set my slon process' desired_sync_time to a
+large value (1000 seconds) and its sync_group_maxsize to 3000.
+
+Unfortunately, since there is a serious gap, each sync group takes quite
+a while to compute, even if there is only 1 sync group requested
+(stevensn on #slony suggests that it's doing a full tablescan of
+sl_log_1 each update).
+
+Under these conditions, slon appears to calculate a *negative* ideal
+sync group size.  (see the -4030 in the log below):
+
+2011-08-21 03:42:11 UTCCONFIG slon: watchdog ready - pid = 7135
+2011-08-21 03:42:11 UTCCONFIG slon: worker process created - pid = 7136
+2011-08-21 03:42:11 UTCCONFIG main: Integer option vac_frequency = 3
+2011-08-21 03:42:11 UTCCONFIG main: Integer option log_level = 1
+2011-08-21 03:42:11 UTCCONFIG main: Integer option sync_interval = 1000
+2011-08-21 03:42:11 UTCCONFIG main: Integer option sync_interval_timeout =
+10000
+2011-08-21 03:42:11 UTCCONFIG main: Integer option sync_group_maxsize = 3000
+2011-08-21 03:42:11 UTCCONFIG main: Integer option desired_sync_time = 1000000
+2011-08-21 03:42:11 UTCCONFIG main: Integer option syslog = 0
+2011-08-21 03:42:11 UTCCONFIG main: Integer option quit_sync_provider = 0
+2011-08-21 03:42:11 UTCCONFIG main: Integer option quit_sync_finalsync = 0
+2011-08-21 03:42:11 UTCCONFIG main: Integer option sync_max_rowsize = 8192
+2011-08-21 03:42:11 UTCCONFIG main: Integer option sync_max_largemem = 5242880
+2011-08-21 03:42:11 UTCCONFIG main: Integer option remote_listen_timeout = 300
+2011-08-21 03:42:11 UTCCONFIG main: Boolean option log_pid = 0
+2011-08-21 03:42:11 UTCCONFIG main: Boolean option log_timestamp = 1
+2011-08-21 03:42:11 UTCCONFIG main: Boolean option cleanup_deletelogs = 0
+2011-08-21 03:42:11 UTCCONFIG main: Real option real_placeholder = 0.000000
+2011-08-21 03:42:11 UTCCONFIG main: String option cluster_name = clustername
+2011-08-21 03:42:11 UTCCONFIG main: String option conn_info =
+host=foo.example.org dbname=testdb user=slony port=5432 sslmode=require
+2011-08-21 03:42:11 UTCCONFIG main: String option pid_file =
+/var/run/slony1/node4.pid
+2011-08-21 03:42:11 UTCCONFIG main: String option log_timestamp_format =
+%Y-%m-%d %H:%M:%S %Z
+2011-08-21 03:42:11 UTCCONFIG main: String option archive_dir = [NULL]
+2011-08-21 03:42:11 UTCCONFIG main: String option sql_on_connection = [NULL]
+2011-08-21 03:42:11 UTCCONFIG main: String option lag_interval = [NULL]
+2011-08-21 03:42:11 UTCCONFIG main: String option command_on_logarchive =
+[NULL]
+2011-08-21 03:42:11 UTCCONFIG main: String option syslog_facility = LOCAL0
+2011-08-21 03:42:11 UTCCONFIG main: String option syslog_ident = slon
+2011-08-21 03:42:11 UTCCONFIG main: String option cleanup_interval = 10 minutes 
+ [...]
+2011-08-21 19:20:11 UTCINFO   remoteWorkerThread_3: SYNC 5002089203 done in
+381.641 seconds
+2011-08-21 19:20:11 UTCDEBUG1 remoteWorkerThread_3: SYNC 5002089203 sync_event
+timing:  pqexec (s/count)- provider 0.246/1 - subscriber 0.002/1 - IUD
+6.663/7337
+2011-08-21 19:20:11 UTCDEBUG1 calc sync size - last time: 1895 last length:
+381873 ideal: 4962 proposed size: 3000
+2011-08-21 19:20:11 UTCDEBUG1 about to monitor_subscriber_query - pulling big
+actionid list for 3
+2011-08-21 19:20:11 UTCINFO   remoteWorkerThread_3: syncing set 2 with 7
+table(s) from provider 3
+2011-08-21 19:25:21 UTCDEBUG1 remoteHelperThread_3_3: 309.699 seconds delay for
+first row
+2011-08-21 19:25:32 UTCDEBUG1 remoteHelperThread_3_3: 320.586 seconds until
+close cursor
+2011-08-21 19:25:32 UTCDEBUG1 remoteHelperThread_3_3: inserts=48428
+updates=10966 deletes=0
+2011-08-21 19:25:32 UTCDEBUG1 remoteWorkerThread_3: sync_helper timing:  pqexec
+(s/count)- provider 315.415/122 - subscriber 0.002/122
+2011-08-21 19:25:32 UTCDEBUG1 remoteWorkerThread_3: sync_helper timing:  large
+tuples 0.000/0
+2011-08-21 19:25:32 UTCINFO   remoteWorkerThread_3: SYNC 5002092203 done in
+320.936 seconds
+2011-08-21 19:25:32 UTCDEBUG1 remoteWorkerThread_3: SYNC 5002092203 sync_event
+timing:  pqexec (s/count)- provider 0.064/1 - subscriber 0.002/1 - IUD
+10.840/11889
+2011-08-21 19:25:32 UTCDEBUG1 calc sync size - last time: 3000 last length:
+321314 ideal: -4030 proposed size: 1
+2011-08-21 19:25:32 UTCDEBUG1 about to monitor_subscriber_query - pulling big
+actionid list for 3
+
+This is with slony 2.0.4 from debian squeeze, on amd64.
+
+the formula for calculating the ideal sync size (line 596 of
+src/slon/remote_worker.c) is: 
+
+  ideal_sync = (last_sync_group_size * desired_sync_time) / last_sync_length;
+
+All four variables in the assignment are of type int.
+
+With desired_sync_time of 1000000 (milliseconds), and a
+last_sync_group_size of 3000, this code overflows a 32-bit signed
+integer :(, resulting in the -4030
+
+There are probably a few bugs here, but the most important bug is:
+
+ 0) overflow isn't being handled properly.  The simplest way to fix this
+ is probably to do this kind of internal computation in floats, and then
+ cast back to integers later.
+
+some secondary issues worth considering are:
+
+ 1) this is a 64-bit architecture -- why aren't these using 64-bit
+ integers instead of 32-bit?  Maybe there are some odd compiler flags in
+ use?
+
+ 2) should these ints be unsigned instead of signed?
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Tue Aug 23 12:46:38 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Tue, 23 Aug 2011 12:46:38 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 235] SYNC GROUP size bugs
+In-Reply-To: <bug-235-4@http.www.slony.info/bugzilla/>
+References: <bug-235-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110823194638.B49EF290E22@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=235
+
+--- Comment #1 from Christopher Browne <cbbrowne at ca.afilias.info> 2011-08-23 12:46:38 PDT ---
+This is the same problem, no doubt, as the "int versus int64" issues resolved
+here:
+
+http://git.postgresql.org/gitweb/?p=slony1-engine.git;a=commit;h=a886824b87b8da3a485b8dfea7910734bd6a7bce
+
+As a "first blush," I'd suggest considering changing the variables to int64,
+which is where the above changes ultimately went.
+
+And switching to using float seems like not a terrible idea.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Tue Aug 23 14:50:30 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Tue, 23 Aug 2011 14:50:30 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 235] SYNC GROUP size bugs
+In-Reply-To: <bug-235-4@http.www.slony.info/bugzilla/>
+References: <bug-235-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110823215030.22309290E32@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=235
+
+--- Comment #2 from Christopher Browne <cbbrowne at ca.afilias.info> 2011-08-23 14:50:30 PDT ---
+It seems to me that in HEAD, we should look at revising the logic in a more
+substantial way.
+
+The logic that was added around 1.2 has the conceit that we imagine that SYNCs
+are likely to 'typically' take some period of time to process, from whence
+comes the configuration option "desired_sync_time".
+
+This is fairly nonsensical, as how long a SYNC will take to process really
+depends on how much data got committed between two SYNCs, which isn't so
+predictable.
+
+The logic might be simplified to something more like:
+
+- We define a "max" number of syncs to process, and don't ever consider doing
+more than that.
+
+- If there are fewer than that "max", then group whatever is available.
+
+There's some logic surrounding increasing towards the "max"; it's pretty likely
+that trying to do this is just nonsense, and we should just head straight to
+the configured maximum.
+
+If the administrator feels that only a few SYNCs should be processed together,
+then they can set sync_group_maxsize fairly small, and get the desired result.
+
+If they want lots of grouping, then they can set it high, and get the desired
+result.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Aug 24 00:20:57 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed, 24 Aug 2011 00:20:57 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 235] SYNC GROUP size bugs
+In-Reply-To: <bug-235-4@http.www.slony.info/bugzilla/>
+References: <bug-235-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110824072057.9C462290E32@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=235
+
+Daniel Kahn Gillmor <dkg at fifthhorseman.net> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+                 CC|                            |dkg at fifthhorseman.net
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Aug 24 01:05:30 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed, 24 Aug 2011 01:05:30 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 235] SYNC GROUP size bugs
+In-Reply-To: <bug-235-4@http.www.slony.info/bugzilla/>
+References: <bug-235-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110824080530.2499E290E28@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=235
+
+--- Comment #3 from Daniel Kahn Gillmor <dkg at fifthhorseman.net> 2011-08-24 01:05:30 PDT ---
+I think the logic behind the "ramping up" is that if the admin says "group at
+most 3000 SYNCs at a time" (sync_group_maxsize) and "i want each run to take
+about 60 seconds" (desired_sync_time), and it turns out that we can process
+about 10 SYNCs per second, then if we just jump straight to 3000 SYNCs, the run
+would take 5 times the recommended maximum duration.
+
+So the current logic does a small number of SYNCs and then tries to predict
+(based on some implicit assumption that the number of SYNCs varies linearly
+with the duration of the SYNC group) what the ideal number of SYNCs would be to
+hit the desired_sync_time.
+
+Aside from overflow issues, the big problem with this approach is that the
+number of SYNCs processed per group does *not* necessarily vary linearly with
+the time it takes for the group to be processed.  Or, if it does vary linearly,
+it is with a constant offset that can grow substantially if there are a large
+number of elements in sl_log_1 or sl_log_2.
+
+In my case, with > 8 GiB in sl_log_1, a SYNC group of size 1 takes several
+hundred seconds, and a sync group of size 3000 *also* takes several hundred
+seconds.  (maybe due to the full tablescan of sl_log_1?) 
+
+As a result, the estimate of how many SYNCs to process in a group stays low,
+which makes slony take even longer to finish processing its data :(
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Aug 24 06:19:04 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed, 24 Aug 2011 06:19:04 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 236] New: misformatted log messages
+Message-ID: <bug-236-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=236
+
+           Summary: misformatted log messages
+           Product: Slony-I
+           Version: devel
+          Platform: PC
+        OS/Version: Linux
+            Status: NEW
+          Severity: minor
+          Priority: low
+         Component: slon
+        AssignedTo: slony1-bugs at lists.slony.info
+        ReportedBy: peter_e at gmx.net
+                CC: slony1-bugs at lists.slony.info
+   Estimated Hours: 0.0
+
+
+When log_pid is false and log_timestamp is true (which are the defaults), then
+log messages are formatted like this:
+
+2011-08-23 13:18:55 EESTDEBUG2 remoteListenThread_1: queue event 1,5023210616
+SYNC
+
+with no space between the timestamp and the log message.
+
+It looks like a space should be inserted at an appropriate place somewhere in
+slon_log().
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Aug 24 08:02:59 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed, 24 Aug 2011 08:02:59 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 235] SYNC GROUP size bugs
+In-Reply-To: <bug-235-4@http.www.slony.info/bugzilla/>
+References: <bug-235-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110824150259.9F113290BD4@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=235
+
+--- Comment #4 from Christopher Browne <cbbrowne at ca.afilias.info> 2011-08-24 08:02:59 PDT ---
+(In reply to comment #3)
+> I think the logic behind the "ramping up" is that if the admin says "group at
+> most 3000 SYNCs at a time" (sync_group_maxsize) and "i want each run to take
+> about 60 seconds" (desired_sync_time), and it turns out that we can process
+> about 10 SYNCs per second, then if we just jump straight to 3000 SYNCs, the run
+> would take 5 times the recommended maximum duration.
+> 
+> So the current logic does a small number of SYNCs and then tries to predict
+> (based on some implicit assumption that the number of SYNCs varies linearly
+> with the duration of the SYNC group) what the ideal number of SYNCs would be to
+> hit the desired_sync_time.
+
+That's pretty much right.
+
+We also had a little bit of paranoia about making sure that if there's a
+problem at sync #314314 that we replicate at least up to #314313 before giving
+up.  That's why it starts by processing 1 SYNC at a time, and ramps up.
+
+> Aside from overflow issues, the big problem with this approach is that the
+> number of SYNCs processed per group does *not* necessarily vary linearly with
+> the time it takes for the group to be processed.  Or, if it does vary linearly,
+> it is with a constant offset that can grow substantially if there are a large
+> number of elements in sl_log_1 or sl_log_2.
+
+Quite right, the "linearity" assumption is not particularly valid.  
+
+It's notably invalidated in the case where someone has some huge "UPDATE
+some_big_table SET [something] WHERE [most of the tuples in the table]" query;
+when this commits, it'll add a *huge* amount of work to one and only one SYNC.
+
+> In my case, with > 8 GiB in sl_log_1, a SYNC group of size 1 takes several
+> hundred seconds, and a sync group of size 3000 *also* takes several hundred
+> seconds.  (maybe due to the full tablescan of sl_log_1?) 
+
+That SEQ SCAN is a problem, and further invalidates that "linearity
+assumption."
+
+I'll note that the SEQ SCAN was recognized and fixed in Bug #167, in version
+2.1.  We haven't backpatched because, 2.1 not yet being fully released, there's
+not as much feedback on that as we'd like.
+
+> As a result, the estimate of how many SYNCs to process in a group stays low,
+> which makes slony take even longer to finish processing its data :(
+
+Yep.
+
+If the Seq Scan issue goes away in 2.1, prior to changes to this algorithm,
+then  I think we can treat that as being likely irrelevant.
+
+I'm inclined to revise the logic to get rid of the "desired sync time" part, as
+there's something inherently nonsensical to it.
+
+The direction I'm thinking is to have slon do "start with 1, and then quickly
+increment towards sync_group_maxsize".  
+
+"How quickly?" is a good question that'll get discussed, for sure.  Another
+parameter might be a useful idea, but I'm not sure there's necessarily much 
+value to adding configuration knobs.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Aug 24 09:00:58 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed, 24 Aug 2011 09:00:58 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 235] SYNC GROUP size bugs
+In-Reply-To: <bug-235-4@http.www.slony.info/bugzilla/>
+References: <bug-235-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110824160058.C0C9D290E3D@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=235
+
+--- Comment #5 from Steve Singer <ssinger at ca.afilias.info> 2011-08-24 09:00:58 PDT ---
+ "desired sync time" part, as
+> there's something inherently nonsensical to it.
+> 
+> The direction I'm thinking is to have slon do "start with 1, and then quickly
+> increment towards sync_group_maxsize".  
+> 
+> "How quickly?" is a good question that'll get discussed, for sure.  Another
+> parameter might be a useful idea, but I'm not sure there's necessarily much 
+> value to adding configuration knobs.
+
+I agree that the "desired sync time" is confusing and we should move away
+towards just specifying a max group size.
+
+Does it make more sense to start at max_group_size and reduce that to smaller
+values on failures?  (this only works if slon doens't get restarted/segfault on
+the failures)
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Aug 24 09:11:35 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed, 24 Aug 2011 09:11:35 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 236] misformatted log messages
+In-Reply-To: <bug-236-4@http.www.slony.info/bugzilla/>
+References: <bug-236-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110824161135.30B4E290E3B@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=236
+
+--- Comment #1 from Christopher Browne <cbbrowne at ca.afilias.info> 2011-08-24 09:11:35 PDT ---
+Reviewing slon_log() in misc.c, there are two ways to go:
+
+1.  Add logic that inserts an extra space if logtimestamp is true.
+
+2.  Stow an extra space in the default configuration for log_timestamp_format,
+and impose the burden of spacing on anyone that manages this config parameter.
+
+#2 is a bit easier, and has the merit that it doesn't force whitespace in if
+someone decided to:
+
+- Put some in themselves
+- Use some delimiter themselves (i.e. - if they used [], as in "[%Y-%m-%d
+%H:%M:%S %Z]")
+
+What do you suggest?
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Aug 24 09:16:34 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed, 24 Aug 2011 09:16:34 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 235] SYNC GROUP size bugs
+In-Reply-To: <bug-235-4@http.www.slony.info/bugzilla/>
+References: <bug-235-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110824161634.8B0DD290E36@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=235
+
+--- Comment #6 from Christopher Browne <cbbrowne at ca.afilias.info> 2011-08-24 09:16:34 PDT ---
+(In reply to comment #5)
+>  "desired sync time" part, as
+> > there's something inherently nonsensical to it.
+> > 
+> > The direction I'm thinking is to have slon do "start with 1, and then quickly
+> > increment towards sync_group_maxsize".  
+> > 
+> > "How quickly?" is a good question that'll get discussed, for sure.  Another
+> > parameter might be a useful idea, but I'm not sure there's necessarily much 
+> > value to adding configuration knobs.
+> 
+> I agree that the "desired sync time" is confusing and we should move away
+> towards just specifying a max group size.
+> 
+> Does it make more sense to start at max_group_size and reduce that to smaller
+> values on failures?  (this only works if slon doens't get restarted/segfault on
+> the failures)
+
+Hmm, yeah.
+
+I could see starting with max_group_size, and dividing by two each time it
+fails.  That'll quickly head to 1.
+
+The next question would be of how to increase on success.  Whiteboard time :-).
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Aug 24 09:31:38 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed, 24 Aug 2011 09:31:38 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 231] Bad regex in start_slon.sh
+In-Reply-To: <bug-231-4@http.www.slony.info/bugzilla/>
+References: <bug-231-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110824163138.BE666290E36@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=231
+
+Christopher Browne <cbbrowne at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         Resolution|                            |FIXED
+             Status|ASSIGNED                    |RESOLVED
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Aug 24 10:28:19 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed, 24 Aug 2011 10:28:19 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 229] creating a set then adding a table to a
+ different set can deadlock
+In-Reply-To: <bug-229-4@http.www.slony.info/bugzilla/>
+References: <bug-229-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110824172819.15D15290E3B@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=229
+
+--- Comment #11 from Christopher Browne <cbbrowne at ca.afilias.info> 2011-08-24 10:28:19 PDT ---
+(In reply to comment #10)
+> Sorry I have added the missing patch.
+> You can also see this at https://github.com/ssinger/slony1-engine/tree/bug229
+
+I had success with that...
+
+- Failures of the test without commit #7a8aa60e9a881e7df337ddf6c662a87801f6372b
+
+- Test succeeded with that patch.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Aug 24 11:13:10 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed, 24 Aug 2011 11:13:10 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 235] SYNC GROUP size bugs
+In-Reply-To: <bug-235-4@http.www.slony.info/bugzilla/>
+References: <bug-235-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110824181310.1D479290E30@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=235
+
+--- Comment #7 from Daniel Kahn Gillmor <dkg at fifthhorseman.net> 2011-08-24 11:13:10 PDT ---
+(In reply to comment #5)
+> I agree that the "desired sync time" is confusing and we should move away
+> towards just specifying a max group size.
+
+Yes, fewer configuration options is better :)  We know the db administrator
+wants to keep the sync lag low.  Having fiddly knobs labeled "make the sync lag
+shorter, except sometimes when it makes them longer" isn't terribly helpful.
+
+> Does it make more sense to start at max_group_size and reduce that to smaller
+> values on failures?  (this only works if slon doens't get restarted/segfault on
+> the failures)
+
+The one concern i can see being raised with this approach is that (with a
+radically over-provisioned max_group_size) it's possible for a huge sync group
+to take forever.  However, if there just aren't that many SYNCs available,
+presumably the group would just complete successfully with the set of
+currently-available SYNCs?  In that case, i think the starting-large and
+falling off is better than starting-small and ramping-up.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Aug 24 11:56:26 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed, 24 Aug 2011 11:56:26 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 235] SYNC GROUP size bugs
+In-Reply-To: <bug-235-4@http.www.slony.info/bugzilla/>
+References: <bug-235-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110824185626.6DC3D290E22@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=235
+
+--- Comment #8 from Christopher Browne <cbbrowne at ca.afilias.info> 2011-08-24 11:56:26 PDT ---
+(In reply to comment #7)
+> (In reply to comment #5)
+> > I agree that the "desired sync time" is confusing and we should move away
+> > towards just specifying a max group size.
+> 
+> Yes, fewer configuration options is better :)  We know the db administrator
+> wants to keep the sync lag low.  Having fiddly knobs labeled "make the sync lag
+> shorter, except sometimes when it makes them longer" isn't terribly helpful.
+> 
+> > Does it make more sense to start at max_group_size and reduce that to smaller
+> > values on failures?  (this only works if slon doens't get restarted/segfault on
+> > the failures)
+> 
+> The one concern i can see being raised with this approach is that (with a
+> radically over-provisioned max_group_size) it's possible for a huge sync group
+> to take forever.  However, if there just aren't that many SYNCs available,
+> presumably the group would just complete successfully with the set of
+> currently-available SYNCs?  In that case, i think the starting-large and
+> falling off is better than starting-small and ramping-up.
+
+Yeah, this case concerns me a bit.
+
+The "standard" case where there could be a whole lot of syncs outstanding is
+where a subscription is requested, and there's so much data in the set that it
+takes multiple days to process it.
+
+At that point, there might be thousands of SYNCs outstanding, and it's possible
+that you'll be vulnerable to network glitchiness if slon tries to do the whole
+thing in one fell swoop.  
+
+Mind you, the "fallback" of dividing by 2 upon failure should address that,
+albeit with some potential for several fairly long failed attempted SYNCs until
+the "max" falls to the point where it gets processed OK.
+
+I expect that that's reasonably easily addressed by not setting
+sync_group_maxsize super high.
+
+During such a huge subscription, it's not actually terribly useful to have a
+huge number of SYNCs; it's not a bad idea to set sync_interval a bit higher at
+such times.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Aug 24 12:23:41 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed, 24 Aug 2011 12:23:41 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 233] slonik segfaults on subscribe set,
+ when the set does not exist.
+In-Reply-To: <bug-233-4@http.www.slony.info/bugzilla/>
+References: <bug-233-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110824192341.DBABC290DD7@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=233
+
+Christopher Browne <cbbrowne at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         AssignedTo|slony1-bugs at lists.slony.inf |ssinger at ca.afilias.info
+                   |o                           |
+             Status|NEW                         |ASSIGNED
+
+--- Comment #2 from Christopher Browne <cbbrowne at ca.afilias.info> 2011-08-24 12:23:41 PDT ---
+Patch looks good.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Aug 24 13:41:34 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed, 24 Aug 2011 13:41:34 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 236] misformatted log messages
+In-Reply-To: <bug-236-4@http.www.slony.info/bugzilla/>
+References: <bug-236-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110824204134.EF440290DED@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=236
+
+--- Comment #2 from Christopher Browne <cbbrowne at ca.afilias.info> 2011-08-24 13:41:35 PDT ---
+Created an attachment (id=124)
+ --> (http://www.slony.info/bugzilla/attachment.cgi?id=124)
+Add whitespace to default timestamp format string
+
+Here is a patch expressing "approach #2"
+
+https://github.com/cbbrowne/slony1-engine/commit/3d399cfb34f1c619467a733390a309f1d6a5aabc
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Aug 24 13:41:48 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed, 24 Aug 2011 13:41:48 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 236] misformatted log messages
+In-Reply-To: <bug-236-4@http.www.slony.info/bugzilla/>
+References: <bug-236-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110824204148.90E17290E30@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=236
+
+Christopher Browne <cbbrowne at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         AssignedTo|slony1-bugs at lists.slony.inf |cbbrowne at ca.afilias.info
+                   |o                           |
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Thu Aug 25 00:10:08 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu, 25 Aug 2011 00:10:08 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 236] misformatted log messages
+In-Reply-To: <bug-236-4@http.www.slony.info/bugzilla/>
+References: <bug-236-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110825071008.561F1290E46@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=236
+
+--- Comment #3 from Peter Eisentraut <peter_e at gmx.net> 2011-08-25 00:10:08 PDT ---
+Well, log_pid already imposes a trailing space, so it would make sense if
+log_timestamp did the same.  I can see, however, that solution 2 is simpler and
+backward compatible.
+
+You might as well implement log_line_prefix. :)
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Thu Aug 25 07:38:54 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu, 25 Aug 2011 07:38:54 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 233] slonik segfaults on subscribe set,
+ when the set does not exist.
+In-Reply-To: <bug-233-4@http.www.slony.info/bugzilla/>
+References: <bug-233-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110825143854.BACF8290E20@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=233
+
+Steve Singer <ssinger at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         Resolution|                            |FIXED
+             Status|ASSIGNED                    |RESOLVED
+
+--- Comment #3 from Steve Singer <ssinger at ca.afilias.info> 2011-08-25 07:38:54 PDT ---
+http://git.postgresql.org/gitweb/?p=slony1-engine.git;a=commit;h=43b89cf4ce1335e8752931016df7a3935ec94d03
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Thu Aug 25 12:52:10 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu, 25 Aug 2011 12:52:10 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 235] SYNC GROUP size bugs
+In-Reply-To: <bug-235-4@http.www.slony.info/bugzilla/>
+References: <bug-235-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110825195210.29948290DAD@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=235
+
+--- Comment #9 from Christopher Browne <cbbrowne at ca.afilias.info> 2011-08-25 12:52:09 PDT ---
+Created an attachment (id=125)
+ --> (http://www.slony.info/bugzilla/attachment.cgi?id=125)
+State diagram for revised SYNC grouping logic
+
+Steve Singer and I whiteboarded up a state diagram describing a proposed
+revised logic for handling SYNC grouping.  I have turned that into a TCM
+diagram, attached.
+
+We basically propose revising the logic to be thus...
+
+- At start time, the initial "max" is set to 1.
+
+- If SYNCs are processed properly, the grouping doubles (e.g. - 1, then 2, 4,
+8, 16, ...), until reaching either the maximum SYNCs outstanding, or the
+configured maximum.
+
+- Any time things fail, we fall back by 1/2.  max of 32 --> max of 16.
+
+- Once we catch up, we're typically processing one or just a few SYNCs at a
+time; if things fall behind, the doubling will kick in, but typically, we only
+*have* a few to process at a time.
+
+We discussed the possibility of starting with an initial "max" being as large
+as possible (e.g. - the configured max value), and using the "halving upon
+failure" to scale back as needed, but this seems to have several disadvantages
+to starting with 1 and doubling:
+
+1.  By starting with just a few SYNCs, there's the hope that we *immediately*
+get some SYNCs replicated, and the subscriber visibly starts to catch up.
+
+Starting with a huge grouping means there's no such quick feedback, which could
+be disconcerting to users.
+
+1a.  More on the "disconcerting" bit...  If the administrator is disconcerted
+by seeing no evident progress, they may decide to kill the slon and retry,
+which would waste any work that has been done.  And the retry will behave
+identically; it'll just look like replication is broken.
+
+Better to let some SYNCs through quickly, if possible.
+
+2.  In 2.1, we expect a fundamentally better behaviour due to the fix of bug
+#167.  A small grouping shouldn't be reverting to SEQ SCAN; we can hope for
+rather better behaviour of that query.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Thu Aug 25 13:28:36 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu, 25 Aug 2011 13:28:36 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 235] SYNC GROUP size bugs
+In-Reply-To: <bug-235-4@http.www.slony.info/bugzilla/>
+References: <bug-235-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110825202836.4BC68290E20@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=235
+
+--- Comment #10 from Daniel Kahn Gillmor <dkg at fifthhorseman.net> 2011-08-25 13:28:36 PDT ---
+(In reply to comment #9)
+> - At start time, the initial "max" is set to 1.
+> 
+> - If SYNCs are processed properly, the grouping doubles (e.g. - 1, then 2, 4,
+> 8, 16, ...), until reaching either the maximum SYNCs outstanding, or the
+> configured maximum.
+> 
+> - Any time things fail, we fall back by 1/2.  max of 32 --> max of 16.
+> 
+> - Once we catch up, we're typically processing one or just a few SYNCs at a
+> time; if things fall behind, the doubling will kick in, but typically, we only
+> *have* a few to process at a time.
+
+This sounds identical to the current scheme with two exceptions: 
+
+ 0) you're not measuring the time consumed, just varying based on failures, and
+
+ 1) at a failure, you fall back by halves instead of reverting to 1
+
+As a result, you're only asking the slon administrator one unanswerable
+question instead of two, so that's an improvement :)
+
+The questions used to be:
+
+ max_sync_group_size: what is the largest number of SYNCs you'd like to process
+at once?
+
+ desired_sync_time: what's the longest time you want a SYNC to take?
+
+The answers any sane admin would give are:
+
+ max_sync_group_size: all outstanding SYNCs
+ desired_sync_time: as soon as possible
+
+Which of course are not legitimate configuration parameters :)
+
+Under your new configuration, you seem to be asking just the first question. 
+Given that the obvious answer to the first question is "all outstanding SYNCs",
+is there any reason to have this knob be settable at all?  if there are roughly
+30 SYNCs created per synchronization pull, then the value will stay at 30, and
+fall back to 15 if there is an error.  If there are 6 SYNCs per pull, it will
+stay at 6 and fall back to 3.  This seems OK to me.
+
+> We discussed the possibility of starting with an initial "max" being as large
+> as possible (e.g. - the configured max value), and using the "halving upon
+> failure" to scale back as needed, but this seems to have several disadvantages
+> to starting with 1 and doubling:
+
+the downside to starting at 1, of course, is if the per-pull overhead is huge
+it takes a long time to run and you just get farther and farther behind while
+slon is incorporating only a handful of updates.
+
+What about parameterizing the initial number of SYNCs to pull in a group?  Sort
+of "how many SYNCs do you expect to have outstanding at each pull?"  That
+parameter seems more legitimately answerable by an admin, and more directly
+relevant for someone who is trying to recover a seriously-lagged replication
+(e.g. "please start off with enormous SYNC groups so we can catch up faster!")
+
+> 2.  In 2.1, we expect a fundamentally better behaviour due to the fix of bug
+> #167.  A small grouping shouldn't be reverting to SEQ SCAN; we can hope for
+> rather better behaviour of that query.
+
+
+From bugzilla-daemon at main.slony.info  Fri Aug 26 10:19:30 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Fri, 26 Aug 2011 10:19:30 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 235] SYNC GROUP size bugs
+In-Reply-To: <bug-235-4@http.www.slony.info/bugzilla/>
+References: <bug-235-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110826171930.11061290E40@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=235
+
+--- Comment #11 from Christopher Browne <cbbrowne at ca.afilias.info> 2011-08-26 10:19:29 PDT ---
+I have set up a branch for this that prototypes the proposed changes.
+
+https://github.com/cbbrowne/slony1-engine/tree/bug235
+
+There are a few issues outstanding at the moment:
+
+1.  There's still a little question as to whether we start with grouping size
+of 1, or if we go for something higher.
+
+I'm assuming 1, at the moment, which has the merit that this is how Slony
+already behaves.
+
+2.  I'm logging the result of the computation at SLON_INFO level, which is not
+the right verbosity level.
+
+3.  There isn't a good test that validates the behaviour.  None of the
+regression tests are really suitable, as they do not impose any big backlogs.
+
+What is needed is a test that:
+a) Loads a fair bit of data into some tables, so that subscription takes a
+while;
+b) After the subscription request is submitted, injects updates for the
+duration of the subscription, so that there are backlogged updates during the
+subscription.
+
+If one of the disorder tests already has this pattern, then it would be useful
+to know which it is so that we might observe the slon logs during that, to
+verify that we're getting sensible behaviour.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+

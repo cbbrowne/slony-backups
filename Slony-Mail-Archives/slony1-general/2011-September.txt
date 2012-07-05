@@ -1,0 +1,2747 @@
+From nyamada at millburncorp.com  Thu Sep  1 17:46:30 2011
+From: nyamada at millburncorp.com (Norman Yamada)
+Date: Thu, 1 Sep 2011 20:46:30 -0400
+Subject: [Slony1-general] trying to use pg_upgrade for 8.3 database with
+	Slony 2.0.7
+Message-ID: <954037A4-2219-4FFE-8336-F9FF3A5FFFCD@millburncorp.com>
+
+As was discussed in a previous thread here, pg_upgrade complains that the following slony tables/columns can't be migrated from 8.3.x to 9.0.x:
+
+> sl_table.tab_relname
+> sl_table.tab_nspname
+> sl_table.tab_idxname
+> sl_sequence.seq_relname
+> sl_sequence.seq_nspname
+> vactables.relname
+
+I'd still like to use pg_upgrade on a large 8.3.x database that uses slony 2.0.7. if I do the following actions:
+
+1) stop slony;
+2) alter table sl_table alter column tab_relname type text, alter column tab_nspname type text, alter column tab_idxname type text;
+    alter table sl_sequence alter column seq_relname type text, alter column seq_nspname type text;
+    drop type vactables cascade;
+    CREATE TYPE vactables AS (
+        nspname text,
+        relname text
+   );
+   create function tablestovacuum () ? leaving out function body?
+
+3) pg_upgrade
+
+4) start 9.0, do vacuuming analyze, etc?
+
+5) fix slony back:
+
+  alter table sl_table alter column tab_relname type name, alter column tab_nspname type name, alter column tab_idxname type name;
+    alter table sl_sequence alter column seq_relname type name, alter column seq_nspname type name;
+    drop type vactables cascade;
+    CREATE TYPE vactables AS (
+        nspname name,
+        relname name
+   );
+   create function tablestovacuum () ? leaving out function body?
+
+6) then start slony
+
+Does anyone know if this works? I'm going to try this on a test cluster tomorrow, but wondering if anyone has done this already.
+
+Thanks,
+
+Norman Yamada
+
+
+
+From ssinger_pg at sympatico.ca  Thu Sep  1 16:46:17 2011
+From: ssinger_pg at sympatico.ca (Steve Singer)
+Date: Thu, 1 Sep 2011 19:46:17 -0400
+Subject: [Slony1-general] trying to use pg_upgrade for 8.3 database with
+ Slony 2.0.7
+In-Reply-To: <954037A4-2219-4FFE-8336-F9FF3A5FFFCD@millburncorp.com>
+References: <954037A4-2219-4FFE-8336-F9FF3A5FFFCD@millburncorp.com>
+Message-ID: <BLU0-SMTP52589570133DE3485A028CAC180@phx.gbl>
+
+On Thu, 1 Sep 2011, Norman Yamada wrote:
+
+> As was discussed in a previous thread here, pg_upgrade complains that the following slony tables/columns can't be migrated from 8.3.x to 9.0.x:
+
+Also read over http://bugs.slony.info/bugzilla/show_bug.cgi?id=234
+In addition to the issues you have discussed you will also have to make 
+sure that the 64 bit version of the xid's post upgrade are newer than the 64 
+bit versions after.  You might not see this issue on a new test cluster, 
+you would only see it on a cluster that has had the 32 bit xid wrap around 
+at least once.
+
+An upgrade from 8.3 to 9.0 also will require you to make sure that the 8.4 
+version of the slony stored functions are installed not the 8.3 one.
+
+I have not tried upgrading a slony cluster with pg_upgrade, so there might 
+be additional issues still.
+
+
+>
+>> sl_table.tab_relname
+>> sl_table.tab_nspname
+>> sl_table.tab_idxname
+>> sl_sequence.seq_relname
+>> sl_sequence.seq_nspname
+>> vactables.relname
+>
+> I'd still like to use pg_upgrade on a large 8.3.x database that uses slony 2.0.7. if I do the following actions:
+>
+> 1) stop slony;
+> 2) alter table sl_table alter column tab_relname type text, alter column tab_nspname type text, alter column tab_idxname type text;
+>    alter table sl_sequence alter column seq_relname type text, alter column seq_nspname type text;
+>    drop type vactables cascade;
+>    CREATE TYPE vactables AS (
+>        nspname text,
+>        relname text
+>   );
+>   create function tablestovacuum () ? leaving out function body?
+>
+> 3) pg_upgrade
+>
+> 4) start 9.0, do vacuuming analyze, etc?
+>
+> 5) fix slony back:
+>
+>  alter table sl_table alter column tab_relname type name, alter column tab_nspname type name, alter column tab_idxname type name;
+>    alter table sl_sequence alter column seq_relname type name, alter column seq_nspname type name;
+>    drop type vactables cascade;
+>    CREATE TYPE vactables AS (
+>        nspname name,
+>        relname name
+>   );
+>   create function tablestovacuum () ? leaving out function body?
+>
+> 6) then start slony
+>
+> Does anyone know if this works? I'm going to try this on a test cluster tomorrow, but wondering if anyone has done this already.
+>
+> Thanks,
+>
+> Norman Yamada
+>
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+>
+
+From nyamada at millburncorp.com  Thu Sep  1 18:25:12 2011
+From: nyamada at millburncorp.com (Norman Yamada)
+Date: Thu, 1 Sep 2011 21:25:12 -0400
+Subject: [Slony1-general] trying to use pg_upgrade for 8.3 database with
+ Slony 2.0.7
+In-Reply-To: <BLU0-SMTP52589570133DE3485A028CAC180@phx.gbl>
+References: <954037A4-2219-4FFE-8336-F9FF3A5FFFCD@millburncorp.com>
+	<BLU0-SMTP52589570133DE3485A028CAC180@phx.gbl>
+Message-ID: <D85F869B-6644-460F-8106-D9C1017A5D7A@millburncorp.com>
+
+Thanks, Steve, but I'm not feeling very cheery now..
+ 
+1) The sl_log_1 table has xid's in the range of 260914376 or so? Now the master node is staying on 8.3 for the moment; so I guess we're ok until we move it over.. but then what? what are the implications if the sl_log_1 table has transactions with lower xids in it? can we avoid problems if we make sure all nodes are up to date before the migration of the master node (and hence sl_log_1 is empty?)
+
+2) How do I get the 8.4 version of the slony stored functions installed on the node that's moving up from 8.3 to 9.0? Once I pg_upgrade the box, and recompile and install slony for 9.0, will an update_functions suffice?
+
+Thanks,
+
+Norman
+On Sep 1, 2011, at 7:46 PM, Steve Singer wrote:
+
+> On Thu, 1 Sep 2011, Norman Yamada wrote:
+> 
+>> As was discussed in a previous thread here, pg_upgrade complains that the following slony tables/columns can't be migrated from 8.3.x to 9.0.x:
+> 
+> Also read over http://bugs.slony.info/bugzilla/show_bug.cgi?id=234
+> In addition to the issues you have discussed you will also have to make sure that the 64 bit version of the xid's post upgrade are newer than the 64 bit versions after.  You might not see this issue on a new test cluster, you would only see it on a cluster that has had the 32 bit xid wrap around at least once.
+> 
+> An upgrade from 8.3 to 9.0 also will require you to make sure that the 8.4 version of the slony stored functions are installed not the 8.3 one.
+> 
+> I have not tried upgrading a slony cluster with pg_upgrade, so there might be additional issues still.
+
+
+From ssinger_pg at sympatico.ca  Thu Sep  1 17:58:12 2011
+From: ssinger_pg at sympatico.ca (Steve Singer)
+Date: Thu, 1 Sep 2011 20:58:12 -0400
+Subject: [Slony1-general] trying to use pg_upgrade for 8.3 database with
+ Slony 2.0.7
+In-Reply-To: <D85F869B-6644-460F-8106-D9C1017A5D7A@millburncorp.com>
+References: <954037A4-2219-4FFE-8336-F9FF3A5FFFCD@millburncorp.com>
+	<BLU0-SMTP52589570133DE3485A028CAC180@phx.gbl>
+	<D85F869B-6644-460F-8106-D9C1017A5D7A@millburncorp.com>
+Message-ID: <BLU0-SMTP2654047CE0F8C67A385EA9AC180@phx.gbl>
+
+On Thu, 1 Sep 2011, Norman Yamada wrote:
+
+> Thanks, Steve, but I'm not feeling very cheery now..
+>
+> 1) The sl_log_1 table has xid's in the range of 260914376 or so? Now the 
+> master node is staying on 8.3 for the moment; so I guess we're ok until we 
+> move it over.. but then what? what are the implications if the sl_log_1 
+> table has transactions with lower xids in it? can we avoid problems if we 
+> make sure all nodes are up to date before the migration of the master node 
+> (and hence sl_log_1 is empty?)
+
+This issue was discovered by someone who upgraded via pg_dump and ended up 
+with rows in sl_log_1 that were preventing the cleanup thread from 
+truncating sl_log_1 so there sl_log_2 grew to be pretty big because a log 
+switch couldn't complete.
+
+If both sl_log_1 and sl_log_2 are empty on all nodes when you shutdown for 
+the upgrade then you *might* be okay (off the top of my head I don't see 
+other things that would break, but I was surprised when I discovered most 
+of the other issues mentioned). I would also let a SYNC be processed 
+and confirmed by all nodes before you start adding in new rows to sl_log_1 
+(I am not sure how the logic that selects the transactions that committed 
+between two SYNC events would deal with the xid list in the SYNC event list 
+travelling backwards).
+
+
+
+
+
+> 2) How do I get the 8.4 version of the slony stored functions installed on the node that's moving up from 8.3 to 9.0? Once I pg_upgrade the box, and recompile and install slony for 9.0, will an update_functions suffice?
+
+The slonik UPDATE FUNCTIONS command should install the correct version of 
+the stored functions if you run it after the upgrade.
+
+>
+> Thanks,
+>
+> Norman
+
+From nyamada at millburncorp.com  Fri Sep  2 13:53:17 2011
+From: nyamada at millburncorp.com (Norman Yamada)
+Date: Fri, 2 Sep 2011 16:53:17 -0400
+Subject: [Slony1-general] trying to use pg_upgrade for 8.3 database
+	with	Slony 2.0.7 (FAIL)
+In-Reply-To: <9504245F-7F26-4C9A-A6A7-5B0E2E1DE6E8@millburncorp.com>
+References: <954037A4-2219-4FFE-8336-F9FF3A5FFFCD@millburncorp.com>
+	<BLU0-SMTP52589570133DE3485A028CAC180@phx.gbl>
+	<D85F869B-6644-460F-8106-D9C1017A5D7A@millburncorp.com>
+	<BLU0-SMTP2654047CE0F8C67A385EA9AC180@phx.gbl>
+	<9504245F-7F26-4C9A-A6A7-5B0E2E1DE6E8@millburncorp.com>
+Message-ID: <C91FEDEA-37A3-4B2E-BA12-8551859BCFA2@millburncorp.com>
+
+Just to complete this thread -- I tried the method I outlined in my previous email on a test cluster where I ran the following script on the node before I ran pg_upgrade:
+
+> 1) stop slony;
+> 2) alter table sl_table alter column tab_relname type text, alter column tab_nspname type text, alter column tab_idxname type text;
+>    alter table sl_sequence alter column seq_relname type text, alter column seq_nspname type text;
+>    drop type vactables cascade;
+>    CREATE TYPE vactables AS (
+>        nspname text,
+>        relname text
+>   );
+>   create function tablestovacuum () ? leaving out function body?
+> 
+> 3) pg_upgrade
+> 
+> 4) start 9.0, do vacuuming analyze, etc?
+> 
+> 5) fix slony back:
+> 
+>  alter table sl_table alter column tab_relname type name, alter column tab_nspname type name, alter column tab_idxname type name;
+>    alter table sl_sequence alter column seq_relname type name, alter column seq_nspname type name;
+>    drop type vactables cascade;
+>    CREATE TYPE vactables AS (
+>        nspname name,
+>        relname name
+>   );
+>   create function tablestovacuum () ? leaving out function body?
+> 
+> 6) then start slony --
+
+and it failed -- in an interesting way -- the node replicated one insert statement; and after that swallowed all replication events silently.
+
+For the moment, I'm going to have to upgrade the node when I can stop all write activities to the master node. I'll drop the node out of the slony set before I run pg_upgrade; upgrade it to 9.0 and then resubscribe it to the slony set using the omit copy flag. I've tested this now on a test cluster; and this works.
+
+
+--
+######################################################################
+This email is confidential, does not constitute investment advice, is
+only for the use of the intended recipient and should not be
+redistributed, except with the sender's consent. If you received this
+email in error, please notify us immediately by telephone; receipt by
+anyone other than the intended recipient is not a waiver of any
+work-product or attorney-client privilege. All email to and from
+Millburn Ridgefield Corporation, The Millburn Corporation, Millburn
+International and any affiliates is monitored, stored and made
+available to regulators if requested.
+######################################################################
+
+From glynastill at yahoo.co.uk  Thu Sep  8 03:42:35 2011
+From: glynastill at yahoo.co.uk (Glyn Astill)
+Date: Thu, 8 Sep 2011 11:42:35 +0100 (BST)
+Subject: [Slony1-general] pg_dump and replication lag in 2.0.7
+Message-ID: <1315478555.24152.YahooMailNeo@web26003.mail.ukl.yahoo.com>
+
+Hi Guys,
+
+Since we were on slony 1.2 I've been doing full pg_dumps from our servers, and restoring them onto a test setup daily.
+
+Since we've moved to 2.0 I've noticed that those full dumps now cause the subscribers to lag.? I just wanted to ask - is this expected behaviour in 2.0? And is the only real workaround skipping the schema during pg_dump?
+
+It appears to me that cleanupEvent() is waiting for exclusive access to something in the slony schema.? An uneducated guess is that it's going to be that cleanupEvent() is calling logswitch_start() or logswitch_finish() and they are trying to lock sl_config_lock which is blocking. In turn cleanupEvent() can't commit some other update it's done causing createEvent() to block also?
+
+
+Am I wrong in thinking cleanupEvent() didn't used to kick off the logswitching in 1.2?? And am I oversimplifying things by saying why can't the logswitch functions just add NOWAIT when trying to lock sl_config_lock, and skip it if an exception is raised?? Or am I just totally wrong?
+
+
+
+Thanks
+Glyn
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20110908/bace892f/attachment.htm 
+
+From ssinger at ca.afilias.info  Thu Sep  8 07:02:51 2011
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Thu, 08 Sep 2011 10:02:51 -0400
+Subject: [Slony1-general] pg_dump and replication lag in 2.0.7
+In-Reply-To: <1315478555.24152.YahooMailNeo@web26003.mail.ukl.yahoo.com>
+References: <1315478555.24152.YahooMailNeo@web26003.mail.ukl.yahoo.com>
+Message-ID: <4E68CB0B.20200@ca.afilias.info>
+
+On 11-09-08 06:42 AM, Glyn Astill wrote:
+> Hi Guys,
+>
+> Since we were on slony 1.2 I've been doing full pg_dumps from our
+> servers, and restoring them onto a test setup daily.
+>
+> Since we've moved to 2.0 I've noticed that those full dumps now cause
+> the subscribers to lag. I just wanted to ask - is this expected
+> behaviour in 2.0? And is the only real workaround skipping the schema
+> during pg_dump?
+
+Yes this is expected behaviour.  The only work around is to skip the 
+slony schema in pg_dump.
+
+
+>
+> It appears to me that cleanupEvent() is waiting for exclusive access to
+> something in the slony schema. An uneducated guess is that it's going to
+> be that cleanupEvent() is calling logswitch_start() or
+> logswitch_finish() and they are trying to lock sl_config_lock which is
+> blocking. In turn cleanupEvent() can't commit some other update it's
+> done causing createEvent() to block also?
+>
+> Am I wrong in thinking cleanupEvent() didn't used to kick off the
+> logswitching in 1.2? And am I oversimplifying things by saying why can't
+> the logswitch functions just add NOWAIT when trying to lock
+> sl_config_lock, and skip it if an exception is raised? Or am I just
+> totally wrong?
+
+The issue isn't the cleanup event as much as it is the SYNC event.
+When slony generates a SYNC event it gets an exclusive lock on sl_event.
+It can't get this exclusive lock if a pg_dump is running that has read 
+sl_event.  Changing the cleanupEvent() code won't change this.
+
+Slony 1.2 and 2.0 both behave this way, this shouldn't be new behaviour 
+with 2.0.
+
+In Slony 2.1.0 the SYNC event gets the lock on sl_event_lock a table 
+that stores no data and is only used for locking.  You could then 
+exclude just that table from pg_dump but I don't see a lot of value of 
+dumping sl_event anyway.
+
+
+
+
+>
+>
+> Thanks
+> Glyn
+>
+>
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+
+
+From peter at 2ndquadrant.com  Thu Sep  8 07:12:55 2011
+From: peter at 2ndquadrant.com (Peter Geoghegan)
+Date: Thu, 8 Sep 2011 15:12:55 +0100
+Subject: [Slony1-general] pg_dump and replication lag in 2.0.7
+In-Reply-To: <4E68CB0B.20200@ca.afilias.info>
+References: <1315478555.24152.YahooMailNeo@web26003.mail.ukl.yahoo.com>
+	<4E68CB0B.20200@ca.afilias.info>
+Message-ID: <CAEYLb_WXwwnGedrX6vQ0RVgwJ2iViBupV=DPStbThdzXvmCQsA@mail.gmail.com>
+
+On 8 September 2011 15:02, Steve Singer <ssinger at ca.afilias.info> wrote:
+> On 11-09-08 06:42 AM, Glyn Astill wrote:
+>> Hi Guys,
+>>
+>> Since we were on slony 1.2 I've been doing full pg_dumps from our
+>> servers, and restoring them onto a test setup daily.
+>>
+>> Since we've moved to 2.0 I've noticed that those full dumps now cause
+>> the subscribers to lag. I just wanted to ask - is this expected
+>> behaviour in 2.0? And is the only real workaround skipping the schema
+>> during pg_dump?
+>
+> Yes this is expected behaviour. ?The only work around is to skip the
+> slony schema in pg_dump.
+
+Notably, the --exclude-schema option was added to pg_dump specifically
+to facilitate Slony users.
+
+-- 
+Peter Geoghegan ? ? ? http://www.2ndQuadrant.com/
+PostgreSQL Development, 24x7 Support, Training and Services
+
+From glynastill at yahoo.co.uk  Thu Sep  8 08:43:41 2011
+From: glynastill at yahoo.co.uk (Glyn Astill)
+Date: Thu, 8 Sep 2011 16:43:41 +0100 (BST)
+Subject: [Slony1-general] pg_dump and replication lag in 2.0.7
+In-Reply-To: <4E68CB0B.20200@ca.afilias.info>
+References: <1315478555.24152.YahooMailNeo@web26003.mail.ukl.yahoo.com>
+	<4E68CB0B.20200@ca.afilias.info>
+Message-ID: <1315496621.4860.YahooMailNeo@web26004.mail.ukl.yahoo.com>
+
+
+
+>From: Steve Singer <ssinger at ca.afilias.info>
+>
+>Yes this is expected behaviour.? The only work around is to skip the 
+>slony schema in pg_dump.
+>
+>
+
+Ok, cool, I'll do that then.
+
+>
+
+>The issue isn't the cleanup event as much as it is the SYNC event.
+>When slony generates a SYNC event it gets an exclusive lock on sl_event.
+>It can't get this exclusive lock if a pg_dump is running that has read 
+>sl_event.? Changing the cleanupEvent() code won't change this.
+>
+>Slony 1.2 and 2.0 both behave this way, this shouldn't be new behaviour 
+>with 2.0.
+>
+
+Hmm, my nagios graphs disagree (or for some reason were oblivious), we check syncs every 10 minutes and they only started showing warnings the night after we moved to 2.0. The check is basically just looks at sl_status, and flags up a problem if st_lag_num_events or st_lag_time go over a threshold via the following query.
+
+
+??? SELECT st_origin, st_received, st_lag_num_events, round(extract(epoch from st_lag_time)) 
+??? FROM "<my_replication_cluster>".sl_status;
+
+A graph for the weeks leading up to and after the upgrade is attached.? I upgraded on the night of the 25th/26th and ignoring any other downtime where I was obviously fiddling with things, you can see the syncs going out after that date.? As you can imagine, I'm massively embarrassed that it took me 3 months to notice it happening.
+
+
+>In Slony 2.1.0 the SYNC event gets the lock on sl_event_lock a table 
+>that stores no data and is only used for locking.? You could then 
+>exclude just that table from pg_dump but I don't see a lot of value of 
+>dumping sl_event anyway.
+>
+
+Great, thanks.
+
+Glyn
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: syncs.png
+Type: image/png
+Size: 38425 bytes
+Desc: not available
+Url : http://lists.slony.info/pipermail/slony1-general/attachments/20110908/639e4208/attachment-0001.png 
+
+From greg at endpoint.com  Thu Sep  8 08:57:13 2011
+From: greg at endpoint.com (Greg Sabino Mullane)
+Date: Thu, 8 Sep 2011 11:57:13 -0400
+Subject: [Slony1-general] pg_dump and replication lag in 2.0.7
+In-Reply-To: <CAEYLb_WXwwnGedrX6vQ0RVgwJ2iViBupV=DPStbThdzXvmCQsA@mail.gmail.com>
+References: <1315478555.24152.YahooMailNeo@web26003.mail.ukl.yahoo.com>
+	<4E68CB0B.20200@ca.afilias.info>
+	<CAEYLb_WXwwnGedrX6vQ0RVgwJ2iViBupV=DPStbThdzXvmCQsA@mail.gmail.com>
+Message-ID: <20110908155713.GP3865@core.home>
+
+> Notably, the --exclude-schema option was added to pg_dump specifically
+> to facilitate Slony users.
+
+As the author of said feature, I can assure it was not done with Slony 
+in mind. But I'm happy that it helps Slony users. :)
+
+-- 
+Greg Sabino Mullane greg at endpoint.com
+End Point Corporation
+PGP Key: 0x14964AC8
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: not available
+Type: application/pgp-signature
+Size: 163 bytes
+Desc: not available
+Url : http://lists.slony.info/pipermail/slony1-general/attachments/20110908/ea50673a/attachment.pgp 
+
+From vivek at khera.org  Thu Sep  8 09:03:20 2011
+From: vivek at khera.org (Vick Khera)
+Date: Thu, 8 Sep 2011 12:03:20 -0400
+Subject: [Slony1-general] pg_dump and replication lag in 2.0.7
+In-Reply-To: <1315496621.4860.YahooMailNeo@web26004.mail.ukl.yahoo.com>
+References: <1315478555.24152.YahooMailNeo@web26003.mail.ukl.yahoo.com>
+	<4E68CB0B.20200@ca.afilias.info>
+	<1315496621.4860.YahooMailNeo@web26004.mail.ukl.yahoo.com>
+Message-ID: <CALd+dcfjt5szuWW6X6W_+0OWJJZGzWqHPTCdj+V_vdjCvn_KYw@mail.gmail.com>
+
+On Thu, Sep 8, 2011 at 11:43 AM, Glyn Astill <glynastill at yahoo.co.uk> wrote:
+>>Slony 1.2 and 2.0 both behave this way, this shouldn't be new behaviour
+>>with 2.0.
+>>
+>
+> Hmm, my nagios graphs disagree (or for some reason were oblivious), we check syncs every 10 minutes and they only started showing warnings the night after we moved to 2.0. The check is basically just looks at sl_status, and flags up a problem if st_lag_num_events or st_lag_time go over a threshold via the following query.
+>
+
+I disagree as well.  We still run 1.2.x and I never get replication
+lag alarms from our monitoring, and the nightly dump of my big DB
+takes a couple of hours.  I'm still going to add the --exclude-schema
+to it, just because it is useless to dump the slony schema anyway.
+
+From cbbrowne at afilias.info  Thu Sep  8 09:08:26 2011
+From: cbbrowne at afilias.info (Christopher Browne)
+Date: Thu, 8 Sep 2011 12:08:26 -0400
+Subject: [Slony1-general] pg_dump and replication lag in 2.0.7
+In-Reply-To: <4E68CB0B.20200@ca.afilias.info>
+References: <1315478555.24152.YahooMailNeo@web26003.mail.ukl.yahoo.com>
+	<4E68CB0B.20200@ca.afilias.info>
+Message-ID: <CANfbgbY5k=bm+Ey7VYRyutM5oTRpXOKRpOjwrnwQ5PNRMfCY9g@mail.gmail.com>
+
+On Thu, Sep 8, 2011 at 10:02 AM, Steve Singer <ssinger at ca.afilias.info> wrote:
+> In Slony 2.1.0 the SYNC event gets the lock on sl_event_lock a table
+> that stores no data and is only used for locking. ?You could then
+> exclude just that table from pg_dump but I don't see a lot of value of
+> dumping sl_event anyway.
+
+
+From glynastill at yahoo.co.uk  Thu Sep  8 09:14:00 2011
+From: glynastill at yahoo.co.uk (Glyn Astill)
+Date: Thu, 8 Sep 2011 17:14:00 +0100 (BST)
+Subject: [Slony1-general] pg_dump and replication lag in 2.0.7
+In-Reply-To: <CALd+dcfjt5szuWW6X6W_+0OWJJZGzWqHPTCdj+V_vdjCvn_KYw@mail.gmail.com>
+References: <1315478555.24152.YahooMailNeo@web26003.mail.ukl.yahoo.com>
+	<4E68CB0B.20200@ca.afilias.info>
+	<1315496621.4860.YahooMailNeo@web26004.mail.ukl.yahoo.com>
+	<CALd+dcfjt5szuWW6X6W_+0OWJJZGzWqHPTCdj+V_vdjCvn_KYw@mail.gmail.com>
+Message-ID: <1315498440.96977.YahooMailNeo@web26001.mail.ukl.yahoo.com>
+
+
+
+
+
+> From: Vick Khera <vivek at khera.org>
+> On Thu, Sep 8, 2011 at 11:43 AM, Glyn Astill <glynastill at yahoo.co.uk> 
+> wrote:
+>>> Slony 1.2 and 2.0 both behave this way, this shouldn't be new 
+>>> behaviour with 2.0.
+>>> 
+>> 
+>>  Hmm, my nagios graphs disagree (or for some reason were oblivious), we 
+> check syncs every 10 minutes and they only started showing warnings the night 
+> after we moved to 2.0. The check is basically just looks at sl_status, and flags 
+> up a problem if st_lag_num_events or st_lag_time go over a threshold via the 
+> following query.
+>> 
+> 
+> I disagree as well.? We still run 1.2.x and I never get replication
+> lag alarms from our monitoring, and the nightly dump of my big DB
+> takes a couple of hours.? I'm still going to add the --exclude-schema
+> to it, just because it is useless to dump the slony schema anyway.
+
+Great to hear I'm not the only one then Vick.
+
+When we were on 1.2 I purposefully used to dump the slony schema so that we could restore from our subscribers data and use slony baremetal functions to fix the schema corruption automatically.
+
+From ssinger at ca.afilias.info  Thu Sep  8 10:43:29 2011
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Thu, 08 Sep 2011 13:43:29 -0400
+Subject: [Slony1-general] pg_dump and replication lag in 2.0.7
+In-Reply-To: <1315496621.4860.YahooMailNeo@web26004.mail.ukl.yahoo.com>
+References: <1315478555.24152.YahooMailNeo@web26003.mail.ukl.yahoo.com>
+	<4E68CB0B.20200@ca.afilias.info>
+	<1315496621.4860.YahooMailNeo@web26004.mail.ukl.yahoo.com>
+Message-ID: <4E68FEC1.3070604@ca.afilias.info>
+
+On 11-09-08 11:43 AM, Glyn Astill wrote:
+
+>
+>      SELECT st_origin, st_received, st_lag_num_events, round(extract(epoch from st_lag_time))
+>      FROM "<my_replication_cluster>".sl_status;
+>
+> A graph for the weeks leading up to and after the upgrade is attached.  I upgraded on the night of the 25th/26th and ignoring any other downtime where I was obviously fiddling with things, you can see the syncs going out after that date.  As you can imagine, I'm massively embarrassed that it took me 3 months to notice it happening.
+>
+
+st_lag_time is a measure of the difference between now() and the last 
+unconfirmed event.  The pg_dump locks sl_event which prevents the SYNC's 
+from being created so there might not be any unconfirmed events to be 
+measured by this check.
+
+
+
+Sometime between 2.0.4 and 2.0.6 we fixed a bug that prevented SYNC 
+events from being generated from pure slaves. I suspect your check is 
+now measuring the other half of replication (if you do your select from 
+sl_status you should see at least two rows, it isn't clear if your 
+graphing both of them or just one).
+
+If  now()-st_last_event_ts gets too high it means that SYNC events are 
+not being generated.  You might want to alert on both SYNC events not 
+being generated and events not being confirmed.
+
+
+
+>
+> Glyn
+
+
+From glynastill at yahoo.co.uk  Fri Sep  9 01:27:58 2011
+From: glynastill at yahoo.co.uk (Glyn Astill)
+Date: Fri, 9 Sep 2011 09:27:58 +0100 (BST)
+Subject: [Slony1-general] pg_dump and replication lag in 2.0.7
+In-Reply-To: <4E68FEC1.3070604@ca.afilias.info>
+References: <1315478555.24152.YahooMailNeo@web26003.mail.ukl.yahoo.com>
+	<4E68CB0B.20200@ca.afilias.info>
+	<1315496621.4860.YahooMailNeo@web26004.mail.ukl.yahoo.com>
+	<4E68FEC1.3070604@ca.afilias.info>
+Message-ID: <1315556878.6511.YahooMailNeo@web26002.mail.ukl.yahoo.com>
+
+
+
+> From: Steve Singer <ssinger at ca.afilias.info>
+> On 11-09-08 11:43 AM, Glyn Astill wrote: 
+>> 
+>> ? ? ? SELECT st_origin, st_received, st_lag_num_events, round(extract(epoch 
+> from st_lag_time))
+>> ? ? ? FROM "<my_replication_cluster>".sl_status;
+>> 
+>>  A graph for the weeks leading up to and after the upgrade is attached.? I 
+> upgraded on the night of the 25th/26th and ignoring any other downtime where I 
+> was obviously fiddling with things, you can see the syncs going out after that 
+> date.? As you can imagine, I'm massively embarrassed that it took me 3 
+> months to notice it happening.
+>> 
+> 
+> st_lag_time is a measure of the difference between now() and the last 
+> unconfirmed event.? The pg_dump locks sl_event which prevents the SYNC's 
+> from being created so there might not be any unconfirmed events to be measured 
+> by this check.
+> 
+> 
+> Sometime between 2.0.4 and 2.0.6 we fixed a bug that prevented SYNC events from 
+> being generated from pure slaves. I suspect your check is now measuring the 
+> other half of replication (if you do your select from sl_status you should see 
+> at least two rows, it isn't clear if your graphing both of them or just 
+> one).
+> 
+> If? now()-st_last_event_ts gets too high it means that SYNC events are not being 
+> generated.? You might want to alert on both SYNC events not being generated and 
+> events not being confirmed.
+> 
+
+Okay, you know better than me.? However I'm positive that when we were on 1.2 and I was in overnight our slaves were up to date whilst the backups were running, it's only circumstansial of course, but pretty sure I'd have noticed in 3 years if not as I'd query those slaves all the time.
+
+I've excluded the slony scchema from the dump now, so we're all good anyway.? 
+
+Thanks
+Glyn
+
+
+From dkg at fifthhorseman.net  Mon Sep 12 05:40:57 2011
+From: dkg at fifthhorseman.net (Daniel Kahn Gillmor)
+Date: Mon, 12 Sep 2011 08:40:57 -0400
+Subject: [Slony1-general] documentation bug in WAIT EVENT?
+Message-ID: <4E6DFDD9.3050808@fifthhorseman.net>
+
+Hi folks--
+
+i just reported this on #slony, but it was odd hours and i suspect it
+might get lost in the IRC backlog, so i'm posting it here:
+
+At the bottom of:
+
+   http://slony.info/documentation/2.0/stmtwaitevent.html
+
+it says: "In order to more reliably monitor from within a slonik script
+that SLONIK SUBSCRIBE SET is complete, you may submit a SLONIK SYNC
+event after the subscription, and have the WAIT request wait on the SYNC
+event, as follows. "
+
+But then the example that follows does not include any SYNCs.  I don't
+know how to interpret it, but the example and the text seem to be in
+disagreement.
+
+It's probably worth modifying it to either correct the example or to
+make the description less misleading.
+
+Thanks for slony!
+
+	--dkg
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: signature.asc
+Type: application/pgp-signature
+Size: 1030 bytes
+Desc: OpenPGP digital signature
+Url : http://lists.slony.info/pipermail/slony1-general/attachments/20110912/0e6dcf27/attachment.pgp 
+
+From cs_dba at consistentstate.com  Tue Sep 13 11:33:28 2011
+From: cs_dba at consistentstate.com (CS DBA)
+Date: Tue, 13 Sep 2011 12:33:28 -0600
+Subject: [Slony1-general] PostgreSQL 9.1 support?
+Message-ID: <4E6FA1F8.4010402@consistentstate.com>
+
+Hi All;
+
+Anyone know if/when and what version of SLONY will support PostgreSQL 9.1?
+
+
+Thanks in advance
+
+
+-- 
+---------------------------------------------
+Kevin Kempter       -       Constent State
+A PostgreSQL Professional Services Company
+           www.consistentstate.com
+---------------------------------------------
+
+
+From janwieck at yahoo.com  Tue Sep 13 11:42:45 2011
+From: janwieck at yahoo.com (Jan Wieck)
+Date: Tue, 13 Sep 2011 18:42:45 +0000
+Subject: [Slony1-general] PostgreSQL 9.1 support?
+In-Reply-To: <4E6FA1F8.4010402@consistentstate.com>
+References: <4E6FA1F8.4010402@consistentstate.com>
+Message-ID: <379750794-1315939366-cardhu_decombobulator_blackberry.rim.net-1006656871-@b11.c5.bise6.blackberry>
+
+Doesn't 2.0?
+
+Jan
+--
+Sent from a mobile device
+
+-----Original Message-----
+From: CS DBA <cs_dba at consistentstate.com>
+Sender: slony1-general-bounces at lists.slony.info
+Date: Tue, 13 Sep 2011 12:33:28 
+To: <slony1-general at lists.slony.info>
+Subject: [Slony1-general] PostgreSQL 9.1 support?
+
+Hi All;
+
+Anyone know if/when and what version of SLONY will support PostgreSQL 9.1?
+
+
+Thanks in advance
+
+
+-- 
+---------------------------------------------
+Kevin Kempter       -       Constent State
+A PostgreSQL Professional Services Company
+           www.consistentstate.com
+---------------------------------------------
+
+_______________________________________________
+Slony1-general mailing list
+Slony1-general at lists.slony.info
+http://lists.slony.info/mailman/listinfo/slony1-general
+
+
+From cbbrowne at afilias.info  Tue Sep 13 12:06:30 2011
+From: cbbrowne at afilias.info (Christopher Browne)
+Date: Tue, 13 Sep 2011 15:06:30 -0400
+Subject: [Slony1-general] PostgreSQL 9.1 support?
+In-Reply-To: <4E6FA1F8.4010402@consistentstate.com>
+References: <4E6FA1F8.4010402@consistentstate.com>
+Message-ID: <CANfbgbY9ohs-bFWmiaz2qedBbeRxKp7WPnNqRvO-4iSh22xxpA@mail.gmail.com>
+
+On Tue, Sep 13, 2011 at 2:33 PM, CS DBA <cs_dba at consistentstate.com> wrote:
+> Hi All;
+>
+> Anyone know if/when and what version of SLONY will support PostgreSQL 9.1?
+
+I have been periodically doing builds and *some* testing against Git
+Master; there have been a number of patches going in, now and again,
+as issues have been found.
+
+The most recent was a "9.2" issue:
+http://git.postgresql.org/gitweb/?p=slony1-engine.git;a=commit;h=a7e9bcbccac54dfefe4b63db822e386d0c705e3e
+
+That patch exists on both "master" and "2.0" branches, past, at this
+point, any releases.  Of course, that's a 9.2-ism, so *newer* than 9.1
+:-)
+
+There aren't any 9.1-related fixes that aren't in releases.
+
+I'd expect 2.0.7 to work fine with PG 9.1.
+
+I'm less sure about 1.2.22; it's worth trying to build it.  I'd think
+it likely that it would work.
+
+From cs_dba at consistentstate.com  Tue Sep 13 14:16:02 2011
+From: cs_dba at consistentstate.com (CS DBA)
+Date: Tue, 13 Sep 2011 15:16:02 -0600
+Subject: [Slony1-general] PostgreSQL 9.1 support?
+In-Reply-To: <379750794-1315939366-cardhu_decombobulator_blackberry.rim.net-1006656871-@b11.c5.bise6.blackberry>
+References: <4E6FA1F8.4010402@consistentstate.com>
+	<379750794-1315939366-cardhu_decombobulator_blackberry.rim.net-1006656871-@b11.c5.bise6.blackberry>
+Message-ID: <4E6FC812.6050004@consistentstate.com>
+
+Setting up with a 9.1 rc1  master & 9.0.4 slave I get this:
+
+
+<stdin>:7: Possible unsupported PostgreSQL version (90100) 9.1, 
+defaulting to 8.4 support
+<stdin>:19: loading of file 
+/opt/app/postgres/91rc1/share//slony1_funcs.sql: PGRES_FATAL_ERROR 
+ERROR:  could not find function "_Slony_I_resetSession" in file 
+"/opt/app/postgres/904/lib/slony1_funcs.so"
+ERROR:  could not find function "_Slony_I_resetSession" in file 
+"/opt/app/postgres/904/lib/slony1_funcs.so"
+
+
+Thoughts?
+
+
+
+
+
+
+> Doesn't 2.0?
+>
+> Jan
+> --
+> Sent from a mobile device
+>
+> -----Original Message-----
+> From: CS DBA<cs_dba at consistentstate.com>
+> Sender: slony1-general-bounces at lists.slony.info
+> Date: Tue, 13 Sep 2011 12:33:28
+> To:<slony1-general at lists.slony.info>
+> Subject: [Slony1-general] PostgreSQL 9.1 support?
+>
+> Hi All;
+>
+> Anyone know if/when and what version of SLONY will support PostgreSQL 9.1?
+>
+>
+> Thanks in advance
+>
+>
+
+
+-- 
+---------------------------------------------
+Kevin Kempter       -       Constent State
+A PostgreSQL Professional Services Company
+           www.consistentstate.com
+---------------------------------------------
+
+
+From ssinger_pg at sympatico.ca  Tue Sep 13 15:24:36 2011
+From: ssinger_pg at sympatico.ca (Steve Singer)
+Date: Tue, 13 Sep 2011 18:24:36 -0400
+Subject: [Slony1-general] PostgreSQL 9.1 support?
+In-Reply-To: <4E6FC812.6050004@consistentstate.com>
+References: <4E6FA1F8.4010402@consistentstate.com>	<379750794-1315939366-cardhu_decombobulator_blackberry.rim.net-1006656871-@b11.c5.bise6.blackberry>
+	<4E6FC812.6050004@consistentstate.com>
+Message-ID: <BLU0-SMTP54D1771519019188205502AC050@phx.gbl>
+
+CS DBA wrote:
+> Setting up with a 9.1 rc1  master & 9.0.4 slave I get this:
+> 
+> 
+> <stdin>:7: Possible unsupported PostgreSQL version (90100) 9.1, 
+> defaulting to 8.4 support
+> <stdin>:19: loading of file 
+> /opt/app/postgres/91rc1/share//slony1_funcs.sql: PGRES_FATAL_ERROR 
+> ERROR:  could not find function "_Slony_I_resetSession" in file 
+> "/opt/app/postgres/904/lib/slony1_funcs.so"
+> ERROR:  could not find function "_Slony_I_resetSession" in file 
+> "/opt/app/postgres/904/lib/slony1_funcs.so"
+> 
+
+You don't tell us which version of slony you are using.
+resetSession is a new function that was added sometime during the 2.1.0 
+betas.
+
+Is it possible that you are trying to use the 2.1.0 slony_funcs.sql file 
+with a slony 2.0.x shared library.  It *looks* like that from your 
+output  but if there is  another issue with 2.1.0 we'd like to know 
+about it.
+
+As Chris said both of us have done testing against 9.1 betas with 2.1.0 
+and 2.0.7.  You will see the "Possible unsupported PostgreSQL 
+version..." message because we didn't want to remove that until 9.1 was 
+actually released.
+
+Steve
+
+
+> 
+> Thoughts?
+> 
+> 
+> 
+> 
+> 
+> 
+>> Doesn't 2.0?
+>>
+>> Jan
+>> --
+>> Sent from a mobile device
+>>
+>> -----Original Message-----
+>> From: CS DBA<cs_dba at consistentstate.com>
+>> Sender: slony1-general-bounces at lists.slony.info
+>> Date: Tue, 13 Sep 2011 12:33:28
+>> To:<slony1-general at lists.slony.info>
+>> Subject: [Slony1-general] PostgreSQL 9.1 support?
+>>
+>> Hi All;
+>>
+>> Anyone know if/when and what version of SLONY will support PostgreSQL 9.1?
+>>
+>>
+>> Thanks in advance
+>>
+>>
+> 
+> 
+
+
+From dan at randomdan.homeip.net  Tue Sep 13 15:29:40 2011
+From: dan at randomdan.homeip.net (Dan Goodliffe)
+Date: Tue, 13 Sep 2011 23:29:40 +0100
+Subject: [Slony1-general] PostgreSQL 9.1 support?
+In-Reply-To: <BLU0-SMTP54D1771519019188205502AC050@phx.gbl>
+References: <4E6FA1F8.4010402@consistentstate.com>	<379750794-1315939366-cardhu_decombobulator_blackberry.rim.net-1006656871-@b11.c5.bise6.blackberry>
+	<4E6FC812.6050004@consistentstate.com>
+	<BLU0-SMTP54D1771519019188205502AC050@phx.gbl>
+Message-ID: <4E6FD954.1030300@randomdan.homeip.net>
+
+I've been playing with 9.1 and slony 2.1.0 betas.
+Without digging into the code again (I can if you want) there are two 
+places where it checks the server version number (major.minor in the 
+form of 90100 I think) but treats anything above 90000 as unsupported 
+and goes for 8.4 support... which doesn't work.
+I manually changed those points to be 90100 and it worked like charm.
+
+On 13/09/11 23:24, Steve Singer wrote:
+> CS DBA wrote:
+>> Setting up with a 9.1 rc1  master&  9.0.4 slave I get this:
+>>
+>>
+>> <stdin>:7: Possible unsupported PostgreSQL version (90100) 9.1,
+>> defaulting to 8.4 support
+>> <stdin>:19: loading of file
+>> /opt/app/postgres/91rc1/share//slony1_funcs.sql: PGRES_FATAL_ERROR
+>> ERROR:  could not find function "_Slony_I_resetSession" in file
+>> "/opt/app/postgres/904/lib/slony1_funcs.so"
+>> ERROR:  could not find function "_Slony_I_resetSession" in file
+>> "/opt/app/postgres/904/lib/slony1_funcs.so"
+>>
+> You don't tell us which version of slony you are using.
+> resetSession is a new function that was added sometime during the 2.1.0
+> betas.
+>
+> Is it possible that you are trying to use the 2.1.0 slony_funcs.sql file
+> with a slony 2.0.x shared library.  It *looks* like that from your
+> output  but if there is  another issue with 2.1.0 we'd like to know
+> about it.
+>
+> As Chris said both of us have done testing against 9.1 betas with 2.1.0
+> and 2.0.7.  You will see the "Possible unsupported PostgreSQL
+> version..." message because we didn't want to remove that until 9.1 was
+> actually released.
+>
+> Steve
+>
+>
+>> Thoughts?
+>>
+>>
+>>
+>>
+>>
+>>
+>>> Doesn't 2.0?
+>>>
+>>> Jan
+>>> --
+>>> Sent from a mobile device
+>>>
+>>> -----Original Message-----
+>>> From: CS DBA<cs_dba at consistentstate.com>
+>>> Sender: slony1-general-bounces at lists.slony.info
+>>> Date: Tue, 13 Sep 2011 12:33:28
+>>> To:<slony1-general at lists.slony.info>
+>>> Subject: [Slony1-general] PostgreSQL 9.1 support?
+>>>
+>>> Hi All;
+>>>
+>>> Anyone know if/when and what version of SLONY will support PostgreSQL 9.1?
+>>>
+>>>
+>>> Thanks in advance
+>>>
+>>>
+>>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+
+-- 
+Dan Goodliffe
+07970 523693
+dan.goodliffe at randomdan.homeip.net
+
+
+From dan at randomdan.homeip.net  Tue Sep 13 15:34:32 2011
+From: dan at randomdan.homeip.net (Dan Goodliffe)
+Date: Tue, 13 Sep 2011 23:34:32 +0100
+Subject: [Slony1-general] PostgreSQL 9.1 support?
+In-Reply-To: <4E6FD954.1030300@randomdan.homeip.net>
+References: <4E6FA1F8.4010402@consistentstate.com>	<379750794-1315939366-cardhu_decombobulator_blackberry.rim.net-1006656871-@b11.c5.bise6.blackberry>
+	<4E6FC812.6050004@consistentstate.com>
+	<BLU0-SMTP54D1771519019188205502AC050@phx.gbl>
+	<4E6FD954.1030300@randomdan.homeip.net>
+Message-ID: <4E6FDA78.5080706@randomdan.homeip.net>
+
+OK, it's slonik.c 1909 and 1995 in beta1.... I guess that could be 
+different in more recent versions.
+
+         else if ((adminfo->pg_version >= 90000) && (adminfo->pg_version 
+< 90100)) /* 9.0 */
+
+I changed the second version to 90200 to include all v9.1s, might be 
+right, might not.
+
+On 13/09/11 23:29, Dan Goodliffe wrote:
+> I've been playing with 9.1 and slony 2.1.0 betas.
+> Without digging into the code again (I can if you want) there are two
+> places where it checks the server version number (major.minor in the
+> form of 90100 I think) but treats anything above 90000 as unsupported
+> and goes for 8.4 support... which doesn't work.
+> I manually changed those points to be 90100 and it worked like charm.
+>
+> On 13/09/11 23:24, Steve Singer wrote:
+>> CS DBA wrote:
+>>> Setting up with a 9.1 rc1  master&   9.0.4 slave I get this:
+>>>
+>>>
+>>> <stdin>:7: Possible unsupported PostgreSQL version (90100) 9.1,
+>>> defaulting to 8.4 support
+>>> <stdin>:19: loading of file
+>>> /opt/app/postgres/91rc1/share//slony1_funcs.sql: PGRES_FATAL_ERROR
+>>> ERROR:  could not find function "_Slony_I_resetSession" in file
+>>> "/opt/app/postgres/904/lib/slony1_funcs.so"
+>>> ERROR:  could not find function "_Slony_I_resetSession" in file
+>>> "/opt/app/postgres/904/lib/slony1_funcs.so"
+>>>
+>> You don't tell us which version of slony you are using.
+>> resetSession is a new function that was added sometime during the 2.1.0
+>> betas.
+>>
+>> Is it possible that you are trying to use the 2.1.0 slony_funcs.sql file
+>> with a slony 2.0.x shared library.  It *looks* like that from your
+>> output  but if there is  another issue with 2.1.0 we'd like to know
+>> about it.
+>>
+>> As Chris said both of us have done testing against 9.1 betas with 2.1.0
+>> and 2.0.7.  You will see the "Possible unsupported PostgreSQL
+>> version..." message because we didn't want to remove that until 9.1 was
+>> actually released.
+>>
+>> Steve
+>>
+>>
+>>> Thoughts?
+>>>
+>>>
+>>>
+>>>
+>>>
+>>>
+>>>> Doesn't 2.0?
+>>>>
+>>>> Jan
+>>>> --
+>>>> Sent from a mobile device
+>>>>
+>>>> -----Original Message-----
+>>>> From: CS DBA<cs_dba at consistentstate.com>
+>>>> Sender: slony1-general-bounces at lists.slony.info
+>>>> Date: Tue, 13 Sep 2011 12:33:28
+>>>> To:<slony1-general at lists.slony.info>
+>>>> Subject: [Slony1-general] PostgreSQL 9.1 support?
+>>>>
+>>>> Hi All;
+>>>>
+>>>> Anyone know if/when and what version of SLONY will support PostgreSQL 9.1?
+>>>>
+>>>>
+>>>> Thanks in advance
+>>>>
+>>>>
+>> _______________________________________________
+>> Slony1-general mailing list
+>> Slony1-general at lists.slony.info
+>> http://lists.slony.info/mailman/listinfo/slony1-general
+
+-- 
+Dan Goodliffe
+07970 523693
+dan.goodliffe at randomdan.homeip.net
+
+
+From ssinger_pg at sympatico.ca  Tue Sep 13 15:41:04 2011
+From: ssinger_pg at sympatico.ca (Steve Singer)
+Date: Tue, 13 Sep 2011 18:41:04 -0400
+Subject: [Slony1-general] PostgreSQL 9.1 support?
+In-Reply-To: <4E6FDA78.5080706@randomdan.homeip.net>
+References: <4E6FA1F8.4010402@consistentstate.com>	<379750794-1315939366-cardhu_decombobulator_blackberry.rim.net-1006656871-@b11.c5.bise6.blackberry>	<4E6FC812.6050004@consistentstate.com>	<BLU0-SMTP54D1771519019188205502AC050@phx.gbl>	<4E6FD954.1030300@randomdan.homeip.net>
+	<4E6FDA78.5080706@randomdan.homeip.net>
+Message-ID: <BLU0-SMTP999AE0F6EAE2BCBB1EA43AAC050@phx.gbl>
+
+Dan Goodliffe wrote:
+> OK, it's slonik.c 1909 and 1995 in beta1.... I guess that could be 
+> different in more recent versions.
+> 
+>          else if ((adminfo->pg_version >= 90000) && (adminfo->pg_version 
+> < 90100)) /* 9.0 */
+> 
+> I changed the second version to 90200 to include all v9.1s, might be 
+> right, might not.
+
+This change will only remove the 'warning message' inside that if blocks 
+  does the same thing for 8.4, 9.0 and anything unrecognized (ie 9.1) 
+other than the warning message.
+
+Thanks for playing around with 2.1.0 betas.  I love to hear positive 
+test reports.
+
+> 
+> On 13/09/11 23:29, Dan Goodliffe wrote:
+>> I've been playing with 9.1 and slony 2.1.0 betas.
+>> Without digging into the code again (I can if you want) there are two
+>> places where it checks the server version number (major.minor in the
+>> form of 90100 I think) but treats anything above 90000 as unsupported
+>> and goes for 8.4 support... which doesn't work.
+>> I manually changed those points to be 90100 and it worked like charm.
+
+
+From cs_dba at consistentstate.com  Tue Sep 13 16:26:44 2011
+From: cs_dba at consistentstate.com (CS DBA)
+Date: Tue, 13 Sep 2011 17:26:44 -0600
+Subject: [Slony1-general] PostgreSQL 9.1 support?
+In-Reply-To: <BLU0-SMTP54D1771519019188205502AC050@phx.gbl>
+References: <4E6FA1F8.4010402@consistentstate.com>	<379750794-1315939366-cardhu_decombobulator_blackberry.rim.net-1006656871-@b11.c5.bise6.blackberry>
+	<4E6FC812.6050004@consistentstate.com>
+	<BLU0-SMTP54D1771519019188205502AC050@phx.gbl>
+Message-ID: <4E6FE6B4.5020107@consistentstate.com>
+
+On 09/13/2011 04:24 PM, Steve Singer wrote:
+> CS DBA wrote:
+>> Setting up with a 9.1 rc1  master & 9.0.4 slave I get this:
+>>
+>>
+>> <stdin>:7: Possible unsupported PostgreSQL version (90100) 9.1, 
+>> defaulting to 8.4 support
+>> <stdin>:19: loading of file 
+>> /opt/app/postgres/91rc1/share//slony1_funcs.sql: PGRES_FATAL_ERROR 
+>> ERROR:  could not find function "_Slony_I_resetSession" in file 
+>> "/opt/app/postgres/904/lib/slony1_funcs.so"
+>> ERROR:  could not find function "_Slony_I_resetSession" in file 
+>> "/opt/app/postgres/904/lib/slony1_funcs.so"
+>>
+>
+> You don't tell us which version of slony you are using.
+> resetSession is a new function that was added sometime during the 
+> 2.1.0 betas.
+>
+> Is it possible that you are trying to use the 2.1.0 slony_funcs.sql 
+> file with a slony 2.0.x shared library.  It *looks* like that from 
+> your output  but if there is  another issue with 2.1.0 we'd like to 
+> know about it.
+>
+> As Chris said both of us have done testing against 9.1 betas with 
+> 2.1.0 and 2.0.7.  You will see the "Possible unsupported PostgreSQL 
+> version..." message because we didn't want to remove that until 9.1 
+> was actually released.
+>
+> Steve
+>
+>
+>>
+>> Thoughts?
+>>
+>>
+>>
+>>
+>>
+>>
+>>> Doesn't 2.0?
+>>>
+>>> Jan
+>>> -- 
+>>> Sent from a mobile device
+>>>
+>>> -----Original Message-----
+>>> From: CS DBA<cs_dba at consistentstate.com>
+>>> Sender: slony1-general-bounces at lists.slony.info
+>>> Date: Tue, 13 Sep 2011 12:33:28
+>>> To:<slony1-general at lists.slony.info>
+>>> Subject: [Slony1-general] PostgreSQL 9.1 support?
+>>>
+>>> Hi All;
+>>>
+>>> Anyone know if/when and what version of SLONY will support 
+>>> PostgreSQL 9.1?
+>>>
+>>>
+>>> Thanks in advance
+>>>
+>>>
+>>
+>>
+>
+
+
+both servers have slony v 2.0.7
+
+PostgreSQL versions:
+master = 9.1RC1
+slave   =  9.0.4
+
+
+However, let me say that there are a few other devs with their hands on 
+this box.  I'll do a full clean reset of the slony and postgres installs 
+and let you know where I end up.
+
+
+
+
+
+-- 
+---------------------------------------------
+Kevin Kempter       -       Constent State
+A PostgreSQL Professional Services Company
+           www.consistentstate.com
+---------------------------------------------
+
+
+From cs_dba at consistentstate.com  Wed Sep 14 11:56:11 2011
+From: cs_dba at consistentstate.com (CS DBA)
+Date: Wed, 14 Sep 2011 12:56:11 -0600
+Subject: [Slony1-general] Errors adding a 3rd slave with SLONY 2.0.7
+Message-ID: <4E70F8CB.2090208@consistentstate.com>
+
+Hi All;
+
+I'm getting this error:
+
+
+<stdin>:8: PGRES_FATAL_ERROR load '$libdir/slony1_funcs';  - ERROR:  
+could not access file "$libdir/slony1_funcs": No such file or directory
+<stdin>:8: Error: the extension for the Slony-I C functions cannot be 
+loaded in database 'dbname=node3_5434 host=localhost port=5434 user=slony'
+
+
+Here's what I did:
+
+1) installed both postgres versions 9.0.4 and 9.1.0 in different 
+directories on the same Linux server
+
+2) initialized and started (2) 9.1.0 clusters on ports 5432 and 5433
+
+3) initialized and started one (1) 9.0.4 cluster on port 5434
+
+4) did a full slony setup on the 2 9.1.0 instances (master on port 5432 
+and slave on port 5433) with no issues
+
+5) setup the DDL on slave #2, the 9.0.4 instance and try to execute the 
+script including the below code block, gives me the error (variables are 
+set correctly):
+
+
+slonik <<_EOF_
+
+cluster name = $CLUSTERNAME;
+
+
+node 1 admin conninfo = 'dbname=$NODE1_DBNAME host=$NODE1_HOST 
+port=$NODE1_PORT user=$REPUSER';
+node 3 admin conninfo = 'dbname=$NODE3_DBNAME host=$NODE3_HOST 
+port=$NODE3_PORT user=$REPUSER';
+
+store node (id=3, comment = 'NODE 3', event node = 1);
+
+store path (server = 1, client = 3, conninfo='dbname=$NODE1_DBNAME 
+host=$NODE1_HOST port=$NODE1_PORT user=$REPUSER');
+store path (server = 3, client = 1, conninfo='dbname=$NODE3_DBNAME 
+host=$NODE3_HOST port=$NODE3_PORT user=$REPUSER');
+
+_EOF_
+
+
+Thoughts?
+
+
+Thanks in advance...
+
+-- 
+---------------------------------------------
+Kevin Kempter       -       Constent State
+A PostgreSQL Professional Services Company
+           www.consistentstate.com
+---------------------------------------------
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20110914/ac2e271b/attachment-0001.htm 
+
+From ssinger_pg at sympatico.ca  Wed Sep 14 15:09:59 2011
+From: ssinger_pg at sympatico.ca (Steve Singer)
+Date: Wed, 14 Sep 2011 18:09:59 -0400
+Subject: [Slony1-general] Errors adding a 3rd slave with SLONY 2.0.7
+In-Reply-To: <4E70F8CB.2090208@consistentstate.com>
+References: <4E70F8CB.2090208@consistentstate.com>
+Message-ID: <BLU0-SMTP22E8616AC814072A4C0096AC040@phx.gbl>
+
+CS DBA wrote:
+>   Hi All;
+> 
+> I'm getting this error:
+> 
+> 
+> <stdin>:8: PGRES_FATAL_ERROR load '$libdir/slony1_funcs';  - ERROR:  
+> could not access file "$libdir/slony1_funcs": No such file or 
+> directory                                                           
+> <stdin>:8: Error: the extension for the Slony-I C functions cannot be 
+> loaded in database 'dbname=node3_5434 host=localhost port=5434 user=slony'
+> 
+> 
+> Here's what I did:
+> 
+> 1) installed both postgres versions 9.0.4 and 9.1.0 in different 
+> directories on the same Linux server
+> 
+
+You didn't include the steps of when you compiled and installed slony. 
+Since it can't find the shared functions file (slony_funcs.so) in your 
+postgresql libe directory maybe you missed this.
+
+2. ./configure --with-pgconfigdir=/usr/local/pgsql90/bin
+make clean
+make install
+3. ./configure --with-pgconfigdir=/usr/local/pgsql91/bin
+make clean
+make install
+
+
+
+> 2) initialized and started (2) 9.1.0 clusters on ports 5432 and 5433
+> 
+> 3) initialized and started one (1) 9.0.4 cluster on port 5434
+> 
+> 4) did a full slony setup on the 2 9.1.0 instances (master on port 5432 
+> and slave on port 5433) with no issues
+> 
+> 5) setup the DDL on slave #2, the 9.0.4 instance and try to execute the 
+> script including the below code block, gives me the error (variables are 
+> set correctly):
+> 
+> 
+> slonik <<_EOF_
+> 
+> cluster name = $CLUSTERNAME;
+> 
+> 
+> node 1 admin conninfo = 'dbname=$NODE1_DBNAME host=$NODE1_HOST 
+> port=$NODE1_PORT user=$REPUSER';
+> node 3 admin conninfo = 'dbname=$NODE3_DBNAME host=$NODE3_HOST 
+> port=$NODE3_PORT user=$REPUSER';
+> 
+> store node (id=3, comment = 'NODE 3', event node = 1);
+> 
+> store path (server = 1, client = 3, conninfo='dbname=$NODE1_DBNAME 
+> host=$NODE1_HOST port=$NODE1_PORT user=$REPUSER');
+> store path (server = 3, client = 1, conninfo='dbname=$NODE3_DBNAME 
+> host=$NODE3_HOST port=$NODE3_PORT user=$REPUSER');
+> 
+> _EOF_
+> 
+> 
+> Thoughts?
+> 
+> 
+> Thanks in advance...
+> 
+> -- 
+> ---------------------------------------------
+> Kevin Kempter       -       Constent State 
+> A PostgreSQL Professional Services Company
+>           www.consistentstate.com
+> ---------------------------------------------
+> 
+> 
+> ------------------------------------------------------------------------
+> 
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+
+
+From janwieck at yahoo.com  Wed Sep 14 16:11:05 2011
+From: janwieck at yahoo.com (Jan Wieck)
+Date: Wed, 14 Sep 2011 23:11:05 +0000
+Subject: [Slony1-general] Errors adding a 3rd slave with SLONY 2.0.7
+In-Reply-To: <BLU0-SMTP22E8616AC814072A4C0096AC040@phx.gbl>
+References: <4E70F8CB.2090208@consistentstate.com><BLU0-SMTP22E8616AC814072A4C0096AC040@phx.gbl>
+Message-ID: <1333183945-1316041865-cardhu_decombobulator_blackberry.rim.net-183155200-@b11.c5.bise6.blackberry>
+
+If you have 2 (or more) PG installations on a system, it is important to build Slony using --with-pgconfigdir for each one, Slony is going to be used with.
+
+Jan
+--
+Sent from a mobile device
+
+-----Original Message-----
+From: Steve Singer <ssinger_pg at sympatico.ca>
+Sender: slony1-general-bounces at lists.slony.info
+Date: Wed, 14 Sep 2011 18:09:59 
+To: CS DBA<cs_dba at consistentstate.com>
+Cc: <slony1-general at lists.slony.info>
+Subject: Re: [Slony1-general] Errors adding a 3rd slave with SLONY 2.0.7
+
+CS DBA wrote:
+>   Hi All;
+> 
+> I'm getting this error:
+> 
+> 
+> <stdin>:8: PGRES_FATAL_ERROR load '$libdir/slony1_funcs';  - ERROR:  
+> could not access file "$libdir/slony1_funcs": No such file or 
+> directory                                                           
+> <stdin>:8: Error: the extension for the Slony-I C functions cannot be 
+> loaded in database 'dbname=node3_5434 host=localhost port=5434 user=slony'
+> 
+> 
+> Here's what I did:
+> 
+> 1) installed both postgres versions 9.0.4 and 9.1.0 in different 
+> directories on the same Linux server
+> 
+
+You didn't include the steps of when you compiled and installed slony. 
+Since it can't find the shared functions file (slony_funcs.so) in your 
+postgresql libe directory maybe you missed this.
+
+2. ./configure --with-pgconfigdir=/usr/local/pgsql90/bin
+make clean
+make install
+3. ./configure --with-pgconfigdir=/usr/local/pgsql91/bin
+make clean
+make install
+
+
+
+> 2) initialized and started (2) 9.1.0 clusters on ports 5432 and 5433
+> 
+> 3) initialized and started one (1) 9.0.4 cluster on port 5434
+> 
+> 4) did a full slony setup on the 2 9.1.0 instances (master on port 5432 
+> and slave on port 5433) with no issues
+> 
+> 5) setup the DDL on slave #2, the 9.0.4 instance and try to execute the 
+> script including the below code block, gives me the error (variables are 
+> set correctly):
+> 
+> 
+> slonik <<_EOF_
+> 
+> cluster name = $CLUSTERNAME;
+> 
+> 
+> node 1 admin conninfo = 'dbname=$NODE1_DBNAME host=$NODE1_HOST 
+> port=$NODE1_PORT user=$REPUSER';
+> node 3 admin conninfo = 'dbname=$NODE3_DBNAME host=$NODE3_HOST 
+> port=$NODE3_PORT user=$REPUSER';
+> 
+> store node (id=3, comment = 'NODE 3', event node = 1);
+> 
+> store path (server = 1, client = 3, conninfo='dbname=$NODE1_DBNAME 
+> host=$NODE1_HOST port=$NODE1_PORT user=$REPUSER');
+> store path (server = 3, client = 1, conninfo='dbname=$NODE3_DBNAME 
+> host=$NODE3_HOST port=$NODE3_PORT user=$REPUSER');
+> 
+> _EOF_
+> 
+> 
+> Thoughts?
+> 
+> 
+> Thanks in advance...
+> 
+> -- 
+> ---------------------------------------------
+> Kevin Kempter       -       Constent State 
+> A PostgreSQL Professional Services Company
+>           www.consistentstate.com
+> ---------------------------------------------
+> 
+> 
+> ------------------------------------------------------------------------
+> 
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+
+_______________________________________________
+Slony1-general mailing list
+Slony1-general at lists.slony.info
+http://lists.slony.info/mailman/listinfo/slony1-general
+
+From cs_dba at consistentstate.com  Wed Sep 14 20:24:52 2011
+From: cs_dba at consistentstate.com (CS DBA)
+Date: Wed, 14 Sep 2011 21:24:52 -0600
+Subject: [Slony1-general] Errors adding a 3rd slave with SLONY 2.0.7
+In-Reply-To: <1333183945-1316041865-cardhu_decombobulator_blackberry.rim.net-183155200-@b11.c5.bise6.blackberry>
+References: <4E70F8CB.2090208@consistentstate.com><BLU0-SMTP22E8616AC814072A4C0096AC040@phx.gbl>
+	<1333183945-1316041865-cardhu_decombobulator_blackberry.rim.net-183155200-@b11.c5.bise6.blackberry>
+Message-ID: <4E717004.6000304@consistentstate.com>
+
+On 09/14/2011 05:11 PM, Jan Wieck wrote:
+> If you have 2 (or more) PG installations on a system, it is important to build Slony using --with-pgconfigdir for each one, Slony is going to be used with.
+
+aah, I think this may be the issue. I din one install of slony against 
+the 9.1.0 instance (./configure 
+--with-pgconfigdir=/usr/local/pgsql-910/bin) and used it for all 3 
+instances.
+
+
+Thanks I'll give it a shot and report back
+
+
+> Jan
+> --
+> Sent from a mobile device
+>
+> -----Original Message-----
+> From: Steve Singer<ssinger_pg at sympatico.ca>
+> Sender: slony1-general-bounces at lists.slony.info
+> Date: Wed, 14 Sep 2011 18:09:59
+> To: CS DBA<cs_dba at consistentstate.com>
+> Cc:<slony1-general at lists.slony.info>
+> Subject: Re: [Slony1-general] Errors adding a 3rd slave with SLONY 2.0.7
+>
+> CS DBA wrote:
+>>    Hi All;
+>>
+>> I'm getting this error:
+>>
+>>
+>> <stdin>:8: PGRES_FATAL_ERROR load '$libdir/slony1_funcs';  - ERROR:
+>> could not access file "$libdir/slony1_funcs": No such file or
+>> directory
+>> <stdin>:8: Error: the extension for the Slony-I C functions cannot be
+>> loaded in database 'dbname=node3_5434 host=localhost port=5434 user=slony'
+>>
+>>
+>> Here's what I did:
+>>
+>> 1) installed both postgres versions 9.0.4 and 9.1.0 in different
+>> directories on the same Linux server
+>>
+> You didn't include the steps of when you compiled and installed slony.
+> Since it can't find the shared functions file (slony_funcs.so) in your
+> postgresql libe directory maybe you missed this.
+>
+> 2. ./configure --with-pgconfigdir=/usr/local/pgsql90/bin
+> make clean
+> make install
+> 3. ./configure --with-pgconfigdir=/usr/local/pgsql91/bin
+> make clean
+> make install
+>
+>
+>
+>> 2) initialized and started (2) 9.1.0 clusters on ports 5432 and 5433
+>>
+>> 3) initialized and started one (1) 9.0.4 cluster on port 5434
+>>
+>> 4) did a full slony setup on the 2 9.1.0 instances (master on port 5432
+>> and slave on port 5433) with no issues
+>>
+>> 5) setup the DDL on slave #2, the 9.0.4 instance and try to execute the
+>> script including the below code block, gives me the error (variables are
+>> set correctly):
+>>
+>>
+>> slonik<<_EOF_
+>>
+>> cluster name = $CLUSTERNAME;
+>>
+>>
+>> node 1 admin conninfo = 'dbname=$NODE1_DBNAME host=$NODE1_HOST
+>> port=$NODE1_PORT user=$REPUSER';
+>> node 3 admin conninfo = 'dbname=$NODE3_DBNAME host=$NODE3_HOST
+>> port=$NODE3_PORT user=$REPUSER';
+>>
+>> store node (id=3, comment = 'NODE 3', event node = 1);
+>>
+>> store path (server = 1, client = 3, conninfo='dbname=$NODE1_DBNAME
+>> host=$NODE1_HOST port=$NODE1_PORT user=$REPUSER');
+>> store path (server = 3, client = 1, conninfo='dbname=$NODE3_DBNAME
+>> host=$NODE3_HOST port=$NODE3_PORT user=$REPUSER');
+>>
+>> _EOF_
+>>
+>>
+>> Thoughts?
+>>
+>>
+>> Thanks in advance...
+>>
+>> -- 
+>> ---------------------------------------------
+>> Kevin Kempter       -       Constent State
+>> A PostgreSQL Professional Services Company
+>>            www.consistentstate.com
+>> ---------------------------------------------
+>>
+>>
+>> ------------------------------------------------------------------------
+>>
+>> _______________________________________________
+>> Slony1-general mailing list
+>> Slony1-general at lists.slony.info
+>> http://lists.slony.info/mailman/listinfo/slony1-general
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+
+
+-- 
+---------------------------------------------
+Kevin Kempter       -       Constent State
+A PostgreSQL Professional Services Company
+           www.consistentstate.com
+---------------------------------------------
+
+
+From cs_dba at consistentstate.com  Thu Sep 15 19:18:00 2011
+From: cs_dba at consistentstate.com (CS DBA)
+Date: Thu, 15 Sep 2011 20:18:00 -0600
+Subject: [Slony1-general] Cannot do a switchover
+Message-ID: <4E72B1D8.5010700@consistentstate.com>
+
+Hi All;
+
+I have a 3 node cluster which is up and replicating.  I'm using slony v 
+2.0.7 and postgres 9.1.0 on nodes 1 and 2 plus postgres 9.0.4 on node3.
+
+I have a simple switchover script, see below for the script listing.
+when I run it I get this:
+
+
+$ ./sl_switchover2
+<stdin>:8: Error: No admin conninfo provided for node -1
+<stdin>:10: Error: No admin conninfo provided for node -1
+
+
+
+
+
+----------------------------------------------
+
+#!/bin/bash
+
+
+slonik <<_EOF_
+# ----
+cluster name = slony_pgbench ;
+
+node 1 admin conninfo = 'dbname=rep_bench_node1 host=172.16.32.155 
+port=5432 user=slony ';
+node 2 admin conninfo = 'dbname=rep_bench_node2 host=172.16.32.156 
+port=5432 user=slony ';
+node 3 admin conninfo = 'dbname=rep_bench_node3 host=172.16.32.157 
+port=5432 user=slony';
+lock set (id = 1, origin = 1);
+wait for event (origin = 1, confirmed = 2);
+move set (id = 1, old origin = 1, new origin = 2);
+wait for event (origin = 1, confirmed = 2);
+
+
+_EOF_
+
+
+
+
+
+
+
+-- 
+---------------------------------------------
+Kevin Kempter       -       Constent State
+A PostgreSQL Professional Services Company
+           www.consistentstate.com
+---------------------------------------------
+
+
+From cs_dba at consistentstate.com  Thu Sep 15 19:31:13 2011
+From: cs_dba at consistentstate.com (CS DBA)
+Date: Thu, 15 Sep 2011 20:31:13 -0600
+Subject: [Slony1-general] pgbench Breaks SLONY!
+Message-ID: <4E72B4F1.4020002@consistentstate.com>
+
+Hi all;
+
+I have a 3 node cluster as follows:
+
+SLONY 2.0.7 on all three nodes, each install of slony was built on each 
+node via source
+
+nodes 1 & 2 = postgres 9.1.0
+
+node3 = postgres 9.0.4
+
+I did this:
+
+
+1) I used pgbench -i to initialize the master database before I setup & 
+started replication
+
+2) I created a new column as a primary key on the pgbench_history table 
+like so
+
+alter table pgbench_history add column pgb_hist_id serial;
+alter table pgbench_history add primary key (pgb_hist_id);
+
+
+4) then I ran pgbench like this:
+  pgbench -t 800 rep_bench_node1
+
+
+5) after replication was started both slaves sync'd up fine
+
+at this point all 3 nodes have 800 rows in the pgbench_history table
+
+6) then I run pgbench again, reducing the number of tx thus reducing the 
+overall number of rows in the pgbench_history table
+
+$ pgbench -t 300 rep_bench_node1
+starting vacuum...end.
+transaction type: TPC-B (sort of)
+scaling factor: 1
+query mode: simple
+number of clients: 1
+number of threads: 1
+number of transactions per client: 300
+number of transactions actually processed: 300/300
+tps = 265.106193 (including connections establishing)
+tps = 285.114730 (excluding connections establishing)
+
+
+7) the master (node1) now has 300 rows in the pgbench_history table
+    however both slaves now have 1100 rows (it didn't do the delete on 
+the slaves)
+
+    at this point each subsequent run of  "pgbench -t 300 
+rep_bench_node1" replaces the rows in node1 but appends another 300 rows 
+to each slave.
+
+
+
+
+Thoughts?
+
+Am I doing something wrong?
+
+
+Thanks in advance
+
+
+-- 
+---------------------------------------------
+Kevin Kempter       -       Constent State
+A PostgreSQL Professional Services Company
+           www.consistentstate.com
+---------------------------------------------
+
+
+From scott.marlowe at gmail.com  Thu Sep 15 19:44:09 2011
+From: scott.marlowe at gmail.com (Scott Marlowe)
+Date: Thu, 15 Sep 2011 20:44:09 -0600
+Subject: [Slony1-general] pgbench Breaks SLONY!
+In-Reply-To: <4E72B4F1.4020002@consistentstate.com>
+References: <4E72B4F1.4020002@consistentstate.com>
+Message-ID: <CAOR=d=2KSw4WAgzvTBDc40dGY5Bm352e_OmNbvJxCByC64hXVg@mail.gmail.com>
+
+On Thu, Sep 15, 2011 at 8:31 PM, CS DBA <cs_dba at consistentstate.com> wrote:
+
+> 7) the master (node1) now has 300 rows in the pgbench_history table
+> ? ?however both slaves now have 1100 rows (it didn't do the delete on
+> the slaves)
+>
+
+Does pgbench use truncate?  I know slony 1.2 has issues with truncate.
+
+From mark.kirkwood at catalyst.net.nz  Thu Sep 15 20:10:08 2011
+From: mark.kirkwood at catalyst.net.nz (Mark Kirkwood)
+Date: Fri, 16 Sep 2011 15:10:08 +1200
+Subject: [Slony1-general] pgbench Breaks SLONY!
+In-Reply-To: <CAOR=d=2KSw4WAgzvTBDc40dGY5Bm352e_OmNbvJxCByC64hXVg@mail.gmail.com>
+References: <4E72B4F1.4020002@consistentstate.com>
+	<CAOR=d=2KSw4WAgzvTBDc40dGY5Bm352e_OmNbvJxCByC64hXVg@mail.gmail.com>
+Message-ID: <4E72BE10.9090404@catalyst.net.nz>
+
+On 16/09/11 14:44, Scott Marlowe wrote:
+> On Thu, Sep 15, 2011 at 8:31 PM, CS DBA<cs_dba at consistentstate.com>  wrote:
+>
+>> 7) the master (node1) now has 300 rows in the pgbench_history table
+>>     however both slaves now have 1100 rows (it didn't do the delete on
+>> the slaves)
+>>
+> Does pgbench use truncate?  I know slony 1.2 has issues with truncate.
+>
+
+Pgbench in more current versions (>= 8.4 I think) uses TRUNACTE on the 
+history table.
+
+regards
+
+Mark
+
+From cs_dba at consistentstate.com  Fri Sep 16 06:17:46 2011
+From: cs_dba at consistentstate.com (CS_DBA)
+Date: Fri, 16 Sep 2011 07:17:46 -0600
+Subject: [Slony1-general] Cannot do a switchover (solved)
+In-Reply-To: <4E72B1D8.5010700@consistentstate.com>
+References: <4E72B1D8.5010700@consistentstate.com>
+Message-ID: <2162A5D6-B1E9-4EAF-AA59-0DC13F44A263@consistentstate.com>
+
+
+It was issues with the wait for event call, I was using the v 1 format..
+
+
+
+/Kevin
+
+
+-- 
+===========================
+Kevin Kempter
+Consistent State
+www.consistentstate.com
+303-217-0961
+===========================
+
+Sent from my iPad
+
+On Sep 15, 2011, at 20:18, CS DBA <cs_dba at consistentstate.com> wrote:
+
+> Hi All;
+> 
+> I have a 3 node cluster which is up and replicating.  I'm using slony v 2.0.7 and postgres 9.1.0 on nodes 1 and 2 plus postgres 9.0.4 on node3.
+> 
+> I have a simple switchover script, see below for the script listing.
+> when I run it I get this:
+> 
+> 
+> $ ./sl_switchover2
+> <stdin>:8: Error: No admin conninfo provided for node -1
+> <stdin>:10: Error: No admin conninfo provided for node -1
+> 
+> 
+> 
+> 
+> 
+> ----------------------------------------------
+> 
+> #!/bin/bash
+> 
+> 
+> slonik <<_EOF_
+> # ----
+> cluster name = slony_pgbench ;
+> 
+> node 1 admin conninfo = 'dbname=rep_bench_node1 host=172.16.32.155 port=5432 user=slony ';
+> node 2 admin conninfo = 'dbname=rep_bench_node2 host=172.16.32.156 port=5432 user=slony ';
+> node 3 admin conninfo = 'dbname=rep_bench_node3 host=172.16.32.157 port=5432 user=slony';
+> lock set (id = 1, origin = 1);
+> wait for event (origin = 1, confirmed = 2);
+> move set (id = 1, old origin = 1, new origin = 2);
+> wait for event (origin = 1, confirmed = 2);
+> 
+> 
+> _EOF_
+> 
+> 
+> 
+> 
+> 
+> 
+> 
+> -- 
+> ---------------------------------------------
+> Kevin Kempter       -       Constent State
+> A PostgreSQL Professional Services Company
+>          www.consistentstate.com
+> ---------------------------------------------
+> 
+
+From david.techer at davidgis.fr  Sun Sep 18 15:39:43 2011
+From: david.techer at davidgis.fr (david.techer)
+Date: Mon, 19 Sep 2011 00:39:43 +0200
+Subject: [Slony1-general] PDF available for Slony 2.0.7 (English) and
+	Slony-ctl 1.2.0 (French)
+Message-ID: <8287ee90a27a9c0e5f6647b41e136114@davidgis.fr>
+
+
+HiSince I am new in this mailing list, this is my little contribution
+
+Please be informed that you can find the following PDFs 
+
+Slony 2.0.7 (English)
+
+------------
+
+ Normal PDF (size = 2M) 
+http://www.davidgis.fr/download/slony-2.0.7.pdf [1]or compressed file
+(size = 906K)  http://www.davidgis.fr/download/slony-2.0.7.pdf.tar.bz2
+[2]
+
+The PDF was generated from slony.xml and using dblatex 0.3
+(dblatex.sf.net)
+
+Slony-ctl 1.2.0 (French)
+-----------------
+I've done it from README.fr 
+http://www.davidgis.fr/download/slony1-ctl-README.fr.pdf 
+The PDF was generated by converting the file to Rest format and
+converted to PDF using rst2pdf (version 15)
+?
+
+-------------------------------------- Jean David TECHER davidgis.fr
+-------------------------------------- 
+
+  
+
+Links:
+------
+[1] http://www.davidgis.fr/../download/slony-2.0.7.pdf
+[2] http://www.davidgis.fr/../download/slony-2.0.7.pdf.tar.bz2
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20110919/c4635f4f/attachment.htm 
+
+From david.techer at davidgis.fr  Sun Sep 18 15:54:32 2011
+From: david.techer at davidgis.fr (david.techer)
+Date: Mon, 19 Sep 2011 00:54:32 +0200
+Subject: [Slony1-general] PDF available for Slony 2.0.7 (English) and
+ Slony-ctl 1.2.0 (French)
+In-Reply-To: <8287ee90a27a9c0e5f6647b41e136114@davidgis.fr>
+References: <8287ee90a27a9c0e5f6647b41e136114@davidgis.fr>
+Message-ID: <e9187afe3ccc6aa7035eca0cb8c3988c@davidgis.fr>
+
+
+
+For your information, the file README.fr converted in Rest format is
+available at 
+
+http://www.davidgis.fr/download/slony1-ctl_1.2.0_README.fr.rst
+
+On Mon, 19 Sep 2011 00:39:43 +0200, david.techer  wrote:
+HiSince I am new in this mailing list, this is my little contribution
+
+Please be informed that you can find the following PDFs 
+
+Slony 2.0.7 (English)
+
+------------
+
+ Normal PDF (size = 2M) 
+http://www.davidgis.fr/download/slony-2.0.7.pdf [1]or compressed file
+(size = 906K)  http://www.davidgis.fr/download/slony-2.0.7.pdf.tar.bz2
+[2]
+
+The PDF was generated from slony.xml and using dblatex 0.3
+(dblatex.sf.net)
+
+Slony-ctl 1.2.0 (French)
+-----------------
+I've done it from README.fr 
+http://www.davidgis.fr/download/slony1-ctl-README.fr.pdf 
+The PDF was generated by converting the file to Rest format and
+converted to PDF using rst2pdf (version 15)
+?
+
+-------------------------------------- Jean David TECHER davidgis.fr
+-------------------------------------- 
+
+
+-------------------------------------- Jean David TECHER davidgis.fr
+-------------------------------------- 
+
+    
+
+Links:
+------
+[1] http://www.davidgis.fr/../download/slony-2.0.7.pdf
+[2] http://www.davidgis.fr/../download/slony-2.0.7.pdf.tar.bz2
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20110919/565d3b5c/attachment.htm 
+
+From stephane.schildknecht at postgresql.fr  Sun Sep 18 23:54:10 2011
+From: stephane.schildknecht at postgresql.fr (=?ISO-8859-15?Q?=22St=E9phane_A=2E_Schildknecht=22?=)
+Date: Mon, 19 Sep 2011 08:54:10 +0200
+Subject: [Slony1-general] PDF available for Slony 2.0.7 (English) and
+ Slony-ctl 1.2.0 (French)
+In-Reply-To: <8287ee90a27a9c0e5f6647b41e136114@davidgis.fr>
+References: <8287ee90a27a9c0e5f6647b41e136114@davidgis.fr>
+Message-ID: <4E76E712.7040108@postgresql.fr>
+
+Hi,
+
+Le 19/09/2011 00:39, david.techer a ?crit :
+> Hi
+> 
+> Since I am new in this mailing list, this is my little contribution
+> 
+> Please be informed that you can find the following PDFs
+(...)
+
+> 
+> Slony-ctl 1.2.0 (French)
+> -----------------
+> I've done it from README.fr  http://www.davidgis.fr/download/slony1-ctl-README.fr.pdf 
+> The PDF was generated by converting the file to Rest format and converted to PDF using rst2pdf (version 15)
+
+Sounds great !
+Thanks for that.
+I think it's time for me to update the docs :-)
+
+-- 
+St?phane Schildknecht
+http://www.Loxodata.com
+Contact r?gional PostgreSQL
+
+
+From david.techer at davidgis.fr  Mon Sep 19 02:04:19 2011
+From: david.techer at davidgis.fr (david.techer)
+Date: Mon, 19 Sep 2011 11:04:19 +0200
+Subject: [Slony1-general] PDF available for Slony 2.0.7 (English) and
+ Slony-ctl 1.2.0 (French)
+In-Reply-To: <4E76E712.7040108@postgresql.fr>
+References: <8287ee90a27a9c0e5f6647b41e136114@davidgis.fr>
+	<4E76E712.7040108@postgresql.fr>
+Message-ID: <d27f604808eec544ff2ecafd084b74a9@davidgis.fr>
+
+
+Hi St?phane,
+
+Slony-ctl is a great tool, more usefull then altperlscript.
+
+The only problem is that "drop set" is missing but that's not really a
+great problem :)
+
+That's the reason why I've done the PDF. When I have time I will do the PDF
+for README.en.
+
+For the moment, I've tryed to modify it when you've got severals tables in
+several schemas to replicate.
+
+My idea is to add a schema as a simple set to replicate.
+
+As a consequence, I've added a flag -p to create_slon.sh.
+
+Ad a consequence when I have to add a new schema (a new schema = a new set
+to add to replication)
+
+./31_create_set.sh -c <instance> -s <set_num> -p <schema_to_replicate>
+./32_exec_set.sh -c <instance> -s <set_num>
+
+Then I've added the flag to create_slon.sh
+
+I've done my tests for Slony 2.0.6 for the moment with PostgreSQL Plus
+Advance Server 8.4 
+
+I have to tests with Slony 2.0.7 too.
+
+
+
+On Mon, 19 Sep 2011 08:54:10 +0200, "St?phane A. Schildknecht"
+<stephane.schildknecht at postgresql.fr> wrote:
+> Hi,
+> 
+> Le 19/09/2011 00:39, david.techer a ?crit :
+>> Hi
+>> 
+>> Since I am new in this mailing list, this is my little contribution
+>> 
+>> Please be informed that you can find the following PDFs
+> (...)
+> 
+>> 
+>> Slony-ctl 1.2.0 (French)
+>> -----------------
+>> I've done it from README.fr 
+> http://www.davidgis.fr/download/slony1-ctl-README.fr.pdf 
+>> The PDF was generated by converting the file to Rest format and
+> converted to PDF using rst2pdf (version 15)
+> 
+> Sounds great !
+> Thanks for that.
+> I think it's time for me to update the docs :-)
+> 
+>
+-- 
+--------------------------------------
+Jean David TECHER
+davidgis.fr
+--------------------------------------
+
+
+From david.techer at davidgis.fr  Wed Sep 21 01:31:48 2011
+From: david.techer at davidgis.fr (david.techer)
+Date: Wed, 21 Sep 2011 10:31:48 +0200
+Subject: [Slony1-general] =?utf-8?q?Question_about_vac=5Ffrequency_and_aut?=
+ =?utf-8?q?ovacuum=5Fenable_for_Slony_2=2E0=2E7_and_PostgreSQL_8=2E4?=
+Message-ID: <4a3effa30c381821f6f552ac8b807a60@davidgis.fr>
+
+
+
+Hi 
+
+I've begun to test Slony 2.0.7 a couple days ago. 
+I've read the Slony documentation and see on the source for
+clean_thread.c for vac_frequency 
+
+However, I've got a question 
+
+What happens if I put both on master and slave 
+
+1) 
+
+ ALTER TABLE _mycluster.sl_event SET (autovacuum_enabled=off);
+ ALTER TABLE _mycluster.sl_confirm SET (autovacuum_enabled=off); 
+2) vac_frequency=3 or vac_frequency=0 ? 
+
+For your information, I use PostgreSQL 8.4, Slony 2.0.7. Autovacuum
+is on both master and slave. 
+If I have understood, 
+
+vac_frequency=0 implies that SLony will not used his "own"
+maintenance operation and just do a analyze if required 
+Let me know. 
+-------------------------------------- Jean David TECHER davidgis.fr
+-------------------------------------- 
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20110921/bcd07769/attachment.htm 
+
+From david.techer at davidgis.fr  Wed Sep 21 05:05:03 2011
+From: david.techer at davidgis.fr (david.techer)
+Date: Wed, 21 Sep 2011 14:05:03 +0200
+Subject: [Slony1-general]
+ =?utf-8?q?Question_about_vac=5Ffrequency_and_aut?=
+ =?utf-8?q?ovacuum=5Fenable_for_Slony_2=2E0=2E7_and_PostgreSQL_8=2E4?=
+In-Reply-To: <4a3effa30c381821f6f552ac8b807a60@davidgis.fr>
+References: <4a3effa30c381821f6f552ac8b807a60@davidgis.fr>
+Message-ID: <70f873a1dee443d5a70a9449d303d023@davidgis.fr>
+
+
+
+Well 
+I've did a test preventing autvacuum vacuuming Slony's tables using
+both master and slave 
+
+ ALTER TABLE _mycluster.sl_nodelock SET (autovacuum_enabled=off);
+ ALTER TABLE _mycluster.sl_setsync SET (autovacuum_enabled=off);
+ ALTER TABLE _mycluster.sl_table SET (autovacuum_enabled=off);
+ ALTER TABLE _mycluster.sl_sequence SET (autovacuum_enabled=off);
+ ALTER TABLE _mycluster.sl_node SET (autovacuum_enabled=off);
+ ALTER TABLE _mycluster.sl_listen SET (autovacuum_enabled=off);
+ ALTER TABLE _mycluster.sl_path SET (autovacuum_enabled=off);
+ ALTER TABLE _mycluster.sl_subscribe SET (autovacuum_enabled=off);
+ ALTER TABLE _mycluster.sl_set SET (autovacuum_enabled=off);
+ ALTER TABLE _mycluster.sl_event SET (autovacuum_enabled=off);
+ ALTER TABLE _mycluster.sl_confirm SET (autovacuum_enabled=off);
+ ALTER TABLE _mycluster.sl_seqlog SET (autovacuum_enabled=off);
+ ALTER TABLE _mycluster.sl_registry SET (autovacuum_enabled=off);
+ ALTER TABLE _mycluster.sl_seqlastvalue SET
+(autovacuum_enabled=off);
+ ALTER TABLE _mycluster.sl_config_lock SET (autovacuum_enabled=off);
+ ALTER TABLE _mycluster.sl_archive_counter SET
+(autovacuum_enabled=off);
+ ALTER TABLE _mycluster.sl_status SET (autovacuum_enabled=off);
+ ALTER TABLE _mycluster.sl_log_1 SET (autovacuum_enabled=off);
+ ALTER TABLE _mycluster.sl_log_2 SET (autovacuum_enabled=off); 
+
+and with vac_frequency = 3 (both on master and slave in slon
+configuration file) 
+
+As a consequence Slony, is doing the "vacuum analyze" himself 
+
+Here is what I see on the log (slave) 
+
+2011-09-21 13:18:24 CEST[11540] DEBUG1 cleanupThread: vacuum  analyze
+"_mycluster".sl_archive_counter;
+2011-09-21 13:18:24 CEST[11540] INFO   cleanupThread:    0.648
+seconds for vacuuming
+2011-09-21 13:50:59 CEST[11540] DEBUG1 cleanupThread: vacuum  analyze
+"_mycluster".sl_event;
+2011-09-21 13:50:59 CEST[11540] DEBUG1 cleanupThread: vacuum  analyze
+"_mycluster".sl_confirm;
+2011-09-21 13:50:59 CEST[11540] DEBUG1 cleanupThread: vacuum 
+analyze
+"_mycluster".sl_setsync;
+2011-09-21 13:50:59 CEST[11540] DEBUG1 cleanupThread: vacuum  analyze
+"_mycluster".sl_seqlog;
+2011-09-21 13:51:00 CEST[11540] DEBUG1 cleanupThread: vacuum  analyze
+"_mycluster".sl_archive_counter;
+2011-09-21 13:51:00 CEST[11540] INFO   cleanupThread:    0.697
+seconds for vacuuming 
+
+So for vac_frequency = 3, this is the response to my question :) 
+
+I will wait the end of the test to see if I've got a deadlock or not
+:) 
+On Wed, 21 Sep 2011 10:31:48 +0200, david.techer  wrote:
+Hi 
+
+I've begun to test Slony 2.0.7 a couple days ago. 
+I've read the Slony documentation and see on the source for
+clean_thread.c for vac_frequency 
+
+However, I've got a question 
+
+What happens if I put both on master and slave 
+
+1) 
+
+ ALTER TABLE _mycluster.sl_event SET (autovacuum_enabled=off);
+ ALTER TABLE _mycluster.sl_confirm SET (autovacuum_enabled=off); 
+2) vac_frequency=3 or vac_frequency=0 ? 
+
+For your information, I use PostgreSQL 8.4, Slony 2.0.7. Autovacuum
+is on
+both master and slave. 
+If I have understood, 
+
+vac_frequency=0 implies that SLony will not used his "own"
+maintenance operation and just do a analyze if required 
+Let me know. 
+-------------------------------------- Jean David TECHER davidgis.fr
+-------------------------------------- 
+-------------------------------------- Jean David TECHER davidgis.fr
+-------------------------------------- 
+
+   
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20110921/e7f667c9/attachment.htm 
+
+From pblumenthal at crsinc.com  Fri Sep 23 07:11:54 2011
+From: pblumenthal at crsinc.com (Pete Blumenthal)
+Date: Fri, 23 Sep 2011 14:11:54 +0000
+Subject: [Slony1-general] failing: yum install slony1-II on fresh CentOS 5.6
+Message-ID: <71583C0762B8A948A4D9E5898D00FD5D22E38D1F@mbx025-e1-nj-8.exch025.domain.local>
+
+Can someone help me with getting Slony 2.0 installed?  I can't find perl-log in any repo anywhere.
+
+# yum install slony1-II
+Loaded plugins: fastestmirror
+Loading mirror speeds from cached hostfile
+* base: centos.mirror.nac.net
+* epel: mirror.us.leaseweb.net
+* extras: mirror.net.cen.ct.gov
+* rpmforge: apt.sw.be
+* updates: centos.mirror.nac.net
+Excluding Packages in global exclude list
+Finished
+Setting up Install Process
+Resolving Dependencies
+--> Running transaction check
+---> Package slony1-II.x86_64 0:2.0.4-2.el5 set to be updated
+--> Processing Dependency: perl(log) for package: slony1-II
+--> Finished Dependency Resolution
+slony1-II-2.0.4-2.el5.x86_64 from pgdg84 has depsolving problems
+  --> Missing Dependency: perl(log) is needed by package slony1-II-2.0.4-2.el5.x86_64 (pgdg84)
+Error: Missing Dependency: perl(log) is needed by package slony1-II-2.0.4-2.el5.x86_64 (pgdg84)
+You could try using --skip-broken to work around the problem
+You could try running: package-cleanup --problems
+                        package-cleanup --dupes
+                        rpm -Va --nofiles --nodigest
+The program package-cleanup is found in the yum-utils package.
+
+
+Thanks,
+Pete
+
+
+This email message contains information that Corporate Reimbursement Services, Inc. considers confidential and/or proprietary, or may later designate as confidential and proprietary. It is intended only for use of the individual or entity named above and should not be forwarded to any other persons or entities without the express consent of Corporate Reimbursement Services, Inc., nor should it be used for any purpose other than in the course of any potential or actual business relationship with Corporate Reimbursement Services, Inc. If the reader of this message is not the intended recipient, or the employee or agent responsible to deliver it to the intended recipient, you are hereby notified that any dissemination, distribution, or copying of this communication is strictly prohibited. If you have received this communication in error, please notify sender immediately and destroy the original message.
+
+Internal Revenue Service regulations require that certain types of written advice include a disclaimer. To the extent the preceding message contains advice relating to a Federal tax issue, unless expressly stated otherwise the advice is not intended or written to be used, and it cannot be used by the recipient or any other taxpayer, for the purpose of avoiding Federal tax penalties, and was not written to support the promotion or marketing of any transaction or matter discussed herein.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20110923/2630dc10/attachment.htm 
+
+From devrim at gunduz.org  Fri Sep 23 07:20:11 2011
+From: devrim at gunduz.org (Devrim =?ISO-8859-1?Q?G=DCND=DCZ?=)
+Date: Fri, 23 Sep 2011 17:20:11 +0300
+Subject: [Slony1-general] failing: yum install slony1-II on fresh CentOS
+ 5.6
+In-Reply-To: <71583C0762B8A948A4D9E5898D00FD5D22E38D1F@mbx025-e1-nj-8.exch025.domain.local>
+References: <71583C0762B8A948A4D9E5898D00FD5D22E38D1F@mbx025-e1-nj-8.exch025.domain.local>
+Message-ID: <1316787613.12795.11.camel@lenovo01-laptop03.gunduz.org>
+
+On Fri, 2011-09-23 at 14:11 +0000, Pete Blumenthal wrote:
+> Can someone help me with getting Slony 2.0 installed?  I can't find
+> perl-log in any repo anywhere.
+
+Are you using yum.pgsqlrpms.org as the repository URL? (You can check it
+under /etc/yum.repos.d/pgdg* ? If so, that repo is deprecated. The new
+repo URL is
+
+yum.pgrpms.org
+or 
+yum.postgresql.org
+
+So, please change the URL first. Current package in the new repo is
+2.0.7, and does not have that issue.
+
+Regards,
+-- 
+Devrim G?ND?Z
+Principal Systems Engineer @ EnterpriseDB: http://www.enterprisedb.com
+PostgreSQL Dan??man?/Consultant, Red Hat Certified Engineer
+Community: devrim~PostgreSQL.org, devrim.gunduz~linux.org.tr
+http://www.gunduz.org  Twitter: http://twitter.com/devrimgunduz
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: not available
+Type: application/pgp-signature
+Size: 198 bytes
+Desc: This is a digitally signed message part
+Url : http://lists.slony.info/pipermail/slony1-general/attachments/20110923/5a366f88/attachment.pgp 
+
+From pblumenthal at crsinc.com  Fri Sep 23 08:31:10 2011
+From: pblumenthal at crsinc.com (Pete Blumenthal)
+Date: Fri, 23 Sep 2011 15:31:10 +0000
+Subject: [Slony1-general] failing: yum install slony1-II on fresh CentOS
+ 5.6
+In-Reply-To: <1316787613.12795.11.camel@lenovo01-laptop03.gunduz.org>
+References: <71583C0762B8A948A4D9E5898D00FD5D22E38D1F@mbx025-e1-nj-8.exch025.domain.local>
+	<1316787613.12795.11.camel@lenovo01-laptop03.gunduz.org>
+Message-ID: <71583C0762B8A948A4D9E5898D00FD5D22E38DB0@mbx025-e1-nj-8.exch025.domain.local>
+
+Thanks. That fixed it.
+
+- Pete
+This email message contains information that Corporate Reimbursement Services, Inc. considers confidential and/or proprietary, or may later designate as confidential and proprietary. It is intended only for use of the individual or entity named above and should not be forwarded to any other persons or entities without the express consent of Corporate Reimbursement Services, Inc., nor should it be used for any purpose other than in the course of any potential or actual business relationship with Corporate Reimbursement Services, Inc. If the reader of this message is not the intended recipient, or the employee or agent responsible to deliver it to the intended recipient, you are hereby notified that any dissemination, distribution, or copying of this communication is strictly prohibited. If you have received this communication in error, please notify sender immediately and destroy the original message.
+
+Internal Revenue Service regulations require that certain types of written advice include a disclaimer. To the extent the preceding message contains advice relating to a Federal tax issue, unless expressly stated otherwise the advice is not intended or written to be used, and it cannot be used by the recipient or any other taxpayer, for the purpose of avoiding Federal tax penalties, and was not written to support the promotion or marketing of any transaction or matter discussed herein.
+
+From dilrajssokhi at gmail.com  Mon Sep 26 14:38:24 2011
+From: dilrajssokhi at gmail.com (Dilraj Singh)
+Date: Mon, 26 Sep 2011 14:38:24 -0700
+Subject: [Slony1-general] Dropping Replication schema on slony 1.2.21
+Message-ID: <CAHFJsA-GVQrOWMZHgmZZ-j5pBLS4KVsBhEFVpWOi6uaehFpPwQ@mail.gmail.com>
+
+Hi guys,
+
+I started a replication between master and a slave using slony 1.2.21. The
+replication went succesfully and then i killed the slon daemons on both
+machines. After that i wanted to remove the _replication schemas from the
+database to remove all the traces of the replication schema and tables from
+the database. So i went ahead and did "Drop schema _rep_cluster CASCADE" on
+the slave first. It removed _rep_cluster schema from the slave completely
+and then i went to do the same on the master node but there i was stuck on -
+ERROR: "table_pkey" is an index. Now 'table' is the name of one of my tables
+on the database and table_pkey is the associated primary key with it i
+guess.
+
+Has anybody seen this error before? Did the slony lock down itself because i
+did not remove the schema correctly?
+
+Currently there is a fully functioning replication going on from slave to
+master with a different rep_diff_cluster for tables(a , b) and then from
+master to slave for different 2 more tables (c, d) which is the main
+replication we wanted after the initial small replication from master to
+slave( a, b) (whose schema i wanted to remove from the databases completely)
+
+Regards
+Dilraj Singh
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20110926/a73d80dc/attachment.htm 
+
+From JanWieck at Yahoo.com  Mon Sep 26 18:54:04 2011
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Mon, 26 Sep 2011 21:54:04 -0400
+Subject: [Slony1-general] Dropping Replication schema on slony 1.2.21
+In-Reply-To: <CAHFJsA-GVQrOWMZHgmZZ-j5pBLS4KVsBhEFVpWOi6uaehFpPwQ@mail.gmail.com>
+References: <CAHFJsA-GVQrOWMZHgmZZ-j5pBLS4KVsBhEFVpWOi6uaehFpPwQ@mail.gmail.com>
+Message-ID: <4E812CBC.8050408@Yahoo.com>
+
+On 9/26/2011 5:38 PM, Dilraj Singh wrote:
+> Hi guys,
+>
+> I started a replication between master and a slave using slony 1.2.21.
+> The replication went succesfully and then i killed the slon daemons on
+> both machines. After that i wanted to remove the _replication schemas
+> from the database to remove all the traces of the replication schema and
+> tables from the database. So i went ahead and did "Drop schema
+> _rep_cluster CASCADE" on the slave first. It removed _rep_cluster schema
+> from the slave completely and then i went to do the same on the master
+> node but there i was stuck on - ERROR: "table_pkey" is an index. Now
+> 'table' is the name of one of my tables on the database and table_pkey
+> is the associated primary key with it i guess.
+>
+> Has anybody seen this error before? Did the slony lock down itself
+> because i did not remove the schema correctly?
+
+It is a well known problem that prior to version 2.0 Slony modified the 
+system catalog and dropping the slony schema in the way you did left the 
+system catalog in a corrupted state with no (easy) way to fix it.
+
+The way to uninstall Slony up to version 1.2 is documented here:
+
+http://slony.info/adminguide/slony1-1.2.21/doc/adminguide/stmtuninstallnode.html
+
+
+Jan
+
+-- 
+Anyone who trades liberty for security deserves neither
+liberty nor security. -- Benjamin Franklin
+
+From stuart at stuartbishop.net  Tue Sep 27 00:31:48 2011
+From: stuart at stuartbishop.net (Stuart Bishop)
+Date: Tue, 27 Sep 2011 14:31:48 +0700
+Subject: [Slony1-general] Normal broken output or bad package?
+Message-ID: <CADmi=6OHGtcGE+ZbnqAcRy0ock0pN3h4u3x6uhxYPbr0zw0LDg@mail.gmail.com>
+
+Hi.
+
+slonik works fine, but its echo output is screwed where some random
+string is being used instead of the filename. Having only run slony
+with Ubuntu 64bit packages, I don't know if this is a know issue or
+bad packages (I believe the packages are brought in from Debian
+unmodified):
+
+$ slonik u2_newslave.sk
+:1: Waiting for sync
+:4: Synced
+gen_newslave.sk:3: Adding node 2
+gen_newslave.sk:5: Creating paths
+Subscribing node 2:1: Waiting for sync
+Subscribing node 2:4: Synced
+/lib/libnsl.so.1:10: Subscribing node 2
+/lib/libnsl.so.1:13: Subscription created. Slave is copying data.
+Master can go live.
+
+
+-- 
+Stuart Bishop <stuart at stuartbishop.net>
+http://www.stuartbishop.net/
+
+From ssinger at ca.afilias.info  Wed Sep 28 07:10:51 2011
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Wed, 28 Sep 2011 10:10:51 -0400
+Subject: [Slony1-general] Normal broken output or bad package?
+In-Reply-To: <CADmi=6OHGtcGE+ZbnqAcRy0ock0pN3h4u3x6uhxYPbr0zw0LDg@mail.gmail.com>
+References: <CADmi=6OHGtcGE+ZbnqAcRy0ock0pN3h4u3x6uhxYPbr0zw0LDg@mail.gmail.com>
+Message-ID: <4E832AEB.30005@ca.afilias.info>
+
+On 11-09-27 03:31 AM, Stuart Bishop wrote:
+> Hi.
+>
+> slonik works fine, but its echo output is screwed where some random
+> string is being used instead of the filename. Having only run slony
+> with Ubuntu 64bit packages, I don't know if this is a know issue or
+> bad packages (I believe the packages are brought in from Debian
+> unmodified):
+>
+> $ slonik u2_newslave.sk
+> :1: Waiting for sync
+> :4: Synced
+> gen_newslave.sk:3: Adding node 2
+> gen_newslave.sk:5: Creating paths
+> Subscribing node 2:1: Waiting for sync
+> Subscribing node 2:4: Synced
+> /lib/libnsl.so.1:10: Subscribing node 2
+> /lib/libnsl.so.1:13: Subscription created. Slave is copying data.
+> Master can go live.
+>
+>
+
+I don't recognize it as a known issue, it might be an unknown issue 
+unrelated to the packaging.  You don't tell us what version of Slony you 
+are using or provide the contents of your u2_newslave.sk so we know what 
+slonik commands are being run at which line.
+
+
+
+
+From stuart at stuartbishop.net  Wed Sep 28 08:06:48 2011
+From: stuart at stuartbishop.net (Stuart Bishop)
+Date: Wed, 28 Sep 2011 22:06:48 +0700
+Subject: [Slony1-general] Normal broken output or bad package?
+In-Reply-To: <4E832AEB.30005@ca.afilias.info>
+References: <CADmi=6OHGtcGE+ZbnqAcRy0ock0pN3h4u3x6uhxYPbr0zw0LDg@mail.gmail.com>
+	<4E832AEB.30005@ca.afilias.info>
+Message-ID: <CADmi=6MyCJD1g9Z1fu+ssQGA68f6W2SynD11tVqZ8_2jJ22gwg@mail.gmail.com>
+
+On Wed, Sep 28, 2011 at 9:10 PM, Steve Singer <ssinger at ca.afilias.info> wrote:
+> On 11-09-27 03:31 AM, Stuart Bishop wrote:
+>>
+>> Hi.
+>>
+>> slonik works fine, but its echo output is screwed where some random
+>> string is being used instead of the filename. Having only run slony
+>> with Ubuntu 64bit packages, I don't know if this is a know issue or
+>> bad packages (I believe the packages are brought in from Debian
+>> unmodified):
+>>
+>> $ slonik u2_newslave.sk
+>> :1: Waiting for sync
+>> :4: Synced
+>> gen_newslave.sk:3: Adding node 2
+>> gen_newslave.sk:5: Creating paths
+>> Subscribing node 2:1: Waiting for sync
+>> Subscribing node 2:4: Synced
+>> /lib/libnsl.so.1:10: Subscribing node 2
+>> /lib/libnsl.so.1:13: Subscription created. Slave is copying data.
+>> Master can go live.
+>
+> I don't recognize it as a known issue, it might be an unknown issue
+> unrelated to the packaging. ?You don't tell us what version of Slony you are
+> using or provide the contents of your u2_newslave.sk so we know what slonik
+> commands are being run at which line.
+
+Its version 2.0.7
+
+u2_newslave.sk:
+
+    include <u2_preamble.sk>;
+    include <gen_newslave.sk>;
+
+
+u2_preamble.sk:
+
+    cluster name = sl;
+
+    define node1_conninfo 'blah blah blah';
+    define node2_conninfo 'more blah';
+
+    node 1 admin conninfo = @node1_conninfo;
+    node 2 admin conninfo = @node2_conninfo;
+
+
+gen_newslave.sk:
+
+    include <gen_sync.sk>;
+
+    echo 'Adding node 2';
+    store node (id=2, comment=@node2_conninfo, event node=1);
+    echo 'Creating paths';
+    store path (server=1, client=2, conninfo=@node1_conninfo);
+    store path (server=2, client=1, conninfo=@node2_conninfo);
+    include <gen_sync.sk>;
+
+    echo 'Subscribing node 2';
+    subscribe set (id=1,provider=1,receiver=2,forward=yes);
+    wait for event (origin=1, confirmed=all, wait on=1, timeout=0);
+    echo 'Subscription created. Slave is copying data. Master can go live.';
+
+
+gen_sync.sk:
+
+    echo 'Waiting for sync';
+    sync (id=1);
+    wait for event (origin=1, confirmed=all, wait on=1, timeout=0);
+    echo 'Synced';
+
+
+
+-- 
+Stuart Bishop <stuart at stuartbishop.net>
+http://www.stuartbishop.net/
+
+From ssinger at ca.afilias.info  Wed Sep 28 08:29:11 2011
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Wed, 28 Sep 2011 11:29:11 -0400
+Subject: [Slony1-general] Normal broken output or bad package?
+In-Reply-To: <CADmi=6MyCJD1g9Z1fu+ssQGA68f6W2SynD11tVqZ8_2jJ22gwg@mail.gmail.com>
+References: <CADmi=6OHGtcGE+ZbnqAcRy0ock0pN3h4u3x6uhxYPbr0zw0LDg@mail.gmail.com>	<4E832AEB.30005@ca.afilias.info>
+	<CADmi=6MyCJD1g9Z1fu+ssQGA68f6W2SynD11tVqZ8_2jJ22gwg@mail.gmail.com>
+Message-ID: <4E833D47.5020102@ca.afilias.info>
+
+On 11-09-28 11:06 AM, Stuart Bishop wrote:
+> On Wed, Sep 28, 2011 at 9:10 PM, Steve Singer<ssinger at ca.afilias.info>  wrote:
+>> On 11-09-27 03:31 AM, Stuart Bishop wrote:
+>>
+>> I don't recognize it as a known issue, it might be an unknown issue
+>> unrelated to the packaging.  You don't tell us what version of Slony you are
+>> using or provide the contents of your u2_newslave.sk so we know what slonik
+>> commands are being run at which line.
+>
+> Its version 2.0.7
+>
+> u2_newslave.sk:
+>
+>      include<u2_preamble.sk>;
+>      include<gen_newslave.sk>;
+
+
+I can't replicate your issue but looking at the code I think I can see 
+how using multiple includes can hit a bug that would sometimes result in 
+your output.
+
+I have created a bug for this and put my thoughts in at 
+http://bugs.slony.info/bugzilla/show_bug.cgi?id=241
+
+Thanks for the report.
+
+
+
+>
+>
+> u2_preamble.sk:
+>
+>      cluster name = sl;
+>
+>      define node1_conninfo 'blah blah blah';
+>      define node2_conninfo 'more blah';
+>
+>      node 1 admin conninfo = @node1_conninfo;
+>      node 2 admin conninfo = @node2_conninfo;
+>
+>
+> gen_newslave.sk:
+>
+>      include<gen_sync.sk>;
+>
+>      echo 'Adding node 2';
+>      store node (id=2, comment=@node2_conninfo, event node=1);
+>      echo 'Creating paths';
+>      store path (server=1, client=2, conninfo=@node1_conninfo);
+>      store path (server=2, client=1, conninfo=@node2_conninfo);
+>      include<gen_sync.sk>;
+>
+>      echo 'Subscribing node 2';
+>      subscribe set (id=1,provider=1,receiver=2,forward=yes);
+>      wait for event (origin=1, confirmed=all, wait on=1, timeout=0);
+>      echo 'Subscription created. Slave is copying data. Master can go live.';
+>
+>
+> gen_sync.sk:
+>
+>      echo 'Waiting for sync';
+>      sync (id=1);
+>      wait for event (origin=1, confirmed=all, wait on=1, timeout=0);
+>      echo 'Synced';
+>
+>
+>
+
+
+From francescoboccacci at libero.it  Thu Sep 29 01:28:01 2011
+From: francescoboccacci at libero.it (francescoboccacci at libero.it)
+Date: Thu, 29 Sep 2011 10:28:01 +0200 (CEST)
+Subject: [Slony1-general] Slony Problem
+Message-ID: <10278367.784681317284881828.JavaMail.defaultUser@defaultHost>
+
+Hi,
+i have some problems with slony 2.1.0. I have 2 server (192.168.22.225 Master, 
+192.168.22.226 Slave) .
+I run the following  cluster.sh  into main server:
+
+CLUSTER=sql_cluster_test
+DB1=test_grade
+H1=192.168.22.225
+H2=192.168.22.226
+DB2=test_grade
+U=xxxx
+P=xxxx
+/usr/lib/postgresql/8.4/bin/slonik <<_EOF_
+cluster name = $CLUSTER;
+node 1 admin conninfo = 'dbname=$DB1  host=$H1  user=$U password=$P';
+node 2 admin conninfo = 'dbname=$DB2  host=$H2  user=$U password=$P';
+
+init cluster (id = 1, comment = 'Master Node');
+create set (id = 1, origin = 1, comment = 'contact table');
+########TABLES###############################
+set add table (set id = 1, origin = 1, id = 1,
+        full qualified name = 'public.testtable',
+        comment = 'Table testtable');
+....
+...
+
+ then i run:
+
+/usr/lib/postgresql/8.4/bin/slon sql_cluster_test "dbname=test_grade 
+user=xxxx" > slon1.log &
+
+in a master server and
+
+usr/lib/postgresql/8.4/bin/slon sql_cluster_test  "dbname=test_grade 
+user=xxxx" > slon1.log &
+
+in slave server without  errors. At the end i run the following  
+subscribe_test.sh script:
+
+
+CLUSTER=sql_cluster_test
+DB1=test_grade
+H1=192.168.22.225
+H2=192.168.22.226
+DB2=test_grade
+U=xxxx
+P=xxxx
+/usr/lib/postgresql/8.4/bin/slonik <<_EOF_
+
+cluster name = $CLUSTER;
+
+node 1 admin conninfo = 'dbname=$DB1 host=$H1   user=$U';
+node 2 admin conninfo = 'dbname=$DB2 host=$H2   user=$U';
+
+subscribe set (id = 1, provider = 1, receiver = 2, forward = no);
+
+_EOF_
+
+This is the returned message :
+
+waiting for events  (2,5000000001) only at (2,0) to be confirmed on node 1
+waiting for events  (2,5000000001) only at (2,0) to be confirmed on node 1
+...
+..
+
+and the replication in slave tables aren't available and the replication 
+systema doesn't work.
+
+Please let me know if i'm doing some mistakes.
+
+Thanks
+
+Franesco
+
+
+
+

@@ -1,0 +1,453 @@
+From ssinger at ca.afilias.info  Thu Sep 22 08:39:31 2011
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Thu, 22 Sep 2011 11:39:31 -0400
+Subject: [Slony1-hackers] pgport support (again)
+Message-ID: <4E7B56B3.7020904@ca.afilias.info>
+
+In 2.1.0 and 2.0.7 we stopped linking slonik against pgport on non win32 
+platforms because many people were complaining that their postgresql 
+packages didn't include libpgport.a
+
+In many versions of slony 1.2.x slonik would use the postgresql pgport 
+function find_my_exec to determine the runtime location of the slony 
+binary in order to determine the location of the share directory.  Some 
+packagers have now complained that the location the slony binaries will 
+be installed into at install time can't be known at compile time.
+
+I am proposing the attached patch that uses a configure flag+check to 
+decide if pgport is available at compile time it will call find_my_exec 
+at runtime. Otherwise it falls back to the compile time pgshare.
+
+Does this accomplish what is required without breaking anything new?
+
+https://github.com/ssinger/slony1-engine/commit/93e097242ad8be5364fe481f7eff063d408e09d2
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: 0001-Add-back-in-find_my_exec-support-on-platforms-that-i.patch
+Type: text/x-patch
+Size: 0 bytes
+Desc: not available
+Url : http://lists.slony.info/pipermail/slony1-hackers/attachments/20110922/b4a5bf4a/attachment.bin 
+
+From ssinger at ca.afilias.info  Thu Sep 22 08:24:33 2011
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Thu, 22 Sep 2011 11:24:33 -0400
+Subject: [PATCH] Add back in find_my_exec() support on platforms that include pgport.
+ find_my_exec, a postgresql pgport function is again used to find the
+ location of the slonik binary to locate the share directory.
+ This is for installs where the install location is not known at
+ compile time.
+Message-ID: <mailman.6.1316705988.6915.slony1-hackers@lists.slony.info>
+
+Some distributions don't include pgport, if you compile with pgport support set to
+no (a configure option/check) then this will be disabled.
+---
+ Makefile.global.in   |    3 +++
+ config/acx_libpq.m4  |    6 ++++++
+ configure.ac         |    6 +++---
+ src/slonik/Makefile  |    2 ++
+ src/slonik/slonik.c  |   18 +++++++++++++++++-
+ src/slonik/win32.mak |    2 +-
+ 6 files changed, 32 insertions(+), 5 deletions(-)
+
+diff --git a/Makefile.global.in b/Makefile.global.in
+index 3f82d7d..2aa484d 100644
+--- a/Makefile.global.in
++++ b/Makefile.global.in
+@@ -53,6 +53,9 @@ enable_rpath=		@enable_rpath@
+ 
+ #libs
+ PTHREAD_LIBS=		@PTHREAD_LIBS@
++ifeq (@HAVE_PGPORT@,1)
++HAVE_PGPORT=		@HAVE_PGPORT@
++endif
+ 
+ # Documentation
+ JADE=			@JADE@
+diff --git a/config/acx_libpq.m4 b/config/acx_libpq.m4
+index 0055536..d142ef2 100644
+--- a/config/acx_libpq.m4
++++ b/config/acx_libpq.m4
+@@ -475,6 +475,12 @@ AC_CHECK_DECLS([GetTopTransactionId],[],[],[
+ 
+ AC_SUBST(NLSLIB)
+ 
++if test "$with_pgport" != "no"; then
++   AC_MSG_CHECKING(for pgport)
++   LIBS="$LIBS -lpgport"
++   AC_TRY_LINK_FUNC(find_my_exec,HAVE_PGPORT=1, AC_MSG_ERROR("pgport was not found. bulid with --with-pgport=no to disable"))
++fi
++
+ AC_LANG_RESTORE
+ ])dnl ACX_LIBPQ
+ 
+diff --git a/configure.ac b/configure.ac
+index 3af8eb5..c9b930d 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -1,4 +1,4 @@
+-# ----------
++2# ----------
+ # configure.ac
+ #
+ #	Autoconf configuration file for Slony-I
+@@ -211,7 +211,7 @@ AC_ARG_WITH(docs,		[  --with-docs=<yes|no>             Build the sgml documentat
+ AC_ARG_WITH(docdir,		[  --with-docdir=<dir>              Location to install all the documentation. Default is $PREFIX/doc. ])
+ AC_ARG_WITH(d2mdir,		[  --with-d2mdir=<dir>              Location of docbook2man-spec.pl (Manpages will be skipped if not specified)])
+ AC_ARG_WITH(mandir,		[  --with-mandir=<dir>              Location to install the manpages. Default is $PREFIX/man.])
+-
++AC_ARG_WITH(pgport, 		[  --with-pgport=<yes|no>	    Link with pgport [default=yes]])
+ 
+ SLON_AC_ARG_BOOL(enable, engine, yes,
+               [  --disable-engine     Don't build slony1-engine source. (Used when building documentation only)])
+@@ -249,7 +249,7 @@ AC_SUBST(TOOLSBIN, $TOOLSBIN)
+ AC_SUBST(SLONYPATH)
+ AC_SUBST(HOST_OS,$host_os)
+ AC_SUBST(PORTNAME,$template)
+-
++AC_SUBST(HAVE_PGPORT,$HAVE_PGPORT)
+ if test ${prefix} = "NONE"; then
+   SLONBINDIR="${PG_BINDIR}"
+ else
+diff --git a/src/slonik/Makefile b/src/slonik/Makefile
+index d8c9564..b5fc630 100644
+--- a/src/slonik/Makefile
++++ b/src/slonik/Makefile
+@@ -26,6 +26,8 @@ endif
+ ifeq ($(PORTNAME), win32)
+ PROG            = slonik.exe
+ LDFLAGS += -lpgport
++else ifdef HAVE_PGPORT
++LDFLAGS += -lpgport
+ endif
+ 
+ OBJS		= 			\
+diff --git a/src/slonik/slonik.c b/src/slonik/slonik.c
+index 4b39848..90e8e74 100644
+--- a/src/slonik/slonik.c
++++ b/src/slonik/slonik.c
+@@ -32,7 +32,9 @@
+ #include "types.h"
+ #include "libpq-fe.h"
+ #include "slonik.h"
+-
++#ifdef HAVE_PGPORT
++#include "port.h"
++#endif
+ 
+ #ifdef MSVC
+ #include "config_msvc.h"
+@@ -55,6 +57,9 @@ int last_event_node=-1;
+ int auto_wait_disabled=0;
+ 
+ static char share_path[MAXPGPATH];
++#if HAVE_PGPORT
++static char myfull_path[MAXPGPATH];
++#endif
+ 
+ /*
+  * Local functions
+@@ -150,10 +155,21 @@ main(int argc, const char *argv[])
+ 	if (parser_errors)
+ 		usage();
+ 
++#ifdef HAVE_PGPORT
+ 	/*
+ 	 * We need to find a share directory like PostgreSQL. 
+ 	 */
++ 	if (find_my_exec(argv[0],myfull_path) < 0)
++	{
++		strcpy(share_path, PGSHARE);
++	}
++	else
++	{
++		get_share_path(myfull_path, share_path);
++	}
++#else
+ 	strcpy(share_path, PGSHARE);
++#endif
+ 
+ 	if (optind < argc)
+ 	{
+diff --git a/src/slonik/win32.mak b/src/slonik/win32.mak
+index b973c5b..7e489e7 100644
+--- a/src/slonik/win32.mak
++++ b/src/slonik/win32.mak
+@@ -9,7 +9,7 @@ OBJS = slonik.obj \
+ 
+ 
+ 
+-CPP_FLAGS=/c /D MSVC /D WIN32 /D PGSHARE=\"$(PGSHARE)\" /D YY_NO_UNISTD_H /I..\..\ /I$(PG_INC)  /MD
++CPP_FLAGS=/c /D MSVC /D WIN32 /D PGSHARE=\"$(PGSHARE)\" /D YY_NO_UNISTD_H /I..\..\ /D HAVE_PGPORT /I$(PG_INC)  /MD
+ 
+ slonik.obj: slonik.c
+ 	$(CPP)$(CPP_FLAGS)  slonik.c
+-- 
+1.7.0.4
+
+
+--------------010705000007040409030509--
+
+From davidtecher at yahoo.fr  Thu Sep 22 15:07:53 2011
+From: davidtecher at yahoo.fr (David TECHER)
+Date: Thu, 22 Sep 2011 23:07:53 +0100 (BST)
+Subject: [Slony1-hackers] Request: backporting fix done for bug 218 to REL
+	2.0 STABLE
+Message-ID: <1316729273.914.YahooMailNeo@web29811.mail.ird.yahoo.com>
+
+Hi 
+
+
+I asked myself if it could be possible to backport the fix done for bug 218 to? tag 2.0 STABLE.
+
+I've got several schemas so a lot of tables/sequences to replicate.
+Thanks
+
+Kind regards
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-hackers/attachments/20110922/dd133648/attachment.htm 
+
+From davidtecher at yahoo.fr  Fri Sep 23 01:13:19 2011
+From: davidtecher at yahoo.fr (David TECHER)
+Date: Fri, 23 Sep 2011 09:13:19 +0100 (BST)
+Subject: [Slony1-hackers] Re : Request: backporting fix done for bug 218 to
+	REL 2.0 STABLE
+In-Reply-To: <BLU0-SMTP76E7109015BC5D6AFB7C8AC0C0@phx.gbl>
+References: <1316729273.914.YahooMailNeo@web29811.mail.ird.yahoo.com>
+	<BLU0-SMTP76E7109015BC5D6AFB7C8AC0C0@phx.gbl>
+Message-ID: <1316765599.4047.YahooMailNeo@web29812.mail.ird.yahoo.com>
+
+Actually 
+
+
+With 2.0 stable, I've noticed that a "SUBSCRIBE SET" and a "WAIT FOR EVENT"
+
+with PostgreSQL 8.4, I could have a deadlock done by a 
+
+
+2011-09-20 04:53:59 EDTDETAIL:? Process 17710 waits for ExclusiveLock on relation 4867429 of database 4326133; blocked by process 9665.
+??????? Process 9665 waits for AccessExclusiveLock on relation 4867482 of database 4326133; blocked by process 17710.
+??????? Process 17710: select "_mycluster".subscribeSet(27, 1, 2, 't', 'f');
+??????? Process 9665: select "_mycluster".cleanupEvent('240 minutes'::interval, 'false'::boolean);
+2011-09-20 04:53:59 EDTHINT:? See server log for query details.
+2011-09-20 04:53:59 EDTCONTEXT:? SQL statement "LOCK TABLE _mycluster.sl_event IN EXCLUSIVE MODE; INSERT INTO _mycluster.sl_event (ev_origin, ev_seqno, ev_timestamp, ev_snapshot, ev_type, ev_data1, ev_data2, ev_data3, ev_data4, ev_data
+5, ev_data6, ev_data7, ev_data8) VALUES ('1', nextval('_mycluster.sl_event_seq'), now(), "pg_catalog".txid_current_snapshot(), $1, $2, $3, $4, $5, $6, $7, $8, $9); SELECT currval('_mycluster.sl_event_seq');"
+??????? PL/pgSQL function "subscribeset" line 64 at assignment
+2011-09-20 04:53:59 EDTSTATEMENT:? select "_mycluster".subscribeSet(27, 1, 2, 't', 'f');
+
+
+or
+
+
+<stdin>:207: Creation Set : Success
+2 subscribes to Set 29
+<stdin>:9: PGRES_FATAL_ERROR select "_mycluster".subscribeSet(29, 1, 2, 't', 'f');? - ERROR:? deadlock detected
+DETAIL:? Process 25451 waits for ExclusiveLock on relation 4867429 of database 4326133; blocked by process 18388.
+Process 18388 waits for AccessExclusiveLock on relation 4867482 of database 4326133; blocked by process 25451.
+HINT:? See server log for query details.
+CONTEXT:? SQL statement "LOCK TABLE _mycluster.sl_event IN EXCLUSIVE MODE; INSERT INTO _mycluster.sl_event (ev_origin, ev_seqno, ev_timestamp, ev_snapshot, ev_type, ev_data1, ev_data2, ev_data3, ev_data4, ev_data5, ev_data6, ev_data7,
+ev_data8) VALUES ('1', nextval('_mycluster.sl_event_seq'), now(), "pg_catalog".txid_current_snapshot(), $1, $2, $3, $4, $5, $6, $7, $8, $9); SELECT currval('_mycluster.sl_event_seq');"
+PL/pgSQL function "subscribeset" line 64 at assignment
+<stdin>:8: Node 2 subscribes set 29
+
+
+with autovacuum on the only workaround, I've found is too let Slony do the vacuum by putting autovacuum off on Slony's tables
+
+?ALTER TABLE _mycluster.sl_nodelock SET (autovacuum_enabled=off);
+?ALTER TABLE _mycluster.sl_setsync SET (autovacuum_enabled=off);
+?ALTER TABLE _mycluster.sl_table SET (autovacuum_enabled=off);
+?ALTER TABLE _mycluster.sl_sequence SET (autovacuum_enabled=off);
+?ALTER TABLE _mycluster.sl_node SET (autovacuum_enabled=off);
+?ALTER TABLE _mycluster.sl_listen SET (autovacuum_enabled=off);
+?ALTER TABLE _mycluster.sl_path SET (autovacuum_enabled=off);
+?ALTER TABLE _mycluster.sl_subscribe SET (autovacuum_enabled=off);
+?ALTER TABLE _mycluster.sl_set SET (autovacuum_enabled=off);
+?ALTER TABLE _mycluster.sl_event SET (autovacuum_enabled=off);
+?ALTER TABLE _mycluster.sl_confirm SET (autovacuum_enabled=off);
+?ALTER TABLE _mycluster.sl_seqlog SET (autovacuum_enabled=off);
+?ALTER TABLE _mycluster.sl_registry SET (autovacuum_enabled=off);
+?ALTER TABLE _mycluster.sl_seqlastvalue SET (autovacuum_enabled=off);
+?ALTER TABLE _mycluster.sl_config_lock SET (autovacuum_enabled=off);
+?ALTER TABLE _mycluster.sl_archive_counter SET (autovacuum_enabled=off);
+?ALTER TABLE _mycluster.sl_status SET (autovacuum_enabled=off);
+?ALTER TABLE _mycluster.sl_log_1 SET (autovacuum_enabled=off);
+?ALTER TABLE _mycluster.sl_log_2 SET (autovacuum_enabled=off);
+
+
+It works with PostgreSQL 8.4.
+
+So I asked myself it is not related to bug 218
+
+David
+
+
+
+________________________________
+De?: Steven Singer <sjsinger at sympatico.ca>
+??: David TECHER <davidtecher at yahoo.fr>
+Cc?: Slony Hackers <slony1-hackers at lists.slony.info>
+Envoy? le : Vendredi 23 Septembre 2011 0h42
+Objet?: Re: [Slony1-hackers] Request: backporting fix done for bug 218 to REL 2.0 STABLE
+
+On Thu, 22 Sep 2011, David TECHER wrote:
+
+> Hi
+> 
+> I asked myself if it could be possible to backport the fix done for bug 218
+> to? tag 2.0 STABLE.
+
+> 
+> I've got several schemas so a lot of tables/sequences to replicate.
+
+Exactly what problem are you having with 2.0.x that makes you think the changes for bug 218 (http://www.slony.info/bugzilla/show_bug.cgi?id=218) will fix your problem?? The comments on the bug make me think that bug 218 was caused/exposed by other changes to 2.1.?  A lot of the 'locking' changes in 2.1.0 are somewhat related (changing the table we lock, changing where we take the lock etc...), even that bug had multile commits before all the issues were worked out and I would hesitate to start porting those to 2.0.x piecemeal (particularly since 2.1.0 is so close to being out)
+
+
+
+
+
+
+> 
+> Thanks
+> 
+> Kind regards
+> 
+> 
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-hackers/attachments/20110923/c48b2cf3/attachment.htm 
+
+From ssinger at ca.afilias.info  Fri Sep 23 06:41:41 2011
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Fri, 23 Sep 2011 09:41:41 -0400
+Subject: [Slony1-hackers] Re : Request: backporting fix done for bug 218
+ to REL 2.0 STABLE
+In-Reply-To: <1316765599.4047.YahooMailNeo@web29812.mail.ird.yahoo.com>
+References: <1316729273.914.YahooMailNeo@web29811.mail.ird.yahoo.com>	<BLU0-SMTP76E7109015BC5D6AFB7C8AC0C0@phx.gbl>
+	<1316765599.4047.YahooMailNeo@web29812.mail.ird.yahoo.com>
+Message-ID: <4E7C8C95.7060901@ca.afilias.info>
+
+On 11-09-23 04:13 AM, David TECHER wrote:
+> Actually
+>
+> With 2.0 stable, I've noticed that a "SUBSCRIBE SET" and a "WAIT FOR EVENT"
+>
+> with PostgreSQL 8.4, I could have a deadlock done by a
+
+> DETAIL: Process 25451 waits for ExclusiveLock on relation 4867429 of
+> database 4326133; blocked by process 18388.
+> Process 18388 waits for AccessExclusiveLock on relation 4867482 of
+
+Which relations are 4867482 4867429,  I assume one is sl_event, but what 
+is the other?
+
+This sounds related to the changes related to bug218 in the sense that 
+the way locking is done was reworked (we no longer take an exclusive 
+lock on sl_event but instead sl_event_lock) but it is hard to say 
+anything more specific.
+
+It is also non-obvious to me why switching off autovacuum would fix this 
+problem if none of the processes involved are autovacuum.
+
+
+
+> database 4326133; blocked by process 25451.
+> HINT: See server log for query details.
+> CONTEXT: SQL statement "LOCK TABLE _mycluster.sl_event IN EXCLUSIVE
+> MODE; INSERT INTO _mycluster.sl_event (ev_origin, ev_seqno,
+> ev_timestamp, ev_snapshot, ev_type, ev_data1, ev_data2, ev_data3,
+> ev_data4, ev_data5, ev_data6, ev_data7,
+> ev_data8) VALUES ('1', nextval('_mycluster.sl_event_seq'), now(),
+> "pg_catalog".txid_current_snapshot(), $1, $2, $3, $4, $5, $6, $7, $8,
+> $9); SELECT currval('_mycluster.sl_event_seq');"
+> PL/pgSQL function "subscribeset" line 64 at assignment
+> <stdin>:8: Node 2 subscribes set 29
+>
+> with autovacuum on the only workaround, I've found is too let Slony do
+> the vacuum by putting autovacuum off on Slony's tables
+>
+> ALTER TABLE _mycluster.sl_nodelock SET (autovacuum_enabled=off);
+> ALTER TABLE _mycluster.sl_setsync SET (autovacuum_enabled=off);
+> ALTER TABLE _mycluster.sl_table SET (autovacuum_enabled=off);
+> ALTER TABLE _mycluster.sl_sequence SET (autovacuum_enabled=off);
+> ALTER TABLE _mycluster.sl_node SET (autovacuum_enabled=off);
+> ALTER TABLE _mycluster.sl_listen SET (autovacuum_enabled=off);
+> ALTER TABLE _mycluster.sl_path SET (autovacuum_enabled=off);
+> ALTER TABLE _mycluster.sl_subscribe SET (autovacuum_enabled=off);
+> ALTER TABLE _mycluster.sl_set SET (autovacuum_enabled=off);
+> ALTER TABLE _mycluster.sl_event SET (autovacuum_enabled=off);
+> ALTER TABLE _mycluster.sl_confirm SET (autovacuum_enabled=off);
+> ALTER TABLE _mycluster.sl_seqlog SET (autovacuum_enabled=off);
+> ALTER TABLE _mycluster.sl_registry SET (autovacuum_enabled=off);
+> ALTER TABLE _mycluster.sl_seqlastvalue SET (autovacuum_enabled=off);
+> ALTER TABLE _mycluster.sl_config_lock SET (autovacuum_enabled=off);
+> ALTER TABLE _mycluster.sl_archive_counter SET (autovacuum_enabled=off);
+> ALTER TABLE _mycluster.sl_status SET (autovacuum_enabled=off);
+> ALTER TABLE _mycluster.sl_log_1 SET (autovacuum_enabled=off);
+> ALTER TABLE _mycluster.sl_log_2 SET (autovacuum_enabled=off);
+>
+> It works with PostgreSQL 8.4.
+>
+> So I asked myself it is not related to bug 218
+>
+> David
+>
+> ------------------------------------------------------------------------
+> *De :* Steven Singer <sjsinger at sympatico.ca>
+> *? :* David TECHER <davidtecher at yahoo.fr>
+> *Cc :* Slony Hackers <slony1-hackers at lists.slony.info>
+> *Envoy? le :* Vendredi 23 Septembre 2011 0h42
+> *Objet :* Re: [Slony1-hackers] Request: backporting fix done for bug 218
+> to REL 2.0 STABLE
+>
+> On Thu, 22 Sep 2011, David TECHER wrote:
+>
+>  > Hi
+>  >
+>  > I asked myself if it could be possible to backport the fix done for
+> bug 218
+>  > to tag 2.0 STABLE.
+>
+>  >
+>  > I've got several schemas so a lot of tables/sequences to replicate.
+>
+> Exactly what problem are you having with 2.0.x that makes you think the
+> changes for bug 218 (http://www.slony.info/bugzilla/show_bug.cgi?id=218)
+> will fix your problem? The comments on the bug make me think that bug
+> 218 was caused/exposed by other changes to 2.1. A lot of the 'locking'
+> changes in 2.1.0 are somewhat related (changing the table we lock,
+> changing where we take the lock etc...), even that bug had multile
+> commits before all the issues were worked out and I would hesitate to
+> start porting those to 2.0.x piecemeal (particularly since 2.1.0 is so
+> close to being out)
+>
+>
+>
+>
+>
+>
+>  >
+>  > Thanks
+>  >
+>  > Kind regards
+>  >
+>  >
+>
+>
+>
+>
+> _______________________________________________
+> Slony1-hackers mailing list
+> Slony1-hackers at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-hackers
+
+
+From davidtecher at yahoo.fr  Wed Sep 28 11:33:45 2011
+From: davidtecher at yahoo.fr (davidtecher at yahoo.fr)
+Date: Wed, 28 Sep 2011 19:33:45 +0100 (BST)
+Subject: [Slony1-hackers] (no subject)
+Message-ID: <1317234825.9794.yint-ygo-j2me@web29809.mail.ird.yahoo.com>
+
+http://reparo-portatiles-24h.com/go.php
+

@@ -1,0 +1,157 @@
+From ssinger at ca.afilias.info  Thu Jan  5 07:13:44 2012
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Thu, 05 Jan 2012 10:13:44 -0500
+Subject: [Slony1-hackers] Failover changes (for 2.2) patch
+Message-ID: <4F05BE28.7040706@ca.afilias.info>
+
+
+Attached is an updated patch on the FAILOVER work that I have been doing.
+
+This is a major overhaul of how failover works to address concerns with
+
+a) Multiple nodes failing at once
+b) Failing over to a non-direct subscriber of the failed node
+
+The major changes can be summarized as follows
+
+1) The FAILOVER command will now look at the view sl_failover_targets to
+find nodes that are acceptable failover candidates.  A failover
+candidate must be directly subscribed to all sets originating on the
+failed node and must have direct paths to any receivers of the failed
+node.  The FAILOVER command will then failover to the most ahead node of
+that list.    Later the FAILOVER command will perform a MOVE SET to make
+the desired backup node be the new master.
+
+2) Any nodes that are further ahead of than the most ahead failover
+candidate will be recursively unsubscribed from the sets originating on
+the failed node.
+
+3) The failover process no longer fakes an event from the failed origin.
+   Instead a FAILOVER_NODE event is generated from the temporary backup
+node that is processed by all other nodes.
+
+This version of the patches addresses Chris's concern that the post
+failover origin is deterministic by having slonik perform the MOVE_SET
+(and it actually uses the MOVE_SET code) to leave you with the new
+origin that you have choosen.
+
+This version of the patch is open to criticism that you might have a
+forwarder that doesn't meet the critieria specified in (1) that is more
+ahead of all nodes that do meet the criteria in (1).  That forwarder and
+any providers will be unsubscribed.  I argue that you can avoid this by
+designing your clusters so they don't have nodes that don't meet the
+criteria of (1).  I am of the opinion that dealing with keeping those
+nodes makes the failover code far too complex.  I will listen/read
+arguments that this is not the case.
+
+
+Outstanding issues:
+-------------------
+* I still have to update the documentation
+* More test cases to verify states?
+* More test cases to force different cluster ahead states?
+
+https://github.com/ssinger/slony1-engine/tree/multi_node_limited
+
+
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: failover.jan5.diff.gz
+Type: application/x-gzip
+Size: 26322 bytes
+Desc: not available
+Url : http://lists.slony.info/pipermail/slony1-hackers/attachments/20120105/be5c0337/attachment-0001.bin 
+
+From davidtecher at yahoo.fr  Thu Jan 19 03:00:06 2012
+From: davidtecher at yahoo.fr (David TECHER)
+Date: Thu, 19 Jan 2012 11:00:06 +0000 (GMT)
+Subject: [Slony1-hackers] [Solved] Slonik parser limitation - ERROR: memory
+	exhausted at or near
+Message-ID: <1326970806.9698.YahooMailNeo@web29805.mail.ird.yahoo.com>
+
+Hi
+
+ABOUT
+======
+
+Please be informed that we encountered a issue with slonik parser when submitting a script with more than 9990 to 10000 commands.
+
+I mean
+
+/path/to/slonilk << EOF
+# include <preamble.sk>;
+command 1;
+command 2;
+....
+command 9997;
+
+command is something like echo, set add sequence (....), set add table (....) and so on.
+
+
+slonik crash with a memory error.
+
+EXAMPLE FOR SLONIK CRASH
+
+=========================
+
+As a example from Slony sources - once the sources have been compiled -
+
+Generate a stupid script
+
+echo "include <preamble.sk>;" > test.slonik
+seq 1 10000 | xargs -i echo "echo '{}';" >> test.slonik
+
+Submit the script to slonik
+cat test.slonik | src/slonik/slonik
+<stdin>:9995: ERROR: memory exhausted at or near ;
+
+
+We've got more than 20000 objects (tables + sequences) to replicate.
+
+FIXING ISSUE FOR THE PARSER LIMITATION/WORKAROUND
+==================================================
+
+While investigating, I found that the problem came from the default value for YYMAXDEPTH in src/slonik/parser.c
+----------
+
+/* YYMAXDEPTH -- maximum size the stacks can grow to (effective only
+?? if the built-in stack extension method is used).
+
+?? Do not make this value too large; the results are undefined if
+?? YYSTACK_ALLOC_MAXIMUM < YYSTACK_BYTES (YYMAXDEPTH)
+?? evaluated with infinite-precision integer arithmetic.? */
+
+#ifndef YYMAXDEPTH
+# define YYMAXDEPTH 10000
+#endif
+
+-----
+
+
+Taking into account the notice in the file, I came to the conclusoion that 10000 is a arbitrary value. We decided to put a a value like 100000 instead on a Linux x86_64 and it works
+
+Since I do not use slony_logshipping I did not investigate on it.
+
+The first workaround is to split the script in several scripts but it is not a pleasant workaround.
+
+We've tested a value like 100000 for YYMAXDEPTH and we did not have any problem.
+
+
+At Office we work with EnterpriseDB and ask EnterpriseDB for fixing the required value for Slony 1.2.22
+
+
+As costumer, EnterpriseDB? was ok to fix this issue.
+
+I did not investigate for Slony 2.X but my concern is that the issue may be the same.
+
+
+I hope this information could help someone.
+
+Kind regards.
+
+David.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-hackers/attachments/20120119/c6353f02/attachment.htm 
+

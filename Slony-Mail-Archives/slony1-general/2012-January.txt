@@ -1,0 +1,1840 @@
+From kleptog at gmail.com  Tue Jan  3 02:49:51 2012
+From: kleptog at gmail.com (Martijn van Oosterhout)
+Date: Tue, 3 Jan 2012 11:49:51 +0100
+Subject: [Slony1-general] Slony-I in strange state after attempted
+	unsubscribe/resubscribe
+Message-ID: <CADWG95soM=he7pH650myFz4FwWSV-qLf9BVmOwgH=xOFRn-Eyg@mail.gmail.com>
+
+Hoi,
+
+We have a Slony-I setup in a slightly weird situation. What happened
+was that the server did a huge delete (millions of rows) in a single
+transaction which caused the replication to start to run behind. For
+some reason in this state it takes forever to apply the change because
+the query to find out what it needs to apply does a sort or something
+because it doesn't want to apply the whole set at once. A single SYNC
+takes 10 minutes.
+
+In any case, the way we fixed it before was to unsubscribe and
+resubscribe the set, because resyncing the whole database is quicker
+than waiting for the deletes to complete. However, this time it broke
+in a new way. The result is that slony thinks it is properly
+subscribed, but the database data has not been resynced, so you get
+some bastard combination of old and new data. Logs below.
+
+Two questions:
+1. Is there a way we could have detected the unsubscribe failed
+(slonik gave no error, but we didn't ask). If so, we can add that to
+the procedure as something to check
+2. Seems like a bug to me, but pilot error is not impossible.
+
+Thanks in advance,
+
+2012-01-01 14:24:27 CETINFO   cleanupThread:    0.002 seconds for cleanupEvent()
+2012-01-01 14:24:27 CETINFO   cleanupThread:    0.006 seconds for vacuuming
+2012-01-01 14:30:55 CETINFO   remoteWorkerThread_1: SYNC 5000990612
+done in 733.067 seconds
+2012-01-01 14:30:55 CETINFO   remoteWorkerThread_1: syncing set 1 with
+50 table(s) from provider 1
+NOTICE:  Slony-I: log switch to sl_log_2 complete - truncate sl_log_1
+CONTEXT:  PL/pgSQL function "cleanupevent" line 99 at assignment
+2012-01-01 14:35:22 CETINFO   cleanupThread:    0.066 seconds for cleanupEvent()
+
+--- unsubscribe happens here ---
+2012-01-01 14:37:58 CETCONFIG unsubscribeSet: sub_set=1
+2012-01-01 14:37:58 CETCONFIG storeListen: li_origin=1 li_receiver=2
+li_provider=1
+--- this is the weird error ---
+2012-01-01 14:44:09 CETERROR  remoteWorkerThread_1: "update
+"_pp_config_rep".sl_setsync set     ssy_seqno = '5000990613',
+ssy_snapshot =  '20587190:20590885:20587190',     ssy_action_list = ''
+where ssy_setid in (1) and ssy_seqno < '5000990613'; " ERROR:  could
+not serialize access due to concurrent update
+2012-01-01 14:44:09 CETERROR  remoteWorkerThread_1: SYNC aborted
+2012-01-01 14:44:21 CETCONFIG remoteWorkerThread_1: update provider
+configuration
+2012-01-01 14:44:21 CETCONFIG remoteWorkerThread_1: helper thread for
+provider 1 terminated
+2012-01-01 14:44:21 CETCONFIG remoteWorkerThread_1: disconnecting from
+data provider 1
+2012-01-01 14:44:21 CETCONFIG storeSubscribe: sub_set=1 sub_provider=1
+sub_forward='t'
+2012-01-01 14:44:21 CETCONFIG storeListen: li_origin=1 li_receiver=2
+li_provider=1
+2012-01-01 14:44:21 CETCONFIG remoteWorkerThread_1: update provider
+configuration
+--- and here it appears slony thinks it is properly subscribed, but
+the database has not been resynced ---
+NOTICE:  Slony-I: Logswitch to sl_log_1 initiated
+CONTEXT:  SQL statement "SELECT "_pp_config_rep".logswitch_start()"
+PL/pgSQL function "cleanupevent" line 101 at PERFORM
+2012-01-01 14:46:29 CETINFO   cleanupThread:    0.015 seconds for cleanupEvent()
+
+
+-- 
+Martijn van Oosterhout <kleptog at gmail.com> http://svana.org/kleptog/
+
+From ssinger at ca.afilias.info  Tue Jan  3 08:17:00 2012
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Tue, 03 Jan 2012 11:17:00 -0500
+Subject: [Slony1-general] Slony-I in strange state after attempted
+	unsubscribe/resubscribe
+In-Reply-To: <CADWG95soM=he7pH650myFz4FwWSV-qLf9BVmOwgH=xOFRn-Eyg@mail.gmail.com>
+References: <CADWG95soM=he7pH650myFz4FwWSV-qLf9BVmOwgH=xOFRn-Eyg@mail.gmail.com>
+Message-ID: <4F0329FC.1040409@ca.afilias.info>
+
+On 12-01-03 05:49 AM, Martijn van Oosterhout wrote:
+> Hoi,
+
+What version of Slony are you using?
+What version of Postgresql are you using?
+
+
+>
+> We have a Slony-I setup in a slightly weird situation. What happened
+> was that the server did a huge delete (millions of rows) in a single
+> transaction which caused the replication to start to run behind. For
+> some reason in this state it takes forever to apply the change because
+> the query to find out what it needs to apply does a sort or something
+> because it doesn't want to apply the whole set at once. A single SYNC
+> takes 10 minutes.
+>
+
+I suspect you hit bug #167 (fixed in 2.1.0) that makes sync operations 
+slow when sl_log_x gets big.
+
+
+> In any case, the way we fixed it before was to unsubscribe and
+> resubscribe the set, because resyncing the whole database is quicker
+> than waiting for the deletes to complete. However, this time it broke
+> in a new way. The result is that slony thinks it is properly
+> subscribed, but the database data has not been resynced, so you get
+> some bastard combination of old and new data. Logs below.
+>
+> Two questions:
+> 1. Is there a way we could have detected the unsubscribe failed
+> (slonik gave no error, but we didn't ask). If so, we can add that to
+> the procedure as something to check
+
+The proper procedure should be
+
+unsubscribe(id=1, receiver=2);
+wait for event(origin=2, confirmed=all, wait on=2);
+subscribe set(set id=1, provider=1,receiver=2,forward=yes);
+
+In 2.1 and above slonik should automatically perform the 'wait for event'.
+
+The slonik command 'unsubscribe set' gets submitted to the node being 
+unsubscribed (node 2).   If that command failed then slonik should have 
+caught the error.
+
+
+
+> 2. Seems like a bug to me, but pilot error is not impossible.
+>
+> Thanks in advance,
+>
+> 2012-01-01 14:24:27 CETINFO   cleanupThread:    0.002 seconds for cleanupEvent()
+> 2012-01-01 14:24:27 CETINFO   cleanupThread:    0.006 seconds for vacuuming
+> 2012-01-01 14:30:55 CETINFO   remoteWorkerThread_1: SYNC 5000990612
+> done in 733.067 seconds
+> 2012-01-01 14:30:55 CETINFO   remoteWorkerThread_1: syncing set 1 with
+> 50 table(s) from provider 1
+> NOTICE:  Slony-I: log switch to sl_log_2 complete - truncate sl_log_1
+> CONTEXT:  PL/pgSQL function "cleanupevent" line 99 at assignment
+> 2012-01-01 14:35:22 CETINFO   cleanupThread:    0.066 seconds for cleanupEvent()
+>
+> --- unsubscribe happens here ---
+> 2012-01-01 14:37:58 CETCONFIG unsubscribeSet: sub_set=1
+> 2012-01-01 14:37:58 CETCONFIG storeListen: li_origin=1 li_receiver=2
+> li_provider=1
+> --- this is the weird error ---
+> 2012-01-01 14:44:09 CETERROR  remoteWorkerThread_1: "update
+> "_pp_config_rep".sl_setsync set     ssy_seqno = '5000990613',
+> ssy_snapshot =  '20587190:20590885:20587190',     ssy_action_list = ''
+> where ssy_setid in (1) and ssy_seqno<  '5000990613'; " ERROR:  could
+> not serialize access due to concurrent update
+> 2012-01-01 14:44:09 CETERROR  remoteWorkerThread_1: SYNC aborted
+
+If the receivers remoteWorkerThread_1 is aborted because of the 
+unsubscribe then I don't see this as an issue.
+
+
+
+> 2012-01-01 14:44:21 CETCONFIG remoteWorkerThread_1: update provider
+> configuration
+> 2012-01-01 14:44:21 CETCONFIG remoteWorkerThread_1: helper thread for
+> provider 1 terminated
+> 2012-01-01 14:44:21 CETCONFIG remoteWorkerThread_1: disconnecting from
+> data provider 1
+> 2012-01-01 14:44:21 CETCONFIG storeSubscribe: sub_set=1 sub_provider=1
+> sub_forward='t'
+> 2012-01-01 14:44:21 CETCONFIG storeListen: li_origin=1 li_receiver=2
+> li_provider=1
+> 2012-01-01 14:44:21 CETCONFIG remoteWorkerThread_1: update provider
+> configuration
+> --- and here it appears slony thinks it is properly subscribed, but
+> the database has not been resynced ---
+
+What do you base this statement on?   I do not see anything in the logs 
+you pasted showing me that slon2 has received the SUBSCRIBE_SET or 
+ENABLE_SUBSCRIPTION event.
+
+What is sl_subscribe on node 2 at this point in time?
+Does node 2 have a record in sl_event of it having processed those two 
+events?
+
+
+
+
+
+
+> NOTICE:  Slony-I: Logswitch to sl_log_1 initiated
+> CONTEXT:  SQL statement "SELECT "_pp_config_rep".logswitch_start()"
+> PL/pgSQL function "cleanupevent" line 101 at PERFORM
+> 2012-01-01 14:46:29 CETINFO   cleanupThread:    0.015 seconds for cleanupEvent()
+>
+>
+
+
+From cbbrowne at afilias.info  Tue Jan  3 08:33:09 2012
+From: cbbrowne at afilias.info (Christopher Browne)
+Date: Tue, 3 Jan 2012 11:33:09 -0500
+Subject: [Slony1-general] Slony-I in strange state after attempted
+	unsubscribe/resubscribe
+In-Reply-To: <CADWG95soM=he7pH650myFz4FwWSV-qLf9BVmOwgH=xOFRn-Eyg@mail.gmail.com>
+References: <CADWG95soM=he7pH650myFz4FwWSV-qLf9BVmOwgH=xOFRn-Eyg@mail.gmail.com>
+Message-ID: <CANfbgbbByGLZc_usNnYeF=RVqnadW1XfMMtHcazFH7W0KXdBcg@mail.gmail.com>
+
+On Tue, Jan 3, 2012 at 5:49 AM, Martijn van Oosterhout
+<kleptog at gmail.com> wrote:
+> Hoi,
+>
+> We have a Slony-I setup in a slightly weird situation. What happened
+> was that the server did a huge delete (millions of rows) in a single
+> transaction which caused the replication to start to run behind. For
+> some reason in this state it takes forever to apply the change because
+> the query to find out what it needs to apply does a sort or something
+> because it doesn't want to apply the whole set at once. A single SYNC
+> takes 10 minutes.
+
+If SYNCs before the big one are applying very slowly, then it sounds
+like you're hitting bug #167.
+<http://www.slony.info/bugzilla/show_bug.cgi?id=167>
+
+Note that we fixed that in version 2.1, so I'll guess you're not on 2.1.
+
+In the case of that huge update, that will indeed be applied in a
+single SYNC; once you'd hit that SYNC, it's liable to process for a
+good long time (hours?).
+
+> In any case, the way we fixed it before was to unsubscribe and
+> resubscribe the set, because resyncing the whole database is quicker
+> than waiting for the deletes to complete. However, this time it broke
+> in a new way. The result is that slony thinks it is properly
+> subscribed, but the database data has not been resynced, so you get
+> some bastard combination of old and new data. Logs below.
+
+Unfortunately, the UNSUBSCRIBE request comes in as an event, and it's
+later in the event stream than the SYNC-of-the-million-deletes, so
+it's probably not processing when you think it ought to.
+
+> Two questions:
+> 1. Is there a way we could have detected the unsubscribe failed
+> (slonik gave no error, but we didn't ask). If so, we can add that to
+> the procedure as something to check
+
+It's quite likely that nothing about the UNSUBSCRIBE *did* fail.  It's
+just that it's waiting to process the event until *after* the big clot
+of log data in that huge SYNC that you had.
+
+Unfortunately, that's not remotely the result you were hoping for; you
+were hoping to cancel the set *before* processing the awful huge SYNC.
+
+I don't think we have any particularly wonderful solution to this.  I
+imagined that we had a bug open on having a "Cancel Subscription"
+command, which is pretty nearly similar, but I can't find it.  It
+would be nice to have a "trample on that subscription - it's not valid
+or wanted anymore" command.
+
+From kleptog at gmail.com  Tue Jan  3 09:31:24 2012
+From: kleptog at gmail.com (Martijn van Oosterhout)
+Date: Tue, 3 Jan 2012 18:31:24 +0100
+Subject: [Slony1-general] Slony-I in strange state after attempted
+	unsubscribe/resubscribe
+In-Reply-To: <4F0329FC.1040409@ca.afilias.info>
+References: <CADWG95soM=he7pH650myFz4FwWSV-qLf9BVmOwgH=xOFRn-Eyg@mail.gmail.com>
+	<4F0329FC.1040409@ca.afilias.info>
+Message-ID: <CADWG95tn3K7SWOncK1J89keGb1r8sArEMoqJxxu9Gbn5HEqMDA@mail.gmail.com>
+
+Hoi,
+
+> What version of Slony are you using?
+> What version of Postgresql are you using?
+
+Sorry, I should have mentioned: slony-I 2.0.7, PostgreSQL 9.0.3
+
+> I suspect you hit bug #167 (fixed in 2.1.0) that makes sync operations slow
+> when sl_log_x gets big.
+
+Well, the symptoms look about right. Might see if I can push to get an
+upgrade to at least that version.
+
+> unsubscribe(id=1, receiver=2);
+> wait for event(origin=2, confirmed=all, wait on=2);
+> subscribe set(set id=1, provider=1,receiver=2,forward=yes);
+>
+> In 2.1 and above slonik should automatically perform the 'wait for event'.
+
+Ok, that's good to know. Currently we're doing:
+
+slonik_unsubscribe_set -c /etc/slony_tools.conf 1 2 |slonik
+
+which is quite possibly not the recommended way. But the output is
+just an unsubscribe with a try .. on error .. block around it.
+
+>> --- unsubscribe happens here ---
+>> 2012-01-01 14:37:58 CETCONFIG unsubscribeSet: sub_set=1
+>> 2012-01-01 14:37:58 CETCONFIG storeListen: li_origin=1 li_receiver=2
+>> li_provider=1
+>> --- this is the weird error ---
+>> 2012-01-01 14:44:09 CETERROR ?remoteWorkerThread_1: "update
+>> "_pp_config_rep".sl_setsync set ? ? ssy_seqno = '5000990613',
+>> ssy_snapshot = ?'20587190:20590885:20587190', ? ? ssy_action_list = ''
+>> where ssy_setid in (1) and ssy_seqno< ?'5000990613'; " ERROR: ?could
+>> not serialize access due to concurrent update
+>> 2012-01-01 14:44:09 CETERROR ?remoteWorkerThread_1: SYNC aborted
+>
+> If the receivers remoteWorkerThread_1 is aborted because of the unsubscribe
+> then I don't see this as an issue.
+
+Given the timing I wonder if it's the subscribe that's actually failing...
+
+>> 2012-01-01 14:44:21 CETCONFIG remoteWorkerThread_1: update provider
+>> configuration
+>> 2012-01-01 14:44:21 CETCONFIG remoteWorkerThread_1: helper thread for
+>> provider 1 terminated
+>> 2012-01-01 14:44:21 CETCONFIG remoteWorkerThread_1: disconnecting from
+>> data provider 1
+>> 2012-01-01 14:44:21 CETCONFIG storeSubscribe: sub_set=1 sub_provider=1
+>> sub_forward='t'
+>> 2012-01-01 14:44:21 CETCONFIG storeListen: li_origin=1 li_receiver=2
+>> li_provider=1
+>> 2012-01-01 14:44:21 CETCONFIG remoteWorkerThread_1: update provider
+>> configuration
+>> --- and here it appears slony thinks it is properly subscribed, but
+>> the database has not been resynced ---
+>
+> What do you base this statement on? ? I do not see anything in the logs you
+> pasted showing me that slon2 has received the SUBSCRIBE_SET or
+> ENABLE_SUBSCRIPTION event.
+
+Well, I'm basing it on that the logs repeated this for two days:
+
+2012-01-02 12:31:47 CETINFO   cleanupThread:    0.004 seconds for cleanupEvent()
+NOTICE:  Slony-I: log switch to sl_log_2 complete - truncate sl_log_1
+CONTEXT:  PL/pgSQL function "cleanupevent" line 99 at assignment
+2012-01-02 12:43:15 CETINFO   cleanupThread:    0.079 seconds for cleanupEvent()
+2012-01-02 12:43:15 CETINFO   cleanupThread:    0.006 seconds for vacuuming
+NOTICE:  Slony-I: Logswitch to sl_log_1 initiated
+CONTEXT:  SQL statement "SELECT "_pp_config_rep".logswitch_start()"
+PL/pgSQL function "cleanupevent" line 101 at PERFORM
+2012-01-02 12:54:30 CETINFO   cleanupThread:    0.004 seconds for cleanupEvent()
+NOTICE:  Slony-I: log switch to sl_log_1 complete - truncate sl_log_2
+CONTEXT:  PL/pgSQL function "cleanupevent" line 99 at assignment
+2012-01-02 13:05:14 CETINFO   cleanupThread:    0.096 seconds for cleanupEvent()
+NOTICE:  Slony-I: Logswitch to sl_log_2 initiated
+CONTEXT:  SQL statement "SELECT "_pp_config_rep".logswitch_start()"
+
+So it was doing something, but now you mention it, there are no SYNCs,
+so perhaps it wasn't subscribed.
+
+This is the log for the slave, and it says there "storeSubscribe".
+doesn't that mean it received a SUBSCRIBE_SET?
+
+> What is sl_subscribe on node 2 at this point in time?
+> Does node 2 have a record in sl_event of it having processed those two
+> events?
+
+Unfortunately I don't have that information available, but it looks
+like pilot error (the user claimed there were no errors) after all:
+the subscribe didn't work.
+
+Have a nice day,
+-- 
+Martijn van Oosterhout <kleptog at gmail.com> http://svana.org/kleptog/
+
+From kleptog at gmail.com  Tue Jan  3 09:34:04 2012
+From: kleptog at gmail.com (Martijn van Oosterhout)
+Date: Tue, 3 Jan 2012 18:34:04 +0100
+Subject: [Slony1-general] Slony-I in strange state after attempted
+	unsubscribe/resubscribe
+In-Reply-To: <CANfbgbbByGLZc_usNnYeF=RVqnadW1XfMMtHcazFH7W0KXdBcg@mail.gmail.com>
+References: <CADWG95soM=he7pH650myFz4FwWSV-qLf9BVmOwgH=xOFRn-Eyg@mail.gmail.com>
+	<CANfbgbbByGLZc_usNnYeF=RVqnadW1XfMMtHcazFH7W0KXdBcg@mail.gmail.com>
+Message-ID: <CADWG95uB_xc-aAcVTRodhAYV2VyC-R1vuVS0FzoPNriUw9ckbw@mail.gmail.com>
+
+I responded to I think most of your points in the other email, but
+there is one thing:
+
+On 3 January 2012 17:33, Christopher Browne <cbbrowne at afilias.info> wrote:
+> On Tue, Jan 3, 2012 at 5:49 AM, Martijn van Oosterhout
+> <kleptog at gmail.com> wrote:
+>> In any case, the way we fixed it before was to unsubscribe and
+>> resubscribe the set, because resyncing the whole database is quicker
+>> than waiting for the deletes to complete. However, this time it broke
+>> in a new way. The result is that slony thinks it is properly
+>> subscribed, but the database data has not been resynced, so you get
+>> some bastard combination of old and new data. Logs below.
+>
+> Unfortunately, the UNSUBSCRIBE request comes in as an event, and it's
+> later in the event stream than the SYNC-of-the-million-deletes, so
+> it's probably not processing when you think it ought to.
+
+In our experience whenever the replication is behind, doing an
+unsubscribe is acted upon immediately. I always thought this was by
+design, though I couldn't work out why. But you're saying it shouldn't
+work at all... That's just weird.
+
+I'll have to pay more attention next time to see exactly what happened.
+
+Have a nice day,
+-- 
+Martijn van Oosterhout <kleptog at gmail.com> http://svana.org/kleptog/
+
+From ssinger at ca.afilias.info  Tue Jan  3 10:05:11 2012
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Tue, 03 Jan 2012 13:05:11 -0500
+Subject: [Slony1-general] Slony-I in strange state after attempted
+	unsubscribe/resubscribe
+In-Reply-To: <CADWG95uB_xc-aAcVTRodhAYV2VyC-R1vuVS0FzoPNriUw9ckbw@mail.gmail.com>
+References: <CADWG95soM=he7pH650myFz4FwWSV-qLf9BVmOwgH=xOFRn-Eyg@mail.gmail.com>	<CANfbgbbByGLZc_usNnYeF=RVqnadW1XfMMtHcazFH7W0KXdBcg@mail.gmail.com>
+	<CADWG95uB_xc-aAcVTRodhAYV2VyC-R1vuVS0FzoPNriUw9ckbw@mail.gmail.com>
+Message-ID: <4F034357.3070906@ca.afilias.info>
+
+On 12-01-03 12:34 PM, Martijn van Oosterhout wrote:
+> I responded to I think most of your points in the other email, but
+> there is one thing:
+
+>>
+>> Unfortunately, the UNSUBSCRIBE request comes in as an event, and it's
+>> later in the event stream than the SYNC-of-the-million-deletes, so
+>> it's probably not processing when you think it ought to.
+>
+> In our experience whenever the replication is behind, doing an
+> unsubscribe is acted upon immediately. I always thought this was by
+> design, though I couldn't work out why. But you're saying it shouldn't
+> work at all... That's just weird.
+
+I think Martijn is correct, my understanding of the code in 
+slonik_unsubscribe_set (slonik.c) is that the command gets submitted to 
+the receiver.
+
+
+
+>
+> I'll have to pay more attention next time to see exactly what happened.
+>
+> Have a nice day,
+
+
+From ssinger at ca.afilias.info  Tue Jan  3 10:29:38 2012
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Tue, 03 Jan 2012 13:29:38 -0500
+Subject: [Slony1-general] Slony-I in strange state after attempted
+	unsubscribe/resubscribe
+In-Reply-To: <CADWG95tn3K7SWOncK1J89keGb1r8sArEMoqJxxu9Gbn5HEqMDA@mail.gmail.com>
+References: <CADWG95soM=he7pH650myFz4FwWSV-qLf9BVmOwgH=xOFRn-Eyg@mail.gmail.com>	<4F0329FC.1040409@ca.afilias.info>
+	<CADWG95tn3K7SWOncK1J89keGb1r8sArEMoqJxxu9Gbn5HEqMDA@mail.gmail.com>
+Message-ID: <4F034912.50606@ca.afilias.info>
+
+On 12-01-03 12:31 PM, Martijn van Oosterhout wrote:
+> Hoi,
+>
+>> What version of Slony are you using?
+>> What version of Postgresql are you using?
+>
+> Sorry, I should have mentioned: slony-I 2.0.7, PostgreSQL 9.0.3
+>
+>
+>>
+>> What do you base this statement on?   I do not see anything in the logs you
+>> pasted showing me that slon2 has received the SUBSCRIBE_SET or
+>> ENABLE_SUBSCRIPTION event.
+>
+> Well, I'm basing it on that the logs repeated this for two days:
+>
+> 2012-01-02 12:31:47 CETINFO   cleanupThread:    0.004 seconds for cleanupEvent()
+> NOTICE:  Slony-I: log switch to sl_log_2 complete - truncate sl_log_1
+> CONTEXT:  PL/pgSQL function "cleanupevent" line 99 at assignment
+> 2012-01-02 12:43:15 CETINFO   cleanupThread:    0.079 seconds for cleanupEvent()
+> 2012-01-02 12:43:15 CETINFO   cleanupThread:    0.006 seconds for vacuuming
+> NOTICE:  Slony-I: Logswitch to sl_log_1 initiated
+> CONTEXT:  SQL statement "SELECT "_pp_config_rep".logswitch_start()"
+> PL/pgSQL function "cleanupevent" line 101 at PERFORM
+> 2012-01-02 12:54:30 CETINFO   cleanupThread:    0.004 seconds for cleanupEvent()
+> NOTICE:  Slony-I: log switch to sl_log_1 complete - truncate sl_log_2
+> CONTEXT:  PL/pgSQL function "cleanupevent" line 99 at assignment
+> 2012-01-02 13:05:14 CETINFO   cleanupThread:    0.096 seconds for cleanupEvent()
+> NOTICE:  Slony-I: Logswitch to sl_log_2 initiated
+> CONTEXT:  SQL statement "SELECT "_pp_config_rep".logswitch_start()"
+>
+
+
+The above log messages are normal activities for the cleanup thread. 
+They don't indicate a problem.
+
+
+> So it was doing something, but now you mention it, there are no SYNCs,
+> so perhaps it wasn't subscribed.
+
+If you had a set subscribed you would see messages like
+
+CETINFO remoteWorkerThread_1 syncing set %d with %d table(s) from 
+provider %d
+
+on each sync.
+
+If you are not subscribed to any sets but are processing SYNC events 
+(slon should still be processing SYNC events even if it isn't subscribed 
+to anything)
+You would see
+
+CETDEBUG1 no sets need syncing for this event\n
+
+in the log.  However that message is at the DEBUG level, and if you are 
+running slon at the INFO level you will need to bump up the verbosity of 
+slon to see it.
+
+ From your log snippet I would say either
+
+1) You are not subscribed to the set, and node 2 has not processed the 
+ENABLE_SUBSCRIPTION event.
+
+2) You are subscribed to the set but are not receiving or processing any 
+events from node 1 (for some unknown reason)
+
+Querying sl_status on the master would have told you how far behind the 
+slave is.
+
+
+
+
+>
+> This is the log for the slave, and it says there "storeSubscribe".
+> doesn't that mean it received a SUBSCRIBE_SET?
+>
+
+The message
+
+CETCONFIG storeSubscribe: sub_set=%d sub_provider=%d sub_forward='%s
+
+comes from the function rtcfg_storeSubscribe which gets called both on 
+startup and when a SUBSCRIBE_SET event is processed.
+
+If the ENABLE_SUBSCRIPTION command was processed then it should have 
+called rtcfg_enableSubscription and would have seen
+
+CETCONFIG enableSubscription: sub_set=%d\n"
+
+which I didn't see in the log.
+
+The data copy takes place in response to the ENABLE_SUBSCRIPTION event.
+
+
+
+
+>> What is sl_subscribe on node 2 at this point in time?
+>> Does node 2 have a record in sl_event of it having processed those two
+>> events?
+>
+> Unfortunately I don't have that information available, but it looks
+> like pilot error (the user claimed there were no errors) after all:
+> the subscribe didn't work.
+>
+
+The subscribe event gets submitted to the origin (or the provider, 
+depending on the version of slony, but in this case I think they are the 
+same).   The SUBSCRIBE_SET and ENABLE_SUBSCRIPTION events then need to 
+get replicated to the receiver that will start the copy_set.
+
+
+
+
+> Have a nice day,
+
+
+From kleptog at gmail.com  Thu Jan  5 01:48:06 2012
+From: kleptog at gmail.com (Martijn van Oosterhout)
+Date: Thu, 5 Jan 2012 10:48:06 +0100
+Subject: [Slony1-general] Slony-I in strange state after attempted
+	unsubscribe/resubscribe
+In-Reply-To: <4F034912.50606@ca.afilias.info>
+References: <CADWG95soM=he7pH650myFz4FwWSV-qLf9BVmOwgH=xOFRn-Eyg@mail.gmail.com>
+	<4F0329FC.1040409@ca.afilias.info>
+	<CADWG95tn3K7SWOncK1J89keGb1r8sArEMoqJxxu9Gbn5HEqMDA@mail.gmail.com>
+	<4F034912.50606@ca.afilias.info>
+Message-ID: <CADWG95vKP1k3DobYVuGnS0LOkbE+LimUjv=gx7U5Fp7GywSa=w@mail.gmail.com>
+
+On 3 January 2012 19:29, Steve Singer <ssinger at ca.afilias.info> wrote:
+> On 12-01-03 12:31 PM, Martijn van Oosterhout wrote:
+>> Sorry, I should have mentioned: slony-I 2.0.7, PostgreSQL 9.0.3
+> From your log snippet I would say either
+>
+> 1) You are not subscribed to the set, and node 2 has not processed the
+> ENABLE_SUBSCRIPTION event.
+>
+> 2) You are subscribed to the set but are not receiving or processing any
+> events from node 1 (for some unknown reason)
+>
+> Querying sl_status on the master would have told you how far behind the
+> slave is.
+
+sl_status was fine, that's what the nagios check does and it said
+everything was fine.
+
+But, reviewing the script now (based on the psql_replication_check.pl)
+it looks like it says green also when there is no active replication.
+So I think the simplest explanation is the subscribe wasn't done
+properly.
+
+Thanks for the help,
+-- 
+Martijn van Oosterhout <kleptog at gmail.com> http://svana.org/kleptog/
+
+From ssinger at ca.afilias.info  Tue Jan 10 09:03:16 2012
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Tue, 10 Jan 2012 12:03:16 -0500
+Subject: [Slony1-general] Release candidates for minor releases (1.2.23,
+	2.0.8, 2.1.1)
+Message-ID: <4F0C6F54.8070700@ca.afilias.info>
+
+I have packaged release candidates for minor updates to multiple Slony 
+branches.
+
+1.2.23 RC1
+===========
+- Bug #195 - make slon_quote_* functions immutable
+- Bug #209 - dollar quoting doesn't work on PG 7.4
+- Bug #224 - PKEYEDTABLES misspelled in altperl script
+- Bug #236 - fix misformatting of log string for timestamp
+- Bug #239 - Fix FAILOVER on PG 9.0 by not querying pg_listener
+
+http://www.slony.info/downloads/1.2/source/slony1-1.2.23.rc1.tar.bz2
+http://www.slony.info/downloads/1.2/source/slony1-1.2.23.rc1-docs.tar.bz2
+
+Unless additional maintainers from the community step up 1.2.23 is 
+likely to be the last 1.2.x release.
+
+2.0.8 RC1
+===========
+- Bug 230 - log_timestamps was always treated as true on some platforms(AIX)
+- Include additional C headers required for Postgresql 9.2(master)
+- Bug 233 - Fix segfault when subscribing to a set that does not exist.
+- Bug 236 :: Fix default formatting of timestamp in logs
+- Add express support to recognize PostgreSQL 9.1
+- Bug 255 :: Fix serialization issues when using PostgreSQL 9.1
+
+http://www.slony.info/downloads/2.0/source/slony1-2.0.8.rc1.tar.bz2
+http://www.slony.info/downloads/2.0/source/slony1-2.0.8.rc1-docs.tar.bz2
+
+2.1.1 RC1
+=============
+- Bug #246 :: Include path order changes
+- Bug #161 :: fix memory overrun in EXECUTE SCRIPT parser
+- Bug #247 :: slony_logshipper to handle TRUNCATE commands
+- Bug #249 :: Add parentheses to txid_current() in function for
+               TRUNCATE logging
+- slonik_drop_table and slonik_drop_sequence no longer attempt to
+   return -1 on an error (invalid as a slonik exit code in 2.1)
+- Bug #244 :: The CREATE SET command now requires a set id to be specified.
+- Bug #255 :: Fix serialization conflict issues when using PostgreSQL 9.1.
+- Bug #256 :: set_conf_option() has an extra elevel parameter on PG 9.2
+- Bug #259 :: Fix TRUNCATE logging so it works with mixed case slony 
+clusters.
+
+http://www.slony.info/downloads/2.1/source/slony1-2.1.1.rc1.tar.bz2
+http://www.slony.info/downloads/2.1/source/slony1-2.1.1.rc1-docs.tar.bz2
+
+
+I hope to release actual releases in a little over a week (if no 
+problmems are found).  If any testers/packages plan on looking at the 
+release candidates but need more time then they should ask.
+
+
+
+From ssinger at ca.afilias.info  Wed Jan 18 13:48:40 2012
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Wed, 18 Jan 2012 16:48:40 -0500
+Subject: [Slony1-general] Cluster reshaping in 2.2
+Message-ID: <4F173E38.8050903@ca.afilias.info>
+
+In Slony 2.2 we have decided to disallow cluster configurations like
+
+  Node 100
+     set 1, set 2----->Node 102
+      |                  set 2
+      |                   |
+      V                   V
+   Node 101----------->Node 103
+      set 1              set 1, set 2
+
+
+A node that receives multiple sets from the same origin will now need to 
+receive those sets from the same provider.  Jan wrote about this
+http://lists.slony.info/pipermail/slony1-general/2011-December/011997.html
+
+A question that has come up is how should the subscribe set command 
+behave when you reshape a cluster.
+
+Say you have
+
+Node 100----------------------->Node 102
+   set 1,set 2                  set 1, set 2
+    |
+    |
+    V
+Node 103
+   set 1, set 2
+
+then you want to make node 103 receive from 102 instead of from 100.
+
+Today you would do
+subscribe set(id=1,provider=102,receiver=103,forward=yes);
+subscribe set(id=2,provider=102,receiver=103,forward=yes);
+
+that won't work anymore because it leaves the cluster in an invalid 
+intermediate state.
+
+We can instead
+
+1)  Make the first subscribe set automatically also move set 2.  This 
+will preserve existing slonik scripts but will mean that the old slonik 
+scripts do something different than they used to (a subscribe set to 
+reshape set 1 might also change the subscription for set 2).
+
+2) Make slonik fail if you try to resubscribe a set with subscribe set 
+that would leave you in an invalid state after the first command. 
+Instead you would need to use a new 'reshape subscription' command that 
+was like 'reshape subscriptions(receiver=103, old provider=101, new 
+provider=101);
+
+3) Make slonik fail if you ever try the subscribe set command in cases 
+where the receiver is already subscribed to the set but from a different 
+provider.  All reshaping would need to go through the 'reshape 
+subscriptions' command described above?
+
+
+I am leaning towards (3).   What do others think?
+
+Steve
+
+
+
+
+From zbbentley at gmail.com  Fri Jan 20 13:44:18 2012
+From: zbbentley at gmail.com (Zac Bentley)
+Date: Fri, 20 Jan 2012 16:44:18 -0500
+Subject: [Slony1-general] Initial subscription disk space issue
+Message-ID: <CAAFQqzQFPrFS21Du=jf35LDASG8CVsoa104Aj_9OOhQ9VKYJ3g@mail.gmail.com>
+
+We have a test cluster of machines that we run Slony
+(2.0.7/postgres8.4/centos6) on in our facility. In the past, in order to
+update the cluster to the latest application code, we have simply wiped the
+servers, reinstalled a fresh configuration of centOS, Slony, postgres etc,
+restored the same pg_dump to each database, and then created the main
+replication set and kicked off subscription. This worked for the past few
+months, but recently, every time I kick off initial subscription, the
+postgres database files simply grow until the servers run out of disk
+space. This is more than a doubling of our database size; it is going from
+18G (normal) to around 40G. I can watch the Slony logs, and see that a
+table copy on a very large and complex table in our application has just
+finished (the table alone is 2GB), and I can watch the postgres server
+status and see that FinishTableAfterCopy is running on the large table.
+However, the server always runs out of disk space before subscription can
+complete. Our application has experienced slow linear growth for the past
+months, and none of these tables are unusually large. Is there any reason
+you can think of that subscription has started filling up 2x the database's
+size on the disk?
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20120120/c7e04183/attachment.htm 
+
+From brianf at consistentstate.com  Sun Jan 22 02:08:19 2012
+From: brianf at consistentstate.com (Brian Fehrle)
+Date: Sun, 22 Jan 2012 03:08:19 -0700
+Subject: [Slony1-general] [bug] config variable "quit_sync_finalsync"
+	missing in slony 2.1.0 ?
+Message-ID: <CAMC-nfvxisWf0+wKy1dPBP8c65_+hOyyG+-XB9ATjhu38OHKtw@mail.gmail.com>
+
+Hi all,
+I'm trying to get a slony slave that is very behind synced up, and I'm
+running into an issue where the sync query is overloading PostgreSQL's
+stack depth (I'll be sending a separate email to the list about this). At
+the moment I don't want to try tweaking that variable in postgres so I
+thought I'd play with the ability to have slony just try to sync less data
+at a time.
+
+I've been trying to run a ton of different options, and one theory was to
+just have slony sync a few hundred events, then die (i'm many thousands of
+events behind and growing by the minute).
+
+
+So I tried to use the variables 'quit_sync_provider' and
+'quit_sync_finalsync' as described in the docs:
+http://slony.info/documentation/2.1/slon-config-interval.html
+
+In my slon log output, I'm getting the following error:
+WARN conf option quit_sync_finalsync not found<timestamp>Unrecognized
+configuration parameter "quit_sync_finalsync"
+
+So I did some digging and I think I found a missing block of code in the
+2.1.0 version of confoptions.c
+
+In slony 2.0.7 - confoptions.c we have the following block:
+-----------------------------------------------
+    {
+        {
+            (const char *) "quit_sync_finalsync",
+            gettext_noop("SYNC number at which slon should abort"),
+            gettext_noop("We want to terminate slon when the worker thread
+reaches a certain SYNC number "
+                 "against a certain provider.  This is the SYNC number...
+"),
+            SLON_C_INT
+        },
+        &quit_sync_finalsync,
+        0,
+        0,
+        2147483647
+    },
+-----------------------------------------------
+
+However, when I look at confoptions.c , it does not have this block at all.
+Both versions have a block that grabs "quit_sync_provider". And the
+remote_worker.c references this variable several times, so it should be
+expecting to receive it.
+
+- Brian F
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20120122/714918bc/attachment.htm 
+
+From brianf at consistentstate.com  Sun Jan 22 02:23:18 2012
+From: brianf at consistentstate.com (Brian Fehrle)
+Date: Sun, 22 Jan 2012 03:23:18 -0700
+Subject: [Slony1-general] Slave can't catch up,
+	postgres error 'stack depth limit exceeded'
+Message-ID: <4F1BE396.6080909@consistentstate.com>
+
+Hi all,
+
+PostgreSQL 9.1.2
+Slony 2.1.0
+
+I am having some trouble getting a slon node caught up on events. It's a 
+larger database, 350 or so Gigs, and I added a node to a replication set 
+and while it was doing the initial sync, the server that the slon 
+daemons were running on died. It wasn't until about 5 hours later we got 
+the daemons running on a different node and it restarted (i assume it 
+restarted) the initial sync.
+
+ From what I can tell, it finished the initial sync, however now it's 
+unable to catch up due to the following error line (reduced in size, 
+don't know how many elements there actually were but the single line had 
+about 18 million characters):
+2012-01-22 04:43:07 EST ERROR  remoteWorkerThread_1: "declare LOG cursor 
+for select log_origin, log_txid, log_tableid, log_actionseq, 
+log_cmdtype, octet_length(log_cmddata), case when 
+octet_length(log_cmddata) <= 1024 then log_cmddata else null end from 
+"_myslonycluster".sl_log_1 where log_origin = 1 and log_tableid in 
+(2,3,4,5,6,7,1,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,94,95,96,97,98,99,100,101,102,103,104,105,106,107,108,109,110,111,112,113,114,115,116,117,118,119,120,121,122) 
+and log_txid >= '34299501' and log_txid < '34311624' and 
+"pg_catalog".txid_visible_in_snapshot(log_txid, '34311624:34311624:')  
+and (  log_actionseq <> '2474682'  and  log_actionseq <> '2403310'  and  
+log_actionseq <> '2427861'  and
+<SNIP, repeated many thousands of times with different numbers>
+'  and  log_actionseq <> '2520797'  and  log_actionseq <> '2519348'  
+and  log_actionseq <> '2485828'  and  log_actionseq <> '2523367'  and  
+log_actionseq <> '2469096'  and  log_actionseq <> '2520589'  and  
+log_actionseq <> '2414071'  and  log_actionseq <> '2391417' ) order by 
+log_actionseq" PGRES_FATAL_ERROR ERROR:  stack depth limit exceeded
+
+I found someone with a similar(ish) issue back in the day, and a 
+function called compress_actionseq was mentioned. I turned up debugging 
+to level 4 and see that it is indeed compressing the actionseq, and I 
+looked at the code and it also looks like the above output IS the 
+compressed sequence.
+
+Now, this seems to be a tricky setting to tweak on postgres, so I'd 
+rather not unless I had to. So my thoughts were to hopefully just force 
+slony to try to do smaller syncs at a time. I tried reducing (and for 
+the heck of it increasing) the group size, desired_sync_time, 
+sync_max_rowsize, and sync_max_largemem. However nothing has altered the 
+size of this query that is being executed on the database.
+
+Any thoughts, suggestions? The initial sync of slony takes about 14 
+hours, so I'd rather not drop the node and re-attach it. In fact I have 
+two nodes in the same issue, stuck at the same event, so I'd rather just 
+get them both synced up without doing another initial sync.
+
+Also, I toyed with the idea of forcing slon daemon to only sync up to a 
+specific event, in hopes to do blocks of say 500 events, however the 
+quit_sync_finalsync parameter is not accepted correctly by slony 2.1.0. 
+(I've submitted a email to this list about this too).
+
+Thanks in advance,
+- Brian F
+
+From steve at ssinger.info  Sun Jan 22 08:16:48 2012
+From: steve at ssinger.info (Steve Singer)
+Date: Sun, 22 Jan 2012 11:16:48 -0500
+Subject: [Slony1-general] Slave can't catch up,
+ postgres error 'stack depth limit exceeded'
+In-Reply-To: <4F1BE396.6080909@consistentstate.com>
+References: <4F1BE396.6080909@consistentstate.com>
+Message-ID: <BLU0-SMTP130FABE289127C0F6952168DC850@phx.gbl>
+
+On Sun, 22 Jan 2012, Brian Fehrle wrote:
+
+> Hi all,
+>
+> PostgreSQL 9.1.2
+> Slony 2.1.0
+
+Set max_stack_depth in your postgresql.conf to something higher.
+
+sync_group_maxsize in your slon.conf to something low MIGHT help (ie 1 or 2) 
+but I think the default in 2.1 is pretty low anyway (like 20).
+
+
+
+
+
+>
+> I am having some trouble getting a slon node caught up on events. It's a
+> larger database, 350 or so Gigs, and I added a node to a replication set
+> and while it was doing the initial sync, the server that the slon
+> daemons were running on died. It wasn't until about 5 hours later we got
+> the daemons running on a different node and it restarted (i assume it
+> restarted) the initial sync.
+>
+> From what I can tell, it finished the initial sync, however now it's
+> unable to catch up due to the following error line (reduced in size,
+> don't know how many elements there actually were but the single line had
+> about 18 million characters):
+> 2012-01-22 04:43:07 EST ERROR  remoteWorkerThread_1: "declare LOG cursor
+> for select log_origin, log_txid, log_tableid, log_actionseq,
+> log_cmdtype, octet_length(log_cmddata), case when
+> octet_length(log_cmddata) <= 1024 then log_cmddata else null end from
+> "_myslonycluster".sl_log_1 where log_origin = 1 and log_tableid in
+> (2,3,4,5,6,7,1,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,94,95,96,97,98,99,100,101,102,103,104,105,106,107,108,109,110,111,112,113,114,115,116,117,118,119,120,121,122)
+> and log_txid >= '34299501' and log_txid < '34311624' and
+> "pg_catalog".txid_visible_in_snapshot(log_txid, '34311624:34311624:')
+> and (  log_actionseq <> '2474682'  and  log_actionseq <> '2403310'  and
+> log_actionseq <> '2427861'  and
+> <SNIP, repeated many thousands of times with different numbers>
+> '  and  log_actionseq <> '2520797'  and  log_actionseq <> '2519348'
+> and  log_actionseq <> '2485828'  and  log_actionseq <> '2523367'  and
+> log_actionseq <> '2469096'  and  log_actionseq <> '2520589'  and
+> log_actionseq <> '2414071'  and  log_actionseq <> '2391417' ) order by
+> log_actionseq" PGRES_FATAL_ERROR ERROR:  stack depth limit exceeded
+>
+> I found someone with a similar(ish) issue back in the day, and a
+> function called compress_actionseq was mentioned. I turned up debugging
+> to level 4 and see that it is indeed compressing the actionseq, and I
+> looked at the code and it also looks like the above output IS the
+> compressed sequence.
+>
+> Now, this seems to be a tricky setting to tweak on postgres, so I'd
+> rather not unless I had to. So my thoughts were to hopefully just force
+> slony to try to do smaller syncs at a time. I tried reducing (and for
+> the heck of it increasing) the group size, desired_sync_time,
+> sync_max_rowsize, and sync_max_largemem. However nothing has altered the
+> size of this query that is being executed on the database.
+>
+> Any thoughts, suggestions? The initial sync of slony takes about 14
+> hours, so I'd rather not drop the node and re-attach it. In fact I have
+> two nodes in the same issue, stuck at the same event, so I'd rather just
+> get them both synced up without doing another initial sync.
+>
+> Also, I toyed with the idea of forcing slon daemon to only sync up to a
+> specific event, in hopes to do blocks of say 500 events, however the
+> quit_sync_finalsync parameter is not accepted correctly by slony 2.1.0.
+> (I've submitted a email to this list about this too).
+>
+> Thanks in advance,
+> - Brian F
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+>
+
+
+From steve at ssinger.info  Sun Jan 22 08:21:32 2012
+From: steve at ssinger.info (Steve Singer)
+Date: Sun, 22 Jan 2012 11:21:32 -0500
+Subject: [Slony1-general] Initial subscription disk space issue
+In-Reply-To: <CAAFQqzQFPrFS21Du=jf35LDASG8CVsoa104Aj_9OOhQ9VKYJ3g@mail.gmail.com>
+References: <CAAFQqzQFPrFS21Du=jf35LDASG8CVsoa104Aj_9OOhQ9VKYJ3g@mail.gmail.com>
+Message-ID: <BLU0-SMTP347D7B74B18A48920014423DC850@phx.gbl>
+
+On Fri, 20 Jan 2012, Zac Bentley wrote:
+
+> We have a test cluster of machines that we run Slony
+> (2.0.7/postgres8.4/centos6) on in our facility. In the past, in order to
+> update the cluster to the latest application code, we have simply wiped the
+> servers, reinstalled a fresh configuration of centOS, Slony, postgres etc,
+> restored the same pg_dump to each database, and then created the main
+> replication set and kicked off subscription. This worked for the past few
+> months, but recently, every time I kick off initial subscription, the
+> postgres database files simply grow until the servers run out of disk space.
+> This is more than a doubling of our database size; it is going from 18G
+> (normal) to around 40G. I can watch the Slony logs, and see that a table
+> copy on a very large and complex table in our application has just finished
+> (the table alone is 2GB), and I can watch the postgres server status and see
+> that FinishTableAfterCopy is running on the large table. However, the server
+> always runs out of disk space before subscription can complete. Our
+> application has experienced slow linear growth for the past months, and none
+> of these tables are unusually large. Is there any reason you can think of
+> that subscription has started filling up 2x the database's size on the disk?
+
+It isn't clear to me from your description if the slave is growing or if the 
+master is growing.  Also check which tables are growing/using up the space?
+(pg_size_pretty(pg_total_relation_size())
+
+While the subscription is going on sl_log_1 or sl_log_2 on the master will 
+grow until the entire subscribe process is complete but you would have to be 
+doing a significant transaction volume to double your database size that 
+way.
+
+Steve
+
+
+
+From cedric.villemain.debian at gmail.com  Tue Jan 24 01:57:11 2012
+From: cedric.villemain.debian at gmail.com (=?ISO-8859-1?Q?C=E9dric_Villemain?=)
+Date: Tue, 24 Jan 2012 10:57:11 +0100
+Subject: [Slony1-general] Slave can't catch up,
+ postgres error 'stack depth limit exceeded'
+In-Reply-To: <BLU0-SMTP130FABE289127C0F6952168DC850@phx.gbl>
+References: <4F1BE396.6080909@consistentstate.com>
+	<BLU0-SMTP130FABE289127C0F6952168DC850@phx.gbl>
+Message-ID: <CAF6yO=37vpmEObQ=Ay3s6=Je4ASOn+Rb1T5bFV3vT9RnQ+QxQw@mail.gmail.com>
+
+Le 22 janvier 2012 17:16, Steve Singer <steve at ssinger.info> a ?crit :
+> On Sun, 22 Jan 2012, Brian Fehrle wrote:
+>
+>> Hi all,
+>>
+>> PostgreSQL 9.1.2
+>> Slony 2.1.0
+>
+> Set max_stack_depth in your postgresql.conf to something higher.
+>
+> sync_group_maxsize in your slon.conf to something low MIGHT help (ie 1 or 2)
+> but I think the default in 2.1 is pretty low anyway (like 20).
+
+Immediate workaround is in fact to increase max_stack_depth ( but max
+it to (ulimit -s minus 1MB)
+
+but ... isn't it slony which should not use more than
+default_stack_size ? can't there be an underlining bug ?
+
+
+
+>
+>
+>
+>
+>
+>>
+>> I am having some trouble getting a slon node caught up on events. It's a
+>> larger database, 350 or so Gigs, and I added a node to a replication set
+>> and while it was doing the initial sync, the server that the slon
+>> daemons were running on died. It wasn't until about 5 hours later we got
+>> the daemons running on a different node and it restarted (i assume it
+>> restarted) the initial sync.
+>>
+>> From what I can tell, it finished the initial sync, however now it's
+>> unable to catch up due to the following error line (reduced in size,
+>> don't know how many elements there actually were but the single line had
+>> about 18 million characters):
+>> 2012-01-22 04:43:07 EST ERROR ?remoteWorkerThread_1: "declare LOG cursor
+>> for select log_origin, log_txid, log_tableid, log_actionseq,
+>> log_cmdtype, octet_length(log_cmddata), case when
+>> octet_length(log_cmddata) <= 1024 then log_cmddata else null end from
+>> "_myslonycluster".sl_log_1 where log_origin = 1 and log_tableid in
+>> (2,3,4,5,6,7,1,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,94,95,96,97,98,99,100,101,102,103,104,105,106,107,108,109,110,111,112,113,114,115,116,117,118,119,120,121,122)
+>> and log_txid >= '34299501' and log_txid < '34311624' and
+>> "pg_catalog".txid_visible_in_snapshot(log_txid, '34311624:34311624:')
+>> and ( ?log_actionseq <> '2474682' ?and ?log_actionseq <> '2403310' ?and
+>> log_actionseq <> '2427861' ?and
+>> <SNIP, repeated many thousands of times with different numbers>
+>> ' ?and ?log_actionseq <> '2520797' ?and ?log_actionseq <> '2519348'
+>> and ?log_actionseq <> '2485828' ?and ?log_actionseq <> '2523367' ?and
+>> log_actionseq <> '2469096' ?and ?log_actionseq <> '2520589' ?and
+>> log_actionseq <> '2414071' ?and ?log_actionseq <> '2391417' ) order by
+>> log_actionseq" PGRES_FATAL_ERROR ERROR: ?stack depth limit exceeded
+>>
+>> I found someone with a similar(ish) issue back in the day, and a
+>> function called compress_actionseq was mentioned. I turned up debugging
+>> to level 4 and see that it is indeed compressing the actionseq, and I
+>> looked at the code and it also looks like the above output IS the
+>> compressed sequence.
+>>
+>> Now, this seems to be a tricky setting to tweak on postgres, so I'd
+>> rather not unless I had to. So my thoughts were to hopefully just force
+>> slony to try to do smaller syncs at a time. I tried reducing (and for
+>> the heck of it increasing) the group size, desired_sync_time,
+>> sync_max_rowsize, and sync_max_largemem. However nothing has altered the
+>> size of this query that is being executed on the database.
+>>
+>> Any thoughts, suggestions? The initial sync of slony takes about 14
+>> hours, so I'd rather not drop the node and re-attach it. In fact I have
+>> two nodes in the same issue, stuck at the same event, so I'd rather just
+>> get them both synced up without doing another initial sync.
+>>
+>> Also, I toyed with the idea of forcing slon daemon to only sync up to a
+>> specific event, in hopes to do blocks of say 500 events, however the
+>> quit_sync_finalsync parameter is not accepted correctly by slony 2.1.0.
+>> (I've submitted a email to this list about this too).
+>>
+>> Thanks in advance,
+>> - Brian F
+>> _______________________________________________
+>> Slony1-general mailing list
+>> Slony1-general at lists.slony.info
+>> http://lists.slony.info/mailman/listinfo/slony1-general
+>>
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+
+
+
+-- 
+C?dric Villemain +33 (0)6 20 30 22 52
+http://2ndQuadrant.fr/
+PostgreSQL: Support 24x7 - D?veloppement, Expertise et Formation
+
+From solt at eatpbank.ru  Tue Jan 24 21:42:50 2012
+From: solt at eatpbank.ru (Sergey Suleymanov)
+Date: Wed, 25 Jan 2012 09:42:50 +0400
+Subject: [Slony1-general] timestamp in unique key
+Message-ID: <87fwf4jq1x.fsf@su.eatpbank.ru>
+
+
+       Hello everybody, I need help.
+
+  let's to say, there is a table:
+
+\d molot.sens_data
+...
+ device_id  | integer                  | not null
+ time_stamp | timestamp with time zone | not null
+...
+Indexes:
+    "sens_data_device_id_key" UNIQUE, btree (device_id, time_stamp)
+
+  slonik script:
+
+create set (id=3, origin=1);
+set add table ( set id=3, origin=1, id=32, 
+                fully qualified name = 'molot.sens_data', 
+                key = 'sens_data_device_id_key');
+subscribe set ...
+
+  Everything is ok, copy_set went well, replication has begun. Inserts are
+  successfully, but updates and deletes are not.
+  
+  Append "serial primary key" column really don't want as long (table is
+  about 250 mil records). Is there any other way?
+
+
+  slony1 - 1.2.21, Pg - 8.4.9
+
+-- 
+  Sergey Suleymanov
+
+From ssinger at ca.afilias.info  Wed Jan 25 13:21:23 2012
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Wed, 25 Jan 2012 16:21:23 -0500
+Subject: [Slony1-general] Release candidate 2 for Slony 2.0.8 and Slony 2.1.1
+Message-ID: <4F207253.9050800@ca.afilias.info>
+
+I have packaged a second release candidate for 2.1.1 and 2.0.8
+
+
+2.0.8 RC2
+===========
+
+- Bug #260 :: Fixed issue when with FAILOVER command when the failed 
+node has multiple sets.
+
+2.0.8 RC1
+
+- Bug 230 - log_timestamps was always treated as true on some platforms(AIX)
+- Include additional C headers required for Postgresql 9.2(master)
+- Bug 233 - Fix segfault when subscribing to a set that does not exist.
+- Bug 236 :: Fix default formatting of timestamp in logs
+- Add express support to recognize PostgreSQL 9.1
+- Bug 255 :: Fix serialization issues when using PostgreSQL 9.1
+
+http://www.slony.info/downloads/2.0/source/slony1-2.0.8.rc2.tar.bz2
+http://www.slony.info/downloads/2.0/source/slony1-2.0.8.rc2-docs.tar.bz2
+
+2.1.1 RC2
+=============
+
+- Bug #260 :: Fixed issue when with FAILOVER command when the failed 
+node has multiple sets.
+
+2.1.1 RC 1
+
+- Bug #246 :: Include path order changes
+- Bug #161 :: fix memory overrun in EXECUTE SCRIPT parser
+- Bug #247 :: slony_logshipper to handle TRUNCATE commands
+- Bug #249 :: Add parentheses to txid_current() in function for
+               TRUNCATE logging
+- slonik_drop_table and slonik_drop_sequence no longer attempt to
+   return -1 on an error (invalid as a slonik exit code in 2.1)
+- Bug #244 :: The CREATE SET command now requires a set id to be specified.
+- Bug #255 :: Fix serialization conflict issues when using PostgreSQL 9.1.
+- Bug #256 :: set_conf_option() has an extra elevel parameter on PG 9.2
+- Bug #259 :: Fix TRUNCATE logging so it works with mixed case slony 
+clusters.
+
+http://www.slony.info/downloads/2.1/source/slony1-2.1.1.rc2.tar.bz2
+http://www.slony.info/downloads/2.1/source/slony1-2.1.1.rc2-docs.tar.bz2
+
+
+I hope to release actual releases in a little over a week (if no 
+problems are found).  If any testers/packages plan on looking at the 
+release candidates but need more time then they should ask.
+
+
+From steve at ssinger.info  Thu Jan 26 17:29:56 2012
+From: steve at ssinger.info (Steve Singer)
+Date: Thu, 26 Jan 2012 20:29:56 -0500
+Subject: [Slony1-general] Slave can't catch up,
+ postgres error 'stack depth limit exceeded'
+In-Reply-To: <CAF6yO=37vpmEObQ=Ay3s6=Je4ASOn+Rb1T5bFV3vT9RnQ+QxQw@mail.gmail.com>
+References: <4F1BE396.6080909@consistentstate.com>
+	<BLU0-SMTP130FABE289127C0F6952168DC850@phx.gbl>
+	<CAF6yO=37vpmEObQ=Ay3s6=Je4ASOn+Rb1T5bFV3vT9RnQ+QxQw@mail.gmail.com>
+Message-ID: <BLU0-SMTP2609BC0196E0D7A6311832DDC8E0@phx.gbl>
+
+On Tue, 24 Jan 2012, C?dric Villemain wrote:
+
+> Le 22 janvier 2012 17:16, Steve Singer <steve at ssinger.info> a ?crit :
+>> On Sun, 22 Jan 2012, Brian Fehrle wrote:
+
+>
+> but ... isn't it slony which should not use more than
+> default_stack_size ? can't there be an underlining bug ?
+
+If slony is leaking memory or if the compression routine for the snapshot 
+id's isn't working properly then it is a bug.  I haven't seen any evidence 
+of this (nor have I analyzed the entire contents of his sl_event to figure 
+out if that is the case).
+
+If a single SYNC group really had a lot of active xids such that it exceeded 
+the amount of text that can be passed to a function with the default stack 
+size then this isn't a bug.
+
+In 2.2 on a failed SYNC slon should now dynamically shrink the SYNC group 
+size until it works (or reaches a size of 1).
+
+
+
+>
+>>
+>>
+>>
+>>
+>>
+>>>
+>>> I am having some trouble getting a slon node caught up on events. It's a
+>>> larger database, 350 or so Gigs, and I added a node to a replication set
+>>> and while it was doing the initial sync, the server that the slon
+>>> daemons were running on died. It wasn't until about 5 hours later we got
+>>> the daemons running on a different node and it restarted (i assume it
+>>> restarted) the initial sync.
+>>>
+>>> From what I can tell, it finished the initial sync, however now it's
+>>> unable to catch up due to the following error line (reduced in size,
+>>> don't know how many elements there actually were but the single line had
+>>> about 18 million characters):
+>>> 2012-01-22 04:43:07 EST ERROR ?remoteWorkerThread_1: "declare LOG cursor
+>>> for select log_origin, log_txid, log_tableid, log_actionseq,
+>>> log_cmdtype, octet_length(log_cmddata), case when
+>>> octet_length(log_cmddata) <= 1024 then log_cmddata else null end from
+>>> "_myslonycluster".sl_log_1 where log_origin = 1 and log_tableid in
+>>> (2,3,4,5,6,7,1,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,94,95,96,97,98,99,100,101,102,103,104,105,106,107,108,109,110,111,112,113,114,115,116,117,118,119,120,121,122)
+>>> and log_txid >= '34299501' and log_txid < '34311624' and
+>>> "pg_catalog".txid_visible_in_snapshot(log_txid, '34311624:34311624:')
+>>> and ( ?log_actionseq <> '2474682' ?and ?log_actionseq <> '2403310' ?and
+>>> log_actionseq <> '2427861' ?and
+>>> <SNIP, repeated many thousands of times with different numbers>
+>>> ' ?and ?log_actionseq <> '2520797' ?and ?log_actionseq <> '2519348'
+>>> and ?log_actionseq <> '2485828' ?and ?log_actionseq <> '2523367' ?and
+>>> log_actionseq <> '2469096' ?and ?log_actionseq <> '2520589' ?and
+>>> log_actionseq <> '2414071' ?and ?log_actionseq <> '2391417' ) order by
+>>> log_actionseq" PGRES_FATAL_ERROR ERROR: ?stack depth limit exceeded
+>>>
+>>> I found someone with a similar(ish) issue back in the day, and a
+>>> function called compress_actionseq was mentioned. I turned up debugging
+>>> to level 4 and see that it is indeed compressing the actionseq, and I
+>>> looked at the code and it also looks like the above output IS the
+>>> compressed sequence.
+>>>
+>>> Now, this seems to be a tricky setting to tweak on postgres, so I'd
+>>> rather not unless I had to. So my thoughts were to hopefully just force
+>>> slony to try to do smaller syncs at a time. I tried reducing (and for
+>>> the heck of it increasing) the group size, desired_sync_time,
+>>> sync_max_rowsize, and sync_max_largemem. However nothing has altered the
+>>> size of this query that is being executed on the database.
+>>>
+>>> Any thoughts, suggestions? The initial sync of slony takes about 14
+>>> hours, so I'd rather not drop the node and re-attach it. In fact I have
+>>> two nodes in the same issue, stuck at the same event, so I'd rather just
+>>> get them both synced up without doing another initial sync.
+>>>
+>>> Also, I toyed with the idea of forcing slon daemon to only sync up to a
+>>> specific event, in hopes to do blocks of say 500 events, however the
+>>> quit_sync_finalsync parameter is not accepted correctly by slony 2.1.0.
+>>> (I've submitted a email to this list about this too).
+>>>
+>>> Thanks in advance,
+>>> - Brian F
+>>> _______________________________________________
+>>> Slony1-general mailing list
+>>> Slony1-general at lists.slony.info
+>>> http://lists.slony.info/mailman/listinfo/slony1-general
+>>>
+>>
+>> _______________________________________________
+>> Slony1-general mailing list
+>> Slony1-general at lists.slony.info
+>> http://lists.slony.info/mailman/listinfo/slony1-general
+>
+>
+>
+> -- 
+> C?dric Villemain +33 (0)6 20 30 22 52
+> http://2ndQuadrant.fr/
+> PostgreSQL: Support 24x7 - D?veloppement, Expertise et Formation
+>
+
+From steve at ssinger.info  Thu Jan 26 17:34:13 2012
+From: steve at ssinger.info (Steve Singer)
+Date: Thu, 26 Jan 2012 20:34:13 -0500
+Subject: [Slony1-general] timestamp in unique key
+In-Reply-To: <87fwf4jq1x.fsf@su.eatpbank.ru>
+References: <87fwf4jq1x.fsf@su.eatpbank.ru>
+Message-ID: <BLU0-SMTP47EF2C5A44F0B2E207FC50DC8E0@phx.gbl>
+
+On Wed, 25 Jan 2012, Sergey Suleymanov wrote:
+
+If my memory serves me right,
+
+Postgresql stores more bits of precision for timestamps than get printed as 
+text.  So a timestamp converted to text and added back into the database 
+might not always return true on the equal operator.
+
+I can't think of a work around for slony that doesn't involve adding another 
+column to your table.
+
+Steve
+
+
+>
+>       Hello everybody, I need help.
+>
+>  let's to say, there is a table:
+>
+> \d molot.sens_data
+> ...
+> device_id  | integer                  | not null
+> time_stamp | timestamp with time zone | not null
+> ...
+> Indexes:
+>    "sens_data_device_id_key" UNIQUE, btree (device_id, time_stamp)
+>
+>  slonik script:
+>
+> create set (id=3, origin=1);
+> set add table ( set id=3, origin=1, id=32,
+>                fully qualified name = 'molot.sens_data',
+>                key = 'sens_data_device_id_key');
+> subscribe set ...
+>
+>  Everything is ok, copy_set went well, replication has begun. Inserts are
+>  successfully, but updates and deletes are not.
+>
+>  Append "serial primary key" column really don't want as long (table is
+>  about 250 mil records). Is there any other way?
+>
+>
+>  slony1 - 1.2.21, Pg - 8.4.9
+>
+> --
+>  Sergey Suleymanov
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+>
+
+
+From brianf at consistentstate.com  Fri Jan 27 09:05:44 2012
+From: brianf at consistentstate.com (Brian Fehrle)
+Date: Fri, 27 Jan 2012 10:05:44 -0700
+Subject: [Slony1-general] Slave can't catch up,
+ postgres error 'stack depth limit exceeded'
+In-Reply-To: <BLU0-SMTP2609BC0196E0D7A6311832DDC8E0@phx.gbl>
+References: <4F1BE396.6080909@consistentstate.com>
+	<BLU0-SMTP130FABE289127C0F6952168DC850@phx.gbl>
+	<CAF6yO=37vpmEObQ=Ay3s6=Je4ASOn+Rb1T5bFV3vT9RnQ+QxQw@mail.gmail.com>
+	<BLU0-SMTP2609BC0196E0D7A6311832DDC8E0@phx.gbl>
+Message-ID: <4F22D968.6080703@consistentstate.com>
+
+On 01/26/2012 06:29 PM, Steve Singer wrote:
+> On Tue, 24 Jan 2012, C?dric Villemain wrote:
+>
+>> Le 22 janvier 2012 17:16, Steve Singer <steve at ssinger.info> a ?crit :
+>>> On Sun, 22 Jan 2012, Brian Fehrle wrote:
+>
+>>
+>> but ... isn't it slony which should not use more than
+>> default_stack_size ? can't there be an underlining bug ?
+>
+> If slony is leaking memory or if the compression routine for the 
+> snapshot id's isn't working properly then it is a bug.  I haven't seen 
+> any evidence of this (nor have I analyzed the entire contents of his 
+> sl_event to figure out if that is the case).
+>
+> If a single SYNC group really had a lot of active xids such that it 
+> exceeded the amount of text that can be passed to a function with the 
+> default stack size then this isn't a bug.
+>
+> In 2.2 on a failed SYNC slon should now dynamically shrink the SYNC 
+> group size until it works (or reaches a size of 1).
+>
+Very cool.
+
+Unfortunately I've now removed my logs due to space issues. But one 
+thing that concerns me is that I had two slave nodes that were both 
+behind the master at the same SYNC event. One node was on postgres 9.1.2 
+(which is the one that I had this issue with), and the other on 8.4.9. 
+When I brought the daemon for 8.4.9 online, it synced up and did not 
+have this issue, while the 9.1 still did. Both 8.4.9 and 9.1.2 instances 
+had the same value for max_stack_depth.
+
+- Brian F
+
+>
+>
+>>
+>>>
+>>>
+>>>
+>>>
+>>>
+>>>>
+>>>> I am having some trouble getting a slon node caught up on events. 
+>>>> It's a
+>>>> larger database, 350 or so Gigs, and I added a node to a 
+>>>> replication set
+>>>> and while it was doing the initial sync, the server that the slon
+>>>> daemons were running on died. It wasn't until about 5 hours later 
+>>>> we got
+>>>> the daemons running on a different node and it restarted (i assume it
+>>>> restarted) the initial sync.
+>>>>
+>>>> From what I can tell, it finished the initial sync, however now it's
+>>>> unable to catch up due to the following error line (reduced in size,
+>>>> don't know how many elements there actually were but the single 
+>>>> line had
+>>>> about 18 million characters):
+>>>> 2012-01-22 04:43:07 EST ERROR  remoteWorkerThread_1: "declare LOG 
+>>>> cursor
+>>>> for select log_origin, log_txid, log_tableid, log_actionseq,
+>>>> log_cmdtype, octet_length(log_cmddata), case when
+>>>> octet_length(log_cmddata) <= 1024 then log_cmddata else null end from
+>>>> "_myslonycluster".sl_log_1 where log_origin = 1 and log_tableid in
+>>>> (2,3,4,5,6,7,1,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,94,95,96,97,98,99,100,101,102,103,104,105,106,107,108,109,110,111,112,113,114,115,116,117,118,119,120,121,122) 
+>>>>
+>>>> and log_txid >= '34299501' and log_txid < '34311624' and
+>>>> "pg_catalog".txid_visible_in_snapshot(log_txid, '34311624:34311624:')
+>>>> and (  log_actionseq <> '2474682'  and  log_actionseq <> '2403310' 
+>>>>  and
+>>>> log_actionseq <> '2427861'  and
+>>>> <SNIP, repeated many thousands of times with different numbers>
+>>>> '  and  log_actionseq <> '2520797'  and  log_actionseq <> '2519348'
+>>>> and  log_actionseq <> '2485828'  and  log_actionseq <> '2523367'  and
+>>>> log_actionseq <> '2469096'  and  log_actionseq <> '2520589'  and
+>>>> log_actionseq <> '2414071'  and  log_actionseq <> '2391417' ) order by
+>>>> log_actionseq" PGRES_FATAL_ERROR ERROR:  stack depth limit exceeded
+>>>>
+>>>> I found someone with a similar(ish) issue back in the day, and a
+>>>> function called compress_actionseq was mentioned. I turned up 
+>>>> debugging
+>>>> to level 4 and see that it is indeed compressing the actionseq, and I
+>>>> looked at the code and it also looks like the above output IS the
+>>>> compressed sequence.
+>>>>
+>>>> Now, this seems to be a tricky setting to tweak on postgres, so I'd
+>>>> rather not unless I had to. So my thoughts were to hopefully just 
+>>>> force
+>>>> slony to try to do smaller syncs at a time. I tried reducing (and for
+>>>> the heck of it increasing) the group size, desired_sync_time,
+>>>> sync_max_rowsize, and sync_max_largemem. However nothing has 
+>>>> altered the
+>>>> size of this query that is being executed on the database.
+>>>>
+>>>> Any thoughts, suggestions? The initial sync of slony takes about 14
+>>>> hours, so I'd rather not drop the node and re-attach it. In fact I 
+>>>> have
+>>>> two nodes in the same issue, stuck at the same event, so I'd rather 
+>>>> just
+>>>> get them both synced up without doing another initial sync.
+>>>>
+>>>> Also, I toyed with the idea of forcing slon daemon to only sync up 
+>>>> to a
+>>>> specific event, in hopes to do blocks of say 500 events, however the
+>>>> quit_sync_finalsync parameter is not accepted correctly by slony 
+>>>> 2.1.0.
+>>>> (I've submitted a email to this list about this too).
+>>>>
+>>>> Thanks in advance,
+>>>> - Brian F
+>>>> _______________________________________________
+>>>> Slony1-general mailing list
+>>>> Slony1-general at lists.slony.info
+>>>> http://lists.slony.info/mailman/listinfo/slony1-general
+>>>>
+>>>
+>>> _______________________________________________
+>>> Slony1-general mailing list
+>>> Slony1-general at lists.slony.info
+>>> http://lists.slony.info/mailman/listinfo/slony1-general
+>>
+>>
+>>
+>> -- 
+>> C?dric Villemain +33 (0)6 20 30 22 52
+>> http://2ndQuadrant.fr/
+>> PostgreSQL: Support 24x7 - D?veloppement, Expertise et Formation
+>>
+
+
+From cbbrowne at afilias.info  Fri Jan 27 09:33:40 2012
+From: cbbrowne at afilias.info (Christopher Browne)
+Date: Fri, 27 Jan 2012 12:33:40 -0500
+Subject: [Slony1-general] Slave can't catch up,
+ postgres error 'stack depth limit exceeded'
+In-Reply-To: <4F22D968.6080703@consistentstate.com>
+References: <4F1BE396.6080909@consistentstate.com>
+	<BLU0-SMTP130FABE289127C0F6952168DC850@phx.gbl>
+	<CAF6yO=37vpmEObQ=Ay3s6=Je4ASOn+Rb1T5bFV3vT9RnQ+QxQw@mail.gmail.com>
+	<BLU0-SMTP2609BC0196E0D7A6311832DDC8E0@phx.gbl>
+	<4F22D968.6080703@consistentstate.com>
+Message-ID: <CANfbgbbCOzMxioHpU9f+POE-FDcVF+eO3B3piJKLV+n0vsZHwg@mail.gmail.com>
+
+On Fri, Jan 27, 2012 at 12:05 PM, Brian Fehrle
+<brianf at consistentstate.com> wrote:
+> On 01/26/2012 06:29 PM, Steve Singer wrote:
+>> On Tue, 24 Jan 2012, C?dric Villemain wrote:
+>>
+>>> Le 22 janvier 2012 17:16, Steve Singer <steve at ssinger.info> a ?crit :
+>>>> On Sun, 22 Jan 2012, Brian Fehrle wrote:
+>>
+>>>
+>>> but ... isn't it slony which should not use more than
+>>> default_stack_size ? can't there be an underlining bug ?
+>>
+>> If slony is leaking memory or if the compression routine for the
+>> snapshot id's isn't working properly then it is a bug. ?I haven't seen
+>> any evidence of this (nor have I analyzed the entire contents of his
+>> sl_event to figure out if that is the case).
+>>
+>> If a single SYNC group really had a lot of active xids such that it
+>> exceeded the amount of text that can be passed to a function with the
+>> default stack size then this isn't a bug.
+>>
+>> In 2.2 on a failed SYNC slon should now dynamically shrink the SYNC
+>> group size until it works (or reaches a size of 1).
+>>
+> Very cool.
+>
+> Unfortunately I've now removed my logs due to space issues. But one
+> thing that concerns me is that I had two slave nodes that were both
+> behind the master at the same SYNC event. One node was on postgres 9.1.2
+> (which is the one that I had this issue with), and the other on 8.4.9.
+> When I brought the daemon for 8.4.9 online, it synced up and did not
+> have this issue, while the 9.1 still did. Both 8.4.9 and 9.1.2 instances
+> had the same value for max_stack_depth.
+
+A different thing troubles me...
+
+The point of the "compress" step is to compress together runs of
+sequential transaction ID values, and that depends on the values being
+returned in sequential order so that it can recognize runs of
+sequences and compress them together.
+
+It seems as though the query is no longer returning the values in
+sequential order, which seems like a problem.
+
+From brianf at consistentstate.com  Fri Jan 27 10:18:49 2012
+From: brianf at consistentstate.com (Brian Fehrle)
+Date: Fri, 27 Jan 2012 11:18:49 -0700
+Subject: [Slony1-general] Slave can't catch up,
+ postgres error 'stack depth limit exceeded'
+In-Reply-To: <CANfbgbbCOzMxioHpU9f+POE-FDcVF+eO3B3piJKLV+n0vsZHwg@mail.gmail.com>
+References: <4F1BE396.6080909@consistentstate.com>	<BLU0-SMTP130FABE289127C0F6952168DC850@phx.gbl>	<CAF6yO=37vpmEObQ=Ay3s6=Je4ASOn+Rb1T5bFV3vT9RnQ+QxQw@mail.gmail.com>	<BLU0-SMTP2609BC0196E0D7A6311832DDC8E0@phx.gbl>	<4F22D968.6080703@consistentstate.com>
+	<CANfbgbbCOzMxioHpU9f+POE-FDcVF+eO3B3piJKLV+n0vsZHwg@mail.gmail.com>
+Message-ID: <4F22EA89.6080806@consistentstate.com>
+
+
+>>>> but ... isn't it slony which should not use more than
+>>>> default_stack_size ? can't there be an underlining bug ?
+>>> If slony is leaking memory or if the compression routine for the
+>>> snapshot id's isn't working properly then it is a bug.  I haven't seen
+>>> any evidence of this (nor have I analyzed the entire contents of his
+>>> sl_event to figure out if that is the case).
+>>>
+>>> If a single SYNC group really had a lot of active xids such that it
+>>> exceeded the amount of text that can be passed to a function with the
+>>> default stack size then this isn't a bug.
+>>>
+>>> In 2.2 on a failed SYNC slon should now dynamically shrink the SYNC
+>>> group size until it works (or reaches a size of 1).
+>>>
+>> Very cool.
+>>
+>> Unfortunately I've now removed my logs due to space issues. But one
+>> thing that concerns me is that I had two slave nodes that were both
+>> behind the master at the same SYNC event. One node was on postgres 9.1.2
+>> (which is the one that I had this issue with), and the other on 8.4.9.
+>> When I brought the daemon for 8.4.9 online, it synced up and did not
+>> have this issue, while the 9.1 still did. Both 8.4.9 and 9.1.2 instances
+>> had the same value for max_stack_depth.
+> A different thing troubles me...
+>
+> The point of the "compress" step is to compress together runs of
+> sequential transaction ID values, and that depends on the values being
+> returned in sequential order so that it can recognize runs of
+> sequences and compress them together.
+>
+> It seems as though the query is no longer returning the values in
+> sequential order, which seems like a problem.
+
+I may have another opportunity to have another large sync like this 
+happen on my systems, if so I'll keep the logs and see what I can find 
+in terms of the compression.
+
+- Brian F
+
+
+
+From JanWieck at Yahoo.com  Fri Jan 27 15:29:18 2012
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Fri, 27 Jan 2012 18:29:18 -0500
+Subject: [Slony1-general] Slave can't catch up,
+ postgres error 'stack depth limit exceeded'
+In-Reply-To: <CAF6yO=37vpmEObQ=Ay3s6=Je4ASOn+Rb1T5bFV3vT9RnQ+QxQw@mail.gmail.com>
+References: <4F1BE396.6080909@consistentstate.com>
+	<BLU0-SMTP130FABE289127C0F6952168DC850@phx.gbl>
+	<CAF6yO=37vpmEObQ=Ay3s6=Je4ASOn+Rb1T5bFV3vT9RnQ+QxQw@mail.gmail.com>
+Message-ID: <4F23334E.70008@Yahoo.com>
+
+On 1/24/2012 4:57 AM, C?dric Villemain wrote:
+> Le 22 janvier 2012 17:16, Steve Singer<steve at ssinger.info>  a ?crit :
+>>  On Sun, 22 Jan 2012, Brian Fehrle wrote:
+>>
+>>>  Hi all,
+>>>
+>>>  PostgreSQL 9.1.2
+>>>  Slony 2.1.0
+>>
+>>  Set max_stack_depth in your postgresql.conf to something higher.
+>>
+>>  sync_group_maxsize in your slon.conf to something low MIGHT help (ie 1 or 2)
+>>  but I think the default in 2.1 is pretty low anyway (like 20).
+>
+> Immediate workaround is in fact to increase max_stack_depth ( but max
+> it to (ulimit -s minus 1MB)
+>
+> but ... isn't it slony which should not use more than
+> default_stack_size ? can't there be an underlining bug ?
+
+Not a bug per se. Maybe something to improve in a future release.
+
+That list of log_actionseq <> clauses only ever occurs on the first sync 
+of a new SUBSCRIBE SET directly from the origin. The subscriber copies 
+all the tables in some state in between two SYNC events. During the 
+first SYNC after that, it needs to filter out all the log rows, that are 
+already incorporated in that data, so it collects them and saves them in 
+that set's sl_setsync row. These are all the actions that happened and 
+committed in between the last SYNC event created on the origin and the 
+copy_set operation starting.
+
+If those are many thousands, then this is a mighty busy database or the 
+slon on the origin maybe wasn't running for a while.
+
+The improvement for a future release would be to have the remote worker 
+get the log_actionseq list at the beginning of copy_set. If that list is 
+longer than a configurable maximum, it would abort the subscribe and 
+retry in a few seconds. It may take a couple of retries, but it should 
+eventually hit a moment where a SYNC event was created recently enough 
+so that there are only a few hundred log rows to ignore.
+
+
+Jan
+
+-- 
+Anyone who trades liberty for security deserves neither
+liberty nor security. -- Benjamin Franklin
+
+From brianf at consistentstate.com  Fri Jan 27 16:27:50 2012
+From: brianf at consistentstate.com (Brian Fehrle)
+Date: Fri, 27 Jan 2012 17:27:50 -0700
+Subject: [Slony1-general] slony and postgis?
+Message-ID: <4F234106.7050605@consistentstate.com>
+
+Hey all, doing some preliminary research and have a quick question. Any 
+idea if slony plays well with replicating geometry columns from postgis?
+
+Thanks,
+- Brian F
+
+From cedric.villemain.debian at gmail.com  Sat Jan 28 13:19:45 2012
+From: cedric.villemain.debian at gmail.com (=?ISO-8859-1?Q?C=E9dric_Villemain?=)
+Date: Sat, 28 Jan 2012 22:19:45 +0100
+Subject: [Slony1-general] Slave can't catch up,
+ postgres error 'stack depth limit exceeded'
+In-Reply-To: <4F23334E.70008@Yahoo.com>
+References: <4F1BE396.6080909@consistentstate.com>
+	<BLU0-SMTP130FABE289127C0F6952168DC850@phx.gbl>
+	<CAF6yO=37vpmEObQ=Ay3s6=Je4ASOn+Rb1T5bFV3vT9RnQ+QxQw@mail.gmail.com>
+	<4F23334E.70008@Yahoo.com>
+Message-ID: <CAF6yO=3_ZeZudxFXjDDLnUk-VRT4YUbzBeZfvr=PXOLjTBOJWQ@mail.gmail.com>
+
+Le 28 janvier 2012 00:29, Jan Wieck <JanWieck at yahoo.com> a ?crit :
+> On 1/24/2012 4:57 AM, C?dric Villemain wrote:
+>>
+>> Le 22 janvier 2012 17:16, Steve Singer<steve at ssinger.info> ?a ?crit :
+>>>
+>>> ?On Sun, 22 Jan 2012, Brian Fehrle wrote:
+>>>
+>>>> ?Hi all,
+>>>>
+>>>> ?PostgreSQL 9.1.2
+>>>> ?Slony 2.1.0
+>>>
+>>>
+>>> ?Set max_stack_depth in your postgresql.conf to something higher.
+>>>
+>>> ?sync_group_maxsize in your slon.conf to something low MIGHT help (ie 1
+>>> or 2)
+>>> ?but I think the default in 2.1 is pretty low anyway (like 20).
+>>
+>>
+>> Immediate workaround is in fact to increase max_stack_depth ( but max
+>> it to (ulimit -s minus 1MB)
+>>
+>> but ... isn't it slony which should not use more than
+>> default_stack_size ? can't there be an underlining bug ?
+>
+>
+> Not a bug per se. Maybe something to improve in a future release.
+>
+> That list of log_actionseq <> clauses only ever occurs on the first sync of
+> a new SUBSCRIBE SET directly from the origin. The subscriber copies all the
+> tables in some state in between two SYNC events. During the first SYNC after
+> that, it needs to filter out all the log rows, that are already incorporated
+> in that data, so it collects them and saves them in that set's sl_setsync
+> row. These are all the actions that happened and committed in between the
+> last SYNC event created on the origin and the copy_set operation starting.
+>
+> If those are many thousands, then this is a mighty busy database or the slon
+> on the origin maybe wasn't running for a while.
+>
+> The improvement for a future release would be to have the remote worker get
+> the log_actionseq list at the beginning of copy_set. If that list is longer
+> than a configurable maximum, it would abort the subscribe and retry in a few
+> seconds. It may take a couple of retries, but it should eventually hit a
+> moment where a SYNC event was created recently enough so that there are only
+> a few hundred log rows to ignore.
+
+Not a bug, I am abusing the word, sorry.
+Good explanations, thanks to you and Steve for that.
+
+Btw, it is nice that an improvement can be done in 2.2, as noted
+upthread the issue here is limited to 9.1: maybe related to SSI taking
+more stack space or any other change in postgresql code. Slony ability
+to workaround the changes of PostgreSQL internals and manage different
+version of PostgreSQL is very nice combo that I am very happy to see
+slony dev-team maintaining.
+
+-- 
+C?dric Villemain +33 (0)6 20 30 22 52
+http://2ndQuadrant.fr/
+PostgreSQL: Support 24x7 - D?veloppement, Expertise et Formation
+
+From cbbrowne at afilias.info  Sat Jan 28 18:08:47 2012
+From: cbbrowne at afilias.info (Christopher Browne)
+Date: Sat, 28 Jan 2012 21:08:47 -0500
+Subject: [Slony1-general] slony and postgis?
+In-Reply-To: <4F234106.7050605@consistentstate.com>
+References: <4F234106.7050605@consistentstate.com>
+Message-ID: <CANfbgbYoT7LQDWGpOAkw0tymKw4h7s8eRz=n7QSOQLype-W8fw@mail.gmail.com>
+
+As long as the data types serialize in a reasonable form, and survive
+pg_dump, they should replicate fine.
+
+Needs to be stable to use it in a primary key.  E.g. , date stamp values
+may reload as a slightly different value due to rounding. If GIS values do
+the same, they may make poor primary keys.  Slony might expose edges you
+mightn't see elsewhere.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20120128/98125a60/attachment.htm 
+
+From steve at ssinger.info  Sat Jan 28 19:48:53 2012
+From: steve at ssinger.info (Steve Singer)
+Date: Sat, 28 Jan 2012 22:48:53 -0500
+Subject: [Slony1-general] slony and postgis?
+In-Reply-To: <CANfbgbYoT7LQDWGpOAkw0tymKw4h7s8eRz=n7QSOQLype-W8fw@mail.gmail.com>
+References: <4F234106.7050605@consistentstate.com>
+	<CANfbgbYoT7LQDWGpOAkw0tymKw4h7s8eRz=n7QSOQLype-W8fw@mail.gmail.com>
+Message-ID: <BLU0-SMTP2840BEB106849765DF1900DC8C0@phx.gbl>
+
+On Sat, 28 Jan 2012, Christopher Browne wrote:
+
+> 
+> As long as the data types serialize in a reasonable form, and survive
+> pg_dump, they should replicate fine.
+> 
+> Needs to be stable to use it in a primary key.? E.g. , date stamp values may
+> reload as a slightly different value due to rounding. If GIS values do the
+> same, they may make poor primary keys.? Slony might expose edges you
+> mightn't see elsewhere.
+
+I sometimes setup replication clusters of GIS data when testing slony and 
+have never had a problems, I can't even recall any edge cases that it 
+exposed.
+
+Making a postgis geometry column part of a primary key is a bad idea/design 
+even if you aren't using slony.
+
+
+> 
+> 
+>
+

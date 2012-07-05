@@ -1,0 +1,3375 @@
+From mu at forsa.de  Mon Aug  1 06:12:09 2011
+From: mu at forsa.de (marmu)
+Date: Mon, 1 Aug 2011 06:12:09 -0700 (PDT)
+Subject: [Slony1-general] subscribeSet() the receiver does not exist
+ receiver id:2
+In-Reply-To: <4E316F37.8080105@ca.afilias.info>
+References: <32138395.post@talk.nabble.com> <4E316F37.8080105@ca.afilias.info>
+Message-ID: <32169512.post@talk.nabble.com>
+
+
+>> Then I get this message:
+>> Starting SLONY slave(fquest)<stdin>:4: NOTICE:  subscribe set:
+>> omit_copy=f
+>> <stdin>:4: PGRES_FATAL_ERROR select "_fquest".subscribeSet(1, 1, 2, 'f',
+>> 'f');  - ERROR:  Slony-I: subscribeSet() the receiver does not exist
+>> receiver id:2
+
+>You need to add something like
+
+>store node(id=2, event node=1);
+
+>before the subscribe set command in your
+>fquest-slave-setupmaker script
+
+thanks a lot, this solved the "receiver does not exist"-problem. both master
+and slave start without any errors now.
+
+
+>> Further I get this error when clicking on the cluster in pgadmin:
+>> 2011-07-26 10:58:42 CEST fquest postgres ERROR:  relation "pg_listener"
+>> does
+>> not exist at character 25
+>> 2011-07-26 10:58:42 CEST fquest postgres STATEMENT:  SELECT listenerpid
+>> FROM
+>> pg_listener WHERE relname = '_fquest_Event'
+
+>This error is unrelated, but might be because the version of pgadmin you 
+>have is older than the version of postgresql you are using.
+>
+>AI will also warn you that many (maybe even the last released one) 
+>versions of pgadmin don't properly work with slony 2.0.x
+
+read about that already. will keep it in mind. but pgadmin is for now the
+best way for me to check what is going on. further comparing the old and the
+new server replication wise.
+
+
+
+What still bothers me, is that the replication set on the master-DB states
+24 tables. this is ok. but the replication set on the slave does not state
+any abonnements/subscriptions (to these tables). I think there should be an
+abonnement/subscription. like this (on the old server - pgadmin sql field):
+
+-- subscribe replication set
+
+ SELECT _fquest.subscribeset(1, 1, 2, false);
+
+thanks for your help, really appreciated.
+
+Cheers,
+Marcus
+-- 
+View this message in context: http://old.nabble.com/subscribeSet%28%29-the-receiver-does-not-exist-receiver-id%3A2-tp32138395p32169512.html
+Sent from the Slony-I -- General mailing list archive at Nabble.com.
+
+
+From francescoboccacci at libero.it  Tue Aug  2 08:44:38 2011
+From: francescoboccacci at libero.it (Francesco Boccacci)
+Date: Tue, 2 Aug 2011 15:44:38 +0000 (UTC)
+Subject: [Slony1-general] Invitation to connect on LinkedIn
+Message-ID: <3595972.1769677.1312299878938.JavaMail.app@ela4-app0131.prod>
+
+LinkedIn
+------------
+
+
+
+   
+I'd like to add you to my professional network on LinkedIn.
+
+- Francesco
+
+Francesco Boccacci
+R&D developer at Navionics s.p.a 
+Florence Area, Italy
+
+Confirm that you know Francesco Boccacci
+https://www.linkedin.com/e/-8dhz-gqv1gr2v-2a/isd/3732900460/eoPbSnL0/
+
+
+ 
+-- 
+(c) 2011, LinkedIn Corporation
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20110802/82656d11/attachment.htm 
+
+From ssinger at ca.afilias.info  Wed Aug  3 12:53:56 2011
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Wed, 03 Aug 2011 15:53:56 -0400
+Subject: [Slony1-general] try { DROP NODE(...)} in 2.1.0
+Message-ID: <4E39A754.6040601@ca.afilias.info>
+
+In doing some testing against the 2.1.0 beta I tried executing some 
+slonik code like
+
+try {
+   drop node(id=3, event node=1);
+}
+on error {
+   echo "node already gone";
+}
+store node(id=3, event node=1);
+
+A script like this will fail in the current 2.1.0 betas and this 
+shouldn't surprise anyone who has read about the new features in 2.1.0
+
+A drop node requires that the cluster be somewhat caught up (at least to 
+the extent that any events from the drop'd node that have been confirmed 
+elsewhere are confirmed everywhere).  This means that drop node has an 
+implicit 'wait for event' before it.   However you can't have 'wait for 
+events' inside a try block.
+
+I am surprised that no one else has stumbled upon this while testing 2.1.0
+
+The options I see are
+
+1) Accept that you can't do that type of thing anymore (using try blocks 
+as control flow structures)
+
+2)  Have some way of moving the 'wait for event' to the 'try' statement 
+instead of the first statement in the try block (details and syntax 
+proposals or even a patch welcome)
+
+3) A better idea
+
+Steve
+
+
+
+
+From ichbinrene at gmail.com  Fri Aug  5 13:38:58 2011
+From: ichbinrene at gmail.com (Rene Romero Benavides)
+Date: Fri, 05 Aug 2011 15:38:58 -0500
+Subject: [Slony1-general] Segmentation fault when subscribing a node to a
+	replication set
+Message-ID: <4E3C54E2.8040409@gmail.com>
+
+Hello everybody and greetings from M?xico City.
+
+*slony version: 2.0.7 with postgresql 9.0.4 running on debian squeeze 
+(and same issue arises with opensuse 11.04)*
+I get the following message when trying to subscribe a node to a 
+replication set:
+
+*<stdin>:4: row number 0 is out of range 0..-1
+Segmentation fault*
+
+the slony instructions (generated with perltools) that caused this error:/
+/-----------------------------------------------------------------------------------------------------
+/cluster name = slony_cluster;
+  node 1 admin conninfo='host=10.0.0.142 dbname=pgbench user=postgres 
+port=5432 password=postgres';
+  node 2 admin conninfo='host=10.0.0.140 dbname=pgbenchslave 
+user=postgres port=5432 password=postgres';
+   try {
+     subscribe set (id = 1, provider = 1, receiver = 2, forward = yes);
+   }
+   on error {
+     exit 1;
+   }
+   echo 'Subscribed nodes to set 1';/
+-----------------------------------------------------------------------------------------------------
+
+And my slon_tools.conf
+-----------------------------------------------------------------------------------------------------
+
+if ($ENV{"SLONYNODES"}) {
+     require $ENV{"SLONYNODES"};
+} else {
+
+     $CLUSTER_NAME = 'slony_cluster';
+
+     $LOGDIR = '/var/log/slony1';
+
+     $MASTERNODE = 1;
+
+     $DEBUGLEVEL = 2;
+
+     add_node(node     => 1,
+          host     => '10.0.0.142',
+          dbname   => 'pgbench',
+          port     => 5432,
+          user     => 'postgres',
+              password => 'postgres');
+
+     add_node(node     => 2,
+          host     => '10.0.0.140',
+          dbname   => 'pgbenchslave',
+          port     => 5432,
+          user     => 'postgres',
+              password => 'postgres');
+}
+
+
+$SLONY_SETS = {
+     "set1" => {
+     "set_id" => 1,
+     "table_id"    => 1,
+     "sequence_id" => 1,
+     "pkeyedtables" => [
+                                 'pgbench_tellers',
+                                 'pgbench_history',
+                                 'pgbench_accounts',
+                                 'pgbench_branches'
+                            ],
+     },
+};
+
+if ($ENV{"SLONYSET"}) {
+     require $ENV{"SLONYSET"};
+}
+# Please do not add or change anything below this point.
+1;
+-----------------------------------------------------------------------------------------------------
+When I fire up the script I get:
+2011-08-05 15:26:20 CDT LOG:  unexpected EOF on client connection
+on the slon logs from the master node (where I'm calling it from)
+
+I've checked connectivity between nodes and everything is alright. I've 
+ran other scripts such as slonik_uninstall_nodes, slonik_drop_node, and 
+slonik_add_node and they're executed successfully.
+
+The cluster was previously initialized with:
+-----------------------------------------------------------------------------------------------------------------------
+# INIT CLUSTER
+cluster name = slony_cluster;
+  node 1 admin conninfo='host=10.0.0.142 dbname=pgbench user=postgres 
+port=5432 password=postgres';
+  node 2 admin conninfo='host=10.0.0.140 dbname=pgbenchslave 
+user=postgres port=5432 password=postgres';
+   init cluster (id = 1, comment = 'Node 1 - pgbench at 10.0.0.142');
+
+# STORE NODE
+   store node (id = 2, event node = 1, comment = 'Node 2 - 
+pgbenchslave at 10.0.0.140');
+   echo 'Set up replication nodes';
+
+# STORE PATH
+   echo 'Next: configure paths for each node/origin';
+   store path (server = 1, client = 2, conninfo = 'host=10.0.0.142 
+dbname=pgbench user=postgres port=5432 password=postgres');
+   store path (server = 2, client = 1, conninfo = 'host=10.0.0.140 
+dbname=pgbenchslave user=postgres port=5432 password=postgres');
+   echo 'Replication nodes prepared';
+   echo 'Please start a slon replication daemon for each node';
+-----------------------------------------------------------------------------------------------------------------------
+The slon daemon is running on both nodes.
+
+Any help will be highly appreciated. Thanks
+
+
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20110805/c4060571/attachment.htm 
+
+From ssinger at ca.afilias.info  Fri Aug  5 14:09:37 2011
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Fri, 05 Aug 2011 17:09:37 -0400
+Subject: [Slony1-general] Segmentation fault when subscribing a node to
+ a replication set
+In-Reply-To: <4E3C54E2.8040409@gmail.com>
+References: <4E3C54E2.8040409@gmail.com>
+Message-ID: <4E3C5C11.4050505@ca.afilias.info>
+
+On 11-08-05 04:38 PM, Rene Romero Benavides wrote:
+> Hello everybody and greetings from M?xico City.
+>
+> *slony version: 2.0.7 with postgresql 9.0.4 running on debian squeeze
+> (and same issue arises with opensuse 11.04)*
+> I get the following message when trying to subscribe a node to a
+> replication set:
+>
+> *<stdin>:4: row number 0 is out of range 0..-1
+> Segmentation fault*
+>
+
+I don't see a 'create set(....)'  slonik command anywhere in the below 
+output.  The altperl script slonik_create_set command generates this. 
+Did you forget to run it befure you tried subscribing?
+
+(if this is the case and slonik is generating a segmentation fault 
+instead of a useful error message then that is a bug)
+
+Steve
+
+> the slony instructions (generated with perltools) that caused this error:/
+> /-----------------------------------------------------------------------------------------------------
+> /cluster name = slony_cluster;
+> node 1 admin conninfo='host=10.0.0.142 dbname=pgbench user=postgres
+> port=5432 password=postgres';
+> node 2 admin conninfo='host=10.0.0.140 dbname=pgbenchslave user=postgres
+> port=5432 password=postgres';
+> try {
+> subscribe set (id = 1, provider = 1, receiver = 2, forward = yes);
+> }
+> on error {
+> exit 1;
+> }
+> echo 'Subscribed nodes to set 1';/
+> -----------------------------------------------------------------------------------------------------
+>
+> And my slon_tools.conf
+> -----------------------------------------------------------------------------------------------------
+>
+> if ($ENV{"SLONYNODES"}) {
+> require $ENV{"SLONYNODES"};
+> } else {
+>
+> $CLUSTER_NAME = 'slony_cluster';
+>
+> $LOGDIR = '/var/log/slony1';
+>
+> $MASTERNODE = 1;
+>
+> $DEBUGLEVEL = 2;
+>
+> add_node(node => 1,
+> host => '10.0.0.142',
+> dbname => 'pgbench',
+> port => 5432,
+> user => 'postgres',
+> password => 'postgres');
+>
+> add_node(node => 2,
+> host => '10.0.0.140',
+> dbname => 'pgbenchslave',
+> port => 5432,
+> user => 'postgres',
+> password => 'postgres');
+> }
+>
+>
+> $SLONY_SETS = {
+> "set1" => {
+> "set_id" => 1,
+> "table_id" => 1,
+> "sequence_id" => 1,
+> "pkeyedtables" => [
+> 'pgbench_tellers',
+> 'pgbench_history',
+> 'pgbench_accounts',
+> 'pgbench_branches'
+> ],
+> },
+> };
+>
+> if ($ENV{"SLONYSET"}) {
+> require $ENV{"SLONYSET"};
+> }
+> # Please do not add or change anything below this point.
+> 1;
+> -----------------------------------------------------------------------------------------------------
+> When I fire up the script I get:
+> 2011-08-05 15:26:20 CDT LOG: unexpected EOF on client connection
+> on the slon logs from the master node (where I'm calling it from)
+>
+> I've checked connectivity between nodes and everything is alright. I've
+> ran other scripts such as slonik_uninstall_nodes, slonik_drop_node, and
+> slonik_add_node and they're executed successfully.
+>
+> The cluster was previously initialized with:
+> -----------------------------------------------------------------------------------------------------------------------
+> # INIT CLUSTER
+> cluster name = slony_cluster;
+> node 1 admin conninfo='host=10.0.0.142 dbname=pgbench user=postgres
+> port=5432 password=postgres';
+> node 2 admin conninfo='host=10.0.0.140 dbname=pgbenchslave user=postgres
+> port=5432 password=postgres';
+> init cluster (id = 1, comment = 'Node 1 - pgbench at 10.0.0.142');
+>
+> # STORE NODE
+> store node (id = 2, event node = 1, comment = 'Node 2 -
+> pgbenchslave at 10.0.0.140');
+> echo 'Set up replication nodes';
+>
+> # STORE PATH
+> echo 'Next: configure paths for each node/origin';
+> store path (server = 1, client = 2, conninfo = 'host=10.0.0.142
+> dbname=pgbench user=postgres port=5432 password=postgres');
+> store path (server = 2, client = 1, conninfo = 'host=10.0.0.140
+> dbname=pgbenchslave user=postgres port=5432 password=postgres');
+> echo 'Replication nodes prepared';
+> echo 'Please start a slon replication daemon for each node';
+> -----------------------------------------------------------------------------------------------------------------------
+> The slon daemon is running on both nodes.
+>
+> Any help will be highly appreciated. Thanks
+>
+>
+>
+>
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+
+
+From ichbinrene at gmail.com  Fri Aug  5 14:44:26 2011
+From: ichbinrene at gmail.com (Rene Romero Benavides)
+Date: Fri, 05 Aug 2011 16:44:26 -0500
+Subject: [Slony1-general] Segmentation fault when subscribing a node to
+ a replication set
+In-Reply-To: <4E3C5C11.4050505@ca.afilias.info>
+References: <4E3C54E2.8040409@gmail.com> <4E3C5C11.4050505@ca.afilias.info>
+Message-ID: <4E3C643A.1060406@gmail.com>
+
+My bad, I just started using slony and bypassed that common sense 
+implication =-D. Thanks for the guide and for bearing with newbies. No 
+bug whatsoever.
+
+El 05/08/11 16:09, Steve Singer escribi?:
+> On 11-08-05 04:38 PM, Rene Romero Benavides wrote:
+>> Hello everybody and greetings from M?xico City.
+>>
+>> *slony version: 2.0.7 with postgresql 9.0.4 running on debian squeeze
+>> (and same issue arises with opensuse 11.04)*
+>> I get the following message when trying to subscribe a node to a
+>> replication set:
+>>
+>> *<stdin>:4: row number 0 is out of range 0..-1
+>> Segmentation fault*
+>>
+>
+> I don't see a 'create set(....)'  slonik command anywhere in the below 
+> output.  The altperl script slonik_create_set command generates this. 
+> Did you forget to run it befure you tried subscribing?
+>
+> (if this is the case and slonik is generating a segmentation fault 
+> instead of a useful error message then that is a bug)
+>
+> Steve
+>
+>> the slony instructions (generated with perltools) that caused this 
+>> error:/
+>> /----------------------------------------------------------------------------------------------------- 
+>>
+>> /cluster name = slony_cluster;
+>> node 1 admin conninfo='host=10.0.0.142 dbname=pgbench user=postgres
+>> port=5432 password=postgres';
+>> node 2 admin conninfo='host=10.0.0.140 dbname=pgbenchslave user=postgres
+>> port=5432 password=postgres';
+>> try {
+>> subscribe set (id = 1, provider = 1, receiver = 2, forward = yes);
+>> }
+>> on error {
+>> exit 1;
+>> }
+>> echo 'Subscribed nodes to set 1';/
+>> ----------------------------------------------------------------------------------------------------- 
+>>
+>>
+>> And my slon_tools.conf
+>> ----------------------------------------------------------------------------------------------------- 
+>>
+>>
+>> if ($ENV{"SLONYNODES"}) {
+>> require $ENV{"SLONYNODES"};
+>> } else {
+>>
+>> $CLUSTER_NAME = 'slony_cluster';
+>>
+>> $LOGDIR = '/var/log/slony1';
+>>
+>> $MASTERNODE = 1;
+>>
+>> $DEBUGLEVEL = 2;
+>>
+>> add_node(node => 1,
+>> host => '10.0.0.142',
+>> dbname => 'pgbench',
+>> port => 5432,
+>> user => 'postgres',
+>> password => 'postgres');
+>>
+>> add_node(node => 2,
+>> host => '10.0.0.140',
+>> dbname => 'pgbenchslave',
+>> port => 5432,
+>> user => 'postgres',
+>> password => 'postgres');
+>> }
+>>
+>>
+>> $SLONY_SETS = {
+>> "set1" => {
+>> "set_id" => 1,
+>> "table_id" => 1,
+>> "sequence_id" => 1,
+>> "pkeyedtables" => [
+>> 'pgbench_tellers',
+>> 'pgbench_history',
+>> 'pgbench_accounts',
+>> 'pgbench_branches'
+>> ],
+>> },
+>> };
+>>
+>> if ($ENV{"SLONYSET"}) {
+>> require $ENV{"SLONYSET"};
+>> }
+>> # Please do not add or change anything below this point.
+>> 1;
+>> ----------------------------------------------------------------------------------------------------- 
+>>
+>> When I fire up the script I get:
+>> 2011-08-05 15:26:20 CDT LOG: unexpected EOF on client connection
+>> on the slon logs from the master node (where I'm calling it from)
+>>
+>> I've checked connectivity between nodes and everything is alright. I've
+>> ran other scripts such as slonik_uninstall_nodes, slonik_drop_node, and
+>> slonik_add_node and they're executed successfully.
+>>
+>> The cluster was previously initialized with:
+>> ----------------------------------------------------------------------------------------------------------------------- 
+>>
+>> # INIT CLUSTER
+>> cluster name = slony_cluster;
+>> node 1 admin conninfo='host=10.0.0.142 dbname=pgbench user=postgres
+>> port=5432 password=postgres';
+>> node 2 admin conninfo='host=10.0.0.140 dbname=pgbenchslave user=postgres
+>> port=5432 password=postgres';
+>> init cluster (id = 1, comment = 'Node 1 - pgbench at 10.0.0.142');
+>>
+>> # STORE NODE
+>> store node (id = 2, event node = 1, comment = 'Node 2 -
+>> pgbenchslave at 10.0.0.140');
+>> echo 'Set up replication nodes';
+>>
+>> # STORE PATH
+>> echo 'Next: configure paths for each node/origin';
+>> store path (server = 1, client = 2, conninfo = 'host=10.0.0.142
+>> dbname=pgbench user=postgres port=5432 password=postgres');
+>> store path (server = 2, client = 1, conninfo = 'host=10.0.0.140
+>> dbname=pgbenchslave user=postgres port=5432 password=postgres');
+>> echo 'Replication nodes prepared';
+>> echo 'Please start a slon replication daemon for each node';
+>> ----------------------------------------------------------------------------------------------------------------------- 
+>>
+>> The slon daemon is running on both nodes.
+>>
+>> Any help will be highly appreciated. Thanks
+>>
+>>
+>>
+>>
+>>
+>> _______________________________________________
+>> Slony1-general mailing list
+>> Slony1-general at lists.slony.info
+>> http://lists.slony.info/mailman/listinfo/slony1-general
+>
+
+
+From cbbrowne at afilias.info  Fri Aug  5 14:49:09 2011
+From: cbbrowne at afilias.info (Christopher Browne)
+Date: Fri, 5 Aug 2011 17:49:09 -0400
+Subject: [Slony1-general] Segmentation fault when subscribing a node to
+ a replication set
+In-Reply-To: <4E3C5C11.4050505@ca.afilias.info>
+References: <4E3C54E2.8040409@gmail.com>
+	<4E3C5C11.4050505@ca.afilias.info>
+Message-ID: <CANfbgbY=7u-yMyfwaVLrS1MPZ5cqM3Oxq4EXQoqHXH3hqgsO0g@mail.gmail.com>
+
+On Fri, Aug 5, 2011 at 5:09 PM, Steve Singer <ssinger at ca.afilias.info> wrote:
+> On 11-08-05 04:38 PM, Rene Romero Benavides wrote:
+>> Hello everybody and greetings from M?xico City.
+>>
+>> *slony version: 2.0.7 with postgresql 9.0.4 running on debian squeeze
+>> (and same issue arises with opensuse 11.04)*
+>> I get the following message when trying to subscribe a node to a
+>> replication set:
+>>
+>> *<stdin>:4: row number 0 is out of range 0..-1
+>> Segmentation fault*
+>>
+>
+> I don't see a 'create set(....)' ?slonik command anywhere in the below
+> output. ?The altperl script slonik_create_set command generates this.
+> Did you forget to run it befure you tried subscribing?
+>
+> (if this is the case and slonik is generating a segmentation fault
+> instead of a useful error message then that is a bug)
+
+I don't think I'd call this a *severe* bug, but it seems to me that
+"row number 0 is out of range..." isn't quite the most intuitive error
+message of all time.
+
+That's presumably taking place somewhere inside the Postgres "stack",
+as that description isn't found anywhere in the Slony code base.
+
+If we can get a stack trace from the Postgres logs indicating
+specifically where it was executing when this happened, it might be
+possible to toss in a more descriptive error message, presumably
+somewhere in the subscribe set code.
+
+From dilrajssokhi at gmail.com  Fri Aug  5 16:22:46 2011
+From: dilrajssokhi at gmail.com (Dilraj Singh)
+Date: Fri, 5 Aug 2011 16:22:46 -0700
+Subject: [Slony1-general] Uninterrupted Slony Replication
+Message-ID: <CAHFJsA9PkvFO27RUVoO-hXnrZzHtb1M93z9JgQ+AL6H7p02doA@mail.gmail.com>
+
+Hi,
+
+I am using postgresql-8.4 and slony1-1.2.0.3 and i have been able implement
+a 4 node replication cluster where nodes communicate successfully with each
+other. The way i have went about this is that i have written scripts (say
+cluster_setup.sh and subscribe.sh) to be run with slonik. Like run the
+script cluster_setup on the master node and then slon daemon's on all the 4
+nodes with necessary connection information and finally run subscribe.sh on
+the master node again. This works perfectly fine and even when i kill some
+of the slons on the different machines, if i start slon again, the
+replication at that node picks up where it was left before.
+
+After this i tried automating the whole process so that in case of a network
+disconnect/power failure/reboot the replication can continue to work as
+normal. So instead of running slon's manually on each machine, i placed a
+script having 'bash -U postgres -c "./slon conninfo=" ' command in init.d
+directory for each machine. After having all the database replication
+running again, i rebooted one of the machines but i could not have the
+database replication restored after that. The node which was acting as a
+provider to the rebooted machine started showing this error:
+
+2011-08-05 09:25:40 PDTERROR  remoteListenThread_3: "select con_origin,
+con_received,     max(con_seqno) as con_seqno,     max(con_timestamp) as
+con_timestamp from "_four_node_rep_cluster20".sl_confirm where con_received
+<> 2 group by con_origin, con_received" 2011-08-05 09:25:42 PDTERROR
+remoteListenThread_3: "select ev_origin, ev_seqno, ev_timestamp,
+ev_snapshot,        "pg_catalog".txid_snapshot_xmin(ev_snapshot),
+"pg_catalog".txid_snapshot_xmax(ev_snapshot),        ev_type,
+ev_data1, ev_data2,        ev_data3, ev_data4,        ev_data5,
+ev_data6,        ev_data7, ev_data8 from "_four_node_rep_cluster20".sl_event
+e where (e.ev_origin = '3' and e.ev_seqno > '5000000005') or (e.ev_origin =
+'4' and e.ev_seqno > '5000000039') order by e.ev_origin, e.ev_seqno limit
+40" - no connection to the server
+
+and then the replication wont start working again till the time i reboot all
+the nodes. I am guessing it might be the case that the provider node gets
+reinitialized on rebooting thats why the replication starts again. I know
+slony is used for automated database replication so i was wondering whether
+there is any way in which i can make this work without rebooting all the
+nodes, which will be inconvenient if the number of nodes increase or for
+production server
+
+Any inputs on the above error will be greatly appreciated.
+
+Regards
+Dilraj Singh
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20110805/d19da692/attachment-0001.htm 
+
+From ssinger_pg at sympatico.ca  Sat Aug  6 08:42:37 2011
+From: ssinger_pg at sympatico.ca (Steve Singer)
+Date: Sat, 6 Aug 2011 11:42:37 -0400
+Subject: [Slony1-general] Uninterrupted Slony Replication
+In-Reply-To: <CAHFJsA9PkvFO27RUVoO-hXnrZzHtb1M93z9JgQ+AL6H7p02doA@mail.gmail.com>
+References: <CAHFJsA9PkvFO27RUVoO-hXnrZzHtb1M93z9JgQ+AL6H7p02doA@mail.gmail.com>
+Message-ID: <BLU0-SMTP82CF5CECDADEAF4EF6B7C6AC3F0@phx.gbl>
+
+On Fri, 5 Aug 2011, Dilraj Singh wrote:
+
+> Hi,
+> 
+> I am using postgresql-8.4 and slony1-1.2.0.3 and i have been able implement
+> a 4 node replication cluster where nodes communicate successfully with each
+
+Try upgrading to 2.0.7 and see if it fixes your problem.
+
+1) 2.0.3 has a bug (unrelated to your current issue) that isn't present in 
+2.0.2 or 2.0.4 so that release should be avoided
+
+2) 2.0.7 has some fixes related to recovering from dropped connections that 
+might fix your issue, the error you paste below looks familiar.
+
+<snip>
+
+> 2011-08-05 09:25:40 PDTERROR? remoteListenThread_3: "select con_origin,
+> con_received,???? max(con_seqno) as con_seqno,???? max(con_timestamp) as
+> con_timestamp from "_four_node_rep_cluster20".sl_confirm where con_received
+> <> 2 group by con_origin, con_received" 2011-08-05 09:25:42 PDTERROR?
+> remoteListenThread_3: "select ev_origin, ev_seqno, ev_timestamp,???????
+> ev_snapshot,??????? "pg_catalog".txid_snapshot_xmin(ev_snapshot),???????
+> "pg_catalog".txid_snapshot_xmax(ev_snapshot),??????? ev_type,???????
+> ev_data1, ev_data2,??????? ev_data3, ev_data4,??????? ev_data5,
+> ev_data6,??????? ev_data7, ev_data8 from "_four_node_rep_cluster20".sl_event
+> e where (e.ev_origin = '3' and e.ev_seqno > '5000000005') or (e.ev_origin =
+> '4' and e.ev_seqno > '5000000039') order by e.ev_origin, e.ev_seqno limit
+> 40" - no connection to the server
+> 
+> and then the replication wont start working again till the time i reboot all
+> the nodes. I am guessing it might be the case that the provider node gets
+> reinitialized on rebooting thats why the replication starts again. I know
+> slony is used for automated database replication so i was wondering whether
+> there is any way in which i can make this work without rebooting all the
+> nodes, which will be inconvenient if the number of nodes increase or for
+> production server
+> 
+> Any inputs on the above error will be greatly appreciated.
+> 
+> Regards
+> Dilraj Singh
+> 
+>
+
+From dilrajssokhi at gmail.com  Mon Aug  8 16:55:24 2011
+From: dilrajssokhi at gmail.com (Dilraj Singh)
+Date: Mon, 8 Aug 2011 16:55:24 -0700
+Subject: [Slony1-general] Uninterrupted Slony Replication
+In-Reply-To: <BLU0-SMTP82CF5CECDADEAF4EF6B7C6AC3F0@phx.gbl>
+References: <CAHFJsA9PkvFO27RUVoO-hXnrZzHtb1M93z9JgQ+AL6H7p02doA@mail.gmail.com>
+	<BLU0-SMTP82CF5CECDADEAF4EF6B7C6AC3F0@phx.gbl>
+Message-ID: <CAHFJsA_CFONC6e-=y1B6mOuDcE07KgEyseMq0DwBQ1CfKS2oYg@mail.gmail.com>
+
+Hi,
+
+Yup, it works for 2.0.7. Thanks.
+
+But i tried for version 2.0.4 also, still its giving the same errors. We are
+little bit inclined to use version 2.0.4 as it is current version available
+with apt-get on debian and hence can be updated easily using apt-get. So is
+there any way i can make this work in the version 2.0.4 too?
+
+Also, I noticed that on rebooting the machine, it does not even work when i
+kill the slon process started on reboot and manually start the slon process
+like ./slon conninfo=.
+
+Regards
+Dilraj Singh
+
+On Sat, Aug 6, 2011 at 8:42 AM, Steve Singer <ssinger_pg at sympatico.ca>wrote:
+
+> On Fri, 5 Aug 2011, Dilraj Singh wrote:
+>
+>  Hi,
+>>
+>> I am using postgresql-8.4 and slony1-1.2.0.3 and i have been able
+>> implement
+>> a 4 node replication cluster where nodes communicate successfully with
+>> each
+>>
+>
+> Try upgrading to 2.0.7 and see if it fixes your problem.
+>
+> 1) 2.0.3 has a bug (unrelated to your current issue) that isn't present in
+> 2.0.2 or 2.0.4 so that release should be avoided
+>
+> 2) 2.0.7 has some fixes related to recovering from dropped connections that
+> might fix your issue, the error you paste below looks familiar.
+>
+> <snip>
+>
+>
+>  2011-08-05 09:25:40 PDTERROR  remoteListenThread_3: "select con_origin,
+>> con_received,     max(con_seqno) as con_seqno,     max(con_timestamp) as
+>> con_timestamp from "_four_node_rep_cluster20".sl_**confirm where
+>> con_received
+>> <> 2 group by con_origin, con_received" 2011-08-05 09:25:42 PDTERROR
+>> remoteListenThread_3: "select ev_origin, ev_seqno, ev_timestamp,
+>> ev_snapshot,        "pg_catalog".txid_snapshot_**
+>> xmin(ev_snapshot),
+>> "pg_catalog".txid_snapshot_**xmax(ev_snapshot),        ev_type,
+>> ev_data1, ev_data2,        ev_data3, ev_data4,        ev_data5,
+>> ev_data6,        ev_data7, ev_data8 from "_four_node_rep_cluster20".sl_**
+>> event
+>> e where (e.ev_origin = '3' and e.ev_seqno > '5000000005') or (e.ev_origin
+>> =
+>> '4' and e.ev_seqno > '5000000039') order by e.ev_origin, e.ev_seqno limit
+>> 40" - no connection to the server
+>>
+>> and then the replication wont start working again till the time i reboot
+>> all
+>> the nodes. I am guessing it might be the case that the provider node gets
+>> reinitialized on rebooting thats why the replication starts again. I know
+>> slony is used for automated database replication so i was wondering
+>> whether
+>> there is any way in which i can make this work without rebooting all the
+>> nodes, which will be inconvenient if the number of nodes increase or for
+>> production server
+>>
+>> Any inputs on the above error will be greatly appreciated.
+>>
+>> Regards
+>> Dilraj Singh
+>>
+>>
+>>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20110808/ef5b3a89/attachment.htm 
+
+From ssinger_pg at sympatico.ca  Mon Aug  8 17:08:19 2011
+From: ssinger_pg at sympatico.ca (Steve Singer)
+Date: Mon, 8 Aug 2011 20:08:19 -0400
+Subject: [Slony1-general] Uninterrupted Slony Replication
+In-Reply-To: <CAHFJsA_CFONC6e-=y1B6mOuDcE07KgEyseMq0DwBQ1CfKS2oYg@mail.gmail.com>
+References: <CAHFJsA9PkvFO27RUVoO-hXnrZzHtb1M93z9JgQ+AL6H7p02doA@mail.gmail.com>
+	<BLU0-SMTP82CF5CECDADEAF4EF6B7C6AC3F0@phx.gbl>
+	<CAHFJsA_CFONC6e-=y1B6mOuDcE07KgEyseMq0DwBQ1CfKS2oYg@mail.gmail.com>
+Message-ID: <BLU0-SMTP101CA77E86086D8C7368776AC200@phx.gbl>
+
+On Mon, 8 Aug 2011, Dilraj Singh wrote:
+
+> Hi,
+> 
+> Yup, it works for 2.0.7. Thanks.
+> 
+> But i tried for version 2.0.4 also, still its giving the same errors. We are
+> little bit inclined to use version 2.0.4 as it is current version available
+> with apt-get on debian and hence can be updated easily using apt-get. So is
+> there any way i can make this work in the version 2.0.4 too?
+> 
+> Also, I noticed that on rebooting the machine, it does not even work when i
+> kill the slon process started on reboot and manually start the slon process
+> like ./slon conninfo=.
+
+
+Once your network and postgresql instances are up you should just be able to 
+restart all of your slon processes and replication should resume (with 
+2.0.4) it should recover from the dropped connections when slon is 
+restarting.
+
+How are you starting slon?  Are you using a slon.conf file or passing the 
+conninfo on the command line? (you need to be doing one of the two).
+
+Steve
+
+
+
+> 
+> Regards
+> Dilraj Singh
+> 
+> On Sat, Aug 6, 2011 at 8:42 AM, Steve Singer <ssinger_pg at sympatico.ca>
+> wrote:
+>       On Fri, 5 Aug 2011, Dilraj Singh wrote:
+>
+>             Hi,
+>
+>             I am using postgresql-8.4 and slony1-1.2.0.3 and i
+>             have been able implement
+>             a 4 node replication cluster where nodes communicate
+>             successfully with each
+> 
+> 
+> Try upgrading to 2.0.7 and see if it fixes your problem.
+> 
+> 1) 2.0.3 has a bug (unrelated to your current issue) that isn't
+> present in 2.0.2 or 2.0.4 so that release should be avoided
+> 
+> 2) 2.0.7 has some fixes related to recovering from dropped connections
+> that might fix your issue, the error you paste below looks familiar.
+> 
+> <snip>
+> 
+>
+>       2011-08-05 09:25:40 PDTERROR? remoteListenThread_3:
+>       "select con_origin,
+>       con_received,???? max(con_seqno) as con_seqno,????
+>       max(con_timestamp) as
+>       con_timestamp from "_four_node_rep_cluster20".sl_confirm
+>       where con_received
+>       <> 2 group by con_origin, con_received" 2011-08-05
+>       09:25:42 PDTERROR?
+>       remoteListenThread_3: "select ev_origin, ev_seqno,
+>       ev_timestamp,???????
+>       ev_snapshot,???????
+>       "pg_catalog".txid_snapshot_xmin(ev_snapshot),???????
+>       "pg_catalog".txid_snapshot_xmax(ev_snapshot),???????
+>       ev_type,???????
+>       ev_data1, ev_data2,??????? ev_data3, ev_data4,???????
+>       ev_data5,
+>       ev_data6,??????? ev_data7, ev_data8 from
+>       "_four_node_rep_cluster20".sl_event
+>       e where (e.ev_origin = '3' and e.ev_seqno > '5000000005')
+>       or (e.ev_origin =
+>       '4' and e.ev_seqno > '5000000039') order by e.ev_origin,
+>       e.ev_seqno limit
+>       40" - no connection to the server
+>
+>       and then the replication wont start working again till the
+>       time i reboot all
+>       the nodes. I am guessing it might be the case that the
+>       provider node gets
+>       reinitialized on rebooting thats why the replication
+>       starts again. I know
+>       slony is used for automated database replication so i was
+>       wondering whether
+>       there is any way in which i can make this work without
+>       rebooting all the
+>       nodes, which will be inconvenient if the number of nodes
+>       increase or for
+>       production server
+>
+>       Any inputs on the above error will be greatly appreciated.
+>
+>       Regards
+>       Dilraj Singh
+> 
+> 
+> 
+> 
+>
+
+From dilrajssokhi at gmail.com  Mon Aug  8 20:22:30 2011
+From: dilrajssokhi at gmail.com (Dilraj Singh)
+Date: Mon, 8 Aug 2011 20:22:30 -0700
+Subject: [Slony1-general] Uninterrupted Slony Replication
+In-Reply-To: <BLU0-SMTP101CA77E86086D8C7368776AC200@phx.gbl>
+References: <CAHFJsA9PkvFO27RUVoO-hXnrZzHtb1M93z9JgQ+AL6H7p02doA@mail.gmail.com>
+	<BLU0-SMTP82CF5CECDADEAF4EF6B7C6AC3F0@phx.gbl>
+	<CAHFJsA_CFONC6e-=y1B6mOuDcE07KgEyseMq0DwBQ1CfKS2oYg@mail.gmail.com>
+	<BLU0-SMTP101CA77E86086D8C7368776AC200@phx.gbl>
+Message-ID: <CAHFJsA-SyAF8_CEKJzVTHDCoytWOD-Uo+OktH=ThW+_ZMYVZQw@mail.gmail.com>
+
+Hi Steve,
+
+I have placed a script in the /etc/init.d folder of my debian machine which
+has the commands as
+
+#!/bin/sh
+bash -u postgres -c '/usr/lib/postgresql/8.4/bin/pg_ctl start -D
+/var/lib/postgresql/8.4/main" '
+bash -u postgres -c '/usr/bin/slon conninfo= "dbname=testdb user=postgres" '
+
+I have configured this script on each of the 4 machines to run at the the
+reboot time which will start the database and then will run the slon
+process. I am passing conninfo on the command line itself and before doing
+the reboot, i have also made the cluster_setup and subscriptions for the
+four nodes. So its like replication is going on when i do reboot on one of
+the machines.
+
+As you pointed out, this all procedure works fine in 2.0.7, but fails in the
+version 2.0.4. Also while seeing the output of the                    *ps
+aux | grep postgres* command at the times of broken and not-broken
+connection, i can see the entries for the processes related to database of
+the other machines (which are connected to it as described in subscription
+script) in the not-broken connection whereas broken connection (after
+reboot) has only local database entries in the command output.
+
+Thanks for helping me out. :)
+
+Regards
+Dilraj Singh
+
+On Mon, Aug 8, 2011 at 5:08 PM, Steve Singer <ssinger_pg at sympatico.ca>wrote:
+
+> Once your network and postgresql instances are up you should just be able
+> to restart all of your slon processes and replication should resume (with
+> 2.0.4) it should recover from the dropped connections when slon is
+> restarting.
+>
+> How are you starting slon?  Are you using a slon.conf file or passing the
+> conninfo on the command line? (you need to be doing one of the two).
+>
+> Steve
+>
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20110808/2d1ec316/attachment.htm 
+
+From ssinger_pg at sympatico.ca  Mon Aug  8 20:33:38 2011
+From: ssinger_pg at sympatico.ca (Steve Singer)
+Date: Mon, 8 Aug 2011 23:33:38 -0400
+Subject: [Slony1-general] Uninterrupted Slony Replication
+In-Reply-To: <CAHFJsA-SyAF8_CEKJzVTHDCoytWOD-Uo+OktH=ThW+_ZMYVZQw@mail.gmail.com>
+References: <CAHFJsA9PkvFO27RUVoO-hXnrZzHtb1M93z9JgQ+AL6H7p02doA@mail.gmail.com>
+	<BLU0-SMTP82CF5CECDADEAF4EF6B7C6AC3F0@phx.gbl>
+	<CAHFJsA_CFONC6e-=y1B6mOuDcE07KgEyseMq0DwBQ1CfKS2oYg@mail.gmail.com>
+	<BLU0-SMTP101CA77E86086D8C7368776AC200@phx.gbl>
+	<CAHFJsA-SyAF8_CEKJzVTHDCoytWOD-Uo+OktH=ThW+_ZMYVZQw@mail.gmail.com>
+Message-ID: <BLU0-SMTP1306ECF9873CEA839C72BEAC200@phx.gbl>
+
+On Mon, 8 Aug 2011, Dilraj Singh wrote:
+
+> Hi Steve,
+> I have placed a script in the /etc/init.d folder of my debian machine which
+> has the commands as
+
+To restart slon manually after your rebooted node i back up try
+
+slon four_node_rep_cluster20 'dbname=testdb user=postgres'
+
+on all the other nodes.
+
+> 
+> #!/bin/sh
+> bash -u postgres -c '/usr/lib/postgresql/8.4/bin/pg_ctl start -D
+> /var/lib/postgresql/8.4/main" '
+> bash -u postgres -c '/usr/bin/slon conninfo= "dbname=testdb user=postgres" '
+
+What the above line does is start slon with a cluster name of 'conninfo='
+in your previous email you pasted output that indicated that your 
+clustername is 'four_node_rep_cluster20'
+
+I suspect that the slon started but your init script isn't actually the slon 
+instance doing the work but you have somethign somewhere else that is 
+starting up the slon with the clustername 'four_node_rep_cluster20'  I 
+suspect that other slon instance recovers properly from the reboot of the 
+remote node (since 2.0.7 tends to recover properly) while with 2.0.4 you 
+need to manually correctly restart the remote slons
+
+
+
+> 
+> I have configured this script on each of the 4 machines to run at the the
+> reboot time which will start the database and then will run the slon
+> process. I am passing conninfo on the command line itself and before doing
+> the reboot, i have also made the cluster_setup and subscriptions for the
+> four nodes. So its like replication is going on when i do reboot on one of
+> the machines.?
+> 
+> As you pointed out, this all procedure works fine in 2.0.7, but fails in the
+> version 2.0.4. Also while seeing the output of the ? ? ? ? ? ? ? ? ? ?ps aux
+> | grep postgres command at the times of broken and not-broken connection, i
+> can see the entries for the processes related to database of the other
+> machines (which are connected to it as described in subscription script) in
+> the not-broken connection whereas broken connection (after reboot) has only
+> local database entries in the command output.
+> 
+> Thanks for helping me out. :)
+> 
+> Regards
+> Dilraj Singh
+> 
+> On Mon, Aug 8, 2011 at 5:08 PM, Steve Singer <ssinger_pg at sympatico.ca>
+> wrote:
+>       Once your network and postgresql instances are up you should
+>       just be able to restart all of your slon processes and
+>       replication should resume (with 2.0.4) it should recover from
+>       the dropped connections when slon is restarting.
+> 
+> How are you starting slon? ?Are you using a slon.conf file or passing
+> the conninfo on the command line? (you need to be doing one of the
+> two).
+> 
+> Steve
+> 
+> 
+>
+
+From dilrajssokhi at gmail.com  Mon Aug  8 21:09:06 2011
+From: dilrajssokhi at gmail.com (Dilraj Singh)
+Date: Mon, 8 Aug 2011 21:09:06 -0700
+Subject: [Slony1-general] Uninterrupted Slony Replication
+In-Reply-To: <BLU0-SMTP1306ECF9873CEA839C72BEAC200@phx.gbl>
+References: <CAHFJsA9PkvFO27RUVoO-hXnrZzHtb1M93z9JgQ+AL6H7p02doA@mail.gmail.com>
+	<BLU0-SMTP82CF5CECDADEAF4EF6B7C6AC3F0@phx.gbl>
+	<CAHFJsA_CFONC6e-=y1B6mOuDcE07KgEyseMq0DwBQ1CfKS2oYg@mail.gmail.com>
+	<BLU0-SMTP101CA77E86086D8C7368776AC200@phx.gbl>
+	<CAHFJsA-SyAF8_CEKJzVTHDCoytWOD-Uo+OktH=ThW+_ZMYVZQw@mail.gmail.com>
+	<BLU0-SMTP1306ECF9873CEA839C72BEAC200@phx.gbl>
+Message-ID: <CAHFJsA-D1TqKdrfT1pLygpbdWtNKM9MfPE2227dn7D0KK76kgg@mail.gmail.com>
+
+Hi Steve,
+
+Yeah, i am sorry but i missed the clustername definition while writing the
+mail. Thanks for pointing that out. It will definitely not work without me
+defining the cluster name same as the one in the cluster setup and
+subscription scripts. Exact initialization script is :
+
+#!/bin/sh
+bash -u postgres -c '/usr/lib/postgresql/8.4/bin/**pg_ctl start
+-D /var/lib/postgresql/8.4/main" '
+bash -u postgres -c '/usr/bin/slon four_node_replication_cluster20
+"dbname=testdb user=postgres" '
+
+As i said in my earlier mail, I even manually started slon processes on the
+rebooted machine, but even then replication does not start.
+
+Regards
+Dilraj Singh
+
+
+On Mon, Aug 8, 2011 at 8:33 PM, Steve Singer <ssinger_pg at sympatico.ca>wrote:
+
+> On Mon, 8 Aug 2011, Dilraj Singh wrote:
+>
+>  Hi Steve,
+>> I have placed a script in the /etc/init.d folder of my debian machine
+>> which
+>> has the commands as
+>>
+>
+> To restart slon manually after your rebooted node i back up try
+>
+> slon four_node_rep_cluster20 'dbname=testdb user=postgres'
+>
+> on all the other nodes.
+>
+>
+>
+>> #!/bin/sh
+>> bash -u postgres -c '/usr/lib/postgresql/8.4/bin/**pg_ctl start -D
+>> /var/lib/postgresql/8.4/main" '
+>> bash -u postgres -c '/usr/bin/slon conninfo= "dbname=testdb user=postgres"
+>> '
+>>
+>
+> What the above line does is start slon with a cluster name of 'conninfo='
+> in your previous email you pasted output that indicated that your
+> clustername is 'four_node_rep_cluster20'
+>
+> I suspect that the slon started but your init script isn't actually the
+> slon instance doing the work but you have somethign somewhere else that is
+> starting up the slon with the clustername 'four_node_rep_cluster20'  I
+> suspect that other slon instance recovers properly from the reboot of the
+> remote node (since 2.0.7 tends to recover properly) while with 2.0.4 you
+> need to manually correctly restart the remote slons
+>
+>
+>
+>
+>
+>> I have configured this script on each of the 4 machines to run at the the
+>> reboot time which will start the database and then will run the slon
+>> process. I am passing conninfo on the command line itself and before doing
+>> the reboot, i have also made the cluster_setup and subscriptions for the
+>> four nodes. So its like replication is going on when i do reboot on one of
+>> the machines.
+>>
+>> As you pointed out, this all procedure works fine in 2.0.7, but fails in
+>> the
+>> version 2.0.4. Also while seeing the output of the                    ps
+>> aux
+>> | grep postgres command at the times of broken and not-broken connection,
+>> i
+>> can see the entries for the processes related to database of the other
+>> machines (which are connected to it as described in subscription script)
+>> in
+>> the not-broken connection whereas broken connection (after reboot) has
+>> only
+>> local database entries in the command output.
+>>
+>> Thanks for helping me out. :)
+>>
+>> Regards
+>> Dilraj Singh
+>>
+>> On Mon, Aug 8, 2011 at 5:08 PM, Steve Singer <ssinger_pg at sympatico.ca>
+>> wrote:
+>>      Once your network and postgresql instances are up you should
+>>      just be able to restart all of your slon processes and
+>>      replication should resume (with 2.0.4) it should recover from
+>>      the dropped connections when slon is restarting.
+>>
+>> How are you starting slon?  Are you using a slon.conf file or passing
+>> the conninfo on the command line? (you need to be doing one of the
+>> two).
+>>
+>> Steve
+>>
+>>
+>>
+>>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20110808/141e49d4/attachment-0001.htm 
+
+From ssinger_pg at sympatico.ca  Tue Aug  9 04:26:10 2011
+From: ssinger_pg at sympatico.ca (Steve Singer)
+Date: Tue, 9 Aug 2011 07:26:10 -0400
+Subject: [Slony1-general] Uninterrupted Slony Replication
+In-Reply-To: <CAHFJsA-D1TqKdrfT1pLygpbdWtNKM9MfPE2227dn7D0KK76kgg@mail.gmail.com>
+References: <CAHFJsA9PkvFO27RUVoO-hXnrZzHtb1M93z9JgQ+AL6H7p02doA@mail.gmail.com>
+	<BLU0-SMTP82CF5CECDADEAF4EF6B7C6AC3F0@phx.gbl>
+	<CAHFJsA_CFONC6e-=y1B6mOuDcE07KgEyseMq0DwBQ1CfKS2oYg@mail.gmail.com>
+	<BLU0-SMTP101CA77E86086D8C7368776AC200@phx.gbl>
+	<CAHFJsA-SyAF8_CEKJzVTHDCoytWOD-Uo+OktH=ThW+_ZMYVZQw@mail.gmail.com>
+	<BLU0-SMTP1306ECF9873CEA839C72BEAC200@phx.gbl>
+	<CAHFJsA-D1TqKdrfT1pLygpbdWtNKM9MfPE2227dn7D0KK76kgg@mail.gmail.com>
+Message-ID: <BLU0-SMTP1001F9CC22CDCC61274C6F5AC200@phx.gbl>
+
+On Mon, 8 Aug 2011, Dilraj Singh wrote:
+
+> Hi Steve,
+> Yeah, i am sorry but i missed the clustername definition while writing the
+> mail. Thanks for pointing that out. It will definitely not work without me
+> defining the cluster name same as the one in the cluster setup and
+> subscription scripts. Exact initialization script is :
+> ?
+> #!/bin/sh
+> bash -u postgres -c '/usr/lib/postgresql/8.4/bin/pg_ctl start
+> -D?/var/lib/postgresql/8.4/main" '
+> bash -u postgres -c '/usr/bin/slon four_node_replication_cluster20
+> "dbname=testdb user=postgres" '
+> 
+> As i said in my earlier mail, I even manually started slon processes on the
+> rebooted machine, but even then replication does not start.
+>
+
+You need to restart the slon processes on all the *other* machines, not the 
+rebooted.  The slon process on the reboted one gets restart by the act of 
+rebooting.
+
+Steve
+
+
+
+> Regards
+> Dilraj Singh
+> 
+> 
+> On Mon, Aug 8, 2011 at 8:33 PM, Steve Singer <ssinger_pg at sympatico.ca>
+> wrote:
+>       On Mon, 8 Aug 2011, Dilraj Singh wrote:
+>
+>       Hi Steve,
+>       I have placed a script in the /etc/init.d folder of my
+>       debian machine which
+>       has the commands as
+> 
+> 
+> To restart slon manually after your rebooted node i back up try
+> 
+> slon four_node_rep_cluster20 'dbname=testdb user=postgres'
+> 
+> on all the other nodes.
+> 
+>
+>       #!/bin/sh
+>       bash -u postgres -c '/usr/lib/postgresql/8.4/bin/pg_ctl
+>       start -D
+>       /var/lib/postgresql/8.4/main" '
+>       bash -u postgres -c '/usr/bin/slon conninfo=
+>       "dbname=testdb user=postgres" '
+> 
+> 
+> What the above line does is start slon with a cluster name of
+> 'conninfo='
+> in your previous email you pasted output that indicated that your
+> clustername is 'four_node_rep_cluster20'
+> 
+> I suspect that the slon started but your init script isn't actually
+> the slon instance doing the work but you have somethign somewhere else
+> that is starting up the slon with the clustername
+> 'four_node_rep_cluster20' ?I suspect that other slon instance recovers
+> properly from the reboot of the remote node (since 2.0.7 tends to
+> recover properly) while with 2.0.4 you need to manually correctly
+> restart the remote slons
+> 
+> 
+> 
+> 
+>
+>       I have configured this script on each of the 4 machines to
+>       run at the the
+>       reboot time which will start the database and then will
+>       run the slon
+>       process. I am passing conninfo on the command line itself
+>       and before doing
+>       the reboot, i have also made the cluster_setup and
+>       subscriptions for the
+>       four nodes. So its like replication is going on when i do
+>       reboot on one of
+>       the machines.?
+>
+>       As you pointed out, this all procedure works fine in
+>       2.0.7, but fails in the
+>       version 2.0.4. Also while seeing the output of the ? ? ? ?
+>       ? ? ? ? ? ?ps aux
+>       | grep postgres command at the times of broken and
+>       not-broken connection, i
+>       can see the entries for the processes related to database
+>       of the other
+>       machines (which are connected to it as described in
+>       subscription script) in
+>       the not-broken connection whereas broken connection (after
+>       reboot) has only
+>       local database entries in the command output.
+>
+>       Thanks for helping me out. :)
+>
+>       Regards
+>       Dilraj Singh
+>
+>       On Mon, Aug 8, 2011 at 5:08 PM, Steve Singer
+>       <ssinger_pg at sympatico.ca>
+>       wrote:
+>       ? ? ?Once your network and postgresql instances are up you
+>       should
+>       ? ? ?just be able to restart all of your slon processes
+>       and
+>       ? ? ?replication should resume (with 2.0.4) it should
+>       recover from
+>       ? ? ?the dropped connections when slon is restarting.
+>
+>       How are you starting slon? ?Are you using a slon.conf file
+>       or passing
+>       the conninfo on the command line? (you need to be doing
+>       one of the
+>       two).
+>
+>       Steve
+> 
+> 
+> 
+> 
+> 
+>
+
+From stuart at stuartbishop.net  Tue Aug  9 04:37:56 2011
+From: stuart at stuartbishop.net (Stuart Bishop)
+Date: Tue, 9 Aug 2011 18:37:56 +0700
+Subject: [Slony1-general] 1 cluster or 5?
+Message-ID: <CADmi=6PtF9vaOybL2Lxru7yJN0wAkcwc2z_mOT94mgzF_wN8wQ@mail.gmail.com>
+
+I need to replicate some new databases.
+
+We have 5 shards, each with an identical schema. Each of these will be
+replicated to a slave (5 masters, 5 slaves).
+
+Do I need 5 separate clusters, or can I do this with a single cluster
+and 5 replication sets? I'll be using PG 8.4 and Slony-I 2.0.7.
+
+I suspect I need 5 separate clusters, and I'm less likely to blow my
+foot off with this setup, but I'm soliciting opinions before I proceed
+:-)
+
+-- 
+Stuart Bishop <stuart at stuartbishop.net>
+http://www.stuartbishop.net/
+
+From bench at silentmedia.com  Tue Aug  9 09:15:47 2011
+From: bench at silentmedia.com (Ben Chobot)
+Date: Tue, 9 Aug 2011 09:15:47 -0700
+Subject: [Slony1-general] 1 cluster or 5?
+In-Reply-To: <CADmi=6PtF9vaOybL2Lxru7yJN0wAkcwc2z_mOT94mgzF_wN8wQ@mail.gmail.com>
+References: <CADmi=6PtF9vaOybL2Lxru7yJN0wAkcwc2z_mOT94mgzF_wN8wQ@mail.gmail.com>
+Message-ID: <EBB339B3-8166-4DBB-9802-213F349688E6@silentmedia.com>
+
+On Aug 9, 2011, at 4:37 AM, Stuart Bishop wrote:
+
+> I need to replicate some new databases.
+> 
+> We have 5 shards, each with an identical schema. Each of these will be
+> replicated to a slave (5 masters, 5 slaves).
+> 
+> Do I need 5 separate clusters, or can I do this with a single cluster
+> and 5 replication sets? I'll be using PG 8.4 and Slony-I 2.0.7.
+> 
+> I suspect I need 5 separate clusters, and I'm less likely to blow my
+> foot off with this setup, but I'm soliciting opinions before I proceed
+> :-)
+
+Unfortunately the terminology gets overloaded. Do you mean you have 5 different PG clusters, and want a slave for each? Or do you have 1 PG cluster with 5 different schemas in it (which happen to be identical) and want a slave for each schema?
+
+If you have multiple PG clusters, you need multiple slony clusters. If not, then you don't. A replication set can span schemas if you wish it to, and you can also have multiple replication sets per schema.
+
+From cbbrowne at afilias.info  Tue Aug  9 09:49:42 2011
+From: cbbrowne at afilias.info (Christopher Browne)
+Date: Tue, 9 Aug 2011 12:49:42 -0400
+Subject: [Slony1-general] 1 cluster or 5?
+In-Reply-To: <CADmi=6PtF9vaOybL2Lxru7yJN0wAkcwc2z_mOT94mgzF_wN8wQ@mail.gmail.com>
+References: <CADmi=6PtF9vaOybL2Lxru7yJN0wAkcwc2z_mOT94mgzF_wN8wQ@mail.gmail.com>
+Message-ID: <CANfbgbZooxej99Yk_bFsNKz3fFA7F+Z2Fn7Dy=FhcPbVqATNKA@mail.gmail.com>
+
+On Tue, Aug 9, 2011 at 7:37 AM, Stuart Bishop <stuart at stuartbishop.net> wrote:
+> I need to replicate some new databases.
+>
+> We have 5 shards, each with an identical schema. Each of these will be
+> replicated to a slave (5 masters, 5 slaves).
+>
+> Do I need 5 separate clusters, or can I do this with a single cluster
+> and 5 replication sets? I'll be using PG 8.4 and Slony-I 2.0.7.
+>
+> I suspect I need 5 separate clusters, and I'm less likely to blow my
+> foot off with this setup, but I'm soliciting opinions before I proceed
+> :-)
+
+By "identical schema," does that mean you have 5 databases with
+identical schemas:
+
+for db in db1 db2 db3 db4 db5; do
+createdb ${db}; psql -d ${db} -c "create table public.t1 (id serial
+primary key);"
+done
+
+Or one database, with several namespaces, with identical schemas within that:
+createdb db
+for i in sc1 sc2 sc3 sc4 sc5; do
+psql -d db -c "create namespace ${i};"
+psql -d db -c "create table ${i}.t1 (id serial primary key);"
+done
+
+If it looks like the latter, where the schemas are distinguishable by
+virtue of namespace, then it would be pretty reasonable to have 1
+cluster with 5 replication sets.
+
+if, on the other hand, it looks like the former, where it's only the
+database name that tells things apart, I'd be not too keen to try to
+have just one big cluster, as there's a pretty big "foot-gun."
+
+Let me describe the shape of the "foot-gun"...
+
+The problem that can occur here is, since the names of tables
+otherwise match, you could accidentally alter subscriptions in such a
+way as to have cross-talk between sets, and accidentally have "set #5"
+pulling data from "set #2", thereby mixing things in a way that you'd
+probably have hoped would be immiscible.
+
+Mind you, it shouldn't be possible to have subscriptions to "node 1's
+public.t1" and "node 3's public.t1" subscribed to anywhere
+simultaneously, because:
+ i) Postgres only allows one table to be called public.t1 in the
+subscriber database (let's say it's db6), and this combines with...
+ ii) Slony requires an sl_table entry for each time a table gets
+subscribed, and has a unique index on sl_table.tab_reloid.
+That should nicely prevent "crosstalk."  You can't have 2
+subscriptions involving the same target table on a node at the same
+time.  I think that means you're reasonably protected from corruption
+of replication for this kind of case.
+
+But it doesn't prevent an onlooker from getting confused, and that's
+the factor I'd put higher on my list.
+
+One of the "nice to have" features would be the ability to rename
+tables on a subscriber.  That would mean that the schema could be, on
+the "master" nodes, as described in that first "for" loop, but then,
+on a subscriber, the schema might look like what's in the second "for"
+loop.  In that case, it's quite possible that you'd have just 6 nodes
+in the cluster:
+a) Five "master" nodes for the 5 systems, and
+b) One "subscriber" that consolidates the data from all 5 systems.
+
+The trouble with this feature is less about doing it and more about
+coming up with a parsimonious way to describe the configuration.
+
+From sivakumar.mailinglist at gmail.com  Thu Aug 11 09:05:50 2011
+From: sivakumar.mailinglist at gmail.com (sivakumar krishnamurthy)
+Date: Thu, 11 Aug 2011 21:35:50 +0530
+Subject: [Slony1-general] problem with replication of the same table in
+ multiple clusters
+Message-ID: <CANP9x9bT+wzk4S4v2CNTEqJ2JOfYUv2taLrgdcV2U5zo3Zb-jw@mail.gmail.com>
+
+Hi All,
+? In one of my production?environments due to network restrictions I
+used to have the following setup.
+Node 1 ---- Node 2 ----- Node 3
+Node 1, Node 2 is part of slony cluster1
+Node 2, Node 3 is part of slony cluster2
+table A is replicated from Node 1 to Node 2 and then to Node 3. This
+means on Node 2, table A?used to have both log_trigger and deny_access
+trigger.
+The above setup was working fine with PG 8.3.12 and slony 1.2.11.
+However the same setup is not working with?PG 9.0.4 and slony 2.0.6
+and has the following problem.
+Any DML changes applied on Node 1 is replicated to Node 2 however its
+not being replicated to Node 3. Also the sl_log_[12] tables on
+cluster2 doesn't have any?corresponding?entries for DML changes. I
+could also see SYNC events(sl_events) being replicated from Node 2 to
+Node 3.
+Can you please help me?
+Thanks,
+Sivakumar.K
+
+Cluster creation scripts
+==================
+slonik <<_EOF_
+cluster name = cluster1;
+node 1 admin conninfo = 'dbname=test5432 host=localhost port=5432 user=slony';
+node 3 admin conninfo = 'dbname=test5433 host=localhost port=5433 user=slony';
+init cluster(id=1, comment = 'Master Node');
+_EOF_
+
+slonik <<_EOF_
+cluster name = cluster1;
+node 1 admin conninfo = 'dbname=test5432 host=localhost port=5432 user=slony';
+node 3 admin conninfo = 'dbname=test5433 host=localhost port=5433 user=slony';
+create set (id=4, origin=1, comment='geo_region_table');
+set add table (set id=4, origin=1, id=20, fully qualified name =
+'public.geo_region', comment='geo_region table');
+_EOF_
+
+slonik <<_EOF_
+cluster name = cluster1;
+node 1 admin conninfo = 'dbname=test5432 host=localhost port=5432 user=slony';
+node 3 admin conninfo = 'dbname=test5433 host=localhost port=5433 user=slony';
+store node (id=3, COMMENT = 'Node 3', EVENT NODE = 1);
+_EOF_
+
+slonik <<_EOF_
+cluster name = cluster1;
+node 1 admin conninfo = 'dbname=test5432 host=localhost port=5432 user=slony';
+node 3 admin conninfo = 'dbname=test5433 host=localhost port=5433 user=slony';
+
+store path (server=1, client=3, conninfo='dbname=test5432
+host=localhost port=5432 user=slony');
+store path (server=3, client=1, conninfo='dbname=test5433
+host=localhost port=5433 user=slony');
+_EOF_
+
+
+nohup slon cluster1 'dbname=test5432 port=5432 user=slony' >
+/data5432/cluster1.log 2>&1 &
+nohup slon cluster1 'dbname=test5433 port=5433 user=slony' >
+/data5433/cluster1.log 2>&1 &
+
+slonik <<_EOF_
+cluster name = cluster1;
+node 1 admin conninfo = 'dbname=test5432 host=localhost port=5432 user=slony';
+node 3 admin conninfo = 'dbname=test5433 host=localhost port=5433 user=slony';
+subscribe set (id=4, provider=1,receiver=3,forward=yes,OMIT COPY=no);
+_EOF_
+==========================================================================
+slonik <<_EOF_
+cluster name = cluster2;
+node 1 admin conninfo = 'dbname=test5433 host=localhost port=5433 user=slony';
+node 2 admin conninfo = 'dbname=test5434 host=localhost port=5434 user=slony';
+init cluster(id=1, comment = 'Master Node');
+_EOF_
+
+slonik <<_EOF_
+cluster name = cluster2;
+node 1 admin conninfo = 'dbname=test5433 host=localhost port=5433 user=slony';
+node 2 admin conninfo = 'dbname=test5434 host=localhost port=5434 user=slony';
+create set (id=4, origin=1, comment='geo_region_table');
+set add table (set id=4, origin=1, id=20, fully qualified name =
+'public.geo_region', comment='geo_region table');
+_EOF_
+slonik <<_EOF_
+cluster name = cluster2;
+node 1 admin conninfo = 'dbname=test5433 host=localhost port=5433 user=slony';
+node 2 admin conninfo = 'dbname=test5434 host=localhost port=5434 user=slony';
+store node (id=2, COMMENT = 'Node 2', EVENT NODE = 1);
+_EOF_
+
+slonik <<_EOF_
+cluster name = cluster2;
+node 1 admin conninfo = 'dbname=test5433 host=localhost port=5433 user=slony';
+node 2 admin conninfo = 'dbname=test5434 host=localhost port=5434 user=slony';
+store path (server=1, client=2, conninfo='dbname=test5433
+host=localhost port=5433 user=slony');
+store path (server=2, client=1, conninfo='dbname=test5434
+host=localhost port=5434 user=slony');
+_EOF_
+
+
+nohup slon cluster2 'dbname=test5433 port=5433 user=slony' >
+/data5433/cluster2.log 2>&1 &
+nohup slon cluster2 'dbname=test5434 port=5434 user=slony' >
+/data5434/cluster2.log 2>&1 &
+
+slonik <<_EOF_
+cluster name = cluster2;
+node 1 admin conninfo = 'dbname=test5433 host=localhost port=5433 user=slony';
+node 2 admin conninfo = 'dbname=test5434 host=localhost port=5434 user=slony';
+subscribe set (id=4, provider=1,receiver=2,forward=yes,OMIT COPY=no);
+_EOF_
+
+From Frank.Mcgeough at vocalocity.com  Fri Aug 12 06:52:36 2011
+From: Frank.Mcgeough at vocalocity.com (Frank McGeough)
+Date: Fri, 12 Aug 2011 06:52:36 -0700
+Subject: [Slony1-general] upgrade from 1.2.20 to 2.0.6
+Message-ID: <9F2DDBC1199E7C47B8A3B2CCCDD1E62008F06909E1@VA3DIAXVS341.RED001.local>
+
+I've read the documentation on upgrading and it appears the recommended approach is to drop replication and start over. Is this correct? Does anyone have any experience with performing the upgrade from 1.2 level up to 2?
+
+Regards,
+Frank
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20110812/84e11d27/attachment.htm 
+
+From stephane.schildknecht at postgresql.fr  Fri Aug 12 07:05:26 2011
+From: stephane.schildknecht at postgresql.fr (=?ISO-8859-15?Q?=22St=E9phane_A=2E_Schildknecht=22?=)
+Date: Fri, 12 Aug 2011 16:05:26 +0200
+Subject: [Slony1-general] problem with replication of the same table in
+ multiple clusters
+In-Reply-To: <CANP9x9bT+wzk4S4v2CNTEqJ2JOfYUv2taLrgdcV2U5zo3Zb-jw@mail.gmail.com>
+References: <CANP9x9bT+wzk4S4v2CNTEqJ2JOfYUv2taLrgdcV2U5zo3Zb-jw@mail.gmail.com>
+Message-ID: <4E453326.1060401@postgresql.fr>
+
+-----BEGIN PGP SIGNED MESSAGE-----
+Hash: SHA1
+
+Le 11/08/2011 18:05, sivakumar krishnamurthy a ?crit :
+> Hi All,
+>   In one of my production environments due to network restrictions I
+> used to have the following setup.
+> Node 1 ---- Node 2 ----- Node 3
+> Node 1, Node 2 is part of slony cluster1
+> Node 2, Node 3 is part of slony cluster2
+> table A is replicated from Node 1 to Node 2 and then to Node 3. This
+> means on Node 2, table A used to have both log_trigger and deny_access
+> trigger.
+> The above setup was working fine with PG 8.3.12 and slony 1.2.11.
+> However the same setup is not working with PG 9.0.4 and slony 2.0.6
+> and has the following problem.
+> Any DML changes applied on Node 1 is replicated to Node 2 however its
+> not being replicated to Node 3. Also the sl_log_[12] tables on
+> cluster2 doesn't have any corresponding entries for DML changes. I
+> could also see SYNC events(sl_events) being replicated from Node 2 to
+> Node 3.
+> Can you please help me?
+> Thanks,
+> Sivakumar.K
+
+(...)
+
+Hi,
+
+It seems to me you want to have some cascading replication. To achieve that,
+you have to define a cluster with 3 nodes.
+
+You would have :
+slonik <<_EOF_
+cluster name = cluster1;
+node 1 admin conninfo = 'dbname=test5432 host=localhost port=5432 user=slony';
+node 2 admin conninfo = 'dbname=test5434 host=localhost port=5434 user=slony';
+node 3 admin conninfo = 'dbname=test5433 host=localhost port=5433 user=slony';
+init cluster(id=1, comment = 'Master Node');
+store node (id=2, COMMENT = 'Node 2', EVENT NODE = 1);
+store node (id=3, COMMENT = 'Node 3', EVENT NODE = 2);
+create set (id=4, origin=1, comment='geo_region_table');
+set add table (set id=4, origin=1, id=20, fully qualified name =
+'public.geo_region', comment='geo_region table');
+store path (server=1, client=3, conninfo='dbname=test5432
+host=localhost port=5432 user=slony');
+store path (server=3, client=1, conninfo='dbname=test5433
+host=localhost port=5433 user=slony');
+_EOF_
+
+
+nohup slon cluster1 'dbname=test5432 port=5432 user=slony' >
+/data5432/cluster1.log 2>&1 &
+nohup slon cluster1 'dbname=test5433 port=5433 user=slony' >
+/data5433/cluster1.log 2>&1 &
+nohup slon cluster1 'dbname=test5434 port=5434 user=slony' >
+/data5434/cluster1.log 2>&1 &
+
+slonik <<_EOF_
+cluster name = cluster1;
+node 1 admin conninfo = 'dbname=test5432 host=localhost port=5432 user=slony';
+node 2 admin conninfo = 'dbname=test5434 host=localhost port=5434 user=slony';
+node 3 admin conninfo = 'dbname=test5433 host=localhost port=5433 user=slony';
+subscribe set (id=4, provider=1,receiver=2,forward=yes,OMIT COPY=no);
+subscribe set (id=4, provider=2,receiver=3,forward=no,OMIT COPY=no);
+_EOF_
+
+
+
+
+- -- 
+St?phane Schildknecht
+Loxodata
+Contact r?gional PostgreSQL
+
+-----BEGIN PGP SIGNATURE-----
+Version: GnuPG v1.4.10 (GNU/Linux)
+Comment: Using GnuPG with Mozilla - http://enigmail.mozdev.org/
+
+iEYEARECAAYFAk5FMyYACgkQA+REPKWGI0HHWACaAvi6UTpn13PLDE8olzlhIQXc
+IGoAn2l5WzRpXWHMIN8Rvr+wBBW11YbT
+=txoz
+-----END PGP SIGNATURE-----
+
+From cbbrowne at afilias.info  Fri Aug 12 08:28:04 2011
+From: cbbrowne at afilias.info (Christopher Browne)
+Date: Fri, 12 Aug 2011 11:28:04 -0400
+Subject: [Slony1-general] Fwd:  upgrade from 1.2.20 to 2.0.6
+In-Reply-To: <CANfbgbZZx8Ex9LtaY+5maRA0xbQKkKUzcHwHSyxS1aq=AE0dqA@mail.gmail.com>
+References: <9F2DDBC1199E7C47B8A3B2CCCDD1E62008F06909E1@VA3DIAXVS341.RED001.local>
+	<CANfbgbZZx8Ex9LtaY+5maRA0xbQKkKUzcHwHSyxS1aq=AE0dqA@mail.gmail.com>
+Message-ID: <CANfbgbYMKEb2ZdPaurFuf9YD=ZCawmEDUBZim65hKKhi6Bo13g@mail.gmail.com>
+
+On Fri, Aug 12, 2011 at 9:52 AM, Frank McGeough
+<Frank.Mcgeough at vocalocity.com> wrote:
+> I?ve read the documentation on upgrading and it appears the recommended
+> approach is to drop replication and start over. Is this correct? Does anyone
+> have any experience with performing the upgrade from 1.2 level up to 2?
+
+Yes, you've got that correct.
+
+There were pretty massive changes between 1.2 and 2.0.
+
+I had started efforts on a would-be methodology to upgrade the Slony
+schema, but it was getting complex enough, including requiring some
+steps outside Slony (e.g. - the log triggers and XXID visibility
+functions changed in ways that would be really troublesome to cope
+with) that we concluded it wasn't realistic to "upgrade" but rather to
+drop replication and reinstall Slony. ?To aid in that, we added the
+"OMIT COPY" option, so that you can install without having to
+TRUNCATE/COPY all the data on subscriber nodes that are already up to
+date.
+
+There's tooling there (see tools/slonikconfdump.sh) to dump out the
+cluster's configuration so that it is made as easy as possible to
+re-install.
+
+From stuart at stuartbishop.net  Fri Aug 12 09:09:04 2011
+From: stuart at stuartbishop.net (Stuart Bishop)
+Date: Fri, 12 Aug 2011 23:09:04 +0700
+Subject: [Slony1-general] 1 cluster or 5?
+In-Reply-To: <CANfbgbZooxej99Yk_bFsNKz3fFA7F+Z2Fn7Dy=FhcPbVqATNKA@mail.gmail.com>
+References: <CADmi=6PtF9vaOybL2Lxru7yJN0wAkcwc2z_mOT94mgzF_wN8wQ@mail.gmail.com>
+	<CANfbgbZooxej99Yk_bFsNKz3fFA7F+Z2Fn7Dy=FhcPbVqATNKA@mail.gmail.com>
+Message-ID: <CADmi=6PnwBqKfrPtoeW-SEUR44R2JJx880ak27SpCw-Yy-r=SA@mail.gmail.com>
+
+On Tue, Aug 9, 2011 at 11:49 PM, Christopher Browne
+<cbbrowne at afilias.info> wrote:
+
+> By "identical schema," does that mean you have 5 databases with
+> identical schemas:
+
+This one.
+
+> if, on the other hand, it looks like the former, where it's only the
+> database name that tells things apart, I'd be not too keen to try to
+> have just one big cluster, as there's a pretty big "foot-gun."
+>
+> Let me describe the shape of the "foot-gun"...
+
+Thanks for this. It seems possible, but I don't think there are enough
+gains so I've gone with 5 simple clusters over one complex one.
+
+-- 
+Stuart Bishop <stuart at stuartbishop.net>
+http://www.stuartbishop.net/
+
+From dilrajssokhi at gmail.com  Fri Aug 12 09:23:44 2011
+From: dilrajssokhi at gmail.com (Dilraj Singh)
+Date: Fri, 12 Aug 2011 09:23:44 -0700
+Subject: [Slony1-general] Fwd: upgrade from 1.2.20 to 2.0.6
+In-Reply-To: <CANfbgbYMKEb2ZdPaurFuf9YD=ZCawmEDUBZim65hKKhi6Bo13g@mail.gmail.com>
+References: <9F2DDBC1199E7C47B8A3B2CCCDD1E62008F06909E1@VA3DIAXVS341.RED001.local>
+	<CANfbgbZZx8Ex9LtaY+5maRA0xbQKkKUzcHwHSyxS1aq=AE0dqA@mail.gmail.com>
+	<CANfbgbYMKEb2ZdPaurFuf9YD=ZCawmEDUBZim65hKKhi6Bo13g@mail.gmail.com>
+Message-ID: <CAHFJsA85L5O_mqCE4itRmqyyWqmjMLMCNdkVp-N-xjebhU1gZg@mail.gmail.com>
+
+Hi i had some experience in upgrading from 1.2 to 2.0, similar to the above
+post:
+
+On Fri, Aug 12, 2011 at 8:28 AM, Christopher Browne
+<cbbrowne at afilias.info>wrote:
+
+>
+> I had started efforts on a would-be methodology to upgrade the Slony
+> schema, but it was getting complex enough, including requiring some
+> steps outside Slony (e.g. - the log triggers and XXID visibility
+> functions changed in ways that would be really troublesome to cope
+> with) that we concluded it wasn't realistic to "upgrade" but rather to
+> drop replication and reinstall Slony.
+>
+>
+I pretty much upgraded the same way i.e. dropped the working replication,
+deleted version slony1 using apt-get remove purge and apt-get installed the
+newer version slony1-2. After that i tried adding the new entries to the
+replicated database, but i kept on getting this error.
+
+2011-08-12 08:59:59 PDT ERROR:  type "_four_node_rep_cluster1221.xxid" does
+not exist
+2011-08-12 08:59:59 PDT STATEMENT:  insert into contact (cid, name, address,
+    phonenumber) values ((select nextval('contact_seq')),
+    'Robert', '4 Bar Roard', '(515) 821-3831');
+ERROR:  type "_four_node_rep_cluster1221.xxid" does not exist
+
+The replication cluster being used (as shown in the error) is
+_four_node_rep_cluster1221 whereas i configured and started a new
+replication cluster _four_node_rep_cluster2041 for the newer version,
+2.0.4.1.  So i am guessing this is because of the XXID visibilty function
+changes in the versions from 1.2 to 2.0. Does this mean that I cant make
+changes to the database being used when i switch over to slony1-2 version?
+
+Let me know if am doing anything wrong or missing anything because this
+pretty much means that i cannot upgrade slony on the live database without
+deleting replication schemas or creating new database.
+
+Regards
+Dilraj Singh
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20110812/2a0d2391/attachment.htm 
+
+From kleptog at gmail.com  Thu Aug 18 06:03:48 2011
+From: kleptog at gmail.com (Martijn van O)
+Date: Thu, 18 Aug 2011 15:03:48 +0200
+Subject: [Slony1-general] Segmentation fault when subscribing a node to
+ a replication set
+In-Reply-To: <CANfbgbY=7u-yMyfwaVLrS1MPZ5cqM3Oxq4EXQoqHXH3hqgsO0g@mail.gmail.com>
+References: <4E3C54E2.8040409@gmail.com> <4E3C5C11.4050505@ca.afilias.info>
+	<CANfbgbY=7u-yMyfwaVLrS1MPZ5cqM3Oxq4EXQoqHXH3hqgsO0g@mail.gmail.com>
+Message-ID: <CADWG95sgQvmH0MMFpdKOJ-xi1FsBZSAMaXxCBxe5iSULxVt1PQ@mail.gmail.com>
+
+On 5 August 2011 23:49, Christopher Browne <cbbrowne at afilias.info> wrote:
+> That's presumably taking place somewhere inside the Postgres "stack",
+> as that description isn't found anywhere in the Slony code base.
+>
+> If we can get a stack trace from the Postgres logs indicating
+> specifically where it was executing when this happened, it might be
+> possible to toss in a more descriptive error message, presumably
+> somewhere in the subscribe set code.
+
+I ran into this same problem and I've captured some more output:
+
+Sequence of queries (extracted from strace, so not complete):
+
+begin transaction;
+select count(*) FROM "config_rep".sl_subscribe where sub_set=1 AND
+sub_receiver=2  and sub_...
+select set_origin from "config_rep".sl_set where set_id=1
+>>> result is SELECT 0, followed by
+<stdin>:4: row number 0 is out of range 0..-1
+>>> and then segmentation fault
+
+Backtrace looks like this (not sure how much optimisation was used):
+
+#0  0xaf5c2c29 in ____strtol_l_internal (nptr=0x0, endptr=0x0,
+base=10, group=0, loc=0xaf6cd360) at strtol_l.c:298
+#1  0xaf5c29d8 in strtol (nptr=0x0, endptr=0x0, base=10) at strtol.c:110
+#2  0x1747b8b1 in atoi (stmt=0x1749bb68) at /usr/include/stdlib.h:286
+#3  slonik_subscribe_set (stmt=0x1749bb68) at slonik.c:3506
+#4  0x1747deca in script_exec_stmts (script=<value optimized out>,
+hdr=0x1749bb68) at slonik.c:1416
+#5  0x1747e281 in script_exec_stmts (script=<value optimized out>,
+hdr=0x1749bdd0) at slonik.c:1127
+#6  0x1747e372 in script_exec (script=0x1749be18) at slonik.c:1091
+#7  0x1747f2a5 in main (argc=1, argv=0xb8f874f4) at slonik.c:156
+
+Hope this helps,
+-- 
+Martijn van Oosterhout <kleptog at gmail.com> http://svana.org/kleptog/
+
+From ssinger at ca.afilias.info  Thu Aug 18 06:47:40 2011
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Thu, 18 Aug 2011 09:47:40 -0400
+Subject: [Slony1-general] Segmentation fault when subscribing a node to
+ a replication set
+In-Reply-To: <CADWG95sgQvmH0MMFpdKOJ-xi1FsBZSAMaXxCBxe5iSULxVt1PQ@mail.gmail.com>
+References: <4E3C54E2.8040409@gmail.com>	<4E3C5C11.4050505@ca.afilias.info>	<CANfbgbY=7u-yMyfwaVLrS1MPZ5cqM3Oxq4EXQoqHXH3hqgsO0g@mail.gmail.com>
+	<CADWG95sgQvmH0MMFpdKOJ-xi1FsBZSAMaXxCBxe5iSULxVt1PQ@mail.gmail.com>
+Message-ID: <4E4D17FC.60302@ca.afilias.info>
+
+On 11-08-18 09:03 AM, Martijn van O wrote:
+> On 5 August 2011 23:49, Christopher Browne<cbbrowne at afilias.info>  wrote:
+
+> I ran into this same problem and I've captured some more output:
+>
+> Sequence of queries (extracted from strace, so not complete):
+>
+
+Thanks.
+I have created a bug with an attached patch.
+http://www.slony.info/bugzilla/show_bug.cgi?id=233
+
+
+> begin transaction;
+> select count(*) FROM "config_rep".sl_subscribe where sub_set=1 AND
+> sub_receiver=2  and sub_...
+> select set_origin from "config_rep".sl_set where set_id=1
+>>>> result is SELECT 0, followed by
+> <stdin>:4: row number 0 is out of range 0..-1
+>>>> and then segmentation fault
+>
+> Backtrace looks like this (not sure how much optimisation was used):
+>
+> #0  0xaf5c2c29 in ____strtol_l_internal (nptr=0x0, endptr=0x0,
+> base=10, group=0, loc=0xaf6cd360) at strtol_l.c:298
+> #1  0xaf5c29d8 in strtol (nptr=0x0, endptr=0x0, base=10) at strtol.c:110
+> #2  0x1747b8b1 in atoi (stmt=0x1749bb68) at /usr/include/stdlib.h:286
+> #3  slonik_subscribe_set (stmt=0x1749bb68) at slonik.c:3506
+> #4  0x1747deca in script_exec_stmts (script=<value optimized out>,
+> hdr=0x1749bb68) at slonik.c:1416
+> #5  0x1747e281 in script_exec_stmts (script=<value optimized out>,
+> hdr=0x1749bdd0) at slonik.c:1127
+> #6  0x1747e372 in script_exec (script=0x1749be18) at slonik.c:1091
+> #7  0x1747f2a5 in main (argc=1, argv=0xb8f874f4) at slonik.c:156
+>
+> Hope this helps,
+
+
+From dkg at fifthhorseman.net  Thu Aug 18 23:04:03 2011
+From: dkg at fifthhorseman.net (Daniel Kahn Gillmor)
+Date: Fri, 19 Aug 2011 02:04:03 -0400
+Subject: [Slony1-general] "fetch 500 from LOG" consuming a lot of CPU
+Message-ID: <4E4DFCD3.8070505@fifthhorseman.net>
+
+hi slony-folks--
+
+I've got a slony-I 2.0.4 system replicating between two psql databases.
+
+If i run pg_top on the origin node, i regularly see ~25% CPU usage in a
+fetch command that appears to be:
+
+ fetch 500 from LOG;
+
+(i get this query string from "SELECT * FROM pg_stat_activity;")  The pg
+user associated with this query is the user account used by the slon
+process.
+
+In addition to this problem on the origin node, i see a long-standing
+"idle in transaction" process via pg_top on the subscribed node,
+
+I found this entry in the FAQ:
+
+ http://slony.info/documentation/faq.html#AEN5103
+
+But i'm not clear what to do to improve the situation.  Can you suggest
+next steps that would be useful?
+
+My frontend application isn't using connection pooling -- it's a
+perl-based fcgi script.
+
+I would appreciate any advice!
+
+Regards,
+
+	--dkg
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: signature.asc
+Type: application/pgp-signature
+Size: 1030 bytes
+Desc: OpenPGP digital signature
+Url : http://lists.slony.info/pipermail/slony1-general/attachments/20110819/ef39171f/attachment.pgp 
+
+From mu at forsa.de  Fri Aug 19 08:59:26 2011
+From: mu at forsa.de (marmu)
+Date: Fri, 19 Aug 2011 08:59:26 -0700 (PDT)
+Subject: [Slony1-general]  no subscriber listed in pgAdmin,
+ how to check if slony is set up correctly?
+Message-ID: <32296496.post@talk.nabble.com>
+
+
+Hello guys,
+
+my slony setup is progressing. First what is working:
+1) I can start my slony master and slave slons (on one machine, goal: some
+tables of master-DB should be replicated to the slave-DB)
+2) no erros in the logs
+3) runnnig "perl test_slony_state-dbi.pl -d catimaster -h localhost -u
+postgres -c fquest" says "all good"
+4) runnnig "perl test_slony_state-dbi.pl -d fquest -h localhost -u postgres
+-c fquest" says "all good"
+
+But I still can't figure out some things:
+1) why isn't there any subscription listed in pgAdmin (on another server
+there are 2 subscriptions, one on the master-DB and one on the slave-DB) Any
+hints to why subscriptions are not listed / set up correctly?
+2) how can I test if slony is set up correctly? I guess I should insert
+something and check if the data is replicated. Any other possibilities?
+
+The scripts I am using are at pastebin:
+/etc/slony-I/setup-slonik_master: http://pastebin.com/rZ2r9hnS
+/etc/slony-I/setup-slon_master: http://pastebin.com/G4PHctat
+/etc/slony-I/setup-slonik_slave: http://pastebin.com/gyBj349Z
+/etc/slony-I/setup-slon_slave: http://pastebin.com/F5xY0GfR
+
+The slave script is already altered, I added: "subscribe set ( id = 1,
+provider = 1, receiver = 2, forward = no);"
+
+I am struggling to set up the slony replication for weeks. Thanks a lot for
+your help in advance.
+
+Cheers, Marcus
+-- 
+View this message in context: http://old.nabble.com/no-subscriber-listed-in-pgAdmin%2C-how-to-check-if-slony-is-set-up-correctly--tp32296496p32296496.html
+Sent from the Slony-I -- General mailing list archive at Nabble.com.
+
+
+From guillaume at lelarge.info  Fri Aug 19 12:47:24 2011
+From: guillaume at lelarge.info (Guillaume Lelarge)
+Date: Fri, 19 Aug 2011 21:47:24 +0200
+Subject: [Slony1-general] no subscriber listed in pgAdmin,
+ how to check if slony is set up correctly?
+In-Reply-To: <32296496.post@talk.nabble.com>
+References: <32296496.post@talk.nabble.com>
+Message-ID: <1313783245.2099.52.camel@localhost.localdomain>
+
+Hi,
+
+On Fri, 2011-08-19 at 08:59 -0700, marmu wrote:
+> [...]
+> But I still can't figure out some things:
+> 1) why isn't there any subscription listed in pgAdmin (on another server
+> there are 2 subscriptions, one on the master-DB and one on the slave-DB) Any
+> hints to why subscriptions are not listed / set up correctly?
+
+There were some bugs with Slony and pgAdmin a few weeks earlier. You
+should try pgAdmin 1.14 RC1, which should be out next week.
+
+Regards.
+
+
+-- 
+Guillaume
+  http://blog.guillaume.lelarge.info
+  http://www.dalibo.com
+
+
+From ssinger_pg at sympatico.ca  Sat Aug 20 07:57:11 2011
+From: ssinger_pg at sympatico.ca (Steve Singer)
+Date: Sat, 20 Aug 2011 10:57:11 -0400
+Subject: [Slony1-general] no subscriber listed in pgAdmin,
+ how to check if slony is set up correctly?
+In-Reply-To: <32296496.post@talk.nabble.com>
+References: <32296496.post@talk.nabble.com>
+Message-ID: <BLU0-SMTP31C528062D6A396C9104A2AC2D0@phx.gbl>
+
+On Fri, 19 Aug 2011, marmu wrote:
+
+> 2) how can I test if slony is set up correctly? I guess I should insert
+> something and check if the data is replicated. Any other possibilities?
+
+Inserting data and waiting to see it replicated is the best way to be sure.
+
+You could also check the sl_status table to see what the lag is and confirm 
+that events + confirmations are flowing.
+
+
+  >
+> The scripts I am using are at pastebin:
+> /etc/slony-I/setup-slonik_master: http://pastebin.com/rZ2r9hnS
+> /etc/slony-I/setup-slon_master: http://pastebin.com/G4PHctat
+> /etc/slony-I/setup-slonik_slave: http://pastebin.com/gyBj349Z
+> /etc/slony-I/setup-slon_slave: http://pastebin.com/F5xY0GfR
+>
+> The slave script is already altered, I added: "subscribe set ( id = 1,
+> provider = 1, receiver = 2, forward = no);"
+>
+> I am struggling to set up the slony replication for weeks. Thanks a lot for
+> your help in advance.
+>
+> Cheers, Marcus
+> -- 
+> View this message in context: http://old.nabble.com/no-subscriber-listed-in-pgAdmin%2C-how-to-check-if-slony-is-set-up-correctly--tp32296496p32296496.html
+> Sent from the Slony-I -- General mailing list archive at Nabble.com.
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+>
+
+
+From dkg at fifthhorseman.net  Sun Aug 21 15:21:02 2011
+From: dkg at fifthhorseman.net (Daniel Kahn Gillmor)
+Date: Sun, 21 Aug 2011 18:21:02 -0400
+Subject: [Slony1-general] overflow in re-computing sync group sizes
+Message-ID: <87sjou5ru9.fsf@fifthhorseman.net>
+
+Hi good slony folks--
+
+I think there is a bug in slony's sync group size calculations.  In
+particular, the calculation of the next sync group size appears to be
+vulnerable to integer overflow.
+
+I'm in a situation where one node is seriously lagged, and i need to
+catch up quickly.  So i've set my slon process' desired_sync_time to a
+large value (1000 seconds) and its sync_group_maxsize to 3000.
+
+Unfortunately, since there is a serious gap, each sync group takes quite
+a while to compute, even if there is only 1 sync group requested
+(stevensn on #slony suggests that it's doing a full tablescan of
+sl_log_1 each update).
+
+Under these conditions, slon appears to calculate a *negative* ideal
+sync group size.  (see the -4030 in the log below):
+
+2011-08-21 03:42:11 UTCCONFIG slon: watchdog ready - pid = 7135
+2011-08-21 03:42:11 UTCCONFIG slon: worker process created - pid = 7136
+2011-08-21 03:42:11 UTCCONFIG main: Integer option vac_frequency = 3
+2011-08-21 03:42:11 UTCCONFIG main: Integer option log_level = 1
+2011-08-21 03:42:11 UTCCONFIG main: Integer option sync_interval = 1000
+2011-08-21 03:42:11 UTCCONFIG main: Integer option sync_interval_timeout = 10000
+2011-08-21 03:42:11 UTCCONFIG main: Integer option sync_group_maxsize = 3000
+2011-08-21 03:42:11 UTCCONFIG main: Integer option desired_sync_time = 1000000
+2011-08-21 03:42:11 UTCCONFIG main: Integer option syslog = 0
+2011-08-21 03:42:11 UTCCONFIG main: Integer option quit_sync_provider = 0
+2011-08-21 03:42:11 UTCCONFIG main: Integer option quit_sync_finalsync = 0
+2011-08-21 03:42:11 UTCCONFIG main: Integer option sync_max_rowsize = 8192
+2011-08-21 03:42:11 UTCCONFIG main: Integer option sync_max_largemem = 5242880
+2011-08-21 03:42:11 UTCCONFIG main: Integer option remote_listen_timeout = 300
+2011-08-21 03:42:11 UTCCONFIG main: Boolean option log_pid = 0
+2011-08-21 03:42:11 UTCCONFIG main: Boolean option log_timestamp = 1
+2011-08-21 03:42:11 UTCCONFIG main: Boolean option cleanup_deletelogs = 0
+2011-08-21 03:42:11 UTCCONFIG main: Real option real_placeholder = 0.000000
+2011-08-21 03:42:11 UTCCONFIG main: String option cluster_name = clustername
+2011-08-21 03:42:11 UTCCONFIG main: String option conn_info = host=foo.example.org dbname=testdb user=slony port=5432 sslmode=require
+2011-08-21 03:42:11 UTCCONFIG main: String option pid_file = /var/run/slony1/node4.pid
+2011-08-21 03:42:11 UTCCONFIG main: String option log_timestamp_format = %Y-%m-%d %H:%M:%S %Z
+2011-08-21 03:42:11 UTCCONFIG main: String option archive_dir = [NULL]
+2011-08-21 03:42:11 UTCCONFIG main: String option sql_on_connection = [NULL]
+2011-08-21 03:42:11 UTCCONFIG main: String option lag_interval = [NULL]
+2011-08-21 03:42:11 UTCCONFIG main: String option command_on_logarchive = [NULL]
+2011-08-21 03:42:11 UTCCONFIG main: String option syslog_facility = LOCAL0
+2011-08-21 03:42:11 UTCCONFIG main: String option syslog_ident = slon
+2011-08-21 03:42:11 UTCCONFIG main: String option cleanup_interval = 10 minutes                             
+ [...]
+2011-08-21 19:20:11 UTCINFO   remoteWorkerThread_3: SYNC 5002089203 done in 381.641 seconds
+2011-08-21 19:20:11 UTCDEBUG1 remoteWorkerThread_3: SYNC 5002089203 sync_event timing:  pqexec (s/count)- provider 0.246/1 - subscriber 0.002/1 - IUD 6.663/7337
+2011-08-21 19:20:11 UTCDEBUG1 calc sync size - last time: 1895 last length: 381873 ideal: 4962 proposed size: 3000
+2011-08-21 19:20:11 UTCDEBUG1 about to monitor_subscriber_query - pulling big actionid list for 3
+2011-08-21 19:20:11 UTCINFO   remoteWorkerThread_3: syncing set 2 with 7 table(s) from provider 3
+2011-08-21 19:25:21 UTCDEBUG1 remoteHelperThread_3_3: 309.699 seconds delay for first row
+2011-08-21 19:25:32 UTCDEBUG1 remoteHelperThread_3_3: 320.586 seconds until close cursor
+2011-08-21 19:25:32 UTCDEBUG1 remoteHelperThread_3_3: inserts=48428 updates=10966 deletes=0
+2011-08-21 19:25:32 UTCDEBUG1 remoteWorkerThread_3: sync_helper timing:  pqexec (s/count)- provider 315.415/122 - subscriber 0.002/122
+2011-08-21 19:25:32 UTCDEBUG1 remoteWorkerThread_3: sync_helper timing:  large tuples 0.000/0
+2011-08-21 19:25:32 UTCINFO   remoteWorkerThread_3: SYNC 5002092203 done in 320.936 seconds
+2011-08-21 19:25:32 UTCDEBUG1 remoteWorkerThread_3: SYNC 5002092203 sync_event timing:  pqexec (s/count)- provider 0.064/1 - subscriber 0.002/1 - IUD 10.840/11889
+2011-08-21 19:25:32 UTCDEBUG1 calc sync size - last time: 3000 last length: 321314 ideal: -4030 proposed size: 1
+2011-08-21 19:25:32 UTCDEBUG1 about to monitor_subscriber_query - pulling big actionid list for 3
+
+This is with slony 2.0.4 from debian squeeze, on amd64.
+
+the formula for calculating the ideal sync size (line 596 of
+src/slon/remote_worker.c) is: 
+
+  ideal_sync = (last_sync_group_size * desired_sync_time) / last_sync_length;
+
+All four variables in the assignment are of type int.
+
+With desired_sync_time of 1000000 (milliseconds), and a
+last_sync_group_size of 3000, this code overflows a 32-bit signed
+integer :(, resulting in the -4030
+
+There are probably a few bugs here, but the most important bug is:
+
+ 0) overflow isn't being handled properly.  The simplest way to fix this
+ is probably to do this kind of internal computation in floats, and then
+ cast back to integers later.
+
+some secondary issues worth considering are:
+
+ 1) this is a 64-bit architecture -- why aren't these using 64-bit
+ integers instead of 32-bit?  Maybe there are some odd compiler flags in
+ use?
+
+ 2) should these ints be unsigned instead of signed?
+
+I hope this problem report is useful!  I'd be happy to answer any
+questions or to clarify concerns other people have.  Would it be useful
+to report this concern anywhere other than the mailing list?
+
+   --dkg
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: not available
+Type: application/pgp-signature
+Size: 965 bytes
+Desc: not available
+Url : http://lists.slony.info/pipermail/slony1-general/attachments/20110821/cbe3a8cc/attachment.pgp 
+
+From mu at forsa.de  Mon Aug 22 04:52:22 2011
+From: mu at forsa.de (marmu)
+Date: Mon, 22 Aug 2011 04:52:22 -0700 (PDT)
+Subject: [Slony1-general] no subscriber listed in pgAdmin,
+ how to check if slony is set up correctly?
+In-Reply-To: <BLU0-SMTP31C528062D6A396C9104A2AC2D0@phx.gbl>
+References: <32296496.post@talk.nabble.com>
+	<BLU0-SMTP31C528062D6A396C9104A2AC2D0@phx.gbl>
+Message-ID: <32310505.post@talk.nabble.com>
+
+
+Hello guys,
+
+I am back at solving my slony problems.
+
+>>You could also check the sl_status table to see what the lag is and
+confirm 
+>>that events + confirmations are flowing.
+
+Both of my databases do not contain a table called "sl_status":
+server:~> psql -d databasename
+databasename=# select * from sl_status;
+--> ERROR:  relation "sl_status" does not exist
+
+Why is the sl_status table missing? What other slony tables should be there
+and where should they be located? Is every slony table to be found in any
+database which is set up for replication?
+Even on the old server, where slony works, I couldn't "select * from
+sl_status;"...
+
+further I am now using pgAdmin 1.14 RC1. But pgAdmin is not the problem,
+since it shows the subscriptions on the other slony-server, but not on the
+newly configured. Hence the problem is the slony configuration on the new
+server I'm working on.
+
+So the question remains. What went wrong during the slony setup, which
+causes no subscriptions to be made? How could I check for the configured
+subscriptions without using pgAdmin?
+
+Help is highly appreciated, since I am stuck for weeks now. Thanks for any
+hints.
+
+Have a great day,
+Marcus
+
+
+Steve Singer-2 wrote:
+> 
+> On Fri, 19 Aug 2011, marmu wrote:
+> 
+>> 2) how can I test if slony is set up correctly? I guess I should insert
+>> something and check if the data is replicated. Any other possibilities?
+> 
+> Inserting data and waiting to see it replicated is the best way to be
+> sure.
+> 
+> You could also check the sl_status table to see what the lag is and
+> confirm 
+> that events + confirmations are flowing.
+> 
+> 
+>   >
+>> The scripts I am using are at pastebin:
+>> /etc/slony-I/setup-slonik_master: http://pastebin.com/rZ2r9hnS
+>> /etc/slony-I/setup-slon_master: http://pastebin.com/G4PHctat
+>> /etc/slony-I/setup-slonik_slave: http://pastebin.com/gyBj349Z
+>> /etc/slony-I/setup-slon_slave: http://pastebin.com/F5xY0GfR
+>>
+>> The slave script is already altered, I added: "subscribe set ( id = 1,
+>> provider = 1, receiver = 2, forward = no);"
+>>
+>> I am struggling to set up the slony replication for weeks. Thanks a lot
+>> for
+>> your help in advance.
+>>
+>> Cheers, Marcus
+>> -- 
+>> View this message in context:
+>> http://old.nabble.com/no-subscriber-listed-in-pgAdmin%2C-how-to-check-if-slony-is-set-up-correctly--tp32296496p32296496.html
+>> Sent from the Slony-I -- General mailing list archive at Nabble.com.
+>>
+>> _______________________________________________
+>> Slony1-general mailing list
+>> Slony1-general at lists.slony.info
+>> http://lists.slony.info/mailman/listinfo/slony1-general
+>>
+> 
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+> 
+> 
+
+-- 
+View this message in context: http://old.nabble.com/no-subscriber-listed-in-pgAdmin%2C-how-to-check-if-slony-is-set-up-correctly--tp32296496p32310505.html
+Sent from the Slony-I -- General mailing list archive at Nabble.com.
+
+
+From ssinger at ca.afilias.info  Mon Aug 22 06:06:21 2011
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Mon, 22 Aug 2011 09:06:21 -0400
+Subject: [Slony1-general] no subscriber listed in pgAdmin,
+ how to check if slony is set up correctly?
+In-Reply-To: <32310505.post@talk.nabble.com>
+References: <32296496.post@talk.nabble.com>	<BLU0-SMTP31C528062D6A396C9104A2AC2D0@phx.gbl>
+	<32310505.post@talk.nabble.com>
+Message-ID: <4E52544D.9020509@ca.afilias.info>
+
+On 11-08-22 07:52 AM, marmu wrote:
+>
+> Hello guys,
+>
+> I am back at solving my slony problems.
+>
+>>> You could also check the sl_status table to see what the lag is and
+> confirm
+>>> that events + confirmations are flowing.
+>
+> Both of my databases do not contain a table called "sl_status":
+> server:~>  psql -d databasename
+> databasename=# select * from sl_status;
+> -->  ERROR:  relation "sl_status" does not exist
+>
+> Why is the sl_status table missing? What other slony tables should be there
+> and where should they be located? Is every slony table to be found in any
+> database which is set up for replication?
+> Even on the old server, where slony works, I couldn't "select * from
+> sl_status;"...
+>
+
+A complete list of the slony tables are at
+http://www.slony.info/documentation/2.0/schema.html
+
+You might have to specify the slony schema as part of the table name.
+Try
+select * FROM _fquest.sl_status;
+
+
+
+> further I am now using pgAdmin 1.14 RC1. But pgAdmin is not the problem,
+> since it shows the subscriptions on the other slony-server, but not on the
+> newly configured. Hence the problem is the slony configuration on the new
+> server I'm working on.
+>
+> So the question remains. What went wrong during the slony setup, which
+> causes no subscriptions to be made? How could I check for the configured
+> subscriptions without using pgAdmin?
+>
+> Help is highly appreciated, since I am stuck for weeks now. Thanks for any
+> hints.
+>
+> Have a great day,
+> Marcus
+>
+>
+> Steve Singer-2 wrote:
+>>
+>> On Fri, 19 Aug 2011, marmu wrote:
+>>
+>>> 2) how can I test if slony is set up correctly? I guess I should insert
+>>> something and check if the data is replicated. Any other possibilities?
+>>
+>> Inserting data and waiting to see it replicated is the best way to be
+>> sure.
+>>
+>> You could also check the sl_status table to see what the lag is and
+>> confirm
+>> that events + confirmations are flowing.
+>>
+>>
+>>    >
+>>> The scripts I am using are at pastebin:
+>>> /etc/slony-I/setup-slonik_master: http://pastebin.com/rZ2r9hnS
+>>> /etc/slony-I/setup-slon_master: http://pastebin.com/G4PHctat
+>>> /etc/slony-I/setup-slonik_slave: http://pastebin.com/gyBj349Z
+>>> /etc/slony-I/setup-slon_slave: http://pastebin.com/F5xY0GfR
+>>>
+>>> The slave script is already altered, I added: "subscribe set ( id = 1,
+>>> provider = 1, receiver = 2, forward = no);"
+>>>
+>>> I am struggling to set up the slony replication for weeks. Thanks a lot
+>>> for
+>>> your help in advance.
+>>>
+>>> Cheers, Marcus
+>>> --
+>>> View this message in context:
+>>> http://old.nabble.com/no-subscriber-listed-in-pgAdmin%2C-how-to-check-if-slony-is-set-up-correctly--tp32296496p32296496.html
+>>> Sent from the Slony-I -- General mailing list archive at Nabble.com.
+>>>
+>>> _______________________________________________
+>>> Slony1-general mailing list
+>>> Slony1-general at lists.slony.info
+>>> http://lists.slony.info/mailman/listinfo/slony1-general
+>>>
+>>
+>> _______________________________________________
+>> Slony1-general mailing list
+>> Slony1-general at lists.slony.info
+>> http://lists.slony.info/mailman/listinfo/slony1-general
+>>
+>>
+>
+
+
+From Frank.Mcgeough at vocalocity.com  Mon Aug 22 08:23:13 2011
+From: Frank.Mcgeough at vocalocity.com (Frank McGeough)
+Date: Mon, 22 Aug 2011 08:23:13 -0700
+Subject: [Slony1-general] Question on foreign key constraints
+Message-ID: <9F2DDBC1199E7C47B8A3B2CCCDD1E62008F0800DBC@VA3DIAXVS341.RED001.local>
+
+Postgres 8.4
+Slony 1.2.20
+
+I have a table that is not replicated. This table has a foreign key constraint to a table that is replicated. It appears that Slony modified the constraint so that it is not possible to drop the constraint. I get an error that says "error xyz is an index" where xyz is the name of the primary key on the table that is replicated. 
+
+My questions are :
+
+* how would one go about dropping a foreign key constraint for this non-replicated table if Slony has modified it
+* where can I see the modifications to the Postgres catalog (some hints on where to look)
+* what would happen if I added the table that is not replicated to the replication set? Would Slony add it without problems? I ask because I was a bit surprised that the non-replicated table was modified in this way and wonder if adding the table to replication would just compound problems. 
+
+Thanks. 
+Frank
+
+From mu at forsa.de  Tue Aug 23 09:54:22 2011
+From: mu at forsa.de (marmu)
+Date: Tue, 23 Aug 2011 09:54:22 -0700 (PDT)
+Subject: [Slony1-general] no subscriber listed in pgAdmin,
+ how to check if slony is set up correctly?
+In-Reply-To: <4E52544D.9020509@ca.afilias.info>
+References: <32296496.post@talk.nabble.com>
+	<BLU0-SMTP31C528062D6A396C9104A2AC2D0@phx.gbl>
+	<32310505.post@talk.nabble.com> <4E52544D.9020509@ca.afilias.info>
+Message-ID: <32320482.post@talk.nabble.com>
+
+
+
+Thanks for helping out. I figured all out and "updated" my earlier post
+above (on nabble)
+To sumk it up again:
+
+select * FROM _databasename.sl_status; - works!
+
+I added the subscriptions with pgAdmin (my scripts didn't work) by right
+clicking on "subscriptions" and adding one. Then they both appeared under
+"slony replication" - replication startet immediately. I still don't know
+why the subscription didn't work with my scripts, but now it works and I am
+happy. Importing more data now :)
+
+Thanks again to everyone who helped my solving my slony issues! 
+
+Cheers,
+Marcus
+
+
+
+Steve Singer-3 wrote:
+> 
+> On 11-08-22 07:52 AM, marmu wrote:
+>>
+>> Hello guys,
+>>
+>> I am back at solving my slony problems.
+>>
+>>>> You could also check the sl_status table to see what the lag is and
+>> confirm
+>>>> that events + confirmations are flowing.
+>>
+>> Both of my databases do not contain a table called "sl_status":
+>> server:~>  psql -d databasename
+>> databasename=# select * from sl_status;
+>> -->  ERROR:  relation "sl_status" does not exist
+>>
+>> Why is the sl_status table missing? What other slony tables should be
+>> there
+>> and where should they be located? Is every slony table to be found in any
+>> database which is set up for replication?
+>> Even on the old server, where slony works, I couldn't "select * from
+>> sl_status;"...
+>>
+> 
+> A complete list of the slony tables are at
+> http://www.slony.info/documentation/2.0/schema.html
+> 
+> You might have to specify the slony schema as part of the table name.
+> Try
+> select * FROM _fquest.sl_status;
+> 
+> 
+> 
+>> further I am now using pgAdmin 1.14 RC1. But pgAdmin is not the problem,
+>> since it shows the subscriptions on the other slony-server, but not on
+>> the
+>> newly configured. Hence the problem is the slony configuration on the new
+>> server I'm working on.
+>>
+>> So the question remains. What went wrong during the slony setup, which
+>> causes no subscriptions to be made? How could I check for the configured
+>> subscriptions without using pgAdmin?
+>>
+>> Help is highly appreciated, since I am stuck for weeks now. Thanks for
+>> any
+>> hints.
+>>
+>> Have a great day,
+>> Marcus
+>>
+>>
+>> Steve Singer-2 wrote:
+>>>
+>>> On Fri, 19 Aug 2011, marmu wrote:
+>>>
+>>>> 2) how can I test if slony is set up correctly? I guess I should insert
+>>>> something and check if the data is replicated. Any other possibilities?
+>>>
+>>> Inserting data and waiting to see it replicated is the best way to be
+>>> sure.
+>>>
+>>> You could also check the sl_status table to see what the lag is and
+>>> confirm
+>>> that events + confirmations are flowing.
+>>>
+>>>
+>>>    >
+>>>> The scripts I am using are at pastebin:
+>>>> /etc/slony-I/setup-slonik_master: http://pastebin.com/rZ2r9hnS
+>>>> /etc/slony-I/setup-slon_master: http://pastebin.com/G4PHctat
+>>>> /etc/slony-I/setup-slonik_slave: http://pastebin.com/gyBj349Z
+>>>> /etc/slony-I/setup-slon_slave: http://pastebin.com/F5xY0GfR
+>>>>
+>>>> The slave script is already altered, I added: "subscribe set ( id = 1,
+>>>> provider = 1, receiver = 2, forward = no);"
+>>>>
+>>>> I am struggling to set up the slony replication for weeks. Thanks a lot
+>>>> for
+>>>> your help in advance.
+>>>>
+>>>> Cheers, Marcus
+>>>> --
+>>>> View this message in context:
+>>>> http://old.nabble.com/no-subscriber-listed-in-pgAdmin%2C-how-to-check-if-slony-is-set-up-correctly--tp32296496p32296496.html
+>>>> Sent from the Slony-I -- General mailing list archive at Nabble.com.
+>>>>
+>>>> _______________________________________________
+>>>> Slony1-general mailing list
+>>>> Slony1-general at lists.slony.info
+>>>> http://lists.slony.info/mailman/listinfo/slony1-general
+>>>>
+>>>
+>>> _______________________________________________
+>>> Slony1-general mailing list
+>>> Slony1-general at lists.slony.info
+>>> http://lists.slony.info/mailman/listinfo/slony1-general
+>>>
+>>>
+>>
+> 
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+> 
+> 
+
+-- 
+View this message in context: http://old.nabble.com/no-subscriber-listed-in-pgAdmin%2C-how-to-check-if-slony-is-set-up-correctly--tp32296496p32320482.html
+Sent from the Slony-I -- General mailing list archive at Nabble.com.
+
+
+From ssinger at ca.afilias.info  Tue Aug 23 11:39:28 2011
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Tue, 23 Aug 2011 14:39:28 -0400
+Subject: [Slony1-general] Question on foreign key constraints
+In-Reply-To: <9F2DDBC1199E7C47B8A3B2CCCDD1E62008F0800DBC@VA3DIAXVS341.RED001.local>
+References: <9F2DDBC1199E7C47B8A3B2CCCDD1E62008F0800DBC@VA3DIAXVS341.RED001.local>
+Message-ID: <4E53F3E0.9090203@ca.afilias.info>
+
+On 11-08-22 11:23 AM, Frank McGeough wrote:
+> Postgres 8.4
+> Slony 1.2.20
+>
+> I have a table that is not replicated. This table has a foreign key constraint to a table that is replicated. It appears that Slony modified the constraint so that it is not possible to drop the constraint. I get an error that says "error xyz is an index" where xyz is the name of the primary key on the table that is replicated.
+>
+> My questions are :
+>
+> * how would one go about dropping a foreign key constraint for this non-replicated table if Slony has modified it
+
+The EXECUTE SCRIPT slonik command in 1.2.x will bring your database 
+catalog into the 'unmunged' state, run the SQL script then restore it to 
+the munged slony slave state.
+
+Slony 2.0.x avoids having to munge the catalog like this.
+
+> * where can I see the modifications to the Postgres catalog (some hints on where to look)
+> * what would happen if I added the table that is not replicated to the replication set? Would Slony add it without problems? I ask because I was a bit surprised that the non-replicated table was modified in this way and wonder if adding the table to replication would just compound problems.
+>
+> Thanks.
+> Frank
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+
+
+From ssinger at ca.afilias.info  Tue Aug 23 11:53:38 2011
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Tue, 23 Aug 2011 14:53:38 -0400
+Subject: [Slony1-general] overflow in re-computing sync group sizes
+In-Reply-To: <87sjou5ru9.fsf@fifthhorseman.net>
+References: <87sjou5ru9.fsf@fifthhorseman.net>
+Message-ID: <4E53F732.7060600@ca.afilias.info>
+
+On 11-08-21 06:21 PM, Daniel Kahn Gillmor wrote:
+> Hi good slony folks--
+
+Thanks for the report.
+
+>
+>
+>   0) overflow isn't being handled properly.  The simplest way to fix this
+>   is probably to do this kind of internal computation in floats, and then
+>   cast back to integers later.
+
+Or long long ?
+
+
+>
+> some secondary issues worth considering are:
+>
+>   1) this is a 64-bit architecture -- why aren't these using 64-bit
+>   integers instead of 32-bit?  Maybe there are some odd compiler flags in
+>   use?
+>
+>   2) should these ints be unsigned instead of signed?
+>
+> I hope this problem report is useful!  I'd be happy to answer any
+> questions or to clarify concerns other people have.  Would it be useful
+> to report this concern anywhere other than the mailing list?
+
+Reports on the mailing list tends to get attention. I have put this 
+report into a bug-report at 
+http://www.slony.info/bugzilla/show_bug.cgi?id=235 to track it.
+
+
+
+>
+>     --dkg
+>
+>
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+
+
+From dkg at fifthhorseman.net  Wed Aug 24 00:21:18 2011
+From: dkg at fifthhorseman.net (Daniel Kahn Gillmor)
+Date: Wed, 24 Aug 2011 03:21:18 -0400
+Subject: [Slony1-general] overflow in re-computing sync group sizes
+In-Reply-To: <4E53F732.7060600@ca.afilias.info>
+References: <87sjou5ru9.fsf@fifthhorseman.net>
+	<4E53F732.7060600@ca.afilias.info>
+Message-ID: <4E54A66E.5000700@fifthhorseman.net>
+
+On 08/23/2011 02:53 PM, Steve Singer wrote:
+> On 11-08-21 06:21 PM, Daniel Kahn Gillmor wrote:
+>>   0) overflow isn't being handled properly.  The simplest way to fix this
+>>   is probably to do this kind of internal computation in floats, and then
+>>   cast back to integers later.
+> 
+> Or long long ?
+
+Depending on your compiler and your architecture, i guess :)
+
+floats seem to have the advantage of being able to scale ridiculously
+large, and of never having quiet overflow, just moving to +inf.
+
+But long long (assuming that's 64-bits) would have solved my particular
+instance of the problem, yes.
+
+> Reports on the mailing list tends to get attention. I have put this
+> report into a bug-report at
+> http://www.slony.info/bugzilla/show_bug.cgi?id=235 to track it.
+
+Thanks, i've added myself to the CC list there as well.
+
+Regards,
+
+	--dkg
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: signature.asc
+Type: application/pgp-signature
+Size: 1030 bytes
+Desc: OpenPGP digital signature
+Url : http://lists.slony.info/pipermail/slony1-general/attachments/20110824/6c8843e1/attachment.pgp 
+
+From mu at forsa.de  Wed Aug 24 04:03:37 2011
+From: mu at forsa.de (marmu)
+Date: Wed, 24 Aug 2011 04:03:37 -0700 (PDT)
+Subject: [Slony1-general] After importing data into my DBs slony replication
+ does not work anymore
+Message-ID: <32325514.post@talk.nabble.com>
+
+
+Hello guys,
+
+yesterday I finally had slony replication working between two DBs on one
+server. To this point in time I only had imported the globals and the
+structure of the DBs. When I inserted a row in a table which is part of a
+replication set it was immediately replicated. Then I thought it is time for
+the next step: importing the (old) data backed up before.
+
+At first I stopped the slons and disables all triggers in my DBs. After I
+imported the data into both DBs the replication doesn't work anymore. Of
+course I got some errors while importing data into the slave, since tables
+are taking part in the replication:
+"Table xxxxxxx is replicated and cannot be modified on a subscriber node -
+role=0"
+
+I thought, ok, I will have to import the data of the master-DB first and
+then let slony replicate to the slave. But this didn't work. No replication
+taking place and no errors in the slony logs.
+
+The sl_status table in the master-DB is empty (0 rows), the sl_status table
+in the slave-DB contains the following row (1 row, formatted for better
+display):
+ st_origin = 2 | st_received = 1 | st_last_event = 5002159114 |
+ st_last_event_ts = 2011-08-24 12:31:37.56454 | st_last_received =
+5002159114 |
+ st_last_received_ts = 2011-08-24 12:31:38.598021 | 
+ st_last_received_event_ts = 2011-08-24 12:31:37.56454 | st_lag_num_events =
+0 |
+ st_lag_time = 00:16:24.21951
+
+Any hints on why the replication won't work after importing data would be
+great. Further what would be the correct sequence of actions for moving 2
+DBs from one server to a new one (new postgres and slony versions).
+
+This is what I did:
+1) export
+    1.1) export globals
+    1.2) export structure
+    1.3) export data
+2) import globals and structure
+3) get slony working (replication was tested at this point and worked)
+4) stop all slons (like "/etc/init.d/slony-slave stop" and
+"/etc/init.d/slony-master stop")
+5) disable all triggers (in our case some calculations based on the data are
+taking place, but that is only needed while in production - so I could have
+skipped this for now, but not in the future)
+6) import the data (which was dumped before)
+
+Thanks for your time, thoughts and help in advance.
+
+Cheers,
+Marcus
+-- 
+View this message in context: http://old.nabble.com/After-importing-data-into-my-DBs-slony-replication-does-not-work-anymore-tp32325514p32325514.html
+Sent from the Slony-I -- General mailing list archive at Nabble.com.
+
+
+From wmoran at potentialtech.com  Wed Aug 24 05:03:07 2011
+From: wmoran at potentialtech.com (Bill Moran)
+Date: Wed, 24 Aug 2011 08:03:07 -0400
+Subject: [Slony1-general] After importing data into my DBs slony
+ replication does not work anymore
+In-Reply-To: <32325514.post@talk.nabble.com>
+References: <32325514.post@talk.nabble.com>
+Message-ID: <20110824080307.2051cc4b.wmoran@potentialtech.com>
+
+
+Slony uses triggers.  You disabled the triggers, so Slony no longer works.
+Even if you re-enable the triggers, information about what data changed
+has been lost.
+
+Got back and redo your steps but don't disable any triggers.
+
+In response to marmu <mu at forsa.de>:
+> 
+> Hello guys,
+> 
+> yesterday I finally had slony replication working between two DBs on one
+> server. To this point in time I only had imported the globals and the
+> structure of the DBs. When I inserted a row in a table which is part of a
+> replication set it was immediately replicated. Then I thought it is time for
+> the next step: importing the (old) data backed up before.
+> 
+> At first I stopped the slons and disables all triggers in my DBs. After I
+> imported the data into both DBs the replication doesn't work anymore. Of
+> course I got some errors while importing data into the slave, since tables
+> are taking part in the replication:
+> "Table xxxxxxx is replicated and cannot be modified on a subscriber node -
+> role=0"
+> 
+> I thought, ok, I will have to import the data of the master-DB first and
+> then let slony replicate to the slave. But this didn't work. No replication
+> taking place and no errors in the slony logs.
+> 
+> The sl_status table in the master-DB is empty (0 rows), the sl_status table
+> in the slave-DB contains the following row (1 row, formatted for better
+> display):
+>  st_origin = 2 | st_received = 1 | st_last_event = 5002159114 |
+>  st_last_event_ts = 2011-08-24 12:31:37.56454 | st_last_received =
+> 5002159114 |
+>  st_last_received_ts = 2011-08-24 12:31:38.598021 | 
+>  st_last_received_event_ts = 2011-08-24 12:31:37.56454 | st_lag_num_events =
+> 0 |
+>  st_lag_time = 00:16:24.21951
+> 
+> Any hints on why the replication won't work after importing data would be
+> great. Further what would be the correct sequence of actions for moving 2
+> DBs from one server to a new one (new postgres and slony versions).
+> 
+> This is what I did:
+> 1) export
+>     1.1) export globals
+>     1.2) export structure
+>     1.3) export data
+> 2) import globals and structure
+> 3) get slony working (replication was tested at this point and worked)
+> 4) stop all slons (like "/etc/init.d/slony-slave stop" and
+> "/etc/init.d/slony-master stop")
+> 5) disable all triggers (in our case some calculations based on the data are
+> taking place, but that is only needed while in production - so I could have
+> skipped this for now, but not in the future)
+> 6) import the data (which was dumped before)
+> 
+> Thanks for your time, thoughts and help in advance.
+
+-- 
+Bill Moran
+http://www.potentialtech.com
+http://people.collaborativefusion.com/~wmoran/
+
+From maretranq at gmail.com  Wed Aug 24 15:24:19 2011
+From: maretranq at gmail.com (maretranq)
+Date: Wed, 24 Aug 2011 15:24:19 -0700
+Subject: [Slony1-general] how to fix replication after column added to
+	origin outside Slony?
+Message-ID: <CAJM0Wbh-ETRVO3tgz5wrDerhV2igO89fsyVmHNVe_ZUyd_svew@mail.gmail.com>
+
+Hello,
+
+Is it possible to fix this situation, ideally without starting over?
+
+A Slony cluster of 2 nodes was deployed and running. Some time later,
+a column was added only to the origin/"master" node outside of Slony
+control. slon is still running on both nodes, but the subscriber node
+is understandably emitting errors, such as:
+
+ERROR:  column "foo" of relation "bar" does not exist
+
+Does anyone have suggestions on what might be the best way forward?
+
+Software versions:
+
+Ubuntu 10.04
+PostgreSQL 8.4.8 (Ubuntu)
+Slony-I 1.2.20 (Ubuntu)
+
+I apologize if this scenario has been addressed previously; I'd
+greatly appreciate any pointers. What searches I tried did not turn up
+something applicable.
+
+Thanks!
+
+mare
+
+From jim at contacttelecom.com  Wed Aug 24 15:28:44 2011
+From: jim at contacttelecom.com (Jim Buttafuoco)
+Date: Wed, 24 Aug 2011 18:28:44 -0400
+Subject: [Slony1-general] how to fix replication after column added to
+	origin outside Slony?
+In-Reply-To: <CAJM0Wbh-ETRVO3tgz5wrDerhV2igO89fsyVmHNVe_ZUyd_svew@mail.gmail.com>
+References: <CAJM0Wbh-ETRVO3tgz5wrDerhV2igO89fsyVmHNVe_ZUyd_svew@mail.gmail.com>
+Message-ID: <095486D3-6855-4EA8-86F8-A41363CB112E@contacttelecom.com>
+
+just alter the table on the other node, I have to do it here all the time.
+
+On Aug 24, 2011, at 6:24 PM, maretranq wrote:
+
+> Hello,
+> 
+> Is it possible to fix this situation, ideally without starting over?
+> 
+> A Slony cluster of 2 nodes was deployed and running. Some time later,
+> a column was added only to the origin/"master" node outside of Slony
+> control. slon is still running on both nodes, but the subscriber node
+> is understandably emitting errors, such as:
+> 
+> ERROR:  column "foo" of relation "bar" does not exist
+> 
+> Does anyone have suggestions on what might be the best way forward?
+> 
+> Software versions:
+> 
+> Ubuntu 10.04
+> PostgreSQL 8.4.8 (Ubuntu)
+> Slony-I 1.2.20 (Ubuntu)
+> 
+> I apologize if this scenario has been addressed previously; I'd
+> greatly appreciate any pointers. What searches I tried did not turn up
+> something applicable.
+> 
+> Thanks!
+> 
+> mare
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+> 
+
+___________________________________________________________
+
+
+
+
+
+
+
+Jim Buttafuoco
+jim at contacttelecom.com
+603-647-7170 ext. 2222- Office
+603-490-3409 - Cell
+jimbuttafuoco - Skype
+
+
+
+
+
+
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20110824/7a39788b/attachment.htm 
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: image.gif
+Type: image/gif
+Size: 2793 bytes
+Desc: not available
+Url : http://lists.slony.info/pipermail/slony1-general/attachments/20110824/7a39788b/attachment.gif 
+
+From ssinger at ca.afilias.info  Wed Aug 24 16:44:32 2011
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Wed, 24 Aug 2011 19:44:32 -0400
+Subject: [Slony1-general] how to fix replication after column added to
+ origin outside Slony?
+In-Reply-To: <095486D3-6855-4EA8-86F8-A41363CB112E@contacttelecom.com>
+References: <CAJM0Wbh-ETRVO3tgz5wrDerhV2igO89fsyVmHNVe_ZUyd_svew@mail.gmail.com>
+	<095486D3-6855-4EA8-86F8-A41363CB112E@contacttelecom.com>
+Message-ID: <4E558CE0.6070601@ca.afilias.info>
+
+On 11-08-24 06:28 PM, Jim Buttafuoco wrote:
+> just alter the table on the other node, I have to do it here all the time.
+
+Your Playing with fire.
+
+With Slony 1.2.x the triggers installed on your table contain 
+information about the structure of your table in the trigger arguments. 
+  The EXECUTE SCRIPT slonik command resets those values.  Also doing any 
+sort of DDL on a 1.2 slave outside of EXECUTE SCRIPT is a bad idea 
+because of how slony 1.2 munges the catalog of slaves.
+
+I think mare would be better off
+
+Doing a EXECUTE SCRIPT(only on=slave node) to add the columns to the 
+slave node.
+
+Then do an EXECUTE SCRIPT(file=some_script.sql , only on=master node) 
+where some_script.sql is some SQL file that does not do much (ie just 
+selects from a table).  When Slonik performs the execute script it will 
+reset the triggers.
+
+Remember EXECUTE SCRIPT in Slony 1.2 takes exclusive locks on all 
+replicated tables.
+
+
+>
+> On Aug 24, 2011, at 6:24 PM, maretranq wrote:
+>
+>> Hello,
+>>
+>> Is it possible to fix this situation, ideally without starting over?
+>>
+>> A Slony cluster of 2 nodes was deployed and running. Some time later,
+>> a column was added only to the origin/"master" node outside of Slony
+>> control. slon is still running on both nodes, but the subscriber node
+>> is understandably emitting errors, such as:
+>>
+>> ERROR: column "foo" of relation "bar" does not exist
+>>
+>> Does anyone have suggestions on what might be the best way forward?
+>>
+>> Software versions:
+>>
+>> Ubuntu 10.04
+>> PostgreSQL 8.4.8 (Ubuntu)
+>> Slony-I 1.2.20 (Ubuntu)
+>>
+>> I apologize if this scenario has been addressed previously; I'd
+>> greatly appreciate any pointers. What searches I tried did not turn up
+>> something applicable.
+>>
+>> Thanks!
+>>
+>> mare
+>> _______________________________________________
+>> Slony1-general mailing list
+>> Slony1-general at lists.slony.info <mailto:Slony1-general at lists.slony.info>
+>> http://lists.slony.info/mailman/listinfo/slony1-general
+>>
+>
+> ___________________________________________________________
+>
+>
+>
+>
+>
+>
+>
+> Jim Buttafuoco
+> jim at contacttelecom.com <mailto:jim at contacttelecom.com>
+> 603-647-7170 ext. 2222- Office
+> 603-490-3409 - Cell
+> jimbuttafuoco - Skype
+>
+>
+>
+>
+>
+>
+>
+>
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+
+
+From jim at contacttelecom.com  Wed Aug 24 17:10:13 2011
+From: jim at contacttelecom.com (Jim Buttafuoco)
+Date: Wed, 24 Aug 2011 20:10:13 -0400
+Subject: [Slony1-general] how to fix replication after column added to
+	origin outside Slony?
+In-Reply-To: <4E558CE0.6070601@ca.afilias.info>
+References: <CAJM0Wbh-ETRVO3tgz5wrDerhV2igO89fsyVmHNVe_ZUyd_svew@mail.gmail.com>
+	<095486D3-6855-4EA8-86F8-A41363CB112E@contacttelecom.com>
+	<4E558CE0.6070601@ca.afilias.info>
+Message-ID: <AB969379-0B53-4F94-94E3-CAD3E700C42C@contacttelecom.com>
+
+in general I agree, but sometimes you need to get the knife out...
+
+
+Sent from my iPad
+
+On Aug 24, 2011, at 19:44, Steve Singer <ssinger at ca.afilias.info> wrote:
+
+> On 11-08-24 06:28 PM, Jim Buttafuoco wrote:
+>> just alter the table on the other node, I have to do it here all the time.
+> 
+> Your Playing with fire.
+> 
+> With Slony 1.2.x the triggers installed on your table contain information about the structure of your table in the trigger arguments.  The EXECUTE SCRIPT slonik command resets those values.  Also doing any sort of DDL on a 1.2 slave outside of EXECUTE SCRIPT is a bad idea because of how slony 1.2 munges the catalog of slaves.
+> 
+> I think mare would be better off
+> 
+> Doing a EXECUTE SCRIPT(only on=slave node) to add the columns to the slave node.
+> 
+> Then do an EXECUTE SCRIPT(file=some_script.sql , only on=master node) where some_script.sql is some SQL file that does not do much (ie just selects from a table).  When Slonik performs the execute script it will reset the triggers.
+> 
+> Remember EXECUTE SCRIPT in Slony 1.2 takes exclusive locks on all replicated tables.
+> 
+> 
+>> 
+>> On Aug 24, 2011, at 6:24 PM, maretranq wrote:
+>> 
+>>> Hello,
+>>> 
+>>> Is it possible to fix this situation, ideally without starting over?
+>>> 
+>>> A Slony cluster of 2 nodes was deployed and running. Some time later,
+>>> a column was added only to the origin/"master" node outside of Slony
+>>> control. slon is still running on both nodes, but the subscriber node
+>>> is understandably emitting errors, such as:
+>>> 
+>>> ERROR: column "foo" of relation "bar" does not exist
+>>> 
+>>> Does anyone have suggestions on what might be the best way forward?
+>>> 
+>>> Software versions:
+>>> 
+>>> Ubuntu 10.04
+>>> PostgreSQL 8.4.8 (Ubuntu)
+>>> Slony-I 1.2.20 (Ubuntu)
+>>> 
+>>> I apologize if this scenario has been addressed previously; I'd
+>>> greatly appreciate any pointers. What searches I tried did not turn up
+>>> something applicable.
+>>> 
+>>> Thanks!
+>>> 
+>>> mare
+>>> _______________________________________________
+>>> Slony1-general mailing list
+>>> Slony1-general at lists.slony.info <mailto:Slony1-general at lists.slony.info>
+>>> http://lists.slony.info/mailman/listinfo/slony1-general
+>>> 
+>> 
+>> ___________________________________________________________
+>> 
+>> 
+>> 
+>> 
+>> 
+>> 
+>> 
+>> Jim Buttafuoco
+>> jim at contacttelecom.com <mailto:jim at contacttelecom.com>
+>> 603-647-7170 ext. 2222- Office
+>> 603-490-3409 - Cell
+>> jimbuttafuoco - Skype
+>> 
+>> 
+>> 
+>> 
+>> 
+>> 
+>> 
+>> 
+>> 
+>> _______________________________________________
+>> Slony1-general mailing list
+>> Slony1-general at lists.slony.info
+>> http://lists.slony.info/mailman/listinfo/slony1-general
+> 
+> 
+
+From stephane.schildknecht at postgresql.fr  Wed Aug 24 23:23:59 2011
+From: stephane.schildknecht at postgresql.fr (=?ISO-8859-15?Q?=22St=E9phane_A=2E_Schildknecht=22?=)
+Date: Thu, 25 Aug 2011 08:23:59 +0200
+Subject: [Slony1-general] how to fix replication after column added to
+ origin outside Slony?
+In-Reply-To: <AB969379-0B53-4F94-94E3-CAD3E700C42C@contacttelecom.com>
+References: <CAJM0Wbh-ETRVO3tgz5wrDerhV2igO89fsyVmHNVe_ZUyd_svew@mail.gmail.com>	<095486D3-6855-4EA8-86F8-A41363CB112E@contacttelecom.com>	<4E558CE0.6070601@ca.afilias.info>
+	<AB969379-0B53-4F94-94E3-CAD3E700C42C@contacttelecom.com>
+Message-ID: <4E55EA7F.5060902@postgresql.fr>
+
+-----BEGIN PGP SIGNED MESSAGE-----
+Hash: SHA1
+
+Le 25/08/2011 02:10, Jim Buttafuoco a ?crit :
+> in general I agree, but sometimes you need to get the knife out...
+> 
+
+IMHO you are free to do everything you want with your data. Even if you could
+lose them. These are your data.
+
+But you can't tell people that this is The good way of acting.
+
+You can, for sure, alter your tables outside of slony to add some column, on
+every node.
+
+Just be warned that the data of these columns may never be replicated as slony
+does not know everything on these.
+
+It is not the good way of handling DDL with Slony.
+
+Regards,
+- -- 
+St?phane Schildknecht
+Loxodata
+Contact r?gional PostgreSQL
+
+-----BEGIN PGP SIGNATURE-----
+Version: GnuPG v1.4.10 (GNU/Linux)
+Comment: Using GnuPG with Mozilla - http://enigmail.mozdev.org/
+
+iEYEARECAAYFAk5V6n8ACgkQA+REPKWGI0HJhQCgq9vSY0HpjkP45zw6NqMZ4Re5
+uzEAoMIyhHhaFelEYqmZnFsWr9WEtUUG
+=myWH
+-----END PGP SIGNATURE-----
+
+From scott.marlowe at gmail.com  Wed Aug 24 23:30:08 2011
+From: scott.marlowe at gmail.com (Scott Marlowe)
+Date: Thu, 25 Aug 2011 00:30:08 -0600
+Subject: [Slony1-general] how to fix replication after column added to
+ origin outside Slony?
+In-Reply-To: <4E55EA7F.5060902@postgresql.fr>
+References: <CAJM0Wbh-ETRVO3tgz5wrDerhV2igO89fsyVmHNVe_ZUyd_svew@mail.gmail.com>
+	<095486D3-6855-4EA8-86F8-A41363CB112E@contacttelecom.com>
+	<4E558CE0.6070601@ca.afilias.info>
+	<AB969379-0B53-4F94-94E3-CAD3E700C42C@contacttelecom.com>
+	<4E55EA7F.5060902@postgresql.fr>
+Message-ID: <CAOR=d=1R11M7GQjEGg-a-WuQQFFcndfyVxzE2ju2pKXg4x=oNQ@mail.gmail.com>
+
+On Thu, Aug 25, 2011 at 12:23 AM, "St?phane A. Schildknecht"
+<stephane.schildknecht at postgresql.fr> wrote:
+> -----BEGIN PGP SIGNED MESSAGE-----
+> Hash: SHA1
+>
+> Le 25/08/2011 02:10, Jim Buttafuoco a ?crit :
+>> in general I agree, but sometimes you need to get the knife out...
+>>
+>
+> IMHO you are free to do everything you want with your data. Even if you could
+> lose them. These are your data.
+
+My experience with slony is that when you do something stupid, like
+run ddl outside of the execute script, it's best to start replication
+over to be safe.
+
+From maretranq at gmail.com  Thu Aug 25 00:17:07 2011
+From: maretranq at gmail.com (maretranq)
+Date: Thu, 25 Aug 2011 00:17:07 -0700
+Subject: [Slony1-general] how to fix replication after column added to
+ origin outside Slony?
+In-Reply-To: <4E558CE0.6070601@ca.afilias.info>
+References: <CAJM0Wbh-ETRVO3tgz5wrDerhV2igO89fsyVmHNVe_ZUyd_svew@mail.gmail.com>
+	<095486D3-6855-4EA8-86F8-A41363CB112E@contacttelecom.com>
+	<4E558CE0.6070601@ca.afilias.info>
+Message-ID: <CAJM0WbiqsRFMKPuNN3WZV_+pE75En=xpxzyzCvn_vASfFObq6Q@mail.gmail.com>
+
+I decided to go with Steve's suggestion. It looks like replication is
+working again, and it has caught up.
+
+Thank you both very much for your input!
+
+mare
+
+From mu at forsa.de  Fri Aug 26 04:38:27 2011
+From: mu at forsa.de (marmu)
+Date: Fri, 26 Aug 2011 04:38:27 -0700 (PDT)
+Subject: [Slony1-general] After importing data into my DBs slony
+ replication does not work anymore
+In-Reply-To: <20110824080307.2051cc4b.wmoran@potentialtech.com>
+References: <32325514.post@talk.nabble.com>
+	<20110824080307.2051cc4b.wmoran@potentialtech.com>
+Message-ID: <32341150.post@talk.nabble.com>
+
+
+Hello Bill (and all other readers)!
+
+I only disabled triggers for non-slony tables, not the slony ones.
+
+This is my solution:
+for testing purposes I didn't stop slony before importing the data. after
+importing the data I did the following:
+1) stop all slons (via /etc/init.d)
+2) delete the replication in pgAdmin
+3) reboot --> init.d scripts set up slony
+4) all subscritions are lost (I don't know why)
+5) add a subscrition to the master node via pgAdmin (this is then also
+listed under the slave-node)
+        master-db=#  select * from _cluster.sl_subscribe;
+	 sub_set | sub_provider | sub_receiver | sub_forward | sub_active
+	---------+--------------+--------------+-------------+------------
+	          1 |            1 |            2 | f           | t
+	(1 row)
+	
+	slave-db=#  select * from _cluster.sl_subscribe;
+	 sub_set | sub_provider | sub_receiver | sub_forward | sub_active
+	---------+--------------+--------------+-------------+------------
+	          1 |            1 |            2 | f           | t
+	(1 row)
+6) replication works
+
+Some questions still remain:
+1) Why doesn't slony replicate the data to the slave-DB during the import of
+the data to the master-DB?
+2) I can't tell why my subscription in the slave-script doesn't work. I
+thought it should set up the subscription, but I hab to do it via pgAdmin
+
+my slonik slave set up script:
+cat setup-slonik_slave
+# This file is written by /etc/slony-I/slave-setupmaker - DO NOT EDIT.
+#!/bin/sh
+
+/usr/bin/slonik <<_EOF_
+cluster name = cluster;
+node 1 admin conninfo = 'dbname=master host=localhost user=postgres';
+node 2 admin conninfo = 'dbname=slave host=localhost user=postgres';
+store node (id = 2, event node = 1);
+subscribe set ( id = 1, provider = 1, receiver = 2, forward = no);
+_EOF_
+
+Hopefully this will helo others to solve similar problems. Further I'd
+deeply appreciate help on solving the last two questions I have, which are
+mentioned above.
+
+Big thanks to the whole mailing list and all the guys in the IRC channel!
+You saved me quite some time.
+Have a great weekend.
+Marcus
+
+
+Bill Moran wrote:
+> 
+> 
+> Slony uses triggers.  You disabled the triggers, so Slony no longer works.
+> Even if you re-enable the triggers, information about what data changed
+> has been lost.
+> 
+> Got back and redo your steps but don't disable any triggers.
+> 
+> In response to marmu <mu at forsa.de>:
+>> 
+>> Hello guys,
+>> 
+>> yesterday I finally had slony replication working between two DBs on one
+>> server. To this point in time I only had imported the globals and the
+>> structure of the DBs. When I inserted a row in a table which is part of a
+>> replication set it was immediately replicated. Then I thought it is time
+>> for
+>> the next step: importing the (old) data backed up before.
+>> 
+>> At first I stopped the slons and disables all triggers in my DBs. After I
+>> imported the data into both DBs the replication doesn't work anymore. Of
+>> course I got some errors while importing data into the slave, since
+>> tables
+>> are taking part in the replication:
+>> "Table xxxxxxx is replicated and cannot be modified on a subscriber node
+>> -
+>> role=0"
+>> 
+>> I thought, ok, I will have to import the data of the master-DB first and
+>> then let slony replicate to the slave. But this didn't work. No
+>> replication
+>> taking place and no errors in the slony logs.
+>> 
+>> The sl_status table in the master-DB is empty (0 rows), the sl_status
+>> table
+>> in the slave-DB contains the following row (1 row, formatted for better
+>> display):
+>>  st_origin = 2 | st_received = 1 | st_last_event = 5002159114 |
+>>  st_last_event_ts = 2011-08-24 12:31:37.56454 | st_last_received =
+>> 5002159114 |
+>>  st_last_received_ts = 2011-08-24 12:31:38.598021 | 
+>>  st_last_received_event_ts = 2011-08-24 12:31:37.56454 |
+>> st_lag_num_events =
+>> 0 |
+>>  st_lag_time = 00:16:24.21951
+>> 
+>> Any hints on why the replication won't work after importing data would be
+>> great. Further what would be the correct sequence of actions for moving 2
+>> DBs from one server to a new one (new postgres and slony versions).
+>> 
+>> This is what I did:
+>> 1) export
+>>     1.1) export globals
+>>     1.2) export structure
+>>     1.3) export data
+>> 2) import globals and structure
+>> 3) get slony working (replication was tested at this point and worked)
+>> 4) stop all slons (like "/etc/init.d/slony-slave stop" and
+>> "/etc/init.d/slony-master stop")
+>> 5) disable all triggers (in our case some calculations based on the data
+>> are
+>> taking place, but that is only needed while in production - so I could
+>> have
+>> skipped this for now, but not in the future)
+>> 6) import the data (which was dumped before)
+>> 
+>> Thanks for your time, thoughts and help in advance.
+> 
+> -- 
+> Bill Moran
+> http://www.potentialtech.com
+> http://people.collaborativefusion.com/~wmoran/
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+> 
+> 
+
+-- 
+View this message in context: http://old.nabble.com/After-importing-data-into-my-DBs-slony-replication-does-not-work-anymore-tp32325514p32341150.html
+Sent from the Slony-I -- General mailing list archive at Nabble.com.
+
+
+From kleptog at gmail.com  Fri Aug 26 07:47:59 2011
+From: kleptog at gmail.com (Martijn van O)
+Date: Fri, 26 Aug 2011 16:47:59 +0200
+Subject: [Slony1-general] After importing data into my DBs slony
+ replication does not work anymore
+In-Reply-To: <32341150.post@talk.nabble.com>
+References: <32325514.post@talk.nabble.com>
+	<20110824080307.2051cc4b.wmoran@potentialtech.com>
+	<32341150.post@talk.nabble.com>
+Message-ID: <CADWG95tXPApj147EKZH5jooz5Um4zX3ddTV+pDX1ALcR3YMAAA@mail.gmail.com>
+
+On 26 August 2011 13:38, marmu <mu at forsa.de> wrote:
+>
+> Hello Bill (and all other readers)!
+>
+> I only disabled triggers for non-slony tables, not the slony ones.
+
+Slony works by placing triggers on the non-slony tables. Triggers on
+the slony table would not acheive anything. So you broke it by
+disabling triggers on the non-slony tables.
+
+By an large I don't bother replicating while restoring data. I drop
+the subscription, load the data, add the subscription and then all the
+data is copied in bulk.
+
+Have a nice day,
+-- 
+Martijn van Oosterhout <kleptog at gmail.com> http://svana.org/kleptog/
+

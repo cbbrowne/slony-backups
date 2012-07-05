@@ -1,0 +1,1901 @@
+From pblumenthal at crsinc.com  Wed Oct  5 12:43:00 2011
+From: pblumenthal at crsinc.com (Pete Blumenthal)
+Date: Wed, 5 Oct 2011 19:43:00 +0000
+Subject: [Slony1-general] Dynamic Schema Changes on high-traffic database
+Message-ID: <71583C0762B8A948A4D9E5898D00FD5D22E3C63F@mbx025-e1-nj-8.exch025.domain.local>
+
+I run a web app which allows users to cause dynamic schema changes-adding columns to tables specifically. This operation doesn't happen often, but it happens often enough that we don't want to have to manually SLONIK EXECUTE SCRIPT every time we want to do a schema change. There is also a possibility of write operations happening on the tables with dynamic schema changes at the same times as the schema changes occur.
+
+Which is preferred solution for dynamic schema changes in production with Slony-I 2.0, Why?
+
+A) Method documented in 3.2.2 (http://slony.info/documentation/2.0/ddlchanges.html) . The constraint that "no other transactions are altering the tables being used by the ddl script while it is running" is problematic.  This is less than preferable because it requires that we either lock the tables being changed before we hand the schema change commands to SLONY EXECUTE SCRIPT, causing an outage for some users and possibly aborting related sequences of write operations, or that we risk less-than-perfect replication by running a DDL change in the middle of write operations to the table being changed without any guarantee of concomitant execution on replicated members of the cluster.
+
+B) Drop and merge back in the tables being altered on-the-fly, without any locks being explicitly invoked. Since it is trivial to know the name of the table whose structure is being changed before the change actually occurs, we could use that information in a task sequence like this (using the altperl scripts, but it could also be done directly on the database):
+1.      Drop the table that is about to be altered (let's call it TABLE_TO_ALTER) from the main replication set. This would (theoretically) mean that write operations were only being performed on the master.
+2.      Run SLONIK EXECUTE SCRIPT on the main replication set, and apply the schema changes to TABLE_TO_ALTER.  I have tested this, and found that whether or not the table is a member of the set, EXECUTE SCRIPT operations are still applied to it on all of the nodes in the set.
+3.      Create a temporary set containing only TABLE_TO_ALTER.
+4.      Subscribe the temporary set to the same nodes as the main replication set.
+5.      Merge the temporary set into the main replication set.
+
+This approach of "stop replication on this table, change the structure of the table, and then re-add it back into the main replication set" sounds preferable because it doesn't risk problems that could be caused by write operations happening near the same time as DDL changes. I understand that it carries a different risk: the risk introduced by removing a table from replication for a short time, and I am willing to accept that.
+
+Would method B) work? Is method A) preferable? How would you implement a solution to this problem?
+
+Thanks for the advice,
+  Pete
+This email message contains information that Corporate Reimbursement Services, Inc. considers confidential and/or proprietary, or may later designate as confidential and proprietary. It is intended only for use of the individual or entity named above and should not be forwarded to any other persons or entities without the express consent of Corporate Reimbursement Services, Inc., nor should it be used for any purpose other than in the course of any potential or actual business relationship with Corporate Reimbursement Services, Inc. If the reader of this message is not the intended recipient, or the employee or agent responsible to deliver it to the intended recipient, you are hereby notified that any dissemination, distribution, or copying of this communication is strictly prohibited. If you have received this communication in error, please notify sender immediately and destroy the original message.
+
+Internal Revenue Service regulations require that certain types of written advice include a disclaimer. To the extent the preceding message contains advice relating to a Federal tax issue, unless expressly stated otherwise the advice is not intended or written to be used, and it cannot be used by the recipient or any other taxpayer, for the purpose of avoiding Federal tax penalties, and was not written to support the promotion or marketing of any transaction or matter discussed herein.
+
+From JanWieck at Yahoo.com  Wed Oct  5 16:37:23 2011
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Wed, 05 Oct 2011 19:37:23 -0400
+Subject: [Slony1-general] Dynamic Schema Changes on high-traffic database
+In-Reply-To: <71583C0762B8A948A4D9E5898D00FD5D22E3C63F@mbx025-e1-nj-8.exch025.domain.local>
+References: <71583C0762B8A948A4D9E5898D00FD5D22E3C63F@mbx025-e1-nj-8.exch025.domain.local>
+Message-ID: <4E8CEA33.7030802@Yahoo.com>
+
+On 10/5/2011 3:43 PM, Pete Blumenthal wrote:
+> I run a web app which allows users to cause dynamic schema changes-adding columns to tables specifically. This operation doesn't happen often, but it happens often enough that we don't want to have to manually SLONIK EXECUTE SCRIPT every time we want to do a schema change. There is also a possibility of write operations happening on the tables with dynamic schema changes at the same times as the schema changes occur.
+>
+> Which is preferred solution for dynamic schema changes in production with Slony-I 2.0, Why?
+
+Applications changing the DB schema during normal production operation 
+have always been problematic. Not only with Slony, but with databases, 
+that do not cover DDL under transactional semantics, too.
+
+Changes that might happen to Slony 2.2 would make it possible to support 
+this in a safe and secure manner, but those changes will most certainly 
+not be backported into any earlier version.
+
+
+Jan
+
+-- 
+Anyone who trades liberty for security deserves neither
+liberty nor security. -- Benjamin Franklin
+
+From khizer at srishtisoft.com  Tue Oct 11 02:46:03 2011
+From: khizer at srishtisoft.com (khizer)
+Date: Tue, 11 Oct 2011 15:16:03 +0530
+Subject: [Slony1-general] Postgresql-8.2 replication
+Message-ID: <4E94105B.1030302@srishtisoft.com>
+
+Hi,
+
+I am trying to compile and install slony in ubuntu OS 10.10
+
+i tried with the command
+./configure --prefix=/usr/lib/postgresql/8.2/bin/ 
+--with-pgconfigdir=/usr/lib/postgresql/8.2/bin/ 
+--with-perltools=/usr/lib/postgresql/8.2/bin/ 
+--with-pgpkglibdir=/usr/lib/postgresql/8.2/lib/ 
+--with-pgsharedir=/usr/share/postgresql/8.2/ 
+--with-pgincludedir=/usr/include/postgresql 
+--with-pgincludeserverdir=/usr/include/postgresql/8.2/server
+
+but i am getting error as follow while running
+make
+
+
+from xxid.c:20:
+/usr/include/postgresql/8.2/server/tcop/tcopprot.h:30:18: error: 
+expected ?=?, ?,?, ?;?, ?asm? or ?__attribute__? before ?const?
+In file included from 
+/usr/include/postgresql/8.2/server/executor/spi.h:37:0,
+from xxid.c:20:
+/usr/include/postgresql/8.2/server/utils/builtins.h:260:18: error: 
+expected ?=?, ?,?, ?;?, ?asm? or ?__attribute__? before ?int?
+In file included from xxid.c:20:0:
+/usr/include/postgresql/8.2/server/executor/spi.h:78:18: error: expected 
+?=?, ?,?, ?;?, ?asm? or ?__attribute__? before ?uint32?
+/usr/include/postgresql/8.2/server/executor/spi.h:79:18: error: expected 
+?=?, ?,?, ?;?, ?asm? or ?__attribute__? before ?Oid?
+/usr/include/postgresql/8.2/server/executor/spi.h:80:18: error: expected 
+?=?, ?,?, ?;?, ?asm? or ?__attribute__? before ?SPITupleTable?
+/usr/include/postgresql/8.2/server/executor/spi.h:81:18: error: expected 
+?=?, ?,?, ?;?, ?asm? or ?__attribute__? before ?int?
+xxid.c:26:1: error: expected ?=?, ?,?, ?;?, ?asm? or ?__attribute__? 
+before ?const?
+xxid.c:26:1: warning: no previous prototype for ?Pg_magic_func?
+xxid.c:31:0: warning: "SET_VARSIZE" redefined
+/usr/include/postgresql/postgres.h:260:0: note: this is the location of 
+the previous definition
+xxid.c:52:1: error: expected ?=?, ?,?, ?;?, ?asm? or ?__attribute__? 
+before ?const?
+xxid.c:52:1: warning: no previous prototype for ?pg_finfo__Slony_I_xxidin?
+xxid.c:53:1: error: expected ?=?, ?,?, ?;?, ?asm? or ?__attribute__? 
+before ?const?
+xxid.c:53:1: warning: no previous prototype for ?pg_finfo__Slony_I_xxidout?
+xxid.c:54:1: error: expected ?=?, ?,?, ?;?, ?asm? or ?__attribute__? 
+before ?const?
+xxid.c:54:1: warning: no previous prototype for ?pg_finfo__Slony_I_xxideq?
+xxid.c:55:1: error: expected ?=?, ?,?, ?;?, ?asm? or ?__attribute__? 
+before ?const?
+xxid.c:55:1: warning: no previous prototype for ?pg_finfo__Slony_I_xxidne?
+xxid.c:56:1: error: expected ?=?, ?,?, ?;?, ?asm? or ?__attribute__? 
+before ?const?
+xxid.c:56:1: warning: no previous prototype for ?pg_finfo__Slony_I_xxidlt?
+xxid.c:57:1: error: expected ?=?, ?,?, ?;?, ?asm? or ?__attribute__? 
+before ?const?
+xxid.c:57:1: warning: no previous prototype for ?pg_finfo__Slony_I_xxidle?
+xxid.c:58:1: error: expected ?=?, ?,?, ?;?, ?asm? or ?__attribute__? 
+before ?const?
+xxid.c:58:1: warning: no previous prototype for ?pg_finfo__Slony_I_xxidgt?
+xxid.c:59:1: error: expected ?=?, ?,?, ?;?, ?asm? or ?__attribute__? 
+before ?const?
+xxid.c:59:1: warning: no previous prototype for ?pg_finfo__Slony_I_xxidge?
+xxid.c:60:1: error: expected ?=?, ?,?, ?;?, ?asm? or ?__attribute__? 
+before ?const?
+xxid.c:60:1: warning: no previous prototype for 
+?pg_finfo__Slony_I_btxxidcmp?
+xxid.c:61:1: error: expected ?=?, ?,?, ?;?, ?asm? or ?__attribute__? 
+before ?const?
+xxid.c:61:1: warning: no previous prototype for 
+?pg_finfo__Slony_I_getCurrentXid?
+xxid.c:62:1: error: expected ?=?, ?,?, ?;?, ?asm? or ?__attribute__? 
+before ?const?
+xxid.c:62:1: warning: no previous prototype for 
+?pg_finfo__Slony_I_getMinXid?
+xxid.c:63:1: error: expected ?=?, ?,?, ?;?, ?asm? or ?__attribute__? 
+before ?const?
+xxid.c:63:1: warning: no previous prototype for 
+?pg_finfo__Slony_I_getMaxXid?
+xxid.c:77:1: error: expected ?=?, ?,?, ?;?, ?asm? or ?__attribute__? 
+before ?const?
+xxid.c:77:1: warning: no previous prototype for 
+?pg_finfo__Slony_I_xxid_snapshot_in?
+xxid.c:78:1: error: expected ?=?, ?,?, ?;?, ?asm? or ?__attribute__? 
+before ?const?
+xxid.c:78:1: warning: no previous prototype for 
+?pg_finfo__Slony_I_xxid_snapshot_out?
+xxid.c:79:1: error: expected ?=?, ?,?, ?;?, ?asm? or ?__attribute__? 
+before ?const?
+xxid.c:79:1: warning: no previous prototype for 
+?pg_finfo__Slony_I_xxid_lt_snapshot?
+xxid.c:80:1: error: expected ?=?, ?,?, ?;?, ?asm? or ?__attribute__? 
+before ?const?
+xxid.c:80:1: warning: no previous prototype for 
+?pg_finfo__Slony_I_xxid_ge_snapshot?
+xxid.c: In function ?_Slony_I_getMinXid?:
+xxid.c:243:6: error: ?SerializableSnapshot? undeclared (first use in 
+this function)
+xxid.c:243:6: note: each undeclared identifier is reported only once for 
+each function it appears in
+xxid.c: In function ?_Slony_I_getMaxXid?:
+xxid.c:259:6: error: ?SerializableSnapshot? undeclared (first use in 
+this function)
+xxid.c: In function ?_Slony_I_xxid_snapshot_in?:
+xxid.c:337:2: warning: implicit declaration of function ?VARATT_SIZEP?
+xxid.c:337:2: error: lvalue required as left operand of assignment
+xxid.c: In function ?_Slony_I_getMaxXid?:
+xxid.c:263:1: warning: control reaches end of non-void function
+xxid.c: In function ?_Slony_I_getMinXid?:
+xxid.c:247:1: warning: control reaches end of non-void function
+make[2]: *** [xxid.o] Error 1
+make[2]: Leaving directory `/home/karthika/slony1-1.2.22/src/xxid'
+make[1]: *** [all] Error 2
+make[1]: Leaving directory `/home/karthika/slony1-1.2.22/src'
+make: *** [all] Error 2
+
+
+
+Mehdi
+
+
+From devrim at gunduz.org  Tue Oct 11 06:51:58 2011
+From: devrim at gunduz.org (Devrim =?ISO-8859-1?Q?G=DCND=DCZ?=)
+Date: Tue, 11 Oct 2011 16:51:58 +0300
+Subject: [Slony1-general] Postgresql-8.2 replication
+In-Reply-To: <4E94105B.1030302@srishtisoft.com>
+References: <4E94105B.1030302@srishtisoft.com>
+Message-ID: <1318341120.2052.14.camel@lenovo01-laptop03.gunduz.org>
+
+
+I don't think that Slony 2.X will work against PostgreSQL 8.2. You need
+to use 1.2.X.
+
+That said, PostgreSQL 8.2 will be EOLed by the end of this year, or so.
+
+Regards,
+Devrim
+
+On Tue, 2011-10-11 at 15:16 +0530, khizer wrote:
+> Hi,
+> 
+> I am trying to compile and install slony in ubuntu OS 10.10
+> 
+> i tried with the command
+> ./configure --prefix=/usr/lib/postgresql/8.2/bin/ 
+> --with-pgconfigdir=/usr/lib/postgresql/8.2/bin/ 
+> --with-perltools=/usr/lib/postgresql/8.2/bin/ 
+> --with-pgpkglibdir=/usr/lib/postgresql/8.2/lib/ 
+> --with-pgsharedir=/usr/share/postgresql/8.2/ 
+> --with-pgincludedir=/usr/include/postgresql 
+> --with-pgincludeserverdir=/usr/include/postgresql/8.2/server
+> 
+> but i am getting error as follow while running
+> make
+> 
+> 
+> from xxid.c:20:
+> /usr/include/postgresql/8.2/server/tcop/tcopprot.h:30:18: error: 
+> expected ?=?, ?,?, ?;?, ?asm? or ?__attribute__? before ?const?
+> In file included from 
+> /usr/include/postgresql/8.2/server/executor/spi.h:37:0,
+> from xxid.c:20:
+> /usr/include/postgresql/8.2/server/utils/builtins.h:260:18: error: 
+> expected ?=?, ?,?, ?;?, ?asm? or ?__attribute__? before ?int?
+> In file included from xxid.c:20:0:
+> /usr/include/postgresql/8.2/server/executor/spi.h:78:18: error: expected 
+> ?=?, ?,?, ?;?, ?asm? or ?__attribute__? before ?uint32?
+> /usr/include/postgresql/8.2/server/executor/spi.h:79:18: error: expected 
+> ?=?, ?,?, ?;?, ?asm? or ?__attribute__? before ?Oid?
+> /usr/include/postgresql/8.2/server/executor/spi.h:80:18: error: expected 
+> ?=?, ?,?, ?;?, ?asm? or ?__attribute__? before ?SPITupleTable?
+> /usr/include/postgresql/8.2/server/executor/spi.h:81:18: error: expected 
+> ?=?, ?,?, ?;?, ?asm? or ?__attribute__? before ?int?
+> xxid.c:26:1: error: expected ?=?, ?,?, ?;?, ?asm? or ?__attribute__? 
+> before ?const?
+> xxid.c:26:1: warning: no previous prototype for ?Pg_magic_func?
+> xxid.c:31:0: warning: "SET_VARSIZE" redefined
+> /usr/include/postgresql/postgres.h:260:0: note: this is the location of 
+> the previous definition
+> xxid.c:52:1: error: expected ?=?, ?,?, ?;?, ?asm? or ?__attribute__? 
+> before ?const?
+> xxid.c:52:1: warning: no previous prototype for ?pg_finfo__Slony_I_xxidin?
+> xxid.c:53:1: error: expected ?=?, ?,?, ?;?, ?asm? or ?__attribute__? 
+> before ?const?
+> xxid.c:53:1: warning: no previous prototype for ?pg_finfo__Slony_I_xxidout?
+> xxid.c:54:1: error: expected ?=?, ?,?, ?;?, ?asm? or ?__attribute__? 
+> before ?const?
+> xxid.c:54:1: warning: no previous prototype for ?pg_finfo__Slony_I_xxideq?
+> xxid.c:55:1: error: expected ?=?, ?,?, ?;?, ?asm? or ?__attribute__? 
+> before ?const?
+> xxid.c:55:1: warning: no previous prototype for ?pg_finfo__Slony_I_xxidne?
+> xxid.c:56:1: error: expected ?=?, ?,?, ?;?, ?asm? or ?__attribute__? 
+> before ?const?
+> xxid.c:56:1: warning: no previous prototype for ?pg_finfo__Slony_I_xxidlt?
+> xxid.c:57:1: error: expected ?=?, ?,?, ?;?, ?asm? or ?__attribute__? 
+> before ?const?
+> xxid.c:57:1: warning: no previous prototype for ?pg_finfo__Slony_I_xxidle?
+> xxid.c:58:1: error: expected ?=?, ?,?, ?;?, ?asm? or ?__attribute__? 
+> before ?const?
+> xxid.c:58:1: warning: no previous prototype for ?pg_finfo__Slony_I_xxidgt?
+> xxid.c:59:1: error: expected ?=?, ?,?, ?;?, ?asm? or ?__attribute__? 
+> before ?const?
+> xxid.c:59:1: warning: no previous prototype for ?pg_finfo__Slony_I_xxidge?
+> xxid.c:60:1: error: expected ?=?, ?,?, ?;?, ?asm? or ?__attribute__? 
+> before ?const?
+> xxid.c:60:1: warning: no previous prototype for 
+> ?pg_finfo__Slony_I_btxxidcmp?
+> xxid.c:61:1: error: expected ?=?, ?,?, ?;?, ?asm? or ?__attribute__? 
+> before ?const?
+> xxid.c:61:1: warning: no previous prototype for 
+> ?pg_finfo__Slony_I_getCurrentXid?
+> xxid.c:62:1: error: expected ?=?, ?,?, ?;?, ?asm? or ?__attribute__? 
+> before ?const?
+> xxid.c:62:1: warning: no previous prototype for 
+> ?pg_finfo__Slony_I_getMinXid?
+> xxid.c:63:1: error: expected ?=?, ?,?, ?;?, ?asm? or ?__attribute__? 
+> before ?const?
+> xxid.c:63:1: warning: no previous prototype for 
+> ?pg_finfo__Slony_I_getMaxXid?
+> xxid.c:77:1: error: expected ?=?, ?,?, ?;?, ?asm? or ?__attribute__? 
+> before ?const?
+> xxid.c:77:1: warning: no previous prototype for 
+> ?pg_finfo__Slony_I_xxid_snapshot_in?
+> xxid.c:78:1: error: expected ?=?, ?,?, ?;?, ?asm? or ?__attribute__? 
+> before ?const?
+> xxid.c:78:1: warning: no previous prototype for 
+> ?pg_finfo__Slony_I_xxid_snapshot_out?
+> xxid.c:79:1: error: expected ?=?, ?,?, ?;?, ?asm? or ?__attribute__? 
+> before ?const?
+> xxid.c:79:1: warning: no previous prototype for 
+> ?pg_finfo__Slony_I_xxid_lt_snapshot?
+> xxid.c:80:1: error: expected ?=?, ?,?, ?;?, ?asm? or ?__attribute__? 
+> before ?const?
+> xxid.c:80:1: warning: no previous prototype for 
+> ?pg_finfo__Slony_I_xxid_ge_snapshot?
+> xxid.c: In function ?_Slony_I_getMinXid?:
+> xxid.c:243:6: error: ?SerializableSnapshot? undeclared (first use in 
+> this function)
+> xxid.c:243:6: note: each undeclared identifier is reported only once for 
+> each function it appears in
+> xxid.c: In function ?_Slony_I_getMaxXid?:
+> xxid.c:259:6: error: ?SerializableSnapshot? undeclared (first use in 
+> this function)
+> xxid.c: In function ?_Slony_I_xxid_snapshot_in?:
+> xxid.c:337:2: warning: implicit declaration of function ?VARATT_SIZEP?
+> xxid.c:337:2: error: lvalue required as left operand of assignment
+> xxid.c: In function ?_Slony_I_getMaxXid?:
+> xxid.c:263:1: warning: control reaches end of non-void function
+> xxid.c: In function ?_Slony_I_getMinXid?:
+> xxid.c:247:1: warning: control reaches end of non-void function
+> make[2]: *** [xxid.o] Error 1
+> make[2]: Leaving directory `/home/karthika/slony1-1.2.22/src/xxid'
+> make[1]: *** [all] Error 2
+> make[1]: Leaving directory `/home/karthika/slony1-1.2.22/src'
+> make: *** [all] Error 2
+> 
+> 
+> 
+> Mehdi
+> 
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+
+
+-- 
+Devrim G?ND?Z
+Principal Systems Engineer @ EnterpriseDB: http://www.enterprisedb.com
+PostgreSQL Dan??man?/Consultant, Red Hat Certified Engineer
+Community: devrim~PostgreSQL.org, devrim.gunduz~linux.org.tr
+http://www.gunduz.org  Twitter: http://twitter.com/devrimgunduz
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: not available
+Type: application/pgp-signature
+Size: 198 bytes
+Desc: This is a digitally signed message part
+Url : http://lists.slony.info/pipermail/slony1-general/attachments/20111011/60edd41e/attachment.pgp 
+
+From francescoboccacci at libero.it  Tue Oct 11 07:00:49 2011
+From: francescoboccacci at libero.it (francescoboccacci at libero.it)
+Date: Tue, 11 Oct 2011 16:00:49 +0200 (CEST)
+Subject: [Slony1-general] A store path dubt
+Message-ID: <28969183.296561318341649005.JavaMail.defaultUser@defaultHost>
+
+Hi everyone,
+i have i dubt (just one??). My  slony replica is working fine between 2 server 
+(Master - Slave). I read some slony documentation about slony functionality and 
+i saw thatt all slony exaplem in cluster script have 2 store path (one master -
+salve and the other slave-master). In my cluster script i have just one:
+
+    store path (server = 1, client = 2, conninfo = 'dbname=$DB1  host=$H1 
+user=$U');
+
+dbname etc .. belong to master.
+What does it mean? Why is my replica working fine with just one store path?
+
+
+
+    Thanks
+    Francesco
+
+From khizer at srishtisoft.com  Tue Oct 11 07:34:24 2011
+From: khizer at srishtisoft.com (khizer)
+Date: Tue, 11 Oct 2011 20:04:24 +0530
+Subject: [Slony1-general] Postgresql-8.2 replication
+In-Reply-To: <1318341120.2052.14.camel@lenovo01-laptop03.gunduz.org>
+References: <4E94105B.1030302@srishtisoft.com>
+	<1318341120.2052.14.camel@lenovo01-laptop03.gunduz.org>
+Message-ID: <4E9453F0.30804@srishtisoft.com>
+
+I am using slony 1.2.*  for postgresql-8.2
+
+Ru aware of any other method of replication for postgresql-8.2
+
+On 10/11/2011 07:21 PM, Devrim G?ND?Z wrote:
+> I don't think that Slony 2.X will work against PostgreSQL 8.2. You need
+> to use 1.2.X.
+>
+> That said, PostgreSQL 8.2 will be EOLed by the end of this year, or so.
+>
+> Regards,
+> Devrim
+>
+> On Tue, 2011-10-11 at 15:16 +0530, khizer wrote:
+>> Hi,
+>>
+>> I am trying to compile and install slony in ubuntu OS 10.10
+>>
+>> i tried with the command
+>> ./configure --prefix=/usr/lib/postgresql/8.2/bin/
+>> --with-pgconfigdir=/usr/lib/postgresql/8.2/bin/
+>> --with-perltools=/usr/lib/postgresql/8.2/bin/
+>> --with-pgpkglibdir=/usr/lib/postgresql/8.2/lib/
+>> --with-pgsharedir=/usr/share/postgresql/8.2/
+>> --with-pgincludedir=/usr/include/postgresql
+>> --with-pgincludeserverdir=/usr/include/postgresql/8.2/server
+>>
+>> but i am getting error as follow while running
+>> make
+>>
+>>
+>> from xxid.c:20:
+>> /usr/include/postgresql/8.2/server/tcop/tcopprot.h:30:18: error:
+>> expected ?=?, ?,?, ?;?, ?asm? or ?__attribute__? before ?const?
+>> In file included from
+>> /usr/include/postgresql/8.2/server/executor/spi.h:37:0,
+>> from xxid.c:20:
+>> /usr/include/postgresql/8.2/server/utils/builtins.h:260:18: error:
+>> expected ?=?, ?,?, ?;?, ?asm? or ?__attribute__? before ?int?
+>> In file included from xxid.c:20:0:
+>> /usr/include/postgresql/8.2/server/executor/spi.h:78:18: error: expected
+>> ?=?, ?,?, ?;?, ?asm? or ?__attribute__? before ?uint32?
+>> /usr/include/postgresql/8.2/server/executor/spi.h:79:18: error: expected
+>> ?=?, ?,?, ?;?, ?asm? or ?__attribute__? before ?Oid?
+>> /usr/include/postgresql/8.2/server/executor/spi.h:80:18: error: expected
+>> ?=?, ?,?, ?;?, ?asm? or ?__attribute__? before ?SPITupleTable?
+>> /usr/include/postgresql/8.2/server/executor/spi.h:81:18: error: expected
+>> ?=?, ?,?, ?;?, ?asm? or ?__attribute__? before ?int?
+>> xxid.c:26:1: error: expected ?=?, ?,?, ?;?, ?asm? or ?__attribute__?
+>> before ?const?
+>> xxid.c:26:1: warning: no previous prototype for ?Pg_magic_func?
+>> xxid.c:31:0: warning: "SET_VARSIZE" redefined
+>> /usr/include/postgresql/postgres.h:260:0: note: this is the location of
+>> the previous definition
+>> xxid.c:52:1: error: expected ?=?, ?,?, ?;?, ?asm? or ?__attribute__?
+>> before ?const?
+>> xxid.c:52:1: warning: no previous prototype for ?pg_finfo__Slony_I_xxidin?
+>> xxid.c:53:1: error: expected ?=?, ?,?, ?;?, ?asm? or ?__attribute__?
+>> before ?const?
+>> xxid.c:53:1: warning: no previous prototype for ?pg_finfo__Slony_I_xxidout?
+>> xxid.c:54:1: error: expected ?=?, ?,?, ?;?, ?asm? or ?__attribute__?
+>> before ?const?
+>> xxid.c:54:1: warning: no previous prototype for ?pg_finfo__Slony_I_xxideq?
+>> xxid.c:55:1: error: expected ?=?, ?,?, ?;?, ?asm? or ?__attribute__?
+>> before ?const?
+>> xxid.c:55:1: warning: no previous prototype for ?pg_finfo__Slony_I_xxidne?
+>> xxid.c:56:1: error: expected ?=?, ?,?, ?;?, ?asm? or ?__attribute__?
+>> before ?const?
+>> xxid.c:56:1: warning: no previous prototype for ?pg_finfo__Slony_I_xxidlt?
+>> xxid.c:57:1: error: expected ?=?, ?,?, ?;?, ?asm? or ?__attribute__?
+>> before ?const?
+>> xxid.c:57:1: warning: no previous prototype for ?pg_finfo__Slony_I_xxidle?
+>> xxid.c:58:1: error: expected ?=?, ?,?, ?;?, ?asm? or ?__attribute__?
+>> before ?const?
+>> xxid.c:58:1: warning: no previous prototype for ?pg_finfo__Slony_I_xxidgt?
+>> xxid.c:59:1: error: expected ?=?, ?,?, ?;?, ?asm? or ?__attribute__?
+>> before ?const?
+>> xxid.c:59:1: warning: no previous prototype for ?pg_finfo__Slony_I_xxidge?
+>> xxid.c:60:1: error: expected ?=?, ?,?, ?;?, ?asm? or ?__attribute__?
+>> before ?const?
+>> xxid.c:60:1: warning: no previous prototype for
+>> ?pg_finfo__Slony_I_btxxidcmp?
+>> xxid.c:61:1: error: expected ?=?, ?,?, ?;?, ?asm? or ?__attribute__?
+>> before ?const?
+>> xxid.c:61:1: warning: no previous prototype for
+>> ?pg_finfo__Slony_I_getCurrentXid?
+>> xxid.c:62:1: error: expected ?=?, ?,?, ?;?, ?asm? or ?__attribute__?
+>> before ?const?
+>> xxid.c:62:1: warning: no previous prototype for
+>> ?pg_finfo__Slony_I_getMinXid?
+>> xxid.c:63:1: error: expected ?=?, ?,?, ?;?, ?asm? or ?__attribute__?
+>> before ?const?
+>> xxid.c:63:1: warning: no previous prototype for
+>> ?pg_finfo__Slony_I_getMaxXid?
+>> xxid.c:77:1: error: expected ?=?, ?,?, ?;?, ?asm? or ?__attribute__?
+>> before ?const?
+>> xxid.c:77:1: warning: no previous prototype for
+>> ?pg_finfo__Slony_I_xxid_snapshot_in?
+>> xxid.c:78:1: error: expected ?=?, ?,?, ?;?, ?asm? or ?__attribute__?
+>> before ?const?
+>> xxid.c:78:1: warning: no previous prototype for
+>> ?pg_finfo__Slony_I_xxid_snapshot_out?
+>> xxid.c:79:1: error: expected ?=?, ?,?, ?;?, ?asm? or ?__attribute__?
+>> before ?const?
+>> xxid.c:79:1: warning: no previous prototype for
+>> ?pg_finfo__Slony_I_xxid_lt_snapshot?
+>> xxid.c:80:1: error: expected ?=?, ?,?, ?;?, ?asm? or ?__attribute__?
+>> before ?const?
+>> xxid.c:80:1: warning: no previous prototype for
+>> ?pg_finfo__Slony_I_xxid_ge_snapshot?
+>> xxid.c: In function ?_Slony_I_getMinXid?:
+>> xxid.c:243:6: error: ?SerializableSnapshot? undeclared (first use in
+>> this function)
+>> xxid.c:243:6: note: each undeclared identifier is reported only once for
+>> each function it appears in
+>> xxid.c: In function ?_Slony_I_getMaxXid?:
+>> xxid.c:259:6: error: ?SerializableSnapshot? undeclared (first use in
+>> this function)
+>> xxid.c: In function ?_Slony_I_xxid_snapshot_in?:
+>> xxid.c:337:2: warning: implicit declaration of function ?VARATT_SIZEP?
+>> xxid.c:337:2: error: lvalue required as left operand of assignment
+>> xxid.c: In function ?_Slony_I_getMaxXid?:
+>> xxid.c:263:1: warning: control reaches end of non-void function
+>> xxid.c: In function ?_Slony_I_getMinXid?:
+>> xxid.c:247:1: warning: control reaches end of non-void function
+>> make[2]: *** [xxid.o] Error 1
+>> make[2]: Leaving directory `/home/karthika/slony1-1.2.22/src/xxid'
+>> make[1]: *** [all] Error 2
+>> make[1]: Leaving directory `/home/karthika/slony1-1.2.22/src'
+>> make: *** [all] Error 2
+>>
+>>
+>>
+>> Mehdi
+>>
+>> _______________________________________________
+>> Slony1-general mailing list
+>> Slony1-general at lists.slony.info
+>> http://lists.slony.info/mailman/listinfo/slony1-general
+>
+
+
+From cbbrowne at afilias.info  Tue Oct 11 08:16:43 2011
+From: cbbrowne at afilias.info (Christopher Browne)
+Date: Tue, 11 Oct 2011 11:16:43 -0400
+Subject: [Slony1-general] A store path dubt
+In-Reply-To: <28969183.296561318341649005.JavaMail.defaultUser@defaultHost>
+References: <28969183.296561318341649005.JavaMail.defaultUser@defaultHost>
+Message-ID: <CANfbgbb4c6BNDW4vQBKWYJJnZSV_QA-L=kvKesh9Rfvf6BENSw@mail.gmail.com>
+
+On Tue, Oct 11, 2011 at 10:00 AM, francescoboccacci at libero.it
+<francescoboccacci at libero.it> wrote:
+> Hi everyone,
+> i have i dubt (just one??). My ?slony replica is working fine between 2 server
+> (Master - Slave). I read some slony documentation about slony functionality and
+> i saw thatt all slony exaplem in cluster script have 2 store path (one master -
+> salve and the other slave-master). In my cluster script i have just one:
+>
+> ? ?store path (server = 1, client = 2, conninfo = 'dbname=$DB1 ?host=$H1
+> user=$U');
+>
+> dbname etc .. belong to master.
+> What does it mean? Why is my replica working fine with just one store path?
+
+In the absence of a return path, you'll have the problem that the slon
+managing the origin node isn't receiving any events from the
+subscriber node, with several ill effects:
+
+a) Confirmations won't be getting back to the origin
+b) Since confirmations don't make it, the origin never knows that it
+can trim old data from log tables, and you can expect to see bloating
+of such tables as:
+ - sl_event
+ - sl_confirm
+ - sl_log_1
+ - sl_log_2
+ - sl_seqlog
+
+From scott.marlowe at gmail.com  Tue Oct 11 08:20:29 2011
+From: scott.marlowe at gmail.com (Scott Marlowe)
+Date: Tue, 11 Oct 2011 09:20:29 -0600
+Subject: [Slony1-general] Postgresql-8.2 replication
+In-Reply-To: <4E9453F0.30804@srishtisoft.com>
+References: <4E94105B.1030302@srishtisoft.com>
+	<1318341120.2052.14.camel@lenovo01-laptop03.gunduz.org>
+	<4E9453F0.30804@srishtisoft.com>
+Message-ID: <CAOR=d=2nGs2rUSXf4RHD_qgBZrTxTybkwLn9wBr3hJqTi6=XcA@mail.gmail.com>
+
+2011/10/11 khizer <khizer at srishtisoft.com>:
+> I am using slony 1.2.* ?for postgresql-8.2
+Which exact version are you trying to use?
+
+From ssinger at ca.afilias.info  Tue Oct 11 13:48:40 2011
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Tue, 11 Oct 2011 16:48:40 -0400
+Subject: [Slony1-general] Slony-I 2.1.0 RC2 released
+Message-ID: <4E94ABA8.3000001@ca.afilias.info>
+
+The second release candidate for 2.1.0 has been released.
+
+This release candidate includes only three changes from the last release 
+candidate.
+
+- Bug #236 :: Fix default formatting of timestamp in logs
+- Add support for PostgreSQL 9.1.  Simply marking it a supported version
+- Bug #237 :: Drop set did not remove truncate triggers.
+
+We plan on waiting at least a week before releasing 2.1.0 final.  If no 
+serious issues are found we hope to release 2.1.0 next week or early the 
+following week.
+
+You can find get the 2.1.0 RC2 at
+
+http://www.slony.info/downloads/2.1/source/slony1-2.1.0.rc2.tar.bz2
+http://www.slony.info/downloads/2.1/source/slony1-2.1.0.rc2-docs.tar.bz2
+
+
+Steve
+
+
+From scott.marlowe at gmail.com  Tue Oct 11 22:15:09 2011
+From: scott.marlowe at gmail.com (Scott Marlowe)
+Date: Tue, 11 Oct 2011 23:15:09 -0600
+Subject: [Slony1-general] Postgresql-8.2 replication
+In-Reply-To: <4E951EB0.2080107@srishtisoft.com>
+References: <4E94105B.1030302@srishtisoft.com>
+	<1318341120.2052.14.camel@lenovo01-laptop03.gunduz.org>
+	<4E9453F0.30804@srishtisoft.com>
+	<CAOR=d=2nGs2rUSXf4RHD_qgBZrTxTybkwLn9wBr3hJqTi6=XcA@mail.gmail.com>
+	<4E951EB0.2080107@srishtisoft.com>
+Message-ID: <CAOR=d=3yUg4nP7sFKi4jeno=fy4sNP8G99zKbC=LxW=dybzxiQ@mail.gmail.com>
+
+2011/10/11 khizer <khizer at srishtisoft.com>:
+> I am using slony 1.2.22 i tried with 1.2.9 also but same problem exist ?is
+> it related some headers.
+>
+> i have attached the error file as above
+
+How does it do if you just do:
+
+make distclean
+./configure --prefix=/usr/lib/postgresql/8.2/bin/
+--with-pgconfigdir=/usr/lib/postgresql/8.2/bin/
+
+?
+
+From glynastill at yahoo.co.uk  Wed Oct 12 01:46:28 2011
+From: glynastill at yahoo.co.uk (Glyn Astill)
+Date: Wed, 12 Oct 2011 09:46:28 +0100 (BST)
+Subject: [Slony1-general] Slony-I 2.1.0 RC2 released
+In-Reply-To: <4E94ABA8.3000001@ca.afilias.info>
+References: <4E94ABA8.3000001@ca.afilias.info>
+Message-ID: <1318409188.3419.YahooMailNeo@web26002.mail.ukl.yahoo.com>
+
+>From: Steve Singer <ssinger at ca.afilias.info>
+
+>
+
+>The second release candidate for 2.1.0 has been released.
+>
+>This release candidate includes only three changes from the last release 
+>candidate.
+>
+>- Bug #236 :: Fix default formatting of timestamp in logs
+>- Add support for PostgreSQL 9.1.? Simply marking it a supported version
+>- Bug #237 :: Drop set did not remove truncate triggers.
+>
+>We plan on waiting at least a week before releasing 2.1.0 final.? If no 
+>serious issues are found we hope to release 2.1.0 next week or early the 
+>following week.
+>
+
+Just out of interest, how complicated will the upgrade path be from 2.0 to 2.1?
+
+
+From khizer at srishtisoft.com  Tue Oct 11 21:59:28 2011
+From: khizer at srishtisoft.com (khizer)
+Date: Wed, 12 Oct 2011 10:29:28 +0530
+Subject: [Slony1-general] Postgresql-8.2 replication
+In-Reply-To: <CAOR=d=2nGs2rUSXf4RHD_qgBZrTxTybkwLn9wBr3hJqTi6=XcA@mail.gmail.com>
+References: <4E94105B.1030302@srishtisoft.com>	<1318341120.2052.14.camel@lenovo01-laptop03.gunduz.org>	<4E9453F0.30804@srishtisoft.com>
+	<CAOR=d=2nGs2rUSXf4RHD_qgBZrTxTybkwLn9wBr3hJqTi6=XcA@mail.gmail.com>
+Message-ID: <4E951EB0.2080107@srishtisoft.com>
+
+I am using slony 1.2.22 i tried with 1.2.9 also but same problem exist  
+is it related some headers.
+
+i have attached the error file as above
+
+
+
+On 10/11/2011 08:50 PM, Scott Marlowe wrote:
+> 2011/10/11 khizer<khizer at srishtisoft.com>:
+>> I am using slony 1.2.*  for postgresql-8.2
+> Which exact version are you trying to use?
+>
+
+-------------- next part --------------
+An embedded and charset-unspecified text was scrubbed...
+Name: slony_err.txt
+Url: http://lists.slony.info/pipermail/slony1-general/attachments/20111012/ce126947/attachment.txt 
+
+From ssinger at ca.afilias.info  Wed Oct 12 07:00:58 2011
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Wed, 12 Oct 2011 10:00:58 -0400
+Subject: [Slony1-general] Slony-I 2.1.0 RC2 released
+In-Reply-To: <1318409188.3419.YahooMailNeo@web26002.mail.ukl.yahoo.com>
+References: <4E94ABA8.3000001@ca.afilias.info>
+	<1318409188.3419.YahooMailNeo@web26002.mail.ukl.yahoo.com>
+Message-ID: <4E959D9A.9060108@ca.afilias.info>
+
+On 11-10-12 04:46 AM, Glyn Astill wrote:
+>> From: Steve Singer<ssinger at ca.afilias.info>
+>
+>>
+>
+>> The second release candidate for 2.1.0 has been released.
+>>
+>> This release candidate includes only three changes from the last release
+>> candidate.
+>>
+>> - Bug #236 :: Fix default formatting of timestamp in logs
+>> - Add support for PostgreSQL 9.1.  Simply marking it a supported version
+>> - Bug #237 :: Drop set did not remove truncate triggers.
+>>
+>> We plan on waiting at least a week before releasing 2.1.0 final.  If no
+>> serious issues are found we hope to release 2.1.0 next week or early the
+>> following week.
+>>
+>
+> Just out of interest, how complicated will the upgrade path be from 2.0 to 2.1?
+
+In terms of the upgrade procedure it should be similar to the upgrade of 
+a minor 2.0.x to 2.0.y type of upgrade ie  install the new version on 
+all nodes and run UPDATE FUNCTIONS on all nodes.
+
+You will also need to review all of your slonik scripts to make sure 
+they still work, some improperly written slonik scripts won't behave the 
+same with the implicit wait for changes.
+
+
+From willybas at gmail.com  Tue Oct 18 13:01:23 2011
+From: willybas at gmail.com (Willy-Bas Loos)
+Date: Tue, 18 Oct 2011 22:01:23 +0200
+Subject: [Slony1-general]  make uninstall
+Message-ID: <CAHnozTgJvZr+LMsthikK5K71CdhubyjdXQg1tkJO8fC-H0WxHA@mail.gmail.com>
+
+Hi,
+
+Is there a way to remove an installation of slony I 2.0 when it was
+compiled from source (ubuntu)  ?
+
+Make uninstall doesn't seem to work.
+It's only a virtual test box, so there is no pain.
+checkinstall might be useful.
+
+So, just checking.. is there a way to uninstall after a
+configure;make;make install ?
+
+Cheers,
+
+WBL
+
+-- 
+"Patriotism is the conviction that your country is superior to all
+others because you were born in it." -- George Bernard Shaw
+
+From cbbrowne at afilias.info  Tue Oct 18 13:17:00 2011
+From: cbbrowne at afilias.info (Christopher Browne)
+Date: Tue, 18 Oct 2011 16:17:00 -0400
+Subject: [Slony1-general] make uninstall
+In-Reply-To: <CAHnozTgJvZr+LMsthikK5K71CdhubyjdXQg1tkJO8fC-H0WxHA@mail.gmail.com>
+References: <CAHnozTgJvZr+LMsthikK5K71CdhubyjdXQg1tkJO8fC-H0WxHA@mail.gmail.com>
+Message-ID: <CANfbgbaAki1wJPVFEPhXVzf8FtHr-ei5xM-3GeuFE44ysS85mw@mail.gmail.com>
+
+On Tue, Oct 18, 2011 at 4:01 PM, Willy-Bas Loos <willybas at gmail.com> wrote:
+> Hi,
+>
+> Is there a way to remove an installation of slony I 2.0 when it was
+> compiled from source (ubuntu) ??
+>
+> Make uninstall doesn't seem to work.
+> It's only a virtual test box, so there is no pain.
+> checkinstall might be useful.
+>
+> So, just checking.. is there a way to uninstall after a
+> configure;make;make install ?
+
+We haven't prepared such a make target.
+
+It's an interesting idea, and if there isn't a compelling reason *not*
+to do so, perhaps we should consider doing so.  I observe that
+PostgreSQL does have a "make uninstall" once you head to its src
+directory, so there's certainly a precedent to consider following.
+
+The relevant bits of postgresql src/Makefile
+----------------------------------------------------------------------------
+uninstall: uninstall-local
+
+uninstall-local:
+        rm -f $(addprefix '$(DESTDIR)$(pgxsdir)/$(subdir)'/,
+Makefile.global Makefile.port Makefile.shlib nls-global.mk)
+----------------------------------------------------------------------------
+
+From drj at inigral.com  Tue Oct 18 19:00:16 2011
+From: drj at inigral.com (Daniel Jabbour)
+Date: Tue, 18 Oct 2011 19:00:16 -0700
+Subject: [Slony1-general] Replicating between different schemas
+Message-ID: <FC93D4BF-9BF5-4D44-B42F-F92DB2B2F221@inigral.com>
+
+Hi,
+
+I have been playing with Slony for the last couple of days. I have it replicating successfully in our setup, but I'm trying to figure out how to replicate between two different database schemas on the master provider and subscriber databases.
+
+What I'm trying to accomplish:
+
+* I have 60 individual DBs which are really different instances of the same database schema with slightly different data.
+* I want to replicate two tables (T1 and T2) from each master (M1...M50) to a single subscriber (S), consolidating the data into a single database.
+* I do not want to merge the data, just namespace it separately into postgres schemas (M1's public.T1 goes to S's m1.T1)
+
+I see the add table command for slonik takes a fully qualified name, including the schema. However, how do I configure it to store to a different qualified name in the subscriber?
+
+Thanks,
+Daniel
+
+--
+Daniel Jabbour
+Senior Agnostic Algorithmatist
+Inigral, Inc. | The Social Web For Education
+drj | at | inigral | dot | com
+
+From cbbrowne at afilias.info  Wed Oct 19 15:06:58 2011
+From: cbbrowne at afilias.info (Christopher Browne)
+Date: Wed, 19 Oct 2011 18:06:58 -0400
+Subject: [Slony1-general] Version 2.1.0 released
+Message-ID: <CANfbgbbjows_BSBX_wEgMtJ=5bURXsjE7E+uJwUPTJUc4Bvf5g@mail.gmail.com>
+
+Slony 2.1.0 is now available
+
+The first release for Slony-I branch 2.1 has been released, in the
+form of version 2.1.0. It is a significant new version, fixing dozens
+of reported bugs, and adding some significant enhancements, including:
+- Implicit WAIT FOR
+- Support for adding tables in bulk
+- Support for replicating TRUNCATE
+- Health checks at startup
+- Performance improvement in cases of large backlog
+- Monitoring thread to provide better monitoring data
+
+See the release notes for a full list of changes in this release.
+http://git.postgresql.org/gitweb/?p=slony1-engine.git;a=blob_plain;f=RELEASE;hb=fc782cf8f767484f4417080865e0a1ed670236b0
+
+See http://slony.info for links to the release
+
+From JanWieck at Yahoo.com  Fri Oct 21 04:30:26 2011
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Fri, 21 Oct 2011 07:30:26 -0400
+Subject: [Slony1-general] Replicating between different schemas
+In-Reply-To: <FC93D4BF-9BF5-4D44-B42F-F92DB2B2F221@inigral.com>
+References: <FC93D4BF-9BF5-4D44-B42F-F92DB2B2F221@inigral.com>
+Message-ID: <4EA157D2.1090601@Yahoo.com>
+
+On 10/18/2011 10:00 PM, Daniel Jabbour wrote:
+> Hi,
+>
+> I have been playing with Slony for the last couple of days. I have it replicating successfully in our setup, but I'm trying to figure out how to replicate between two different database schemas on the master provider and subscriber databases.
+>
+> What I'm trying to accomplish:
+>
+> * I have 60 individual DBs which are really different instances of the same database schema with slightly different data.
+> * I want to replicate two tables (T1 and T2) from each master (M1...M50) to a single subscriber (S), consolidating the data into a single database.
+> * I do not want to merge the data, just namespace it separately into postgres schemas (M1's public.T1 goes to S's m1.T1)
+>
+> I see the add table command for slonik takes a fully qualified name, including the schema. However, how do I configure it to store to a different qualified name in the subscriber?
+
+This is a feature that is on our TODO list somewhere, but at this point 
+there are no detailed plans as to how and when it will be implemented.
+
+
+Jan
+
+-- 
+Anyone who trades liberty for security deserves neither
+liberty nor security. -- Benjamin Franklin
+
+From JanWieck at Yahoo.com  Fri Oct 21 04:44:03 2011
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Fri, 21 Oct 2011 07:44:03 -0400
+Subject: [Slony1-general] [Slony1-patches] Trying to implement
+ Replication And Loadbalancing in Postgresql 9.1
+In-Reply-To: <CAJPTwKAV4Y1Sm0Yf+q4WjEbcqj7X4XPC6LQY0LdLgfT4Hif0kw@mail.gmail.com>
+References: <CAJPTwKAV4Y1Sm0Yf+q4WjEbcqj7X4XPC6LQY0LdLgfT4Hif0kw@mail.gmail.com>
+Message-ID: <4EA15B03.8030502@Yahoo.com>
+
+On 10/21/2011 2:25 AM, prashant khabiya wrote:
+> Hi,
+>        I am new to PostgreSQL, currently i am using postgresql9.1 on
+> single server for my application.
+>           But because of heavy load on DB i am trying for Master and
+> slave server and want to imlement Replication and Loadbalancing in it.
+>           From website i came to know replication is possible with
+> slony, I wanted to know about Loadbalancing. Loadbalancing is possible
+> with slony? If yes how we implement it?
+> I am looking forward for your valuable guidance and your consideration.
+> waiting for your reply through mail.
+> Thank you
+> With warm regards,
+> Prashant khabiya
+
+Moving this to slony1-general.
+
+Slony does not provide a connection pool or load balancer. It may be 
+used to synchronize the databases, but you will have to look for 
+something like pgpool-2 to do the actual load balancing.
+
+
+Jan
+
+-- 
+Anyone who trades liberty for security deserves neither
+liberty nor security. -- Benjamin Franklin
+
+From stuart at stuartbishop.net  Fri Oct 21 21:46:08 2011
+From: stuart at stuartbishop.net (Stuart Bishop)
+Date: Sat, 22 Oct 2011 11:46:08 +0700
+Subject: [Slony1-general] Version 2.1.0 released
+In-Reply-To: <CANfbgbbjows_BSBX_wEgMtJ=5bURXsjE7E+uJwUPTJUc4Bvf5g@mail.gmail.com>
+References: <CANfbgbbjows_BSBX_wEgMtJ=5bURXsjE7E+uJwUPTJUc4Bvf5g@mail.gmail.com>
+Message-ID: <CADmi=6M4c0MO-aQyj8-8SdPXDQEx48DJtdx4KrwGAR0HYNqPkw@mail.gmail.com>
+
+On Thu, Oct 20, 2011 at 5:06 AM, Christopher Browne
+<cbbrowne at afilias.info> wrote:
+> Slony 2.1.0 is now available
+>
+> The first release for Slony-I branch 2.1 has been released, in the
+> form of version 2.1.0. It is a significant new version, fixing dozens
+> of reported bugs, and adding some significant enhancements, including:
+> - Implicit WAIT FOR
+> - Support for adding tables in bulk
+> - Support for replicating TRUNCATE
+> - Health checks at startup
+> - Performance improvement in cases of large backlog
+> - Monitoring thread to provide better monitoring data
+>
+> See the release notes for a full list of changes in this release.
+> http://git.postgresql.org/gitweb/?p=slony1-engine.git;a=blob_plain;f=RELEASE;hb=fc782cf8f767484f4417080865e0a1ed670236b0
+>
+> See http://slony.info for links to the release
+
+Congrats!
+
+I'll be watching for reports - I've got a 1.2 -> 2.0 upgrade scheduled
+in two weeks and am interested in peoples gut feelings on skipping 2.0
+entirely and jumping straight to 2.1.
+
+
+-- 
+Stuart Bishop <stuart at stuartbishop.net>
+http://www.stuartbishop.net/
+
+From cbbrowne at afilias.info  Thu Oct 27 16:49:48 2011
+From: cbbrowne at afilias.info (Christopher Browne)
+Date: Thu, 27 Oct 2011 19:49:48 -0400
+Subject: [Slony1-general] Fwd: Re: [Slony1-hackers] Re : Re : Re : Re : Re :
+ Slony 2.1.0 PDF Documentation available
+In-Reply-To: <CANfbgbbE099HzGMRaqw5fNMTpb611mvoVjY2BE7-3Dh2Dz8tEQ@mail.gmail.com>
+References: <1319237403.53744.YahooMailNeo@web29807.mail.ird.yahoo.com>
+	<1319272965.20792.7.camel@lenovo01-laptop03.gunduz.org>
+	<1319385197.73656.YahooMailNeo@web29806.mail.ird.yahoo.com>
+	<1319388275.25133.YahooMailNeo@web29813.mail.ird.yahoo.com>
+	<4EA57496.7010703@ca.afilias.info>
+	<1319496444.3310.YahooMailNeo@web29819.mail.ird.yahoo.com>
+	<4EA8434F.4050303@ca.afilias.info>
+	<1319748418.49044.YahooMailNeo@web29805.mail.ird.yahoo.com>
+	<4EA9D12A.1050209@ca.afilias.info>
+	<1319754867.72695.YahooMailNeo@web29819.mail.ird.yahoo.com>
+	<CANfbgbbE099HzGMRaqw5fNMTpb611mvoVjY2BE7-3Dh2Dz8tEQ@mail.gmail.com>
+Message-ID: <CANfbgbbjzjO3+AD5RMZKOvqdcQ72R48iTJpHbDMjkymmf=NCZg@mail.gmail.com>
+
+---------- Forwarded message ----------
+From: "Christopher Browne" <cbbrowne at afilias.info>
+Date: Oct 27, 2011 7:48 PM
+Subject: Re: [Slony1-hackers] Re : Re : Re : Re : Re : Slony 2.1.0 PDF
+Documentation available
+To: "David TECHER" <davidtecher at yahoo.fr>
+
+All the options have varying bits of new complexity / new apparatus, so any
+choice involves a little more work.  I think I like 3b too, as it seems to
+have fewer "moving parts" than most of the others.
+
+Ideally 3b involves scripting dropping the PDF into the
+less-processed-by-PHP area, as opposed to us needing to remember Yet Another
+Deployment Rule.
+
+I suppose more work should go into the release script, which I'll observe
+that I changed a bit when doing 2.1.0...
+
+Maybe that script should need a CVS repo location, and actually put the
+build into place?
+On Oct 27, 2011 6:34 PM, "David TECHER" <davidtecher at yahoo.fr> wrote:
+
+> Steve,
+>
+> My personal choice will be for 3.b. It seems to be the simpliest choice
+>
+> I will wait you discuss with Chris.
+>
+> For next release of Slony 2.1.1or higher, I will be able to test if
+> something need to be change.
+>
+> Thanks.
+>
+> David
+>
+> ------------------------------
+> *De :* Steve Singer <ssinger at ca.afilias.info>
+> *? :* David TECHER <davidtecher at yahoo.fr>
+> *Cc :* Devrim G?ND?Z <devrim at gunduz.org>; Slony Hackers <
+> slony1-hackers at lists.slony.info>
+> *Envoy? le :* Jeudi 27 Octobre 2011 23h46
+> *Objet :* Re: Re : Re : [Slony1-hackers] Re : Re : Slony 2.1.0 PDF
+> Documentation available
+>
+> On 11-10-27 04:46 PM, David TECHER wrote:
+> > Steve
+> >
+> > When do you think you will push the PDF on slony.info?
+>
+> I have committed this patch to git.  I can
+>
+> 1) Build a new slony1-engine-2.1.0-1-docs.tar.bz2 that includes the PDF.
+>   Not the extra -1 in the filename.  I am open to a different scheme for
+> naming updated tar files for a release that has already been released.
+>
+> 2)  Wait until 2.1.1 gets released (When enough bug fixes accumulate for
+> a 2.1.1 to be justified)
+>
+> 3) I can put the PDF file up on the website outside of a tar file.
+> If we go this route I'd be inclined to add a PDF link next to  the
+> existing HTML link on  http://www.slony.info/documentation/.  I would
+> only do this for 2.1 and new versions going forward.  There are some
+> complications in doing this with the PHP could that generates the
+> website I can
+>
+> a) Modify the PHP to return .PDF files without the HTML header, but this
+> still would involve reading the entire PDF into memory in the PHP script
+> and returning it
+> b) We can manually copy the PDF out of
+> documentation/2.1/.../adminguide./slony.pdf to somewhere else in the
+> directory tree that doesn't invoke the index.php script.
+> c) Find someone who understands and can edit the rewrite rules that make
+> index.php get invoked when the PDF lives under documentation/...
+>
+> If we like option 3 then I  don't see a decision on a-c happening until
+> I talk to Chris next week.
+>
+>
+>
+> >
+> > Kind regards.
+> >
+> >
+> > David.
+> >
+> > ------------------------------------------------------------------------
+> > *De :* Steve Singer <ssinger at ca.afilias.info>
+> > *? :* David TECHER <davidtecher at yahoo.fr>
+> > *Cc :* Devrim G?ND?Z <devrim at gunduz.org>; Slony Hackers
+> > <slony1-hackers at lists.slony.info>
+> > *Envoy? le :* Mercredi 26 Octobre 2011 19h28
+> > *Objet :* Re: Re : [Slony1-hackers] Re : Re : Slony 2.1.0 PDF
+> > Documentation available
+> >
+> > On 11-10-24 06:47 PM, David TECHER wrote:
+> >  > For sure
+> >
+> > Thanks.
+> >
+> > I've produced this patch to have the
+> > make slony.pdf target use this steps instead of the jadetex ones. The
+> > old commands seemed to work for me as well but it took a really long
+> > time for the pdf to run.
+> >
+> > With this patch slony.pdf will be included in the -doc tar file that
+> > gets built/pushed to the slony.info site.
+> >
+> > Any comments?
+> >
+> >
+> >
+> >  >
+> >  > Step 1 - Dblatex
+> >  > ------------------------
+> >  > First of all be sure that you have dblatex installed
+> >  >
+> >  > since I am on Ubuntu Lucid, I've did
+> >  >
+> >  > apt-get install -y dblatex
+> >  >
+> >  > Notice: I've tryied it with dblatex 0.2.12-4 (Ubuntu Lucid) and with
+> the
+> >  > last version 0.3 available from dblatex.sf.net.
+> >  > The two versions are Ok for me. However I am not able to confirm that
+> my
+> >  > commands will work for dblatex < 0.2.12
+> >  >
+> >  > Then
+> >  >
+> >  > Step 2 - Generating the PDF
+> >  > -------------------------------------
+> >  > # As usual, generate the XML file
+> >  > cd doc/adminguide
+> >  > make slony.xml
+> >  >
+> >  > # we need to make a few changes: replacing 'article' by 'sect1' else
+> we
+> >  > will not be able to use Latex
+> >  > sed -i "s:<article:<sect1:g;s:</article:</sect1:g" slony.xml;
+> >  >
+> >  > # We use dblatex to generate a temporary Tex file named (for example)
+> >  > 'slony-tmp.tex'
+> >  > dblatex -t tex -o slony-tmp.tex slony.xml
+> >  >
+> >  > # We drop bad lines "\end{document}" generated by dblatex
+> >  > grep -vE '^(\\end{document}|\\subsection\*)$' slony-tmp.tex >
+> slony.tex
+> >  >
+> >  > # We put the required '\end{document}' at the end of the Tex file
+> >  > echo "\end{document}" >> slony.tex
+> >  >
+> >  > # Latex required to run the following command 3 times in order to
+> >  > generating the TOC of the document
+> >  >
+> >  > pdflatex slony.tex
+> >  > pdflatex slony.tex
+> >  > pdflatex slony.tex
+> >  >
+> >  > Then the PDF file is generated.
+> >  >
+> >  > That's all.
+> >  >
+> >  >
+> >  >
+> ------------------------------------------------------------------------
+> >  > *De :* Steve Singer <ssinger at ca.afilias.info
+> > <mailto:ssinger at ca.afilias.info>>
+> >  > *? :* David TECHER <davidtecher at yahoo.fr <mailto:davidtecher at yahoo.fr
+> >>
+> >  > *Cc :* Devrim G?ND?Z <devrim at gunduz.org <mailto:devrim at gunduz.org>>;
+> > Slony Hackers
+> >  > <slony1-hackers at lists.slony.info
+> > <mailto:slony1-hackers at lists.slony.info>>
+> >  > *Envoy? le :* Lundi 24 Octobre 2011 16h22
+> >  > *Objet :* Re: [Slony1-hackers] Re : Re : Slony 2.1.0 PDF Documentation
+> >  > available
+> >  >
+> >  > On 11-10-23 12:44 PM, David TECHER wrote:
+> >  > > If you are interested, the files used to generated the pdf are
+> > joined to
+> >  > > this mail.
+> >  > >
+> >  > > slony.xml:
+> >  > >
+> >  > > The file you've got when you do
+> >  > >
+> >  > > make slony.xml
+> >  > >
+> >  > > I had to modify it manually.
+> >  > >
+> >  > > slony.tex:
+> >  > >
+> >  > > do
+> >  > >
+> >  > > pdflatex slony.tex
+> >  > >
+> >  > > Be sure to have the image 'complexenv.png' in the same directory
+> where
+> >  > > the command is executed
+> >  >
+> >  > To include this in the -doc tar builds going forward I need to know
+> what
+> >  > commands to execute to build the PDF from the xml sources.
+> >  >
+> >  > $ cd doc/adminguide
+> >  > $ make slony.xml
+> >  >
+> >  > then what? Do I need to run
+> >  >
+> >  > $ make slony.pdf
+> >  >
+> >  > or something else?
+> >  >
+> >  > >
+> >  > >
+> > ------------------------------------------------------------------------
+> >  > > *De :* David TECHER <davidtecher at yahoo.fr
+> > <mailto:davidtecher at yahoo.fr> <mailto:davidtecher at yahoo.fr
+> > <mailto:davidtecher at yahoo.fr>>>
+> >  > > *? :* Devrim G?ND?Z <devrim at gunduz.org <mailto:devrim at gunduz.org>
+> > <mailto:devrim at gunduz.org <mailto:devrim at gunduz.org>>>
+> >  > > *Cc :* Slony Hackers <slony1-hackers at lists.slony.info
+> > <mailto:slony1-hackers at lists.slony.info>
+> >  > <mailto:slony1-hackers at lists.slony.info
+> > <mailto:slony1-hackers at lists.slony.info>>>
+> >  > > *Envoy? le :* Dimanche 23 Octobre 2011 17h53
+> >  > > *Objet :* [Slony1-hackers] Re : Slony 2.1.0 PDF Documentation
+> available
+> >  > >
+> >  > > Devrim,
+> >  > >
+> >  > > I hope so.
+> >  > >
+> >  > > Thanks for your mail.
+> >  > >
+> >  > > David.
+> >  > >
+> >  > >
+> > ------------------------------------------------------------------------
+> >  > > *De :* Devrim G?ND?Z <devrim at gunduz.org <mailto:devrim at gunduz.org>
+> > <mailto:devrim at gunduz.org <mailto:devrim at gunduz.org>>>
+> >  > > *? :* David TECHER <davidtecher at yahoo.fr
+> > <mailto:davidtecher at yahoo.fr> <mailto:davidtecher at yahoo.fr
+> > <mailto:davidtecher at yahoo.fr>>>
+> >  > > *Cc :* Slony Hackers <slony1-hackers at lists.slony.info
+> > <mailto:slony1-hackers at lists.slony.info>
+> >  > <mailto:slony1-hackers at lists.slony.info
+> > <mailto:slony1-hackers at lists.slony.info>>>
+> >  > > *Envoy? le :* Samedi 22 Octobre 2011 10h42
+> >  > > *Objet :* Re: [Slony1-hackers] Slony 2.1.0 PDF Documentation
+> available
+> >  > >
+> >  > > On Fri, 2011-10-21 at 23:50 +0100, David TECHER wrote:
+> >  > > >
+> >  > > > The documentation is available at
+> >  > > >
+> http://www.davidgis.fr/documentation/slony/2.1.0/pdf/slony-2.1.0.pdf
+> >  > > >
+> >  > > > I did not attached the PDF to the mail (big file 1M even if
+> >  > > > compressed).
+> >  > > >
+> >  > > > Let me know if you want to put it on slony.info :)
+> >  > >
+> >  > > Thanks for the work!
+> >  > >
+> >  > > I really want to see it in slony.info, so that I can push this PDF
+> > along
+> >  > > with RPMs.
+> >  > >
+> >  > > Regards,
+> >  > > --
+> >  > > Devrim G?ND?Z
+> >  > > Principal Systems Engineer @ EnterpriseDB:
+> http://www.enterprisedb.com
+> >  > > PostgreSQL Dan??man?/Consultant, Red Hat Certified Engineer
+> >  > > Community: devrim~PostgreSQL.org, devrim.gunduz~linux.org.tr
+> >  > > http://www.gunduz.org Twitter: http://twitter.com/devrimgunduz
+> >  > >
+> >  > >
+> >  > >
+> >  > > _______________________________________________
+> >  > > Slony1-hackers mailing list
+> >  > > Slony1-hackers at lists.slony.info
+> > <mailto:Slony1-hackers at lists.slony.info>
+> >  > <mailto:Slony1-hackers at lists.slony.info
+> > <mailto:Slony1-hackers at lists.slony.info>>
+> >  > <mailto:Slony1-hackers at lists.slony.info
+> > <mailto:Slony1-hackers at lists.slony.info>
+> >  > <mailto:Slony1-hackers at lists.slony.info
+> > <mailto:Slony1-hackers at lists.slony.info>>>
+> >  > > http://lists.slony.info/mailman/listinfo/slony1-hackers
+> >  > >
+> >  > >
+> >  > >
+> >  > >
+> >  > > _______________________________________________
+> >  > > Slony1-hackers mailing list
+> >  > > Slony1-hackers at lists.slony.info
+> > <mailto:Slony1-hackers at lists.slony.info>
+> > <mailto:Slony1-hackers at lists.slony.info
+> > <mailto:Slony1-hackers at lists.slony.info>>
+> >  > > http://lists.slony.info/mailman/listinfo/slony1-hackers
+> >  >
+> >  >
+> >  >
+> >
+> >
+> >
+>
+>
+>
+>
+> _______________________________________________
+> Slony1-hackers mailing list
+> Slony1-hackers at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-hackers
+>
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20111027/79a7316d/attachment-0001.htm 
+
+From ssinger at ca.afilias.info  Fri Oct 28 05:36:03 2011
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Fri, 28 Oct 2011 08:36:03 -0400
+Subject: [Slony1-general] Fwd: Re: [Slony1-hackers] Re : Re : Re : Re :
+ Re : Slony 2.1.0 PDF Documentation available
+In-Reply-To: <CANfbgbbjzjO3+AD5RMZKOvqdcQ72R48iTJpHbDMjkymmf=NCZg@mail.gmail.com>
+References: <1319237403.53744.YahooMailNeo@web29807.mail.ird.yahoo.com>	<1319272965.20792.7.camel@lenovo01-laptop03.gunduz.org>	<1319385197.73656.YahooMailNeo@web29806.mail.ird.yahoo.com>	<1319388275.25133.YahooMailNeo@web29813.mail.ird.yahoo.com>	<4EA57496.7010703@ca.afilias.info>	<1319496444.3310.YahooMailNeo@web29819.mail.ird.yahoo.com>	<4EA8434F.4050303@ca.afilias.info>	<1319748418.49044.YahooMailNeo@web29805.mail.ird.yahoo.com>	<4EA9D12A.1050209@ca.afilias.info>	<1319754867.72695.YahooMailNeo@web29819.mail.ird.yahoo.com>	<CANfbgbbE099HzGMRaqw5fNMTpb611mvoVjY2BE7-3Dh2Dz8tEQ@mail.gmail.com>
+	<CANfbgbbjzjO3+AD5RMZKOvqdcQ72R48iTJpHbDMjkymmf=NCZg@mail.gmail.com>
+Message-ID: <4EAAA1B3.40800@ca.afilias.info>
+
+On 11-10-27 07:49 PM, Christopher Browne wrote:
+
+> ---------- Forwarded message ----------
+> From: "Christopher Browne" <cbbrowne at afilias.info
+> <mailto:cbbrowne at afilias.info>>
+> Date: Oct 27, 2011 7:48 PM
+> Subject: Re: [Slony1-hackers] Re : Re : Re : Re : Re : Slony 2.1.0 PDF
+> Documentation available
+> To: "David TECHER" <davidtecher at yahoo.fr <mailto:davidtecher at yahoo.fr>>
+>
+> All the options have varying bits of new complexity / new apparatus, so
+> any choice involves a little more work.  I think I like 3b too, as it
+> seems to have fewer "moving parts" than most of the others.
+>
+> Ideally 3b involves scripting dropping the PDF into the
+> less-processed-by-PHP area, as opposed to us needing to remember Yet
+> Another Deployment Rule.
+>
+> I suppose more work should go into the release script, which I'll
+> observe that I changed a bit when doing 2.1.0...
+>
+> Maybe that script should need a CVS repo location, and actually put the
+> build into place?
+
+The release script (tools/build_release.sh) is already in git I wouldn't 
+want to store it in two locations.
+
+That script can be run to make a tag + tar files by anyone who clones 
+the slony git repository. It doesn't require login credentials to 
+www.slony.info and I wouldn't want to change that.
+
+Maybe we need a second script that handles the slony.info side of 
+things.  The nice thing about 3.a and 3.c are that it doens't require 
+any new steps at deployment time.  You just untar the -docs tarfile 
+(which we already do) and the PDF is there.
+
+
+
+
+>
+> On Oct 27, 2011 6:34 PM, "David TECHER" <davidtecher at yahoo.fr
+> <mailto:davidtecher at yahoo.fr>> wrote:
+>
+>     Steve,
+>
+>     My personal choice will be for 3.b. It seems to be the simpliest choice
+>
+>     I will wait you discuss with Chris.
+>
+>     For next release of Slony 2.1.1or higher, I will be able to test if
+>     something need to be change.
+>
+>     Thanks.
+>
+>     David
+>
+>     ------------------------------------------------------------------------
+>     *De :* Steve Singer <ssinger at ca.afilias.info
+>     <mailto:ssinger at ca.afilias.info>>
+>     *? :* David TECHER <davidtecher at yahoo.fr <mailto:davidtecher at yahoo.fr>>
+>     *Cc :* Devrim G?ND?Z <devrim at gunduz.org <mailto:devrim at gunduz.org>>;
+>     Slony Hackers <slony1-hackers at lists.slony.info
+>     <mailto:slony1-hackers at lists.slony.info>>
+>     *Envoy? le :* Jeudi 27 Octobre 2011 23h46
+>     *Objet :* Re: Re : Re : [Slony1-hackers] Re : Re : Slony 2.1.0 PDF
+>     Documentation available
+>
+>     On 11-10-27 04:46 PM, David TECHER wrote:
+>      > Steve
+>      >
+>      > When do you think you will push the PDF on slony.info
+>     <http://slony.info>?
+>
+>     I have committed this patch to git.  I can
+>
+>     1) Build a new slony1-engine-2.1.0-1-docs.tar.bz2 that includes the
+>     PDF.
+>        Not the extra -1 in the filename.  I am open to a different
+>     scheme for
+>     naming updated tar files for a release that has already been released.
+>
+>     2)  Wait until 2.1.1 gets released (When enough bug fixes accumulate
+>     for
+>     a 2.1.1 to be justified)
+>
+>     3) I can put the PDF file up on the website outside of a tar file.
+>     If we go this route I'd be inclined to add a PDF link next to  the
+>     existing HTML link on http://www.slony.info/documentation/.  I would
+>     only do this for 2.1 and new versions going forward.  There are some
+>     complications in doing this with the PHP could that generates the
+>     website I can
+>
+>     a) Modify the PHP to return .PDF files without the HTML header, but
+>     this
+>     still would involve reading the entire PDF into memory in the PHP
+>     script
+>     and returning it
+>     b) We can manually copy the PDF out of
+>     documentation/2.1/.../adminguide./slony.pdf to somewhere else in the
+>     directory tree that doesn't invoke the index.php script.
+>     c) Find someone who understands and can edit the rewrite rules that
+>     make
+>     index.php get invoked when the PDF lives under documentation/...
+>
+>     If we like option 3 then I  don't see a decision on a-c happening until
+>     I talk to Chris next week.
+>
+>
+>
+>      >
+>      > Kind regards.
+>      >
+>      >
+>      > David.
+>      >
+>      >
+>     ------------------------------------------------------------------------
+>      > *De :* Steve Singer <ssinger at ca.afilias.info
+>     <mailto:ssinger at ca.afilias.info>>
+>      > *? :* David TECHER <davidtecher at yahoo.fr
+>     <mailto:davidtecher at yahoo.fr>>
+>      > *Cc :* Devrim G?ND?Z <devrim at gunduz.org
+>     <mailto:devrim at gunduz.org>>; Slony Hackers
+>      > <slony1-hackers at lists.slony.info
+>     <mailto:slony1-hackers at lists.slony.info>>
+>      > *Envoy? le :* Mercredi 26 Octobre 2011 19h28
+>      > *Objet :* Re: Re : [Slony1-hackers] Re : Re : Slony 2.1.0 PDF
+>      > Documentation available
+>      >
+>      > On 11-10-24 06:47 PM, David TECHER wrote:
+>      > > For sure
+>      >
+>      > Thanks.
+>      >
+>      > I've produced this patch to have the
+>      > make slony.pdf target use this steps instead of the jadetex ones. The
+>      > old commands seemed to work for me as well but it took a really long
+>      > time for the pdf to run.
+>      >
+>      > With this patch slony.pdf will be included in the -doc tar file that
+>      > gets built/pushed to the slony.info <http://slony.info> site.
+>      >
+>      > Any comments?
+>      >
+>      >
+>      >
+>      > >
+>      > > Step 1 - Dblatex
+>      > > ------------------------
+>      > > First of all be sure that you have dblatex installed
+>      > >
+>      > > since I am on Ubuntu Lucid, I've did
+>      > >
+>      > > apt-get install -y dblatex
+>      > >
+>      > > Notice: I've tryied it with dblatex 0.2.12-4 (Ubuntu Lucid) and
+>     with the
+>      > > last version 0.3 available from dblatex.sf.net
+>     <http://dblatex.sf.net>.
+>      > > The two versions are Ok for me. However I am not able to
+>     confirm that my
+>      > > commands will work for dblatex < 0.2.12
+>      > >
+>      > > Then
+>      > >
+>      > > Step 2 - Generating the PDF
+>      > > -------------------------------------
+>      > > # As usual, generate the XML file
+>      > > cd doc/adminguide
+>      > > make slony.xml
+>      > >
+>      > > # we need to make a few changes: replacing 'article' by 'sect1'
+>     else we
+>      > > will not be able to use Latex
+>      > > sed -i "s:<article:<sect1:g;s:</article:</sect1:g" slony.xml;
+>      > >
+>      > > # We use dblatex to generate a temporary Tex file named (for
+>     example)
+>      > > 'slony-tmp.tex'
+>      > > dblatex -t tex -o slony-tmp.tex slony.xml
+>      > >
+>      > > # We drop bad lines "\end{document}" generated by dblatex
+>      > > grep -vE '^(\\end{document}|\\subsection\*)$' slony-tmp.tex >
+>     slony.tex
+>      > >
+>      > > # We put the required '\end{document}' at the end of the Tex file
+>      > > echo "\end{document}" >> slony.tex
+>      > >
+>      > > # Latex required to run the following command 3 times in order to
+>      > > generating the TOC of the document
+>      > >
+>      > > pdflatex slony.tex
+>      > > pdflatex slony.tex
+>      > > pdflatex slony.tex
+>      > >
+>      > > Then the PDF file is generated.
+>      > >
+>      > > That's all.
+>      > >
+>      > >
+>      > >
+>     ------------------------------------------------------------------------
+>      > > *De :* Steve Singer <ssinger at ca.afilias.info
+>     <mailto:ssinger at ca.afilias.info>
+>      > <mailto:ssinger at ca.afilias.info <mailto:ssinger at ca.afilias.info>>>
+>      > > *? :* David TECHER <davidtecher at yahoo.fr
+>     <mailto:davidtecher at yahoo.fr> <mailto:davidtecher at yahoo.fr
+>     <mailto:davidtecher at yahoo.fr>>>
+>      > > *Cc :* Devrim G?ND?Z <devrim at gunduz.org
+>     <mailto:devrim at gunduz.org> <mailto:devrim at gunduz.org
+>     <mailto:devrim at gunduz.org>>>;
+>      > Slony Hackers
+>      > > <slony1-hackers at lists.slony.info
+>     <mailto:slony1-hackers at lists.slony.info>
+>      > <mailto:slony1-hackers at lists.slony.info
+>     <mailto:slony1-hackers at lists.slony.info>>>
+>      > > *Envoy? le :* Lundi 24 Octobre 2011 16h22
+>      > > *Objet :* Re: [Slony1-hackers] Re : Re : Slony 2.1.0 PDF
+>     Documentation
+>      > > available
+>      > >
+>      > > On 11-10-23 12:44 PM, David TECHER wrote:
+>      > > > If you are interested, the files used to generated the pdf are
+>      > joined to
+>      > > > this mail.
+>      > > >
+>      > > > slony.xml:
+>      > > >
+>      > > > The file you've got when you do
+>      > > >
+>      > > > make slony.xml
+>      > > >
+>      > > > I had to modify it manually.
+>      > > >
+>      > > > slony.tex:
+>      > > >
+>      > > > do
+>      > > >
+>      > > > pdflatex slony.tex
+>      > > >
+>      > > > Be sure to have the image 'complexenv.png' in the same
+>     directory where
+>      > > > the command is executed
+>      > >
+>      > > To include this in the -doc tar builds going forward I need to
+>     know what
+>      > > commands to execute to build the PDF from the xml sources.
+>      > >
+>      > > $ cd doc/adminguide
+>      > > $ make slony.xml
+>      > >
+>      > > then what? Do I need to run
+>      > >
+>      > > $ make slony.pdf
+>      > >
+>      > > or something else?
+>      > >
+>      > > >
+>      > > >
+>      >
+>     ------------------------------------------------------------------------
+>      > > > *De :* David TECHER <davidtecher at yahoo.fr
+>     <mailto:davidtecher at yahoo.fr>
+>      > <mailto:davidtecher at yahoo.fr <mailto:davidtecher at yahoo.fr>>
+>     <mailto:davidtecher at yahoo.fr <mailto:davidtecher at yahoo.fr>
+>      > <mailto:davidtecher at yahoo.fr <mailto:davidtecher at yahoo.fr>>>>
+>      > > > *? :* Devrim G?ND?Z <devrim at gunduz.org
+>     <mailto:devrim at gunduz.org> <mailto:devrim at gunduz.org
+>     <mailto:devrim at gunduz.org>>
+>      > <mailto:devrim at gunduz.org <mailto:devrim at gunduz.org>
+>     <mailto:devrim at gunduz.org <mailto:devrim at gunduz.org>>>>
+>      > > > *Cc :* Slony Hackers <slony1-hackers at lists.slony.info
+>     <mailto:slony1-hackers at lists.slony.info>
+>      > <mailto:slony1-hackers at lists.slony.info
+>     <mailto:slony1-hackers at lists.slony.info>>
+>      > > <mailto:slony1-hackers at lists.slony.info
+>     <mailto:slony1-hackers at lists.slony.info>
+>      > <mailto:slony1-hackers at lists.slony.info
+>     <mailto:slony1-hackers at lists.slony.info>>>>
+>      > > > *Envoy? le :* Dimanche 23 Octobre 2011 17h53
+>      > > > *Objet :* [Slony1-hackers] Re : Slony 2.1.0 PDF Documentation
+>     available
+>      > > >
+>      > > > Devrim,
+>      > > >
+>      > > > I hope so.
+>      > > >
+>      > > > Thanks for your mail.
+>      > > >
+>      > > > David.
+>      > > >
+>      > > >
+>      >
+>     ------------------------------------------------------------------------
+>      > > > *De :* Devrim G?ND?Z <devrim at gunduz.org
+>     <mailto:devrim at gunduz.org> <mailto:devrim at gunduz.org
+>     <mailto:devrim at gunduz.org>>
+>      > <mailto:devrim at gunduz.org <mailto:devrim at gunduz.org>
+>     <mailto:devrim at gunduz.org <mailto:devrim at gunduz.org>>>>
+>      > > > *? :* David TECHER <davidtecher at yahoo.fr
+>     <mailto:davidtecher at yahoo.fr>
+>      > <mailto:davidtecher at yahoo.fr <mailto:davidtecher at yahoo.fr>>
+>     <mailto:davidtecher at yahoo.fr <mailto:davidtecher at yahoo.fr>
+>      > <mailto:davidtecher at yahoo.fr <mailto:davidtecher at yahoo.fr>>>>
+>      > > > *Cc :* Slony Hackers <slony1-hackers at lists.slony.info
+>     <mailto:slony1-hackers at lists.slony.info>
+>      > <mailto:slony1-hackers at lists.slony.info
+>     <mailto:slony1-hackers at lists.slony.info>>
+>      > > <mailto:slony1-hackers at lists.slony.info
+>     <mailto:slony1-hackers at lists.slony.info>
+>      > <mailto:slony1-hackers at lists.slony.info
+>     <mailto:slony1-hackers at lists.slony.info>>>>
+>      > > > *Envoy? le :* Samedi 22 Octobre 2011 10h42
+>      > > > *Objet :* Re: [Slony1-hackers] Slony 2.1.0 PDF Documentation
+>     available
+>      > > >
+>      > > > On Fri, 2011-10-21 at 23:50 +0100, David TECHER wrote:
+>      > > > >
+>      > > > > The documentation is available at
+>      > > > >
+>     http://www.davidgis.fr/documentation/slony/2.1.0/pdf/slony-2.1.0.pdf
+>      > > > >
+>      > > > > I did not attached the PDF to the mail (big file 1M even if
+>      > > > > compressed).
+>      > > > >
+>      > > > > Let me know if you want to put it on slony.info
+>     <http://slony.info> :)
+>      > > >
+>      > > > Thanks for the work!
+>      > > >
+>      > > > I really want to see it in slony.info <http://slony.info>, so
+>     that I can push this PDF
+>      > along
+>      > > > with RPMs.
+>      > > >
+>      > > > Regards,
+>      > > > --
+>      > > > Devrim G?ND?Z
+>      > > > Principal Systems Engineer @ EnterpriseDB:
+>     http://www.enterprisedb.com
+>      > > > PostgreSQL Dan??man?/Consultant, Red Hat Certified Engineer
+>      > > > Community: devrim~PostgreSQL.org, devrim.gunduz~linux.org.tr
+>     <http://linux.org.tr>
+>      > > > http://www.gunduz.org Twitter: http://twitter.com/devrimgunduz
+>      > > >
+>      > > >
+>      > > >
+>      > > > _______________________________________________
+>      > > > Slony1-hackers mailing list
+>      > > > Slony1-hackers at lists.slony.info
+>     <mailto:Slony1-hackers at lists.slony.info>
+>      > <mailto:Slony1-hackers at lists.slony.info
+>     <mailto:Slony1-hackers at lists.slony.info>>
+>      > > <mailto:Slony1-hackers at lists.slony.info
+>     <mailto:Slony1-hackers at lists.slony.info>
+>      > <mailto:Slony1-hackers at lists.slony.info
+>     <mailto:Slony1-hackers at lists.slony.info>>>
+>      > > <mailto:Slony1-hackers at lists.slony.info
+>     <mailto:Slony1-hackers at lists.slony.info>
+>      > <mailto:Slony1-hackers at lists.slony.info
+>     <mailto:Slony1-hackers at lists.slony.info>>
+>      > > <mailto:Slony1-hackers at lists.slony.info
+>     <mailto:Slony1-hackers at lists.slony.info>
+>      > <mailto:Slony1-hackers at lists.slony.info
+>     <mailto:Slony1-hackers at lists.slony.info>>>>
+>      > > > http://lists.slony.info/mailman/listinfo/slony1-hackers
+>      > > >
+>      > > >
+>      > > >
+>      > > >
+>      > > > _______________________________________________
+>      > > > Slony1-hackers mailing list
+>      > > > Slony1-hackers at lists.slony.info
+>     <mailto:Slony1-hackers at lists.slony.info>
+>      > <mailto:Slony1-hackers at lists.slony.info
+>     <mailto:Slony1-hackers at lists.slony.info>>
+>      > <mailto:Slony1-hackers at lists.slony.info
+>     <mailto:Slony1-hackers at lists.slony.info>
+>      > <mailto:Slony1-hackers at lists.slony.info
+>     <mailto:Slony1-hackers at lists.slony.info>>>
+>      > > > http://lists.slony.info/mailman/listinfo/slony1-hackers
+>      > >
+>      > >
+>      > >
+>      >
+>      >
+>      >
+>
+>
+>
+>
+>     _______________________________________________
+>     Slony1-hackers mailing list
+>     Slony1-hackers at lists.slony.info <mailto:Slony1-hackers at lists.slony.info>
+>     http://lists.slony.info/mailman/listinfo/slony1-hackers
+>
+>
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+
+
+From matthias at aic.at  Fri Oct 28 12:20:43 2011
+From: matthias at aic.at (Matthias Leopold)
+Date: Fri, 28 Oct 2011 21:20:43 +0200
+Subject: [Slony1-general] postgres/slony upgrade question
+Message-ID: <4EAB008B.9040309@aic.at>
+
+hi,
+
+i'm running a slony 1.2.21 cluster. the master postgres server has 
+postgres version 8.3.9 on i386 architecture. slave nodes mostly have 
+postgres 8.3.x, one has 8.4.x
+
+would it be possible to do the following:
+
+- stop write access to master server
+
+- stop all slons
+
+- pg_dump master database
+
+- shut old physical master server down
+
+- load the dump in a 8.4 postgres server with slony 1.2.21 on x86_64 
+architecture with same network address as old physical master
+
+- start slons again
+
+- enable write access to new physical master and continue with replication
+
+?
+
+thx for advice
+matthias
+
+
+
+From ssinger at ca.afilias.info  Fri Oct 28 14:04:37 2011
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Fri, 28 Oct 2011 17:04:37 -0400
+Subject: [Slony1-general] postgres/slony upgrade question
+In-Reply-To: <4EAB008B.9040309@aic.at>
+References: <4EAB008B.9040309@aic.at>
+Message-ID: <4EAB18E5.9020401@ca.afilias.info>
+
+On 11-10-28 03:20 PM, Matthias Leopold wrote:
+> hi,
+
+You will have some issues that might make it easier to create a new 
+slave replicate your db to that slave and then do a move master.
+
+But you might be able to get around the issues.  The things to keep in 
+mind are:
+
+1) You mentioned doing this for the master, that is important because in 
+1.2 you can't do a pg_dump of a slave.
+
+2) See http://bugs.slony.info/bugzilla/show_bug.cgi?id=234   I do not 
+know how this bug plays out (if at all) on a 1.2 install nor have I 
+checked to see if advancing the xid rollover counter would work with 1.2
+
+3) You will need to run UPDATE FUNCTIONS(...) after the upgrade to make 
+sure slony uses 8.4 versions of stored procedures versus 8.3/8.1 versions.
+
+There also might be other issues I don't know about.
+
+
+>
+> i'm running a slony 1.2.21 cluster. the master postgres server has
+> postgres version 8.3.9 on i386 architecture. slave nodes mostly have
+> postgres 8.3.x, one has 8.4.x
+>
+> would it be possible to do the following:
+>
+> - stop write access to master server
+>
+> - stop all slons
+>
+> - pg_dump master database
+>
+> - shut old physical master server down
+>
+> - load the dump in a 8.4 postgres server with slony 1.2.21 on x86_64
+> architecture with same network address as old physical master
+>
+> - start slons again
+>
+> - enable write access to new physical master and continue with replication
+>
+> ?
+>
+> thx for advice
+> matthias
+>
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+
+
+From scott.marlowe at gmail.com  Fri Oct 28 14:22:04 2011
+From: scott.marlowe at gmail.com (Scott Marlowe)
+Date: Fri, 28 Oct 2011 15:22:04 -0600
+Subject: [Slony1-general] postgres/slony upgrade question
+In-Reply-To: <4EAB008B.9040309@aic.at>
+References: <4EAB008B.9040309@aic.at>
+Message-ID: <CAOR=d=2z1bTQXxRszxoJdLzrYgq=8quDYFjMUPZpMO=H46EH8Q@mail.gmail.com>
+
+On Fri, Oct 28, 2011 at 1:20 PM, Matthias Leopold <matthias at aic.at> wrote:
+> hi,
+>
+> i'm running a slony 1.2.21 cluster. the master postgres server has
+> postgres version 8.3.9 on i386 architecture. slave nodes mostly have
+> postgres 8.3.x, one has 8.4.x
+>
+> would it be possible to do the following:
+>
+> - stop write access to master server
+>
+> - stop all slons
+>
+> - pg_dump master database
+>
+> - shut old physical master server down
+>
+> - load the dump in a 8.4 postgres server with slony 1.2.21 on x86_64
+> architecture with same network address as old physical master
+>
+> - start slons again
+>
+> - enable write access to new physical master and continue with replication
+
+Wait what are you trying to do?  Make the 8.4 machine the master?
+Just initiate a slony switchover and it will be the master.  More
+detail on what you're trying to accomplish, not on how you're trying
+to accomplish it might help here.
+
+From davidtecher at yahoo.fr  Sat Oct 29 05:58:38 2011
+From: davidtecher at yahoo.fr (David TECHER)
+Date: Sat, 29 Oct 2011 13:58:38 +0100 (BST)
+Subject: [Slony1-general] Re : Fwd: Re: [Slony1-hackers] Re : Re : Re : Re :
+	Re : Slony 2.1.0 PDF Documentation available
+In-Reply-To: <4EAAA1B3.40800@ca.afilias.info>
+References: <1319237403.53744.YahooMailNeo@web29807.mail.ird.yahoo.com>
+	<1319272965.20792.7.camel@lenovo01-laptop03.gunduz.org>
+	<1319385197.73656.YahooMailNeo@web29806.mail.ird.yahoo.com>
+	<1319388275.25133.YahooMailNeo@web29813.mail.ird.yahoo.com>
+	<4EA57496.7010703@ca.afilias.info>
+	<1319496444.3310.YahooMailNeo@web29819.mail.ird.yahoo.com>
+	<4EA8434F.4050303@ca.afilias.info>
+	<1319748418.49044.YahooMailNeo@web29805.mail.ird.yahoo.com>
+	<4EA9D12A.1050209@ca.afilias.info>
+	<1319754867.72695.YahooMailNeo@web29819.mail.ird.yahoo.com>
+	<CANfbgbbE099HzGMRaqw5fNMTpb611mvoVjY2BE7-3Dh2Dz8tEQ@mail.gmail.com>
+	<CANfbgbbjzjO3+AD5RMZKOvqdcQ72R48iTJpHbDMjkymmf=NCZg@mail.gmail.com>
+	<4EAAA1B3.40800@ca.afilias.info>
+Message-ID: <1319893118.93483.YahooMailNeo@web29809.mail.ird.yahoo.com>
+
+Sounds good for 3.a/3.b
+
+Thanks David
+
+
+
+________________________________
+De?: Steve Singer <ssinger at ca.afilias.info>
+??: Christopher Browne <cbbrowne at afilias.info>
+Cc?: Slony General <slony1-general at lists.slony.info>
+Envoy? le : Vendredi 28 Octobre 2011 14h36
+Objet?: Re: [Slony1-general] Fwd: Re: [Slony1-hackers] Re : Re : Re : Re : Re : Slony 2.1.0 PDF Documentation available
+
+On 11-10-27 07:49 PM, Christopher Browne wrote:
+
+> ---------- Forwarded message ----------
+> From: "Christopher Browne" <cbbrowne at afilias.info
+> <mailto:cbbrowne at afilias.info>>
+> Date: Oct 27, 2011 7:48 PM
+> Subject: Re: [Slony1-hackers] Re : Re : Re : Re : Re : Slony 2.1.0 PDF
+> Documentation available
+> To: "David TECHER" <davidtecher at yahoo.fr <mailto:davidtecher at yahoo.fr>>
+>
+> All the options have varying bits of new complexity / new apparatus, so
+> any choice involves a little more work.? I think I like 3b too, as it
+> seems to have fewer "moving parts" than most of the others.
+>
+> Ideally 3b involves scripting dropping the PDF into the
+> less-processed-by-PHP area, as opposed to us needing to remember Yet
+> Another Deployment Rule.
+>
+> I suppose more work should go into the release script, which I'll
+> observe that I changed a bit when doing 2.1.0...
+>
+> Maybe that script should need a CVS repo location, and actually put the
+> build into place?
+
+The release script (tools/build_release.sh) is already in git I wouldn't 
+want to store it in two locations.
+
+That script can be run to make a tag + tar files by anyone who clones 
+the slony git repository. It doesn't require login credentials to 
+www.slony.info and I wouldn't want to change that.
+
+Maybe we need a second script that handles the slony.info side of 
+things.? The nice thing about 3.a and 3.c are that it doens't require 
+any new steps at deployment time.? You just untar the -docs tarfile 
+(which we already do) and the PDF is there.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20111029/9ac45d9b/attachment.htm 
+

@@ -1,0 +1,104 @@
+From bugzilla-daemon at main.slony.info  Tue Jul  3 10:03:45 2012
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Tue,  3 Jul 2012 10:03:45 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 272] New: slonik can segfault scanning input
+Message-ID: <bug-272-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=272
+
+           Summary: slonik can segfault scanning input
+           Product: Slony-I
+           Version: devel
+          Platform: PC
+        OS/Version: Linux
+            Status: NEW
+          Severity: enhancement
+          Priority: low
+         Component: slonik
+        AssignedTo: slony1-bugs at lists.slony.info
+        ReportedBy: ssinger at ca.afilias.info
+                CC: slony1-bugs at lists.slony.info
+   Estimated Hours: 0.0
+
+
+
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Tue Jul  3 10:10:55 2012
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Tue,  3 Jul 2012 10:10:55 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 272] slonik can segfault scanning input
+In-Reply-To: <bug-272-4@http.www.slony.info/bugzilla/>
+References: <bug-272-4@http.www.slony.info/bugzilla/>
+Message-ID: <20120703171055.1FFAC2910E7@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=272
+
+--- Comment #1 from Steve Singer <ssinger at ca.afilias.info> 2012-07-03 10:10:55 PDT ---
+I've seen slonik segfault when scanning/parsing some longer slonik scripts.
+
+Program received signal SIGSEGV, Segmentation fault.
+memcpy () at ../sysdeps/x86_64/memcpy.S:267
+267    ../sysdeps/x86_64/memcpy.S: No such file or directory.
+    in ../sysdeps/x86_64/memcpy.S
+1: yytext = 0x62aa58 "key');\nSET ADD T"
+(gdb) where
+#0  memcpy () at ../sysdeps/x86_64/memcpy.S:267
+#1  0x00000000004149d1 in yyparse () at parser.y:1947
+#2  0x0000000000401bf3 in main (argc=1, argv=0x7fffffffe318) at slonik.c:227
+(gdb) 
+p yytext
+$20 = 0x62aa58 "key');\nSET ADD T"
+(gdb) p toklen
+$21 = 18446744073709543446
+
+What seems to be happening is that the scanner enters the IN_STRING rule where
+the complete string isn't in the buffer.
+
+It marks the location of the start of the string in start_charpos
+
+It then advances and calls yy_get_next_buffer().  This will rewrite/memcpy
+the buffer.     The end of the string , the closing "'" can then be at a memory
+address earlier than start_charpos.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Tue Jul  3 10:19:08 2012
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Tue,  3 Jul 2012 10:19:08 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 272] slonik can segfault scanning input
+In-Reply-To: <bug-272-4@http.www.slony.info/bugzilla/>
+References: <bug-272-4@http.www.slony.info/bugzilla/>
+Message-ID: <20120703171908.AD6D42910E7@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=272
+
+Steve Singer <ssinger at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+             Status|NEW                         |ASSIGNED
+
+--- Comment #2 from Steve Singer <ssinger at ca.afilias.info> 2012-07-03 10:19:09 PDT ---
+We should not be storing pointers into yytext for use on a later rule.
+
+http://flex.sourceforge.net/manual/A-Note-About-yytext-And-Memory.html#A-Note-About-yytext-And-Memory
+
+The IN_STRING rules should be rewritten to copy/store each character in the
+string to a difference region of memory.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+

@@ -1,0 +1,263 @@
+From ssinger at ca.afilias.info  Fri Apr  1 11:44:30 2011
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Fri, 01 Apr 2011 14:44:30 -0400
+Subject: [Slony1-hackers] automatic wait for update
+Message-ID: <4D961D0E.2020104@ca.afilias.info>
+
+An update for anyone following the progress of this feature.
+
+I had sent some emails about implementing a slon-side wait so where we 
+would record pre-condition events from other nodes. We've had some 
+in-person discussions off list and have decided to go this route.
+
+This leaves a handful of issues that the current ('wait until the next 
+event node is caught up with the previous event node') approach.
+
+In particular events that can be submitted at an arbitrary node such as
+
+DROP NODE:
+-We should wait for ALL pending non-sync events (from all nodes) to be 
+confirmed by all nodes (other than the one being dropped) before 
+submitting the drop node.  Otherwise an earlier event such as a 'store 
+path' or even a subscribe involving the 'dropped' node might arrive at a 
+fourth node after the drop node. This isn't a critical error in that the 
+'new' row in sl_node will be an <event pending> node but that row will 
+never go away and I think this will confuse people.
+
+STORE SET:
+-Can conflict with DROP SET, I drop a set from one event node/origin 
+then create a set with the same id at a different node.  A third node 
+might see the STORE before the DROP.   Before submitting a STORE SET we 
+should make sure all outstanding non-sync events have been confirmed by 
+all nodes.
+
+A source of both of these problems is that we allow node and set id's to 
+be reused.  Since I have no appetite to change that I think what I 
+discuss above is the best option.  It does mean that you can't drop 
+nodes or create new sets if you have another node that is behind.  If 
+that is your situation you can always disable the auto-wait for feature 
+and hope your behind node processes things in the right order.
+
+There might be a few more cases that need this type of behaviour but I 
+haven't pinpointed them yet.
+
+
+From cbbrowne at afilias.info  Tue Apr 12 13:25:39 2011
+From: cbbrowne at afilias.info (Christopher Browne)
+Date: Tue, 12 Apr 2011 16:25:39 -0400
+Subject: [Slony1-hackers] EEk. Remember to SQUASH those merges!
+Message-ID: <BANLkTin5AY9MtCQxOtJg5oPPe8Zs9GGnzQ@mail.gmail.com>
+
+I just merged in the fix for bug #196, and that pretty well spammed the list.
+
+Note for next time: Remember to squash the commits together when
+merging, because the bits of development that took place usually
+aren't terribly much of interest, only, rather, the results.
+
+From cbbrowne at afilias.info  Thu Apr 14 11:53:50 2011
+From: cbbrowne at afilias.info (Christopher Browne)
+Date: Thu, 14 Apr 2011 14:53:50 -0400
+Subject: [Slony1-hackers] Release notes updated
+Message-ID: <BANLkTikMizf_cF-vccqzoyB71eDrg0juOw@mail.gmail.com>
+
+I just did a walk-thru of the Git logs since the time of the Git
+cutover, making sure everything that was done on HEAD was documented
+in the release notes.
+
+http://git.postgresql.org/gitweb?p=slony1-engine.git;a=commit;h=ba0be2c14e49d4325ebc886977f3c0cbc3a346d1
+
+As a bit of divergence from past practice, I added a list of all the
+bugs that were multiply applied to HEAD as well as to other branches.
+There are 23 thus far, which is rather a lot.  If anyone hates that,
+I'll be happy to drop them, but it seems like a not-half-bad idea to
+me to include this list.
+
+I also added some notes about changes that didn't involve bugs that
+were still changed.  Our normal practice should be to set up a bug in
+Bugzilla for anything that we're changing (and I'm sometimes guilty of
+not doing so myself).
+
+Note that with some *trivial* formatting changes (specifically,
+tossing prefix of * or ** against titles/subtitles), it's easy for
+this listing to be processed using the Emacs Org-Mode
+<http://orgmode.org/>, which enables transforming the notes into quite
+"pretty" form in several formats including prettier text and HTML.
+The latter would be quite useful for inclusion on the web site.
+
+I'll attach samples of both text and HTML.  I'd be *slightly* inclined
+to create a Makefile rule which spawns Emacs to read the release notes
+and generates an .html and .txt file.  Not necessarily something vi
+lovers will love, but I didn't say I'm *certainly* doing this :-).
+-------------- next part --------------
+                               RELEASE
+                               =======
+
+Author: Christopher Browne
+Date: 2011-04-14 14:39:45 EDT
+
+
+Table of Contents
+=================
+1 Version To Be Determined, probably 2.1.0 
+    1.1 Some items without bug numbers: 
+    1.2 Changes from 2.0 branch that were also applied to HEAD: 
+    1.3 Items tracked from Bugzilla 
+2 RELEASE 2.0.6 
+
+
+1 Version To Be Determined, probably 2.1.0 
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+1.1 Some items without bug numbers: 
+====================================
+  - Introduced tests using the clustertest framework, consisting of two
+    sets of tests:
+    - clustertest/regression - port of the old tests in the tests directory
+    - clustertest/disorder - new simulated order entry system with a fair bit of concurrency
+
+  - Configure and Makefile cleanups and improvements, including
+    - Configure looks in common locations for some of the DocBook
+      tooling, so it is less likely to require manual intervention on
+      some common distributions
+    - Pick up Groff automagically
+    - Script to do virtually all the work documented in the [Release Checklist]
+  - Documentation updates
+    - Reorganized sections
+    - Trend towards having version-specific documentation, rather than
+      trying to have it document all versions at once
+  - Git changes
+    - Numerous .gitignore files set up to ignore generated files
+
+
+    [Release Checklist]: http://slony.info/documentation/2.0/releasechecklist.html
+
+1.2 Changes from 2.0 branch that were also applied to HEAD: 
+============================================================
+  40, 42, 75, 78, 102, 104, 115, 117, 121, 122, 124, 127, 132, 136,
+  138, 139, 141, 144, 147, 148, 149, 154, 162
+
+1.3 Items tracked from Bugzilla 
+================================
+- Bug #79 - --prefix and --exec-prefix options don't function as expected
+
+- Bug #126 - TCP KEEP alives can now be used from slon to postgresql(on by default)
+
+- Bug #134 - TRUNCATE trigger usage
+
+- Bug #142 - better document minimal security profile
+
+- Bug #146 - Removed option to use DELETE to trim sl_log_* tables - only support TRUNCATE
+
+- Bug #152 - eliminate debugging statements from DDL processing
+
+- Bug #156 - add health check at slon startup time
+
+- Bug #163 - change Slony-I tables to use TIMESTAMP WITH TIME ZONE rather than WITHOUT TIME ZONE
+
+- Bug #167 - change queries against sl_log_* tables to avert slowdown when large backlog
+
+- Bug #170 - remove SNMP support
+
+- Bug #172 - add support for application_name GUC (in recent PG such as 9.0)
+
+- Bug #175 - add monitoring thread which stows activity information in sl_components
+
+- Bug #180 - Created a slonik DATE command
+
+- Bug #181 - Support for bulk adding of tables and sequences and automatically finding
+  the next available table or sequence id.
+             
+- Bug #185 - change functions to use named parameters
+
+- Bug #187 - add newline to slon PID files
+
+- Bug #188 - test harness query had subquery returning multiple tuples
+
+- Bug #189 - add slonik EXIT check for exit values 0..255, as that's all that Unix accepts
+
+- Bug #193 - add back reset of vac_count so vacuums only done every few cleanup thread iterations
+
+- Bug #195 - change slon_quote_* functions to IMMUTABLE
+
+- Bug #196 - add guard lock on sl_event_lock to protect against events with XID going backwards
+
+- Bug #198 - subscribeset() should verify that provider node exists
+
+2 RELEASE 2.0.6 
+~~~~~~~~~~~~~~~~
+- Fix for bug #162, typenameTypeId() changes signatures in 9.1
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-hackers/attachments/20110414/42be755f/attachment.html 
+
+From ssinger at ca.afilias.info  Wed Apr 20 14:48:02 2011
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Wed, 20 Apr 2011 17:48:02 -0400
+Subject: [Slony1-hackers] patches related to bug196
+Message-ID: <4DAF5492.20007@ca.afilias.info>
+
+There are three patches living in my auto-waitfor branch at
+git://github.com/ssinger/slony1-engine.git  that are related to the 
+bug196 (sl_event_lock) changes that should probably be merged into master.
+
+(The last one in this list is really a pre-existing bug but the lock 
+changes seem to make it much more likely to have deadlock).
+
+
+
+
+commit d85d1a6b802d00e8de40ee5a25fb7f35b95b1c3c
+Author: Steve Singer <ssinger at ca.afilias.info>
+Date:   Tue Apr 19 10:23:35 2011 -0400
+
+     Do not lock sl_event when adding an event.
+     The caller should already have a lock on sl_event_lock
+     which must be obtained before the txid is assigned
+
+
+
+commit 58117f3f15c69ac3cc35c8fec112bb66260d9ef1
+Author: Steve Singer <ssinger at ca.afilias.info>
+Date:   Tue Apr 19 10:24:30 2011 -0400
+
+     Obtaining this lock actually increases deadlock because
+     it creates a conflict between sl_config_lock and sl_event_lock.
+
+     slonik initiated queries will always obtain sl_event_lock before
+     sl_config_lock (or at least when creating events).  Having
+     remote_worker do the opposite isn't a good idea.
+
+     If we find more examples of deadlock with this removed then
+     they need to be adressed in some other fashion.
+
+commit cd7759ed75ae3ee02f08f497556296b628153df7
+Author: Steve Singer <ssinger at ca.afilias.info>
+Date:   Wed Apr 20 17:40:53 2011 -0400
+
+     Fixing an issues where slon would try to start a new transaction
+     and obtain sl_config_lock instead of calling enableSubscription.
+     This was causing a deadlock with sl_event_lock during some
+     tests
+
+
+
+From cbbrowne at afilias.info  Tue Apr 26 15:08:55 2011
+From: cbbrowne at afilias.info (Christopher Browne)
+Date: Tue, 26 Apr 2011 18:08:55 -0400
+Subject: [Slony1-hackers] patches related to bug196
+In-Reply-To: <4DAF5492.20007@ca.afilias.info>
+References: <4DAF5492.20007@ca.afilias.info>
+Message-ID: <BANLkTikXhBs_31hUzopisXw_GUxq5pAT-A@mail.gmail.com>
+
+On Wed, Apr 20, 2011 at 5:48 PM, Steve Singer <ssinger at ca.afilias.info> wrote:
+> There are three patches living in my auto-waitfor branch at
+> git://github.com/ssinger/slony1-engine.git ?that are related to the
+> bug196 (sl_event_lock) changes that should probably be merged into master.
+
+I have started taking a poke at reviewing the auto-wait-for branch,
+notably with a first pass thru the docs.  I suggest pulling recent
+patches from my branch, as I did a moderate chunk of wordsmithing.
+Amusing that I haven't validated that the *code* works yet, but by
+poking at the docs, I have a better idea of what the code is
+*intended* to do :-).
+

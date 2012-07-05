@@ -1,0 +1,1028 @@
+From ssinger at ca.afilias.info  Wed May  2 14:39:49 2012
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Wed, 02 May 2012 17:39:49 -0400
+Subject: [Slony1-general] Logship files printing incorrectly
+In-Reply-To: <CAKWMdJbsQYdQ_PoVoseQj=NcCf2Y0ZVro16Ba7yydFGoxz4Sjg@mail.gmail.com>
+References: <CAKWMdJbsQYdQ_PoVoseQj=NcCf2Y0ZVro16Ba7yydFGoxz4Sjg@mail.gmail.com>
+Message-ID: <4FA1A9A5.1030503@ca.afilias.info>
+
+On 12-04-11 09:24 AM, Richard Yen wrote:
+> Hi,
+
+Richard,
+
+We've looked a bit at the files you sent me.
+
+Jan was able to reproduce a very similar type of file where two 
+processes were writing to the same file in "w' mode (like slony does).
+
+Are any of the above possible:
+
+1. You had multiple slon daemons writing to the same log archive 
+directory (maybe for different clusters?)
+
+2.  The mechanism you used for copying the .sql files could have caused 
+processes to try to write to the same file on the destination machine
+
+If the answer to both of those is no then maybe there is a bug in how 
+archive file numbers are assigned in remote_worker.c:archive_open.
+We don't YET see any obvious faults with this logic but if this logic 
+somehow assigned 2 slon worker threads the same id then you could get a 
+file like you sent us.
+
+
+For others on the list the files looked like:
+
+------------------------------------------------------------------
+-- Slony-I log shipping archive
+-- Node 5, Event 5000002252
+------------------------------------------------------------------
+set session_replication_role to replica;
+start transaction;
+select "_cluster".archiveTracking_offline('9750225', '2012-04-23 
+10:43:10.921274');
+-- end of log archiving header
+------------------------------------------------------------------
+-- start of Slony-I data
+------------------------------------------------------------------
+
+------------------------------------------------------------------
+-- End Of Archive Log
+------------------------------------------------------------------
+commit;
+vacuum analyze "_cluster".sl_archive_tracking;
+@@@@@@@@@@@
+...random SQL like text
+
+where @@@ is really kilobytes of the NULL character (0x0).
+
+We feel that one thread/process had written a longer version of the file 
+while another process/thread had the same file open with a different 
+file handle in "w" mode and it truncated the file, while the first 
+process/thread still had the handle open pointing later on in the file.
+
+Steve
+
+>
+> I've recently come across a situation where slony logshipping files were
+> being written incorrectly.  Normally, the files are written in this order:
+> - Begin transaction
+> - Set archive tracking index
+> - INSERTs/UPDATEs/DELETEs
+> - Set sequences
+> - Vacuum
+> - Commit
+>
+> I noticed that in my particular instance, the files were being written
+> as such:
+> - Begin transaction
+> - Set archive tracking index
+> - Vacuum
+> - Commit
+> - INSERTs/UPDATEs/DELETEs
+> - Set sequences
+>
+> Obviously, this sounds pretty dangerous, and I actually encountered the
+> situation where my logship destination got corrupted, and needed to
+> rebuild that node.
+>
+> Would anyone have any insight into why this happens?
+>
+> Using 2.0.6 on CentOS, with Postgres 8.4.5
+>
+> Thanks!
+> --Richard
+>
+>
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+
+
+From JanWieck at Yahoo.com  Fri May  4 05:10:09 2012
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Fri, 04 May 2012 08:10:09 -0400
+Subject: [Slony1-general] some questions which popped up while setting
+ up...
+In-Reply-To: <4F96BB48.3070003@nanl.de>
+References: <4F96BB48.3070003@nanl.de>
+Message-ID: <4FA3C721.5000506@Yahoo.com>
+
+On 4/24/2012 10:40 AM, Mirko Vogt wrote:
+> Okay, fine, obviously they try to connect to each other: so I purged out
+> the respective node-definitions out of the slon_tools.conf file on the
+> slaves (on node 11 I deleted the definition of node 12 and vice versa).
+
+Removing the node information is definitely the wrong way. If you want 
+to stop the replicas from talking to each other, remove the paths with 
+the slonik command "DROP PATH". That way they will exchange their 
+information via the central origin and everything will work.
+
+
+Jan
+
+-- 
+Anyone who trades liberty for security deserves neither
+liberty nor security. -- Benjamin Franklin
+
+From richyen at iparadigms.com  Fri May  4 14:46:26 2012
+From: richyen at iparadigms.com (Richard Yen)
+Date: Fri, 4 May 2012 14:46:26 -0700
+Subject: [Slony1-general] Logship files printing incorrectly
+In-Reply-To: <4FA1A9A5.1030503@ca.afilias.info>
+References: <CAKWMdJbsQYdQ_PoVoseQj=NcCf2Y0ZVro16Ba7yydFGoxz4Sjg@mail.gmail.com>
+	<4FA1A9A5.1030503@ca.afilias.info>
+Message-ID: <CAKWMdJYLcS9=tMmdkAr1feQNxfg0zMB7Eak2Ln-YwY2iaBGoNw@mail.gmail.com>
+
+On Wed, May 2, 2012 at 2:39 PM, Steve Singer <ssinger at ca.afilias.info>wrote:
+
+> Are any of the above possible:
+>
+> 1. You had multiple slon daemons writing to the same log archive directory
+> (maybe for different clusters?)
+>
+We have several clusters writing to a directory, but there's a separate
+directory for each cluster.  For example:
+
+/home/log_ship
+/home/log_ship/cluster1/new_logfiles
+/home/log_ship/cluster2/new_logfiles
+/home/log_ship/cluster3/new_logfiles
+...etc...
+
+We don't have two daemons writing to the same directory.
+
+
+2.  The mechanism you used for copying the .sql files could have caused
+> processes to try to write to the same file on the destination machine
+>
+I'm fairly certain this is not the case.  The files that I sent you were
+directly from the origin machine, not from the destination machine.  Our
+scheme is like this:
+
+Node1 is origin
+Node2 is subscriber, with -a mode, writing files to
+/home/log_ship/cluster1/new_logfiles
+Cronjob moves files from /home/log_ship/cluster1/new_logfiles to
+/home/log_ship/cluster1/log_staging (we filter out the *.sql.tmp files so
+that we can let them finish writing before we move them)
+RemoteNode makes rsync connection to Node2 and copies the files from
+Node2/home/log_ship/cluster1/log_staging to its local directory
+Log files are replayed
+
+
+> If the answer to both of those is no then maybe there is a bug in how
+> archive file numbers are assigned in remote_worker.c:archive_open.
+> We don't YET see any obvious faults with this logic but if this logic
+> somehow assigned 2 slon worker threads the same id then you could get a
+> file like you sent us.
+>
+
+As I look at the files you sent me, I only see differences between the
+third (Node X, Event XXXXXX) and seventh
+(archiveTracking_offline(xxx,'xxxx-xx-xx xx:xx:xx')) lines.  I noticed that
+Node number can vary per file, but only one daemon has the -a option
+enabled.  Not sure why the node number changes--shouldn't it always
+correspond to the node number of the daemon with the -a option turned on?
+
+Aside from that, I tried poking around the sl_* tables that I had dumped,
+but didn't really find anything.  One thing is certain, though--a given DML
+statement shows up in sl_log_x only once, even though it shows up several
+times in the various logship files that are generated.  I can't seem to
+find the corresponding sl_event row, so I'm not sure if there might be
+anything in that direction, in terms of duplicated events.
+
+--Richard
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20120504/896a2a0c/attachment.htm 
+
+From JanWieck at Yahoo.com  Sat May  5 07:14:16 2012
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Sat, 05 May 2012 10:14:16 -0400
+Subject: [Slony1-general] Logship files printing incorrectly
+In-Reply-To: <4FA1A9A5.1030503@ca.afilias.info>
+References: <CAKWMdJbsQYdQ_PoVoseQj=NcCf2Y0ZVro16Ba7yydFGoxz4Sjg@mail.gmail.com>
+	<4FA1A9A5.1030503@ca.afilias.info>
+Message-ID: <4FA535B8.5030408@Yahoo.com>
+
+On 5/2/2012 5:39 PM, Steve Singer wrote:
+
+> Jan was able to reproduce a very similar type of file where two
+> processes were writing to the same file in "w' mode (like slony does).
+
+Some more details about that:
+
+The log file I have seen contains an OK but empty archive log at the 
+beginning. All the usual content but just no data. Then follow ASCII NUL 
+bytes up to exactly 32K, followed by some log data starting in the 
+middle of a statement but not properly terminated by the final commit 
+and vacuum statements.
+
+The way I can create a file with a similar pattern is as follows:
+
+
+proc1: FILE *fp = fopen("file", "w");
+proc1: fprintf(fp, "data from proc1\n"); // continue doing that until
+                                          // over 32K written
+
+proc2: FILE *fp = fopen("file", "w");
+proc2: fprintf(fp, "data from proc2\n");
+proc2: fclose(fp);
+
+proc1: fprintf(fp, "data from proc1\n");
+proc1: fclose(fp);
+
+
+What happens here is that both processes use fprintf(), like slon, and 
+fprintf uses an internal buffer of 32K. When proc1 has written over 32K, 
+the buffer had been flushed and the underlying file descriptor's lseek 
+position is at 32K.
+
+Now comes proc2 and opens the file also for writing. The underlying file 
+descriptor is created with O_CREAT only, which means that the file gets 
+truncated. proc2 writes its stuff and closes the file.
+
+When proc1 finally closes the file it flushes its second buffer. Since 
+the file was not opened in append mode, the truncate that happened in 
+the meantime does not affect the lseek position in its file descriptor, 
+so it writes that buffer at the 32K position and the OS fills in the 
+void with NUL bytes.
+
+I have attached a small patch against 2.0 that changes the opening of 
+the temporary archive file to use O_CREAT|O_EXCL and then fdopen(3). 
+This would cause proc2 above to fail with an error because the file 
+already exists. This will tell you in the slon logs which slon is 
+actually doing this.
+
+
+Jan
+
+-- 
+Anyone who trades liberty for security deserves neither
+liberty nor security. -- Benjamin Franklin
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: archive_fdopen.diff
+Type: text/x-patch
+Size: 1379 bytes
+Desc: not available
+Url : http://lists.slony.info/pipermail/slony1-general/attachments/20120505/abcbd91b/attachment.bin 
+
+From ssinger at ca.afilias.info  Mon May  7 11:58:38 2012
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Mon, 07 May 2012 14:58:38 -0400
+Subject: [Slony1-general] Logship files printing incorrectly
+In-Reply-To: <4FA7FD7C.6050106@Yahoo.com>
+References: <CAKWMdJbsQYdQ_PoVoseQj=NcCf2Y0ZVro16Ba7yydFGoxz4Sjg@mail.gmail.com>
+	<4FA1A9A5.1030503@ca.afilias.info> <4FA535B8.5030408@Yahoo.com>
+	<4FA7D78E.2020709@ca.afilias.info>
+	<4FA7D938.9070702@ca.afilias.info> <4FA7FD7C.6050106@Yahoo.com>
+Message-ID: <4FA81B5E.8050107@ca.afilias.info>
+
+On 12-05-07 12:51 PM, Jan Wieck wrote:
+> On 5/7/2012 10:16 AM, Steve Singer wrote:
+>> On 12-05-07 10:09 AM, Steve Singer wrote:
+>>> On 12-05-05 10:14 AM, Jan Wieck wrote:
+>>>> On 5/2/2012 5:39 PM, Steve Singer wrote:
+
+>
+> Me too and I agree that O_EXCL certainly isn't the best way to do it.
+> However, the presented patch does not change any existing functionality
+> (except for the exclusiveness in creating the temp file).
+>
+> While there remains a possible race condition when using NFS, the log
+> file I examined would very unlikely slip through it. Remember, the first
+> process must have written more than 32K before the second process calls
+> open(2).
+>
+> What I intended with this simple patch was to give Richard a chance to
+> identify the processes involved in creating this problem. Up to this
+> moment we don't even know exactly how this happens.
+
+Sorry, I was thinking you were proposing this patch for commit on the 
+2.0, 2.1, 2.2 branches not just for Richard.
+
+I wouldn't be opposed to a patch that doesn't make things worse on 
+nfs/cifs systems (if it compiles on win32).  I think we both agree that 
+the real problem is what is causing two files to be opened at the same 
+time, and we don't yet have a handle why that is the case.
+
+
+
+
+
+
+>
+>
+> Jan
+>
+
+
+From ssinger at ca.afilias.info  Mon May  7 12:22:58 2012
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Mon, 07 May 2012 15:22:58 -0400
+Subject: [Slony1-general] Logship files printing incorrectly
+In-Reply-To: <CAKWMdJYLcS9=tMmdkAr1feQNxfg0zMB7Eak2Ln-YwY2iaBGoNw@mail.gmail.com>
+References: <CAKWMdJbsQYdQ_PoVoseQj=NcCf2Y0ZVro16Ba7yydFGoxz4Sjg@mail.gmail.com>	<4FA1A9A5.1030503@ca.afilias.info>
+	<CAKWMdJYLcS9=tMmdkAr1feQNxfg0zMB7Eak2Ln-YwY2iaBGoNw@mail.gmail.com>
+Message-ID: <4FA82112.9090209@ca.afilias.info>
+
+On 12-05-04 05:46 PM, Richard Yen wrote:
+> On Wed, May 2, 2012 at 2:39 PM, Steve Singer <ssinger at ca.afilias.info
+> <mailto:ssinger at ca.afilias.info>> wrote:
+>
+>     Are any of the above possible:
+>
+>     1. You had multiple slon daemons writing to the same log archive
+>     directory (maybe for different clusters?)
+>
+> We have several clusters writing to a directory, but there's a separate
+> directory for each cluster.  For example:
+>
+> /home/log_ship
+> /home/log_ship/cluster1/new_logfiles
+> /home/log_ship/cluster2/new_logfiles
+> /home/log_ship/cluster3/new_logfiles
+> ...etc...
+> We don't have two daemons writing to the same directory.
+>
+>
+>     2.  The mechanism you used for copying the .sql files could have
+>     caused processes to try to write to the same file on the destination
+>     machine
+>
+> I'm fairly certain this is not the case.  The files that I sent you were
+> directly from the origin machine, not from the destination machine.  Our
+> scheme is like this:
+>
+> Node1 is origin
+> Node2 is subscriber, with -a mode, writing files to
+> /home/log_ship/cluster1/new_logfiles
+> Cronjob moves files from /home/log_ship/cluster1/new_logfiles to
+> /home/log_ship/cluster1/log_staging (we filter out the *.sql.tmp files
+> so that we can let them finish writing before we move them)
+> RemoteNode makes rsync connection to Node2 and copies the files from
+> Node2/home/log_ship/cluster1/log_staging to its local directory
+> Log files are replayed
+>
+>     If the answer to both of those is no then maybe there is a bug in
+>     how archive file numbers are assigned in remote_worker.c:archive_open.
+>     We don't YET see any obvious faults with this logic but if this
+>     logic somehow assigned 2 slon worker threads the same id then you
+>     could get a file like you sent us.
+>
+>
+> As I look at the files you sent me, I only see differences between the
+> third (Node X, Event XXXXXX) and seventh
+> (archiveTracking_offline(xxx,'xxxx-xx-xx xx:xx:xx')) lines.  I noticed
+> that Node number can vary per file, but only one daemon has the -a
+> option enabled.  Not sure why the node number changes--shouldn't it
+> always correspond to the node number of the daemon with the -a option
+> turned on?
+>
+
+The node that has the -a option on its slon is the node number that 
+shows up in the file name.  Ie slony1_log_3_XXXXXXXXX.sql is a log file 
+generated by slon # 3.
+
+slon 3 has a remote_worker for each of the remote nodes.  These 
+remote_worker threads run concurrently.  Each one will generate a 
+tracking file for SYNC events from its remote_worker.
+
+The archive sequence numbers are supposed to be assigned on the node the 
+slon is for (node 3 is this case).  So two remote_worker threads inside 
+of slon 3 SHOULDN'T ever get the same archive counter number (we should 
+be serializing on an update of the archive_counter table), thus they 
+shouldn't be writing to the same file.   One theory is that some of the 
+"shouldnt's" are actually happening (for reasons we haven't determined)
+
+
+
+
+
+> Aside from that, I tried poking around the sl_* tables that I had
+> dumped, but didn't really find anything.  One thing is certain,
+> though--a given DML statement shows up in sl_log_x only once, even
+> though it shows up several times in the various logship files that are
+> generated.  I can't seem to find the corresponding sl_event row, so I'm
+> not sure if there might be anything in that direction, in terms of
+> duplicated events.
+>
+> --Richard
+
+
+From ssinger at ca.afilias.info  Mon May  7 07:09:18 2012
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Mon, 07 May 2012 10:09:18 -0400
+Subject: [Slony1-general] Logship files printing incorrectly
+In-Reply-To: <4FA535B8.5030408@Yahoo.com>
+References: <CAKWMdJbsQYdQ_PoVoseQj=NcCf2Y0ZVro16Ba7yydFGoxz4Sjg@mail.gmail.com>
+	<4FA1A9A5.1030503@ca.afilias.info> <4FA535B8.5030408@Yahoo.com>
+Message-ID: <4FA7D78E.2020709@ca.afilias.info>
+
+On 12-05-05 10:14 AM, Jan Wieck wrote:
+> On 5/2/2012 5:39 PM, Steve Singer wrote:
+
+
+> I have attached a small patch against 2.0 that changes the opening of
+> the temporary archive file to use O_CREAT|O_EXCL and then fdopen(3).
+> This would cause proc2 above to fail with an error because the file
+> already exists. This will tell you in the slon logs which slon is
+> actually doing this.
+
+The Linux documentation for O_EXCL states:
+
+------
+O_EXCL is only supported on NFS when using NFSv3 or later on kernel 2.6 
+or later.  In environments where NFS O_EXCL support  is  not  provided, 
+programs that rely on it for performing locking tasks will contain a 
+race condition.  Portable programs that want to perform atomic 
+file locking using a lockfile, and need to avoid reliance on NFS support 
+for O_EXCL, can create a unique file  on  the  same  file  system (e.g., 
+  incorporating  hostname  and  PID), and use link(2) to make a link to 
+the lockfile.  If link(2) returns 0, the lock is successful. Otherwise, 
+use stat(2) on the unique file to check if its link count has increased 
+to 2, in which case the lock is also successful.
+----------
+
+I can see people wanting to put their log shipping spool directory on an 
+NFS share.  Have many NAS appliances out there still only support NFS v2?
+
+How does O_EXCL behave against a CIFS share?
+
+How does this call work on Win32?
+
+
+
+
+
+>
+>
+> Jan
+>
+
+
+From ssinger at ca.afilias.info  Tue May  8 12:02:49 2012
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Tue, 08 May 2012 15:02:49 -0400
+Subject: [Slony1-general] Logship files printing incorrectly
+In-Reply-To: <CAKWMdJbi1K7kj_xQ8CyjziT3A7hbfEa6L9JbKv6KAEyA3CNbUw@mail.gmail.com>
+References: <CAKWMdJbsQYdQ_PoVoseQj=NcCf2Y0ZVro16Ba7yydFGoxz4Sjg@mail.gmail.com>	<4FA1A9A5.1030503@ca.afilias.info>	<CAKWMdJYLcS9=tMmdkAr1feQNxfg0zMB7Eak2Ln-YwY2iaBGoNw@mail.gmail.com>	<4FA82112.9090209@ca.afilias.info>
+	<CAKWMdJbi1K7kj_xQ8CyjziT3A7hbfEa6L9JbKv6KAEyA3CNbUw@mail.gmail.com>
+Message-ID: <4FA96DD9.5050607@ca.afilias.info>
+
+On 12-05-07 07:33 PM, Richard Yen wrote:
+> On Mon, May 7, 2012 at 12:22 PM, Steve Singer <ssinger at ca.afilias.info
+> <mailto:ssinger at ca.afilias.info>> wrote:
+>
+>
+>     The archive sequence numbers are supposed to be assigned on the node
+>     the slon is for (node 3 is this case).  So two remote_worker threads
+>     inside of slon 3 SHOULDN'T ever get the same archive counter number
+>     (we should be serializing on an update of the archive_counter
+>     table), thus they shouldn't be writing to the same file.   One
+>     theory is that some of the "shouldnt's" are actually happening (for
+>     reasons we haven't determined)
+>
+>
+> I notice in my logs that I see very frequent occurrences of these (maybe
+> once per minute):
+>
+> 16:28]myhost:/home/richyen# head /var/log/local0
+> Apr 29 20:13:31 myhost.example.com <http://myhost.example.com>
+> postgres[21243]: [4876-1] 2012-04-29 20:13:31.873 PDT [user=###,db=###
+> localhost(57453) PID:21243 XID:1971641858]ERROR:  could not serialize
+> access due to concurrent update
+> Apr 29 20:13:31 myhost.example.com
+> <http://myhost.example.com> postgres[21243]: [4876-2] 2012-04-29
+> 20:13:31.873 PDT [user=###,db=### localhost(57453) PID:21243
+> XID:1971641858]STATEMENT:  update "_slony".sl_archive_counter     set
+> ac_num = ac_num + 1,         ac_timestamp = CURRENT_TIMESTAMP; select
+> ac_num, ac_timestamp from "_slony".sl_archive_counter;
+> Apr 29 20:13:31 myhost.example.com
+> <http://myhost.example.com> postgres[21243]: [4877-1] 2012-04-29
+> 20:13:31.873 PDT [user=###,db=### localhost(57453) PID:21243
+> XID:1971641858]ERROR:  current transaction is aborted, commands ignored
+> until end of transaction block
+>
+
+When two remote_worker threads try to get a sequence number at the same 
+time they will hit this.  We are depending on the postgresql aborting 
+one of the transactions , as you see above, to ensure two threads don't 
+get the same id number for the filename. So the logs you pasted don't 
+indicate a problem (or the source of your issue).
+
+Does anyone (Chris, Jan?) remember why we just didn't use a sequence on 
+the master for this purpose?
+
+
+
+
+  Apr 29 20:13:31 myhost.example.com
+> <http://myhost.example.com> postgres[21243]: [4877-2] 2012-04-29
+> 20:13:31.873 PDT [user=###,db=### localhost(57453) PID:21243
+> XID:1971641858]STATEMENT:  notify "_slony_Restart";
+>
+> Could this be contributing to the issue?
+> --Richard
+
+
+From ssinger at ca.afilias.info  Tue May  8 11:57:57 2012
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Tue, 08 May 2012 14:57:57 -0400
+Subject: [Slony1-general] Logship files printing incorrectly
+In-Reply-To: <4FA821FE.5090206@Yahoo.com>
+References: <CAKWMdJbsQYdQ_PoVoseQj=NcCf2Y0ZVro16Ba7yydFGoxz4Sjg@mail.gmail.com>
+	<4FA1A9A5.1030503@ca.afilias.info> <4FA535B8.5030408@Yahoo.com>
+	<4FA7D78E.2020709@ca.afilias.info>
+	<4FA7D938.9070702@ca.afilias.info> <4FA7FD7C.6050106@Yahoo.com>
+	<4FA81B5E.8050107@ca.afilias.info> <4FA821FE.5090206@Yahoo.com>
+Message-ID: <4FA96CB5.10903@ca.afilias.info>
+
+On 12-05-07 03:26 PM, Jan Wieck wrote:
+> On 5/7/2012 2:58 PM, Steve Singer wrote:
+
+> If it works on Win32, I don't see how it can make things worse. It isn't
+> watertight "when using NFS", but then again, that isn't such a reliable
+> solution for log shipping to begin with.
+>
+
+Your patch does in fact compile on Win32.  I don't see any problems with 
+applying this patch.
+
+>
+> Jan
+>
+
+
+From ssinger at ca.afilias.info  Mon May  7 07:16:24 2012
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Mon, 07 May 2012 10:16:24 -0400
+Subject: [Slony1-general] Logship files printing incorrectly
+In-Reply-To: <4FA7D78E.2020709@ca.afilias.info>
+References: <CAKWMdJbsQYdQ_PoVoseQj=NcCf2Y0ZVro16Ba7yydFGoxz4Sjg@mail.gmail.com>
+	<4FA1A9A5.1030503@ca.afilias.info> <4FA535B8.5030408@Yahoo.com>
+	<4FA7D78E.2020709@ca.afilias.info>
+Message-ID: <4FA7D938.9070702@ca.afilias.info>
+
+On 12-05-07 10:09 AM, Steve Singer wrote:
+> On 12-05-05 10:14 AM, Jan Wieck wrote:
+>> On 5/2/2012 5:39 PM, Steve Singer wrote:
+>
+>
+>> I have attached a small patch against 2.0 that changes the opening of
+>> the temporary archive file to use O_CREAT|O_EXCL and then fdopen(3).
+>> This would cause proc2 above to fail with an error because the file
+>> already exists. This will tell you in the slon logs which slon is
+>> actually doing this.
+>
+> The Linux documentation for O_EXCL states:
+>
+> ------
+> O_EXCL is only supported on NFS when using NFSv3 or later on kernel 2.6
+> or later. In environments where NFS O_EXCL support is not provided,
+> programs that rely on it for performing locking tasks will contain a
+> race condition. Portable programs that want to perform atomic file
+> locking using a lockfile, and need to avoid reliance on NFS support for
+> O_EXCL, can create a unique file on the same file system (e.g.,
+> incorporating hostname and PID), and use link(2) to make a link to the
+> lockfile. If link(2) returns 0, the lock is successful. Otherwise, use
+> stat(2) on the unique file to check if its link count has increased to
+> 2, in which case the lock is also successful.
+> ----------
+>
+> I can see people wanting to put their log shipping spool directory on an
+> NFS share. Have many NAS appliances out there still only support NFS v2?
+>
+
+The AIX man page (open) says
+
+---
+O_EXCL If the O_EXCL and O_CREAT flags are set, the open is unsuccessful 
+if the file exists. Note: The O_EXCL flag is not fully supported for 
+Network File Systems (NFS). The NFS protocol does not
+guarantee the designed function of the O_EXCL flag.
+-----------
+
+Can we think of another way of ensuring the file doesn't exist?
+
+
+> How does O_EXCL behave against a CIFS share?
+>
+> How does this call work on Win32?
+>
+>
+>
+>
+>
+>>
+>>
+>> Jan
+>>
+>
+
+
+From wolf at uen.org  Fri May 11 18:42:38 2012
+From: wolf at uen.org (Wolf Schwurack)
+Date: Sat, 12 May 2012 01:42:38 +0000
+Subject: [Slony1-general] Error finding slony1_funcs
+Message-ID: <CBD31C2C.9983%wolf@uen.org>
+
+Not sure what I'm missing but I get this error when I try to run the slony
+config. I'm running this at postgres. I ran the config earlier this week
+and we had to stop slony. Try to run it today but fails
+
+$ ./slony-conf.sh
+<stdin>:21: PGRES_FATAL_ERROR load '$libdir/slony1_funcs';  - ERROR:
+could not access file "$libdir/slony1_funcs": No such file or directory
+<stdin>:21: Error: the extension for the Slony-I C functions cannot be
+loaded in database 'dbname=canvas_db host=harv user=postgres'
+
+It all looks correct but can't find slony1_funcs when running conf
+
+
+$ find /opt/postgres -name slony1_funcs.so
+/opt/postgres/9.0.3-pgdg/lib/slony1_funcs.so
+
+$ pg_config --libdir
+/opt/postgres/9.0.3-pgdg/lib
+
+
+$ pg_config --pkglibdir
+/opt/postgres/9.0.3-pgdg/lib
+
+$ ll /opt/postgres/9.0.3-pgdg/lib/slony1_funcs.so
+-rwxr-xr-x 1 postgres postgres 39K Apr  9 14:28
+/opt/postgres/9.0.3-pgdg/lib/slony1_funcs.so
+
+
+
+
+
+
+      0___      Wolfgang Schwurack
+     c/  /'_    SA/DBA - UEN
+    (*)  \(*)   801-587-9444
+                wolf at uen.org
+
+
+
+From jeff at pgexperts.com  Tue May 15 14:52:44 2012
+From: jeff at pgexperts.com (Jeff Frost)
+Date: Tue, 15 May 2012 14:52:44 -0700
+Subject: [Slony1-general] slony upstart script for Ubuntu 10.04+
+Message-ID: <4FB2D02C.6060009@pgexperts.com>
+
+I wrote an upstart script for starting slony on ubuntu 10.04+.  If there's any
+interest in including it in the slony distro, you can find it here:
+
+https://github.com/pgexperts/upstart-scripts/blob/master/etc/init/slony.conf
+
+-- 
+Jeff Frost <jeff at pgexperts.com>
+CTO, PostgreSQL Experts, Inc.
+Phone: 1-888-PG-EXPRT x506
+FAX: 415-762-5122
+http://www.pgexperts.com/ 
+
+
+From ssinger at ca.afilias.info  Wed May 16 06:34:07 2012
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Wed, 16 May 2012 09:34:07 -0400
+Subject: [Slony1-general] slony upstart script for Ubuntu 10.04+
+In-Reply-To: <4FB2D02C.6060009@pgexperts.com>
+References: <4FB2D02C.6060009@pgexperts.com>
+Message-ID: <4FB3ACCF.9010502@ca.afilias.info>
+
+On 12-05-15 05:52 PM, Jeff Frost wrote:
+> I wrote an upstart script for starting slony on ubuntu 10.04+.  If there's any
+> interest in including it in the slony distro, you can find it here:
+>
+> https://github.com/pgexperts/upstart-scripts/blob/master/etc/init/slony.conf
+
+I am open to creating a ubuntu directory and including this script there 
+(just like we have a redhat and suse directory).  Who is maintaining the 
+slony ubuntu packaging these days? I haven't found a 2.1.x package.
+
+
+
+
+From stuart at stuartbishop.net  Wed May 16 07:46:42 2012
+From: stuart at stuartbishop.net (Stuart Bishop)
+Date: Wed, 16 May 2012 21:46:42 +0700
+Subject: [Slony1-general] slony upstart script for Ubuntu 10.04+
+In-Reply-To: <4FB3ACCF.9010502@ca.afilias.info>
+References: <4FB2D02C.6060009@pgexperts.com> <4FB3ACCF.9010502@ca.afilias.info>
+Message-ID: <CADmi=6MxT2PmQF3Qi02TyHFoxs6FPYafLGefCCWFj0mNXfPViw@mail.gmail.com>
+
+On Wed, May 16, 2012 at 8:34 PM, Steve Singer <ssinger at ca.afilias.info> wrote:
+> On 12-05-15 05:52 PM, Jeff Frost wrote:
+>> I wrote an upstart script for starting slony on ubuntu 10.04+. ?If there's any
+>> interest in including it in the slony distro, you can find it here:
+>>
+>> https://github.com/pgexperts/upstart-scripts/blob/master/etc/init/slony.conf
+>
+> I am open to creating a ubuntu directory and including this script there
+> (just like we have a redhat and suse directory). ?Who is maintaining the
+> slony ubuntu packaging these days? I haven't found a 2.1.x package.
+
+Its maintained upstream in Debian by Peter Eisentraut, and from there
+gets pulled into Ubuntu. I don't see a 2.1 package either - last
+upload seems to be slony1-2 2.0.7.
+http://lists.alioth.debian.org/cgi-bin/mailman/listinfo/pkg-postgresql-public
+seems to be the forum for the Debian packaging.
+
+
+-- 
+Stuart Bishop <stuart at stuartbishop.net>
+http://www.stuartbishop.net/
+
+From JanWieck at Yahoo.com  Wed May 16 09:33:38 2012
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Wed, 16 May 2012 12:33:38 -0400
+Subject: [Slony1-general] Error finding slony1_funcs
+In-Reply-To: <CBD31C2C.9983%wolf@uen.org>
+References: <CBD31C2C.9983%wolf@uen.org>
+Message-ID: <4FB3D6E2.6040901@Yahoo.com>
+
+On 5/11/2012 9:42 PM, Wolf Schwurack wrote:
+> Not sure what I'm missing but I get this error when I try to run the slony
+> config. I'm running this at postgres. I ran the config earlier this week
+> and we had to stop slony. Try to run it today but fails
+>
+> $ ./slony-conf.sh
+> <stdin>:21: PGRES_FATAL_ERROR load '$libdir/slony1_funcs';  - ERROR:
+> could not access file "$libdir/slony1_funcs": No such file or directory
+> <stdin>:21: Error: the extension for the Slony-I C functions cannot be
+> loaded in database 'dbname=canvas_db host=harv user=postgres'
+>
+> It all looks correct but can't find slony1_funcs when running conf
+>
+>
+> $ find /opt/postgres -name slony1_funcs.so
+> /opt/postgres/9.0.3-pgdg/lib/slony1_funcs.so
+>
+> $ pg_config --libdir
+> /opt/postgres/9.0.3-pgdg/lib
+>
+>
+> $ pg_config --pkglibdir
+> /opt/postgres/9.0.3-pgdg/lib
+>
+> $ ll /opt/postgres/9.0.3-pgdg/lib/slony1_funcs.so
+> -rwxr-xr-x 1 postgres postgres 39K Apr  9 14:28
+> /opt/postgres/9.0.3-pgdg/lib/slony1_funcs.so
+
+Is all this actually on host harv, or is this on a different system?
+
+
+Jan
+
+-- 
+Anyone who trades liberty for security deserves neither
+liberty nor security. -- Benjamin Franklin
+
+From jeff at pgexperts.com  Fri May 18 17:29:04 2012
+From: jeff at pgexperts.com (Jeff Frost)
+Date: Fri, 18 May 2012 17:29:04 -0700
+Subject: [Slony1-general] slony upstart script for Ubuntu 10.04+
+In-Reply-To: <CADmi=6MxT2PmQF3Qi02TyHFoxs6FPYafLGefCCWFj0mNXfPViw@mail.gmail.com>
+References: <4FB2D02C.6060009@pgexperts.com> <4FB3ACCF.9010502@ca.afilias.info>
+	<CADmi=6MxT2PmQF3Qi02TyHFoxs6FPYafLGefCCWFj0mNXfPViw@mail.gmail.com>
+Message-ID: <78D541F9-91A1-4B7D-811C-834CC39358E6@pgexperts.com>
+
+
+On May 16, 2012, at 7:46 AM, Stuart Bishop wrote:
+
+> On Wed, May 16, 2012 at 8:34 PM, Steve Singer <ssinger at ca.afilias.info> wrote:
+>> On 12-05-15 05:52 PM, Jeff Frost wrote:
+>>> I wrote an upstart script for starting slony on ubuntu 10.04+.  If there's any
+>>> interest in including it in the slony distro, you can find it here:
+>>> 
+>>> https://github.com/pgexperts/upstart-scripts/blob/master/etc/init/slony.conf
+>> 
+>> I am open to creating a ubuntu directory and including this script there
+>> (just like we have a redhat and suse directory).  Who is maintaining the
+>> slony ubuntu packaging these days? I haven't found a 2.1.x package.
+> 
+> Its maintained upstream in Debian by Peter Eisentraut, and from there
+> gets pulled into Ubuntu. I don't see a 2.1 package either - last
+> upload seems to be slony1-2 2.0.7.
+> http://lists.alioth.debian.org/cgi-bin/mailman/listinfo/pkg-postgresql-public
+> seems to be the forum for the Debian packaging.
+
+
+Probably should consider a writing a systemd file for Fedora as well.
+
+From smccloud at geo-comm.com  Tue May 22 08:36:13 2012
+From: smccloud at geo-comm.com (Shaun McCloud)
+Date: Tue, 22 May 2012 15:36:13 +0000
+Subject: [Slony1-general] Run pgAdmin II Slony-I Creation scripts outside of
+	pgAdmin III?
+Message-ID: <7742DD496427B743BC8B7BBF6D380BA037B257C5@EXCHANGE10.geo-comm.local>
+
+Is it possible/feasible to use the Slony-I Creation scripts designed for use in pgAdmin III outside of pgAdmin III?  I need to write a utility to make it easier for our installers to setup Slony-I and I'd like to use the official scripts to do it but I'm unsure how to go about it right now.
+
+Shaun McCloud, MCDST | Associate Software Developer
+Geo-Comm Inc. | www.geo-comm.com<http://www.geo-comm.com/>
+601 W. Saint Germain St., St. Cloud, MN, 56301
+Office: 320.240.0040 or 888.436.2666 Fax: 320.240.2389
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20120522/821bfa11/attachment.html 
+
+From cbbrowne at afilias.info  Tue May 22 10:12:14 2012
+From: cbbrowne at afilias.info (Christopher Browne)
+Date: Tue, 22 May 2012 13:12:14 -0400
+Subject: [Slony1-general] Run pgAdmin II Slony-I Creation scripts
+ outside of pgAdmin III?
+In-Reply-To: <7742DD496427B743BC8B7BBF6D380BA037B257C5@EXCHANGE10.geo-comm.local>
+References: <7742DD496427B743BC8B7BBF6D380BA037B257C5@EXCHANGE10.geo-comm.local>
+Message-ID: <CANfbgba1oXwM6oN=RZzAgQRWKYxN+vYSjJXSSsj5bOR+F7u9ow@mail.gmail.com>
+
+On Tue, May 22, 2012 at 11:36 AM, Shaun McCloud <smccloud at geo-comm.com> wrote:
+> Is it possible/feasible to use the Slony-I Creation scripts designed for use
+> in pgAdmin III outside of pgAdmin III?? I need to write a utility to make it
+> easier for our installers to setup Slony-I and I?d like to use the official
+> scripts to do it but I?m unsure how to go about it right now.
+
+The last discussion I had (if memory serves, with Dave Page, almost
+exactly a year ago, at PGcon...  If my memory isn't entirely correct,
+then it's still Dave Page, still PGcon, but it would be *TWO* years
+ago...) indicated that pgAdmin III hasn't been tracking Slony
+functionality for a *long* time now.
+
+What pgAdmin III *had* been doing was to run some of the Slony stored
+procedures, effectively duplicating parts of what is implemented in
+Slonik (<http://git.postgresql.org/gitweb/?p=slony1-engine.git;a=tree;f=src/slonik;h=819d809475fdd45b3d2d58107ae39d7eb7c77a5d;hb=HEAD>).
+ Now, what they last duplicated was most likely code from Slony 1.2.
+(Hence looking like
+<http://git.postgresql.org/gitweb/?p=slony1-engine.git;a=tree;f=src/slonik;h=92406ed729c6418b779134fd177f54aaae038174;hb=refs/heads/REL_1_2_STABLE>.)
+
+There have been rather a lot of changes since version 1.2, and
+functionality of slonik varies, in ways that sometimes matter, from
+version to version to version, and the pgAdmin III devs stopped
+tracking things way back.
+
+The recommendation in these "modern days" is that cluster management
+should be done using Slonik scripts, and for Slony 2.1 and later,
+that's really rather crucial, as slonik has functionality that
+wouldn't be terribly appropriate to even attempt to integrate into
+pgAdmin III.
+
+From smccloud at geo-comm.com  Tue May 22 10:40:05 2012
+From: smccloud at geo-comm.com (Shaun McCloud)
+Date: Tue, 22 May 2012 17:40:05 +0000
+Subject: [Slony1-general] Run pgAdmin II Slony-I Creation scripts
+ outside of pgAdmin III?
+In-Reply-To: <CANfbgba1oXwM6oN=RZzAgQRWKYxN+vYSjJXSSsj5bOR+F7u9ow@mail.gmail.com>
+References: <7742DD496427B743BC8B7BBF6D380BA037B257C5@EXCHANGE10.geo-comm.local>
+	<CANfbgba1oXwM6oN=RZzAgQRWKYxN+vYSjJXSSsj5bOR+F7u9ow@mail.gmail.com>
+Message-ID: <7742DD496427B743BC8B7BBF6D380BA037B25A2A@EXCHANGE10.geo-comm.local>
+
+Ok,
+
+I will do more research using that method.  I was planning on allowing a user to run the app on the Master node and each slave node to allow then to add one slave at a time (due to the fact that we must maintain 100% uptime in the event of a schema change).  That shouldn't be an issue when using Slonik directly, correct?
+
+Shaun McCloud, MCDST | Associate Software Developer
+Geo-Comm Inc. | www.geo-comm.com
+
+
+-----Original Message-----
+From: Christopher Browne [mailto:cbbrowne at afilias.info] 
+Sent: Tuesday, May 22, 2012 12:12
+To: Shaun McCloud
+Cc: slony1-general at lists.slony.info
+Subject: Re: [Slony1-general] Run pgAdmin II Slony-I Creation scripts outside of pgAdmin III?
+
+On Tue, May 22, 2012 at 11:36 AM, Shaun McCloud <smccloud at geo-comm.com> wrote:
+> Is it possible/feasible to use the Slony-I Creation scripts designed 
+> for use in pgAdmin III outside of pgAdmin III?? I need to write a 
+> utility to make it easier for our installers to setup Slony-I and I'd 
+> like to use the official scripts to do it but I'm unsure how to go about it right now.
+
+The last discussion I had (if memory serves, with Dave Page, almost exactly a year ago, at PGcon...  If my memory isn't entirely correct, then it's still Dave Page, still PGcon, but it would be *TWO* years
+ago...) indicated that pgAdmin III hasn't been tracking Slony functionality for a *long* time now.
+
+What pgAdmin III *had* been doing was to run some of the Slony stored procedures, effectively duplicating parts of what is implemented in Slonik (<http://git.postgresql.org/gitweb/?p=slony1-engine.git;a=tree;f=src/slonik;h=819d809475fdd45b3d2d58107ae39d7eb7c77a5d;hb=HEAD>).
+ Now, what they last duplicated was most likely code from Slony 1.2.
+(Hence looking like
+<http://git.postgresql.org/gitweb/?p=slony1-engine.git;a=tree;f=src/slonik;h=92406ed729c6418b779134fd177f54aaae038174;hb=refs/heads/REL_1_2_STABLE>.)
+
+There have been rather a lot of changes since version 1.2, and functionality of slonik varies, in ways that sometimes matter, from version to version to version, and the pgAdmin III devs stopped tracking things way back.
+
+The recommendation in these "modern days" is that cluster management should be done using Slonik scripts, and for Slony 2.1 and later, that's really rather crucial, as slonik has functionality that wouldn't be terribly appropriate to even attempt to integrate into pgAdmin III.
+
+From cbbrowne at afilias.info  Tue May 22 10:52:54 2012
+From: cbbrowne at afilias.info (Christopher Browne)
+Date: Tue, 22 May 2012 13:52:54 -0400
+Subject: [Slony1-general] Run pgAdmin II Slony-I Creation scripts
+ outside of pgAdmin III?
+In-Reply-To: <7742DD496427B743BC8B7BBF6D380BA037B25A2A@EXCHANGE10.geo-comm.local>
+References: <7742DD496427B743BC8B7BBF6D380BA037B257C5@EXCHANGE10.geo-comm.local>
+	<CANfbgba1oXwM6oN=RZzAgQRWKYxN+vYSjJXSSsj5bOR+F7u9ow@mail.gmail.com>
+	<7742DD496427B743BC8B7BBF6D380BA037B25A2A@EXCHANGE10.geo-comm.local>
+Message-ID: <CANfbgbb5zrDOzAtn-3gYtH-SHt-gRmEERAcqbHWcuX_LyFXsTg@mail.gmail.com>
+
+On Tue, May 22, 2012 at 1:40 PM, Shaun McCloud <smccloud at geo-comm.com> wrote:
+> Ok,
+>
+> I will do more research using that method. ?I was planning on allowing a user to run the app on the Master node and each slave node to allow then to add one slave at a time (due to the fact that we must maintain 100% uptime in the event of a schema change). ?That shouldn't be an issue when using Slonik directly, correct?
+
+Everything that can be configured can certainly be configured using
+Slonik; its use shouldn't restrict you in any additional ways.
+
+I don't imagine you can actually get "100% uptime," but that's a
+broader issue not particularly relevant to this.  There are some
+actions that are likely to lead to some locking of database objects
+(see the Slony documentation; each Slonik command has a section
+describing locking implications) that would effectively lower uptime
+from 100%.
+
+From smccloud at geo-comm.com  Tue May 22 10:54:38 2012
+From: smccloud at geo-comm.com (Shaun McCloud)
+Date: Tue, 22 May 2012 17:54:38 +0000
+Subject: [Slony1-general] Run pgAdmin II Slony-I Creation scripts
+ outside of pgAdmin III?
+In-Reply-To: <CANfbgbb5zrDOzAtn-3gYtH-SHt-gRmEERAcqbHWcuX_LyFXsTg@mail.gmail.com>
+References: <7742DD496427B743BC8B7BBF6D380BA037B257C5@EXCHANGE10.geo-comm.local>
+	<CANfbgba1oXwM6oN=RZzAgQRWKYxN+vYSjJXSSsj5bOR+F7u9ow@mail.gmail.com>
+	<7742DD496427B743BC8B7BBF6D380BA037B25A2A@EXCHANGE10.geo-comm.local>
+	<CANfbgbb5zrDOzAtn-3gYtH-SHt-gRmEERAcqbHWcuX_LyFXsTg@mail.gmail.com>
+Message-ID: <7742DD496427B743BC8B7BBF6D380BA037B25A57@EXCHANGE10.geo-comm.local>
+
+In the event of a schema change we will be taking down the master node and one slave node, rebuilding replication on them then doing the other slave nodes one at a time.
+
+Ex we have 3 slave nodes.
+This is how I envision it going.
+- Update schema on master & slave 1
+- Create replication set on master & slave 1
+- Update schema on slave 2
+- Add slave 2 to replication set
+- Update schema on slave 3
+- Add slave 3 to replication set
+
+
+From bogus@does.not.exist.com  Wed May  9 13:22:10 2012
+From: bogus@does.not.exist.com ()
+Date: Wed, 09 May 2012 20:22:10 -0000
+Subject: No subject
+Message-ID: <mailman.0.1337709363.22143.slony1-general@lists.slony.info>
+
+til I am ready to add them to the set, is this correct?
+
+Shaun McCloud, MCDST | Associate Software Developer
+Geo-Comm Inc. | www.geo-comm.com
+
+
+-----Original Message-----
+From: Christopher Browne [mailto:cbbrowne at afilias.info]=20
+Sent: Tuesday, May 22, 2012 12:53
+To: Shaun McCloud
+Cc: slony1-general at lists.slony.info
+Subject: Re: [Slony1-general] Run pgAdmin II Slony-I Creation scripts outsi=
+de of pgAdmin III?
+
+On Tue, May 22, 2012 at 1:40 PM, Shaun McCloud <smccloud at geo-comm.com> wrot=
+e:
+> Ok,
+>
+> I will do more research using that method. =A0I was planning on allowing =
+a user to run the app on the Master node and each slave node to allow then =
+to add one slave at a time (due to the fact that we must maintain 100% upti=
+me in the event of a schema change). =A0That shouldn't be an issue when usi=
+ng Slonik directly, correct?
+
+Everything that can be configured can certainly be configured using Slonik;=
+ its use shouldn't restrict you in any additional ways.
+
+I don't imagine you can actually get "100% uptime," but that's a broader is=
+sue not particularly relevant to this.  There are some actions that are lik=
+ely to lead to some locking of database objects (see the Slony documentatio=
+n; each Slonik command has a section describing locking implications) that =
+would effectively lower uptime from 100%.
+
+From ssinger at ca.afilias.info  Tue May 22 14:23:59 2012
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Tue, 22 May 2012 17:23:59 -0400
+Subject: [Slony1-general] slony.info website outage
+Message-ID: <4FBC03EF.8010601@ca.afilias.info>
+
+The slony.info website will be taken offline for maintenance on:
+
+Wednesday, May 23 starting at 7:30pm
+
+* The website - www.slony.info
+* The slony bugzilla instance
+* All slony mailing lists
+
+will be offline, this is expected to last a few hours.
+
+
+
+Thanks
+

@@ -1,0 +1,1146 @@
+From bugzilla-daemon at main.slony.info  Tue Mar  1 11:30:54 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Tue,  1 Mar 2011 11:30:54 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 196] snapshot id values appear to travel
+	backwards in sl_event
+In-Reply-To: <bug-196-4@http.www.slony.info/bugzilla/>
+References: <bug-196-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110301193054.E4B54290D1B@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=196
+
+Christopher Browne <cbbrowne at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         AssignedTo|slony1-bugs at lists.slony.inf |cbbrowne at ca.afilias.info
+                   |o                           |
+             Status|NEW                         |ASSIGNED
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Tue Mar  1 12:10:46 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Tue,  1 Mar 2011 12:10:46 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 196] snapshot id values appear to travel
+	backwards in sl_event
+In-Reply-To: <bug-196-4@http.www.slony.info/bugzilla/>
+References: <bug-196-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110301201046.BB1A5290D2A@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=196
+
+--- Comment #1 from Christopher Browne <cbbrowne at ca.afilias.info> 2011-03-01 12:10:46 PST ---
+Preliminary implementation...
+
+https://github.com/cbbrowne/slony1-engine/tree/bug196
+
+--------------------------------------------------------------------------------
+Add sl_event_lock table that is what gets locked to prevent mis-serialization
+of creation of sl_event entries.
+
+Add pre_event_create() function that takes out that lock which will be called
+by anything that does an event create.
+
+Add code to upgrade schema function which creates sl_event_lock if it is
+missing.
+
+Slon SYNC thread needs to call pre_event_create() before calling createEvent().
+
+Various functions for slonik actions call pre_event_create() before calling
+createEvent().
+--------------------------------------------------------------------------------
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Tue Mar  1 12:14:16 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Tue,  1 Mar 2011 12:14:16 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 196] snapshot id values appear to travel
+	backwards in sl_event
+In-Reply-To: <bug-196-4@http.www.slony.info/bugzilla/>
+References: <bug-196-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110301201416.98DFE290D33@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=196
+
+--- Comment #2 from Steve Singer <ssinger at ca.afilias.info> 2011-03-01 12:14:16 PST ---
+(In reply to comment #1)
+> Preliminary implementation...
+> 
+> https://github.com/cbbrowne/slony1-engine/tree/bug196
+> 
+> --------------------------------------------------------------------------------
+> Add sl_event_lock table that is what gets locked to prevent mis-serialization
+> of creation of sl_event entries.
+> 
+> Add pre_event_create() function that takes out that lock which will be called
+> by anything that does an event create.
+
+
+I think that function needs to be a C function not a stored procedure.  The act
+of calling the stored procedure creates a snapshot - when the SELECT starts. 
+THe lock doesn't get created until the 'LOCK statement' inside the stored
+procedure runs.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Mar  2 10:04:47 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed,  2 Mar 2011 10:04:47 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 196] snapshot id values appear to travel
+	backwards in sl_event
+In-Reply-To: <bug-196-4@http.www.slony.info/bugzilla/>
+References: <bug-196-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110302180447.158D2290D46@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=196
+
+--- Comment #3 from Christopher Browne <cbbrowne at ca.afilias.info> 2011-03-02 10:04:46 PST ---
+OK, updated to expressly submit LOCK TABLE sl_event_lock, rather than allowing
+race condition by doing it inside a stored function.
+
+There a few more places to adjust, as there are stored functions that generate
+events:
+
+a) failednode2() generates an event, so the table needs to be locked before
+calling this function in src/slonik/slonik.c
+
+b) failoverSet_int() generates an event, hence src/slon/remote_worker.c needs
+to lock the table first.
+
+https://github.com/cbbrowne/slony1-engine/commit/215054a2ff4f3833aec9cd7f39fcb45a1ee00455
+
+It has been speculated that there's an event created as part of subscription
+that needs to be guarded; I still need to seek that out, if it exists.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Mar  2 11:44:08 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed,  2 Mar 2011 11:44:08 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 196] snapshot id values appear to travel
+	backwards in sl_event
+In-Reply-To: <bug-196-4@http.www.slony.info/bugzilla/>
+References: <bug-196-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110302194408.F3827290CF4@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=196
+
+--- Comment #4 from Christopher Browne <cbbrowne at ca.afilias.info> 2011-03-02 11:44:09 PST ---
+OK, found the extra spot that needs the guard.
+
+https://github.com/cbbrowne/slony1-engine/commit/38e62558d5917f0b56634d28f3d920fe19ff4e7e
+
+I also added docs to the slon README file.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Thu Mar  3 09:47:10 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu,  3 Mar 2011 09:47:10 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 198] New: subscribeset() does not check for
+ availability of the provider node.
+Message-ID: <bug-198-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=198
+
+           Summary: subscribeset() does not check for availability of the
+                    provider node.
+           Product: Slony-I
+           Version: devel
+          Platform: PC
+        OS/Version: Linux
+            Status: ASSIGNED
+          Severity: enhancement
+          Priority: low
+         Component: stored procedures
+        AssignedTo: cbbrowne at ca.afilias.info
+        ReportedBy: cbbrowne at ca.afilias.info
+                CC: slony1-bugs at lists.slony.info
+   Estimated Hours: 0.0
+
+
+This function doesn't validate that the provider node exists, and should.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Thu Mar  3 09:51:49 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu,  3 Mar 2011 09:51:49 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 198] subscribeset() does not check for
+ availability of the provider node.
+In-Reply-To: <bug-198-4@http.www.slony.info/bugzilla/>
+References: <bug-198-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110303175149.6334C290244@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=198
+
+--- Comment #1 from Christopher Browne <cbbrowne at ca.afilias.info> 2011-03-03 09:51:49 PST ---
+Fix put in.
+
+https://github.com/cbbrowne/slony1-engine/tree/bug198
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Tue Mar  8 11:18:10 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Tue,  8 Mar 2011 11:18:10 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 181] Bulk Adding Tables
+In-Reply-To: <bug-181-4@http.www.slony.info/bugzilla/>
+References: <bug-181-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110308191810.E4DB029021E@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=181
+
+--- Comment #9 from Christopher Browne <cbbrowne at ca.afilias.info> 2011-03-08 11:18:10 PST ---
+This got merged into MASTER on 2011-01-28:
+
+http://git.postgresql.org/gitweb?p=slony1-engine.git;a=commit;h=0600fa560a03f3bbf91c33ba249927ca43626195
+
+Is there more to do on this, or can this be closed out?
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Tue Mar  8 11:21:53 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Tue,  8 Mar 2011 11:21:53 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 181] Bulk Adding Tables
+In-Reply-To: <bug-181-4@http.www.slony.info/bugzilla/>
+References: <bug-181-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110308192153.0B66F290D43@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=181
+
+Steve Singer <ssinger at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         Resolution|                            |FIXED
+             Status|ASSIGNED                    |RESOLVED
+
+--- Comment #10 from Steve Singer <ssinger at ca.afilias.info> 2011-03-08 11:21:53 PST ---
+This can be marked as fixed.
+It should show up in the 2.1 release
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Tue Mar  8 17:31:17 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Tue,  8 Mar 2011 17:31:17 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 199] New: remoteListenThread continue to get
+	data forever.
+Message-ID: <bug-199-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=199
+
+           Summary: remoteListenThread continue to get data forever.
+           Product: Slony-I
+           Version: 2.0
+          Platform: All
+        OS/Version: Linux
+            Status: NEW
+          Severity: normal
+          Priority: low
+         Component: slon
+        AssignedTo: slony1-bugs at lists.slony.info
+        ReportedBy: katsumata.tomonari at oss.ntt.co.jp
+                CC: slony1-bugs at lists.slony.info
+   Estimated Hours: 0.0
+
+
+Hi,
+
+I'm testing Slony-I 2.0.6.
+and, I noticed behavior has changed from before release(2.0.4).
+what I do is bellow.
+
+1) I kill PostgreSQL process(postmaster) with SIGKILL on master. 
+2) and then I restart PostgreSQL.
+
+I checked log messages, appeartently behavior is different.
+
+a) log in Slony-I 2.0.6.
+--
+2011-03-09 00:40:27 JSTERROR  remoteListenThread_1: "select con_origin,
+con_received,     max(con_seqno) as con_seqno,     max(con_timestamp) as
+con_timestamp from "_replication".sl_confirm where con_received <> 2 group by
+con_origin, con_received" 2011-03-09 00:40:33 JSTERROR  remoteListenThread_1:
+"select ev_origin, ev_seqno, ev_timestamp,        ev_snapshot,       
+"pg_catalog".txid_snapshot_xmin(ev_snapshot),       
+"pg_catalog".txid_snapshot_xmax(ev_snapshot),        ev_type,        ev_data1,
+ev_data2,        ev_data3, ev_data4,        ev_data5, ev_data6,       
+ev_data7, ev_data8 from "_replication".sl_event e where (e.ev_origin = '1' and
+e.ev_seqno > '5000000025') order by e.ev_origin, e.ev_seqno limit 40" - no
+connection to the server
+--
+*** Slony-I outputs above message endless. ***
+
+b) log in Slony-I 2.0.4
+--
+2011-03-09 00:55:29 JSTERROR  remoteListenThread_1: "select con_origin,
+con_received,     max(con_seqno) as con_seqno,     max(con_timestamp) as
+con_timestamp from "_replication".sl_confirm where con_received <> 2 group by
+con_origin, con_received" 2011-03-09 00:55:29 JSTCONFIG slon: child terminated
+status: 11; pid: 3154, current worker pid: 3154
+2011-03-09 00:55:29 JSTCONFIG slon: restart of worker in 10 seconds
+--
+*** In Slony-I 2.0.4, slon is restarted. It looks OK. ***
+
+the behavior in Slony-I 2.0.6 is intended ?
+If not so, please revise this.
+
+regards,
+--
+NTT OSS Center
+  Tomonari Katsumata
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Mar  9 06:31:01 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed,  9 Mar 2011 06:31:01 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 199] remoteListenThread continue to get data
+	forever.
+In-Reply-To: <bug-199-4@http.www.slony.info/bugzilla/>
+References: <bug-199-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110309143101.65B41290D2D@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=199
+
+--- Comment #1 from Steve Singer <ssinger at ca.afilias.info> 2011-03-09 06:31:01 PST ---
+Please confirm if this change addresses the problem your describing?
+
+http://git.postgresql.org/gitweb?p=slony1-engine.git;a=commit;h=c2a06b4b36dc718fb849286de2dedffd4fc427a0
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Mar  9 12:11:59 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed,  9 Mar 2011 12:11:59 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 190] Cluster Test
+In-Reply-To: <bug-190-4@http.www.slony.info/bugzilla/>
+References: <bug-190-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110309201200.042AA290097@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=190
+
+Christopher Browne <cbbrowne at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         Resolution|                            |FIXED
+             Status|ASSIGNED                    |RESOLVED
+
+--- Comment #4 from Christopher Browne <cbbrowne at ca.afilias.info> 2011-03-09 12:11:59 PST ---
+Committed to MASTER
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Mar  9 12:12:00 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed,  9 Mar 2011 12:12:00 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 191] Cluster test assumes replication runs as
+	superuser
+In-Reply-To: <bug-191-4@http.www.slony.info/bugzilla/>
+References: <bug-191-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110309201200.6979E290273@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=191
+
+Bug 191 depends on bug 190, which changed state.
+
+Bug 190 Summary: Cluster Test
+http://www.slony.info/bugzilla/show_bug.cgi?id=190
+
+           What    |Old Value                   |New Value
+----------------------------------------------------------------------------
+         Resolution|                            |FIXED
+             Status|ASSIGNED                    |RESOLVED
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Mar  9 12:27:33 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed,  9 Mar 2011 12:27:33 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 179] Implicit WAIT FOR EVENT
+In-Reply-To: <bug-179-4@http.www.slony.info/bugzilla/>
+References: <bug-179-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110309202733.AEE4929021E@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=179
+
+Christopher Browne <cbbrowne at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         AssignedTo|slony1-bugs at lists.slony.inf |ssinger at ca.afilias.info
+                   |o                           |
+             Status|NEW                         |ASSIGNED
+
+--- Comment #1 from Christopher Browne <cbbrowne at ca.afilias.info> 2011-03-09 12:27:33 PST ---
+Subscribe set has the ENABLE_SUBSCRIPTION event generated by slon; this likely
+needs to do some "guarding"
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Mar  9 12:28:35 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed,  9 Mar 2011 12:28:35 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 179] Implicit WAIT FOR EVENT
+In-Reply-To: <bug-179-4@http.www.slony.info/bugzilla/>
+References: <bug-179-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110309202835.97A3F29021E@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=179
+
+--- Comment #2 from Christopher Browne <cbbrowne at ca.afilias.info> 2011-03-09 12:28:35 PST ---
+A branch exists for this...
+https://github.com/ssinger/slony1-engine/tree/auto_wait_for
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Mar  9 21:05:26 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed,  9 Mar 2011 21:05:26 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 199] remoteListenThread continue to get data
+	forever.
+In-Reply-To: <bug-199-4@http.www.slony.info/bugzilla/>
+References: <bug-199-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110310050526.F351C290097@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=199
+
+Tomonari Katsumata <katsumata.tomonari at oss.ntt.co.jp> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         Resolution|                            |FIXED
+             Status|NEW                         |RESOLVED
+
+--- Comment #2 from Tomonari Katsumata <katsumata.tomonari at oss.ntt.co.jp> 2011-03-09 21:05:27 PST ---
+Hi, 
+
+thank you for response.
+I apply the patch and test again.
+It's OK. slon could connect PostgreSQL soon.
+
+I'm looking forward to next release 2.0.7.
+
+---
+NTT OSS Center
+  Tomonari Katsumata
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Mon Mar 14 06:48:38 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Mon, 14 Mar 2011 06:48:38 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 175] Monitoring cluster better
+In-Reply-To: <bug-175-4@http.www.slony.info/bugzilla/>
+References: <bug-175-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110314134838.E243E290D1B@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=175
+
+--- Comment #8 from Steve Singer <ssinger at ca.afilias.info> 2011-03-14 06:48:38 PDT ---
+(In reply to comment #7)
+> I have run pgindent against this, to apply typical PG indentation policy.
+> 
+> Should be ready for review.
+
+Review at 
+
+http://lists.slony.info/pipermail/slony1-hackers/2011-March/000446.html
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Tue Mar 15 10:16:15 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Tue, 15 Mar 2011 10:16:15 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 175] Monitoring cluster better
+In-Reply-To: <bug-175-4@http.www.slony.info/bugzilla/>
+References: <bug-175-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110315171615.573AA290CED@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=175
+
+--- Comment #9 from Christopher Browne <cbbrowne at ca.afilias.info> 2011-03-15 10:16:15 PDT ---
+(In reply to comment #8)
+> (In reply to comment #7)
+> > I have run pgindent against this, to apply typical PG indentation policy.
+> > 
+> > Should be ready for review.
+> 
+> Review at 
+> 
+> http://lists.slony.info/pipermail/slony1-hackers/2011-March/000446.html
+
+I have responded to this on the list; see:
+http://lists.slony.info/pipermail/slony1-hackers/2011-March/000447.html
+
+There are patches for virtually all of the items mentioned in the review:
+
+https://github.com/cbbrowne/slony1-engine/commit/c6082bc77f460e985c7a2891c45269c9648347c9
+
+https://github.com/cbbrowne/slony1-engine/commit/72ed0337641eefda095cfcb706562d71d9c03413
+
+https://github.com/cbbrowne/slony1-engine/commit/7a3c5f54dcf72bcf67a49f6ed5b80ed673fc0ed5
+
+https://github.com/cbbrowne/slony1-engine/commit/0543c96506eb55012c4366f78009f886b9464d59
+
+https://github.com/cbbrowne/slony1-engine/commit/03f52daf1fb7ae2d819ecd0c411342a594f6884d
+
+https://github.com/cbbrowne/slony1-engine/commit/d00574d2d1793a372467bc103a7772030fd939ab
+
+There were two other issues mentioned which I'll quote as items to specifically
+respond to.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Tue Mar 15 10:17:30 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Tue, 15 Mar 2011 10:17:30 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 175] Monitoring cluster better
+In-Reply-To: <bug-175-4@http.www.slony.info/bugzilla/>
+References: <bug-175-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110315171730.834F7290D2D@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=175
+
+--- Comment #10 from Christopher Browne <cbbrowne at ca.afilias.info> 2011-03-15 10:17:30 PDT ---
+Per Steve Singer:
+<http://lists.slony.info/pipermail/slony1-hackers/2011-March/000446.html>
+
+A general comment:
+This monitor thread calls slon_retry() a bunch of times.  We've created a whole
+bunch of new failure points for slon.  I'm not sure issues recording the
+monitor state should result in a slon falling over. I feel that if the monitor
+thread hits an error it can reset the database connections for the monitor
+thread but it should leave the threads doing real work alone.   Having said
+that we might also want a maximum size of the queue.  If the queue exceeds a
+certain size (maybe because the monitor thread keeps hitting issues) then we
+stop putting new  elements on the queue or discard the oldest ones.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Tue Mar 15 10:18:07 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Tue, 15 Mar 2011 10:18:07 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 175] Monitoring cluster better
+In-Reply-To: <bug-175-4@http.www.slony.info/bugzilla/>
+References: <bug-175-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110315171807.C89D5290D48@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=175
+
+--- Comment #11 from Christopher Browne <cbbrowne at ca.afilias.info> 2011-03-15 10:18:07 PDT ---
+Per Steve Singer:
+<http://lists.slony.info/pipermail/slony1-hackers/2011-March/000446.html>
+
+I would also like to know what the performance impact in terms of system load
+is of running the monitoring stuff.  Ie run some tests without the monitoring
+stuff measure average cpu load and run the same test with the monitoring code
+and measure average cpu load.  I don't think the impact is going to be high but
+we should still measure it.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Tue Mar 15 14:48:44 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Tue, 15 Mar 2011 14:48:44 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 200] New: slon_retry() overused
+Message-ID: <bug-200-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=200
+
+           Summary: slon_retry() overused
+           Product: Slony-I
+           Version: devel
+          Platform: All
+        OS/Version: All
+            Status: NEW
+          Severity: enhancement
+          Priority: medium
+         Component: slon
+        AssignedTo: slony1-bugs at lists.slony.info
+        ReportedBy: cbbrowne at ca.afilias.info
+                CC: slony1-bugs at lists.slony.info
+   Estimated Hours: 0.0
+
+
+Noticed in bug #175...
+
+There are a LOT of places where slon_retry() is called, which signals a start
+of the slon daemon.
+
+local_listener.c: 8
+cleanup_thread.c: 4
+remote_worker.c: 45
+sync_thread.c: 5
+misc.c: 3
+runtime_config.c: 15
+slon.c: 15
+
+This seems rather excessive - if a problem occurs in any of these places, this
+effectively terminates all activity that's going on.  If a 2-day-long
+subscription is taking place, then any little problem that occurs in a
+peripheral area will take that down and restart it.
+
+Some assessment should take place to determine the degree to which this is
+excessive.  There are legitimately problems that are fatal that warrant
+terminating/restarting the slon daemon.  But probably not *quite* this many...
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Mar 16 13:46:31 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed, 16 Mar 2011 13:46:31 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 175] Monitoring cluster better
+In-Reply-To: <bug-175-4@http.www.slony.info/bugzilla/>
+References: <bug-175-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110316204631.C28DA2903FC@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=175
+
+--- Comment #12 from Christopher Browne <cbbrowne at ca.afilias.info> 2011-03-16 13:46:31 PDT ---
+Per Steve's recommendation, monitoring thread problems aren't necessarily
+serious problems warranting restarting the slon.
+
+This patch implements that:
+https://github.com/cbbrowne/slony1-engine/commit/d1a5be153e51cd10ac12a3dcb9cbb63856a18306
+
+Note that there are still some slon_retry() calls remaining, in the scenario
+where the slon process runs out of memory.  That seems pretty fatal to me...
+
+I realized that there are cases where we have a horrid memory leak; if the
+monitoring thread isn't working, then we shouldn't be collecting monitoring
+entries.  Thus, made two changes:
+
+1.  When we exit from the monitoring thread main loop, turn monitoring off.
+
+2.  In the "push" function, if monitoring is shut off, return immediately, do
+not attempt to queue up monitoring data.
+
+https://github.com/cbbrowne/slony1-engine/commit/a61f4642ed29bc727d2361a4000500b81573ea11
+
+I realized that the one entry for the monitoring thread will indicate the time
+when the slon daemon started.  Document that...
+
+https://github.com/cbbrowne/slony1-engine/commit/d3f66cccb54168ca8d6a80261337a66228720cd8
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Thu Mar 17 10:42:33 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu, 17 Mar 2011 10:42:33 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 175] Monitoring cluster better
+In-Reply-To: <bug-175-4@http.www.slony.info/bugzilla/>
+References: <bug-175-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110317174233.4A1AF290D4E@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=175
+
+--- Comment #13 from Christopher Browne <cbbrowne at ca.afilias.info> 2011-03-17 10:42:33 PDT ---
+I don't see a particularly good way to readily analyze CPU loading from this
+addition, and I'm not sure that's even the best measurement, in any case.
+
+As an alternative, I instrumented the code in two places, with the following
+patch:
+diff --git a/src/slon/monitor_thread.c b/src/slon/monitor_thread.c
+index 108b338..d88abfd 100644
+--- a/src/slon/monitor_thread.c
++++ b/src/slon/monitor_thread.c
+@@ -180,6 +180,8 @@ monitorThread_main(void *dummy)
+                                                free(state.activity);
+                                        if (state.event_type != NULL)
+                                                free(state.event_type);
++                                       slon_log(SLON_INFO, "monitor_thread -
+record - %s\n",
++                                                       
+dstring_data(&monquery));
+                                        res = PQexec(dbconn,
+dstring_data(&monquery));
+                                        if (PQresultStatus(res) !=
+PGRES_TUPLES_OK)
+                                        {
+@@ -384,6 +386,9 @@ monitor_state(const char *actor, int node, pid_t conn_pid,
+/* @null@ */ const ch
+        {
+                tos->event_type = NULL;
+        }
++       slon_log(SLON_INFO, "monitor_state(pid:%d node:%d connpid:%d event:%lld
+actor[%s] activity[%s] event_type[%s]\n",
++                        tos->pid, tos->node, tos->conn_pid, tos->event,
++                        tos->actor, tos->activity, tos->event_type);
+        pthread_mutex_unlock(&stack_lock);
+ }
+
+
+a) Each time an entry is pushed onto the stack, it is recorded in the log
+b) Each time an entry is to be submitted to the DB, the query is recorded in
+the log.
+
+In running a typical regression test (e.g. - test1), I saw the following
+results...
+
+Test ran from  Mar 17 13:18:00 to Mar 17 13:19:06
+
+ grep monitor_thread /var/log/messages | grep select  | wc -l
+
+-> There were 214 calls to the component_state() function, across two nodes,
+so...
+
+214 / (66*2) = 1.6 calls per second
+
+-> There were 471 calls to monitor_state(), across those nodes, that induced
+these 214 calls.
+
+That suggests to me that Jan's recommendation to optimize by allowing
+successive calls to overwrite a repeated entry for the same thread is doing a
+lot of good, reducing the DB load by more than half.
+
+I find it compelling to expect this to be a pretty nominal addition to system
+load for Slony.
+
+Poking at the table:
+
+slonyregress1 at localhost->  analyze verbose _slony_regress1.sl_components ;
+INFO:  analyzing "_slony_regress1.sl_components"
+INFO:  "sl_components": scanned 1 of 1 pages, containing 6 live rows and 17
+dead rows; 6 rows in sample, 6 estimated total rows
+ANALYZE
+slonyregress1 at localhost->  \c slonyregress2
+You are now connected to database "slonyregress2" as user "postgres".
+slonyregress2 at localhost->  analyze verbose _slony_regress1.sl_components ;
+INFO:  analyzing "_slony_regress1.sl_components"
+INFO:  "sl_components": scanned 1 of 1 pages, containing 6 live rows and 11
+dead rows; 6 rows in sample, 6 estimated total rows
+ANALYZE
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Thu Mar 17 10:43:06 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu, 17 Mar 2011 10:43:06 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 175] Monitoring cluster better
+In-Reply-To: <bug-175-4@http.www.slony.info/bugzilla/>
+References: <bug-175-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110317174306.A426529024C@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=175
+
+--- Comment #14 from Christopher Browne <cbbrowne at ca.afilias.info> 2011-03-17 10:43:06 PDT ---
+Thing remembered...
+
+sl_components should be added to the set of tables that the cleanup thread
+considers maintaining.
+
+https://github.com/cbbrowne/slony1-engine/commit/cd3519bba5a03ce2f577747324f4a9ebc697d317
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Fri Mar 18 07:44:48 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Fri, 18 Mar 2011 07:44:48 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 175] Monitoring cluster better
+In-Reply-To: <bug-175-4@http.www.slony.info/bugzilla/>
+References: <bug-175-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110318144448.5E6BB290D00@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=175
+
+--- Comment #15 from Steve Singer <ssinger at ca.afilias.info> 2011-03-18 07:44:48 PDT ---
+Some additional comments based on the latest changes (these are mostly issues
+that I just didn't catch in my first review)
+
+
+1.  We also need to include support in the upgradeSchema() function to take a
+2.0.x slony install and add in the new tables for monitoring
+
+2.  In monitor thread - dbconn is never closed.  Especially in the cases where
+we 'stop' the monitoring thread we should shutdown the connection (if we are
+able). We also MIGHT want to think about emptying the queue at this point.  We
+aren't going to empty it later and if the database connection was stuck for a
+while before it timed out leading to the error the queue might have grown in
+size.  
+
+I also still wonder if we shouldn't be putting a maximum size on the queue, I
+know we discussed this the other day and it started to sound complicated.  I
+think
+there must be a way of doing this with throwing away old entries that isn't
+complicated.  If I can find some time I'll see if I can come up with something.
+Until then I don't think that needs to hold this patch up.
+
+
+I also bet we will get complaints from people 
+"my slon has been running fine for 3 months but slon_component table stopped
+updating a few weeks ago".   Where some network blimp disabled the
+monitor_thread but the rest of slony continued to chug along.  Though i think
+this situation is better htan slon restarting as we had before.
+
+
+3. Line 189 dstring_free(monquery) before breaking out of the loop on the
+error.
+
+The discussion on how we should be searching for performance regressions in
+slony is maybe outside the scope of this bug other than we should deal with
+this before we release 2.1  (looking to see if any of the 2.1 changes are a
+performance issue.  I have ideas on how to do this but Jan might already have a
+setup for testing this).
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Fri Mar 18 09:21:30 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Fri, 18 Mar 2011 09:21:30 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 175] Monitoring cluster better
+In-Reply-To: <bug-175-4@http.www.slony.info/bugzilla/>
+References: <bug-175-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110318162130.E2138290D54@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=175
+
+--- Comment #16 from Christopher Browne <cbbrowne at ca.afilias.info> 2011-03-18 09:21:30 PDT ---
+(In reply to comment #15)
+> Some additional comments based on the latest changes (these are mostly issues
+> that I just didn't catch in my first review)
+> 
+> 
+> 1.  We also need to include support in the upgradeSchema() function to take a
+> 2.0.x slony install and add in the new tables for monitoring
+
+I thought I had done that.  I'll add in the table if it's missing.
+
+https://github.com/cbbrowne/slony1-engine/commit/d51049b54f014ee4f00f974fc9629a7d64ca9727
+
+> 2.  In monitor thread - dbconn is never closed.  Especially in the cases where
+> we 'stop' the monitoring thread we should shutdown the connection (if we are
+> able). We also MIGHT want to think about emptying the queue at this point.  We
+> aren't going to empty it later and if the database connection was stuck for a
+> while before it timed out leading to the error the queue might have grown in
+> size.  
+
+dbconn isn't closed directly - it's closed via slon_disconnect(conn).
+
+As for emptying the queue, I don't see much value in it.  The condition on the
+loop is on the waits returning SCHED_STATUS_OK.  I don't think you get to ask
+it to terminate, or is there a signal you could throw that would kick just the
+one thread?
+
+> I also still wonder if we shouldn't be putting a maximum size on the queue, I
+> know we discussed this the other day and it started to sound complicated.  I
+> think
+> there must be a way of doing this with throwing away old entries that isn't
+> complicated.  If I can find some time I'll see if I can come up with something.
+> Until then I don't think that needs to hold this patch up.
+
+Idle thought: pick two numbers, m and n, and, once we've reached size m,
+generate a warning every time the queue size mod n = 0.
+
+For instance, m=100, n=10.  Once the queue is of size >100, complain every time
+the size increases and (size % 10) = 0.
+
+Actually, we're doubling the size of the array each time, so it's perfectly
+reasonable to gripe in the logs any time we resize and the size > 100.  I'll do
+that...
+
+> I also bet we will get complaints from people 
+> "my slon has been running fine for 3 months but slon_component table stopped
+> updating a few weeks ago".   Where some network blimp disabled the
+> monitor_thread but the rest of slony continued to chug along.  Though i think
+> this situation is better htan slon restarting as we had before.
+
+That's the risk any time we add anything :-).
+
+> 3. Line 189 dstring_free(monquery) before breaking out of the loop on the
+> error.
+
+Fixed. 
+https://github.com/cbbrowne/slony1-engine/commit/24da0a137120f4032858230836b39ed14da755fb
+
+> The discussion on how we should be searching for performance regressions in
+> slony is maybe outside the scope of this bug other than we should deal with
+> this before we release 2.1  (looking to see if any of the 2.1 changes are a
+> performance issue.  I have ideas on how to do this but Jan might already have a
+> setup for testing this).
+
+I'm happy with that.
+
+I have done a little bit of analytics that suggest that this change should have
+minimal impact on performance, and that's certainly what we expected.
+
+And it seems to make sense to look at performance more globally.  It's
+acceptable for us to lose a little here and there on one feature or another if:
+
+a) We gain material reliability improvements (e.g. - reasonable value exchange)
+b) There are other changes that provide offsetting performance increases.  (Bug
+#167, I'm looking at you!  :-))
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Fri Mar 18 11:01:56 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Fri, 18 Mar 2011 11:01:56 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 175] Monitoring cluster better
+In-Reply-To: <bug-175-4@http.www.slony.info/bugzilla/>
+References: <bug-175-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110318180156.65B8C29024C@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=175
+
+--- Comment #17 from Steve Singer <ssinger at ca.afilias.info> 2011-03-18 11:01:56 PDT ---
+
+> 
+> > 2.  In monitor thread - dbconn is never closed.  Especially in the cases where
+> > we 'stop' the monitoring thread we should shutdown the connection (if we are
+> > able). We also MIGHT want to think about emptying the queue at this point.  We
+> > aren't going to empty it later and if the database connection was stuck for a
+> > while before it timed out leading to the error the queue might have grown in
+> > size.  
+> 
+> dbconn isn't closed directly - it's closed via slon_disconnect(conn).
+
+Didn't see that.  We then need to call slon_disconnect on line 92
+
+
+> 
+> As for emptying the queue, I don't see much value in it.  The condition on the
+> loop is on the waits returning SCHED_STATUS_OK.  I don't think you get to ask
+> it to terminate, or is there a signal you could throw that would kick just the
+> one thread?
+> 
+
+Lines: 121, 191, and to a lesser extend 212 and 95 are all on code paths where
+we break out of the loop but don't free the space already used by the queue.
+
+
+> Actually, we're doubling the size of the array each time, so it's perfectly
+> reasonable to gripe in the logs any time we resize and the size > 100.  I'll do
+> that...
+
+For the moment I guess this is fine to commit, At some point I will try to find
+time to implement a properly bounded queue based on the number of threads
+such that old entries get thrown away when the queue hits the bound size.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Fri Mar 18 11:11:18 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Fri, 18 Mar 2011 11:11:18 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 198] subscribeset() does not check for
+ availability of the provider node.
+In-Reply-To: <bug-198-4@http.www.slony.info/bugzilla/>
+References: <bug-198-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110318181118.BFFD2290D48@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=198
+
+--- Comment #2 from Steve Singer <ssinger at ca.afilias.info> 2011-03-18 11:11:18 PDT ---
+This looks fine to commit.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Fri Mar 18 11:55:46 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Fri, 18 Mar 2011 11:55:46 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 198] subscribeset() does not check for
+ availability of the provider node.
+In-Reply-To: <bug-198-4@http.www.slony.info/bugzilla/>
+References: <bug-198-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110318185546.42391290D29@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=198
+
+--- Comment #3 from Christopher Browne <cbbrowne at ca.afilias.info> 2011-03-18 11:55:46 PDT ---
+Squashed into master.
+
+http://git.postgresql.org/gitweb?p=slony1-engine.git;a=commit;h=ce58f390b59a803459d60c87c315d5d3a4b40105
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Fri Mar 18 11:55:56 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Fri, 18 Mar 2011 11:55:56 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 198] subscribeset() does not check for
+ availability of the provider node.
+In-Reply-To: <bug-198-4@http.www.slony.info/bugzilla/>
+References: <bug-198-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110318185556.0EFAA290D29@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=198
+
+Christopher Browne <cbbrowne at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         Resolution|                            |FIXED
+             Status|ASSIGNED                    |RESOLVED
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Fri Mar 18 12:11:15 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Fri, 18 Mar 2011 12:11:15 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 175] Monitoring cluster better
+In-Reply-To: <bug-175-4@http.www.slony.info/bugzilla/>
+References: <bug-175-4@http.www.slony.info/bugzilla/>
+Message-ID: <20110318191116.005C829024C@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=175
+
+Christopher Browne <cbbrowne at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         Resolution|                            |FIXED
+             Status|ASSIGNED                    |RESOLVED
+
+--- Comment #18 from Christopher Browne <cbbrowne at ca.afilias.info> 2011-03-18 12:11:16 PDT ---
+Committed to head
+
+http://git.postgresql.org/gitweb?p=slony1-engine.git;a=commit;h=59fa974c06a1cae9f355809ea81eaa6d443f0a16
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Thu Mar 31 15:37:19 2011
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu, 31 Mar 2011 15:37:19 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 201] New: Allow command-line options to be
+ configured from slon_tools.conf
+Message-ID: <bug-201-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=201
+
+           Summary: Allow command-line options to be configured from
+                    slon_tools.conf
+           Product: Slony-I
+           Version: devel
+          Platform: All
+        OS/Version: All
+            Status: NEW
+          Severity: enhancement
+          Priority: low
+         Component: altperl
+        AssignedTo: slony1-bugs at lists.slony.info
+        ReportedBy: tailofthesun+slony at gmail.com
+                CC: slony1-bugs at lists.slony.info
+   Estimated Hours: 0.0
+
+
+Created an attachment (id=88)
+ --> (http://www.slony.info/bugzilla/attachment.cgi?id=88)
+[PATCH] Added options parameter to add_node in slon_tools.conf for passing
+extra command-line options to the slon daemon.
+
+Using the slon_start script only allows DEBUGLEVEL and SYNC_CHECK_INTERVAL to
+be passed to the slon daemon, as configured in slon_tools.conf.  I've attached
+a patch which allows you to pass an options argument to add_node for passing
+arbitrary command-line options on a per-node basis.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+

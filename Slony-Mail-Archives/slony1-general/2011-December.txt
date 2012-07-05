@@ -1,0 +1,2604 @@
+From zbbentley at gmail.com  Thu Dec  1 09:19:57 2011
+From: zbbentley at gmail.com (Zac Bentley)
+Date: Thu, 1 Dec 2011 12:19:57 -0500
+Subject: [Slony1-general] Catch-up and sl_status, and yum repo
+Message-ID: <CAAFQqzTxsFTEd679GCRnthPFgqnOAB_N=UF5QKHHDA+rNKud_w@mail.gmail.com>
+
+We recently had an issue with a long Slony (2.0) catch-up after 10 days of
+disconnect between a master and a slave. It's possible that it was caused
+by either bug 167 or bug 222. To test this behavior we made a dummy cluster
+on our local LAN, and did the following steps:
+
+1. Initialize a two-node Slony cluster with two identical copies of the
+database.
+2. Allow initial subscription to catch up.
+3. On the slave: drop the network connection to the master.
+4. On the master: run ~4 million update operations.
+5. On the slave: restore the connection to the master.
+
+We did this, and I was able to watch sync events get submitted and received
+in the logs. However, in sl_status, st_lag_num_events and st_lag_time kept
+going up, and the backlogged changes were not propagated (after a couple of
+hours, at least). The LAN link between the two nodes is fast, and neither
+node is lagging due to server/IO/network load. Why is this occurring/what
+did I do wrong?
+
+Also, on what time period do you publish RPMs of Slony to public Yum
+repositories? (i.e. when should we expect to see an RPM of Slony 2.1?)
+
+Thanks!
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20111201/975bada4/attachment.htm 
+
+From ssinger at ca.afilias.info  Thu Dec  1 10:38:32 2011
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Thu, 01 Dec 2011 13:38:32 -0500
+Subject: [Slony1-general] Catch-up and sl_status, and yum repo
+In-Reply-To: <CAAFQqzTxsFTEd679GCRnthPFgqnOAB_N=UF5QKHHDA+rNKud_w@mail.gmail.com>
+References: <CAAFQqzTxsFTEd679GCRnthPFgqnOAB_N=UF5QKHHDA+rNKud_w@mail.gmail.com>
+Message-ID: <4ED7C9A8.20500@ca.afilias.info>
+
+On 11-12-01 12:19 PM, Zac Bentley wrote:
+> We recently had an issue with a long Slony (2.0) catch-up after 10 days
+> of disconnect between a master and a slave. It's possible that it was
+> caused by either bug 167 or bug 222. To test this behavior we made a
+> dummy cluster on our local LAN, and did the following steps:
+>
+> 1. Initialize a two-node Slony cluster with two identical copies of the
+> database.
+> 2. Allow initial subscription to catch up.
+> 3. On the slave: drop the network connection to the master.
+> 4. On the master: run ~4 million update operations.
+> 5. On the slave: restore the connection to the master.
+>
+> We did this, and I was able to watch sync events get submitted and
+> received in the logs. However, in sl_status, st_lag_num_events and
+> st_lag_time kept going up, and the backlogged changes were not
+> propagated (after a couple of hours, at least). The LAN link between the
+> two nodes is fast, and neither node is lagging due to server/IO/network
+> load. Why is this occurring/what did I do wrong?
+
+
+Your 4 million row update was done as a single transaction.  This means 
+that Slony needs to replicate it to the slave as part of a single SYNC. 
+If slony is busy replicating that sync the SYNC won't show up as being 
+replicated until that SYNC is done.  sl_status will show the slave as 
+falling behind while the processing of that SYNC is going on (because it 
+is behind, none of your 4 million rows will be visible on the slave 
+until the transaction commits).
+
+If you run the slon for your slave at debug4 you should see lots of 
+DEBUG messages from the remoteWorkerThread showing progress.  Slony will 
+fetch the rows in groups of 500 at a time with a cursor.  Based on how 
+frequently you see these you can probably estimate how long it will take 
+to do 4 million.
+
+
+
+>
+> Also, on what time period do you publish RPMs of Slony to public Yum
+> repositories? (i.e. when should we expect to see an RPM of Slony 2.1?)
+>
+> Thanks!
+>
+>
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+
+
+From devrim at gunduz.org  Fri Dec  2 06:54:24 2011
+From: devrim at gunduz.org (Devrim =?ISO-8859-1?Q?G=DCND=DCZ?=)
+Date: Fri, 02 Dec 2011 16:54:24 +0200
+Subject: [Slony1-general] Catch-up and sl_status, and yum repo
+In-Reply-To: <CAAFQqzTxsFTEd679GCRnthPFgqnOAB_N=UF5QKHHDA+rNKud_w@mail.gmail.com>
+References: <CAAFQqzTxsFTEd679GCRnthPFgqnOAB_N=UF5QKHHDA+rNKud_w@mail.gmail.com>
+Message-ID: <1322837660.2518.10.camel@lenovo01-laptop03.gunduz.org>
+
+On Thu, 2011-12-01 at 12:19 -0500, Zac Bentley wrote:
+> 
+> Also, on what time period do you publish RPMs of Slony to public Yum
+> repositories? (i.e. when should we expect to see an RPM of Slony
+> 2.1?) 
+
+Packages are ready, I'll push them on Monday, along with the PostgreSQL
+update releases.
+
+Regards,
+-- 
+Devrim G?ND?Z
+Principal Systems Engineer @ EnterpriseDB: http://www.enterprisedb.com
+PostgreSQL Dan??man?/Consultant, Red Hat Certified Engineer
+Community: devrim~PostgreSQL.org, devrim.gunduz~linux.org.tr
+http://www.gunduz.org  Twitter: http://twitter.com/devrimgunduz
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: not available
+Type: application/pgp-signature
+Size: 198 bytes
+Desc: This is a digitally signed message part
+Url : http://lists.slony.info/pipermail/slony1-general/attachments/20111202/42bf5591/attachment.pgp 
+
+From vitaliy.se at gmail.com  Sun Dec  4 13:03:02 2011
+From: vitaliy.se at gmail.com (Vitaliy Semochkin)
+Date: Mon, 5 Dec 2011 00:03:02 +0300
+Subject: [Slony1-general] CentOS 5.7 slony1-91 "Possible unsupported
+ PostgreSQL version (90101) 9.1, defaulting to 8.4 support"
+Message-ID: <CAHyKpfMCjF-W2Ec2=Tt3UzD66tg55PVFOY-ki0PDbfmdQHJ=Mg@mail.gmail.com>
+
+Hi
+
+I'm trying to get slony1-91 running on CentOS 5.7
+using official postgre sql yum repository
+current packages are
+slony1-91-2.0.7-1.rhel5
+postgresql91-9.1.1-1PGDG.rhel5
+postgresql91-libs-9.1.1-1PGDG.rhel5
+postgresql91-server-9.1.1-1PGDG.rhel5
+
+When I try to run slonik it prints "Possible unsupported PostgreSQL
+version (90101) 9.1, defaulting to 8.4 support".
+
+Is it problem with my setup or a bug?
+
+Regards,
+Vitaliy S
+
+From ssinger_pg at sympatico.ca  Sun Dec  4 11:54:31 2011
+From: ssinger_pg at sympatico.ca (Steve Singer)
+Date: Sun, 4 Dec 2011 14:54:31 -0500
+Subject: [Slony1-general] CentOS 5.7 slony1-91 "Possible unsupported
+ PostgreSQL version (90101) 9.1, defaulting to 8.4 support"
+In-Reply-To: <CAHyKpfMCjF-W2Ec2=Tt3UzD66tg55PVFOY-ki0PDbfmdQHJ=Mg@mail.gmail.com>
+References: <CAHyKpfMCjF-W2Ec2=Tt3UzD66tg55PVFOY-ki0PDbfmdQHJ=Mg@mail.gmail.com>
+Message-ID: <BLU0-SMTP976AED895AAF217AC1B2D0ACB40@phx.gbl>
+
+On Mon, 5 Dec 2011, Vitaliy Semochkin wrote:
+
+> Hi
+>
+> I'm trying to get slony1-91 running on CentOS 5.7
+> using official postgre sql yum repository
+> current packages are
+> slony1-91-2.0.7-1.rhel5
+> postgresql91-9.1.1-1PGDG.rhel5
+> postgresql91-libs-9.1.1-1PGDG.rhel5
+> postgresql91-server-9.1.1-1PGDG.rhel5
+>
+> When I try to run slonik it prints "Possible unsupported PostgreSQL
+> version (90101) 9.1, defaulting to 8.4 support".
+>
+> Is it problem with my setup or a bug?
+
+This is expected behaviour. Slony 2.0.7 was released before 9.1 was 
+released.  The only issue with running against 9.1 that I am (so far) aware 
+of is discussed in this thread 
+http://lists.slony.info/pipermail/slony1-general/2011-November/011939.html
+
+
+
+>
+> Regards,
+> Vitaliy S
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+>
+
+
+From passigni at navionics.it  Mon Dec  5 01:12:19 2011
+From: passigni at navionics.it (Laura Passigni)
+Date: Mon, 5 Dec 2011 10:12:19 +0100
+Subject: [Slony1-general] Conditional replica
+Message-ID: <2BAB4106A6ADED49AE82F980249A60B0025A372B@01-nav-mail.navionics.it>
+
+Dear all,
+
+I'm using slony to have a replica of my database (Postgresql 8.4).
+
+Currently I replicate only some tables, not the entire database. I was
+wondering if it is possible to replicate only some records of a table,
+for example according to some field's value. In other words, perform a
+sort of conditional replica. 
+
+ 
+
+Please let me know.
+
+Thank you,
+
+ 
+
+Laura Passigni
+
+ 
+
+ 
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20111205/8ed559cd/attachment.htm 
+
+From cedric.villemain.debian at gmail.com  Mon Dec  5 06:28:07 2011
+From: cedric.villemain.debian at gmail.com (=?ISO-8859-1?Q?C=E9dric_Villemain?=)
+Date: Mon, 5 Dec 2011 15:28:07 +0100
+Subject: [Slony1-general] Conditional replica
+In-Reply-To: <2BAB4106A6ADED49AE82F980249A60B0025A372B@01-nav-mail.navionics.it>
+References: <2BAB4106A6ADED49AE82F980249A60B0025A372B@01-nav-mail.navionics.it>
+Message-ID: <CAF6yO=2CRiHKEzTF2WuUYE+dKrkDtotyZNA8dO_c3XFdjH8ycA@mail.gmail.com>
+
+Le 5 d?cembre 2011 10:12, Laura Passigni <passigni at navionics.it> a ?crit :
+> Dear all,
+>
+> I?m using slony to have a replica of my database (Postgresql 8.4).
+>
+> Currently I replicate only some tables, not the entire database. I was
+> wondering if it is possible to replicate only some records of a table, for
+> example according to some field?s value. In other words, perform a sort of
+> conditional replica.
+
+It is not in the features list of slony.
+I don't think it is possible without rewriting triggers. Maybe have a
+look at logtrigger().
+
+-- 
+C?dric Villemain +33 (0)6 20 30 22 52
+http://2ndQuadrant.fr/
+PostgreSQL: Support 24x7 - D?veloppement, Expertise et Formation
+
+From ajs at crankycanuck.ca  Mon Dec  5 06:31:54 2011
+From: ajs at crankycanuck.ca (Andrew Sullivan)
+Date: Mon, 5 Dec 2011 09:31:54 -0500
+Subject: [Slony1-general] Conditional replica
+In-Reply-To: <2BAB4106A6ADED49AE82F980249A60B0025A372B@01-nav-mail.navionics.it>
+References: <2BAB4106A6ADED49AE82F980249A60B0025A372B@01-nav-mail.navionics.it>
+Message-ID: <20111205143153.GG84440@shinkuro.com>
+
+On Mon, Dec 05, 2011 at 10:12:19AM +0100, Laura Passigni wrote:
+> Dear all,
+> 
+> I'm using slony to have a replica of my database (Postgresql 8.4).
+> 
+> Currently I replicate only some tables, not the entire database. I was
+> wondering if it is possible to replicate only some records of a table,
+> for example according to some field's value. In other words, perform a
+> sort of conditional replica. 
+
+No, although you could do this with views and some fancy underlying
+tables, and then only replicate the particular tables you wanted the
+records from.
+
+A
+
+-- 
+Andrew Sullivan
+ajs at anvilwalrusden.com
+
+From cbbrowne at afilias.info  Mon Dec  5 08:30:49 2011
+From: cbbrowne at afilias.info (Christopher Browne)
+Date: Mon, 5 Dec 2011 11:30:49 -0500
+Subject: [Slony1-general] Conditional replica
+In-Reply-To: <CAF6yO=2CRiHKEzTF2WuUYE+dKrkDtotyZNA8dO_c3XFdjH8ycA@mail.gmail.com>
+References: <2BAB4106A6ADED49AE82F980249A60B0025A372B@01-nav-mail.navionics.it>
+	<CAF6yO=2CRiHKEzTF2WuUYE+dKrkDtotyZNA8dO_c3XFdjH8ycA@mail.gmail.com>
+Message-ID: <CANfbgbaxQOxtpju=zVs_nuwTLq1cSHcKYAaoQHAQxtN0gpzMLw@mail.gmail.com>
+
+On Mon, Dec 5, 2011 at 9:28 AM, C?dric Villemain
+<cedric.villemain.debian at gmail.com> wrote:
+> Le 5 d?cembre 2011 10:12, Laura Passigni <passigni at navionics.it> a ?crit :
+>> Dear all,
+>>
+>> I?m using slony to have a replica of my database (Postgresql 8.4).
+>>
+>> Currently I replicate only some tables, not the entire database. I was
+>> wondering if it is possible to replicate only some records of a table, for
+>> example according to some field?s value. In other words, perform a sort of
+>> conditional replica.
+>
+> It is not in the features list of slony.
+> I don't think it is possible without rewriting triggers. Maybe have a
+> look at logtrigger().
+
+It ought to become plausible after 2.2 is released.
+
+We have the change (still being integrated in; I think Jan is planning
+to get this into master this week; you can take a peek at the repos
+for Jan/Steve/Myself at GitHub to see what things are looking like)
+that the log data is being split apart rather differently, notably so
+that the log data is no longer "cooked" into text, but is, instead,
+kept as a series of arrays.
+
+That should make it possible to inject a "hook" function into the log
+application function to reinterpret what is to be done with the log
+data.
+
+The first aspect that we expect to be pretty easy is to replay data
+into a different table/schema; that's extremely useful for the case
+where people want to replicate several instances of an application
+into a "consolidation database."  This just involves renaming the
+target table, and I wouldn't expect this to be terribly difficult to
+deal with.  It should be able to be handled pretty cleanly.
+(Hopefully.)
+
+But as a broader matter, it would be interesting to add in "hooks" to
+do more sophisticated things such as:
+
+- Renaming columns.  Describing the configuration well is likely to be
+the hard part.
+
+- Selective replication, based on interpreting the data that is
+provided.  Given a "hook" function to override the built-in behaviour,
+it should surely be possible to do "just about anything."  Though the
+higher the flights of fancy, the wiser this likely isn't...
+
+Rewriting the triggers, as they exist now, seems horribly unattractive
+to me.  They're SPI C functions, and there's enough intricacy there
+that I'd think it pretty dangerous to hack on them without a pretty
+deep understanding of them.  But this changes in 2.2...
+
+From cedric.villemain.debian at gmail.com  Mon Dec  5 08:39:28 2011
+From: cedric.villemain.debian at gmail.com (=?ISO-8859-1?Q?C=E9dric_Villemain?=)
+Date: Mon, 5 Dec 2011 17:39:28 +0100
+Subject: [Slony1-general] Conditional replica
+In-Reply-To: <CANfbgbaxQOxtpju=zVs_nuwTLq1cSHcKYAaoQHAQxtN0gpzMLw@mail.gmail.com>
+References: <2BAB4106A6ADED49AE82F980249A60B0025A372B@01-nav-mail.navionics.it>
+	<CAF6yO=2CRiHKEzTF2WuUYE+dKrkDtotyZNA8dO_c3XFdjH8ycA@mail.gmail.com>
+	<CANfbgbaxQOxtpju=zVs_nuwTLq1cSHcKYAaoQHAQxtN0gpzMLw@mail.gmail.com>
+Message-ID: <CAF6yO=2rk-A4S+F64u9URuqO2250cWfTSTAuqEHDerg-sq8bSw@mail.gmail.com>
+
+Le 5 d?cembre 2011 17:30, Christopher Browne <cbbrowne at afilias.info> a ?crit :
+> On Mon, Dec 5, 2011 at 9:28 AM, C?dric Villemain
+> <cedric.villemain.debian at gmail.com> wrote:
+>> Le 5 d?cembre 2011 10:12, Laura Passigni <passigni at navionics.it> a ?crit :
+>>> Dear all,
+>>>
+>>> I?m using slony to have a replica of my database (Postgresql 8.4).
+>>>
+>>> Currently I replicate only some tables, not the entire database. I was
+>>> wondering if it is possible to replicate only some records of a table, for
+>>> example according to some field?s value. In other words, perform a sort of
+>>> conditional replica.
+>>
+>> It is not in the features list of slony.
+>> I don't think it is possible without rewriting triggers. Maybe have a
+>> look at logtrigger().
+>
+> It ought to become plausible after 2.2 is released.
+>
+> We have the change (still being integrated in; I think Jan is planning
+> to get this into master this week; you can take a peek at the repos
+> for Jan/Steve/Myself at GitHub to see what things are looking like)
+> that the log data is being split apart rather differently, notably so
+> that the log data is no longer "cooked" into text, but is, instead,
+> kept as a series of arrays.
+>
+> That should make it possible to inject a "hook" function into the log
+> application function to reinterpret what is to be done with the log
+> data.
+>
+> The first aspect that we expect to be pretty easy is to replay data
+> into a different table/schema; that's extremely useful for the case
+> where people want to replicate several instances of an application
+> into a "consolidation database." ?This just involves renaming the
+> target table, and I wouldn't expect this to be terribly difficult to
+> deal with. ?It should be able to be handled pretty cleanly.
+> (Hopefully.)
+>
+> But as a broader matter, it would be interesting to add in "hooks" to
+> do more sophisticated things such as:
+>
+> - Renaming columns. ?Describing the configuration well is likely to be
+> the hard part.
+>
+> - Selective replication, based on interpreting the data that is
+> provided. ?Given a "hook" function to override the built-in behaviour,
+> it should surely be possible to do "just about anything." ?Though the
+> higher the flights of fancy, the wiser this likely isn't...
+>
+> Rewriting the triggers, as they exist now, seems horribly unattractive
+> to me. ?They're SPI C functions, and there's enough intricacy there
+> that I'd think it pretty dangerous to hack on them without a pretty
+> deep understanding of them. ?But this changes in 2.2...
+
+Sure! Andrew' solution is way better at the moment.
+Very nice features are planned, good to hear.
+-- 
+C?dric Villemain +33 (0)6 20 30 22 52
+http://2ndQuadrant.fr/
+PostgreSQL: Support 24x7 - D?veloppement, Expertise et Formation
+
+From devrim at gunduz.org  Mon Dec  5 15:09:17 2011
+From: devrim at gunduz.org (Devrim =?ISO-8859-1?Q?G=DCND=DCZ?=)
+Date: Tue, 06 Dec 2011 01:09:17 +0200
+Subject: [Slony1-general] Catch-up and sl_status, and yum repo
+In-Reply-To: <1322837660.2518.10.camel@lenovo01-laptop03.gunduz.org>
+References: <CAAFQqzTxsFTEd679GCRnthPFgqnOAB_N=UF5QKHHDA+rNKud_w@mail.gmail.com>
+	<1322837660.2518.10.camel@lenovo01-laptop03.gunduz.org>
+Message-ID: <1323126557.1929.50.camel@lenovo01-laptop03.gunduz.org>
+
+On Fri, 2011-12-02 at 16:54 +0200, Devrim G?ND?Z wrote:
+> > Also, on what time period do you publish RPMs of Slony to public Yum
+> > repositories? (i.e. when should we expect to see an RPM of Slony
+> > 2.1?) 
+> 
+> Packages are ready, I'll push them on Monday, along with the
+> PostgreSQL update releases. 
+
+Done for PostgreSQL 9.1.
+
+Regards,
+-- 
+Devrim G?ND?Z
+Principal Systems Engineer @ EnterpriseDB: http://www.enterprisedb.com
+PostgreSQL Dan??man?/Consultant, Red Hat Certified Engineer
+Community: devrim~PostgreSQL.org, devrim.gunduz~linux.org.tr
+http://www.gunduz.org  Twitter: http://twitter.com/devrimgunduz
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: not available
+Type: application/pgp-signature
+Size: 198 bytes
+Desc: This is a digitally signed message part
+Url : http://lists.slony.info/pipermail/slony1-general/attachments/20111206/a9eda58d/attachment.pgp 
+
+From jon at investmentscience.com.au  Wed Dec  7 22:16:26 2011
+From: jon at investmentscience.com.au (Jonathon Soong)
+Date: Thu, 8 Dec 2011 16:46:26 +1030
+Subject: [Slony1-general] slow slony initial load + monitoring
+Message-ID: <4264E6801A11844992616B6359BA478D689B9A@invsci-svr1.invsci.local>
+
+Hi guys,
+
+I'm new to the list and have setup Slony from Australia to Hong Kong
+over a VPN - it is not a super fast link.
+
+I have done this on one database with around 5 million rows and it was
+fine - took about 30 minutes to sync up.
+
+However with another database that has 90 million+ rows, i'm running
+into trouble (I did remove indices first)
+
+The initial sync seems to be taking too long (15 hours+ when I stopped
+it).
+
+I was wondering how I monitor if anything is actually happening???:
+
+
+1. I can see on the origin node, that a COPY seems to be occurring - can
+anyone tell me if this is correct?
+        16083 postgres  20   0  212m 7876 5480 S  1.7  0.0   0:10.12
+postgres: postgres mydatabase::1(39599) COPY
+
+2. I can see on the slave node when I query sl_status that:
+    - st_last_event is NOT CHANGING
+    - st_last_event_ts  is NOT CHANGING
+    - st_last_received is NOT CHANGING
+    - st_last_received_ts is NOT CHANGING
+    - st_last_received_event_ts is NOT CHANGING
+    - st_lag_num_events is NOT CHANGING
+    - st_lag_time is increasing (around 18 hours)
+
+ 
+
+   Are these values expected or should some of them be increasing?
+
+3. The logs on the slave showed this when I started slony, I presume
+this is correct:
+    NOTICE:  truncate of "public"."my_table" succeeded
+
+4. The logs on the slave now show this repeatedly:
+    2011-12-08 05:48:47 UTCDEBUG2 remoteListenThread_1: queue event
+1,5000001502 SYNC
+    2011-12-08 05:48:47 UTCDEBUG2 remoteListenThread_1: queue event
+1,5000001503 SYNC
+    2011-12-08 05:48:47 UTCDEBUG2 remoteListenThread_1: queue event
+1,5000001504 SYNC
+
+ 
+
+5. sl_log_1 and sl_log_2 are empty on both the master and slave - am I
+right in presuming these are only used when things change on an origin
+node and that they are not used for initial syncs?
+
+What I would LOVE, is the ability to see what is happening. e.g. "10,000
+rows copied, 89 million to go", type logs. 
+I can't do a select on the slave node as that seems to just hang
+forever. 
+
+Any help on what to do would be most appreciated.
+
+ 
+
+Note: slony 2.0.7
+
+Thanks
+
+Jon
+
+ 
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20111208/f99e2af6/attachment.htm 
+
+From ssinger at ca.afilias.info  Thu Dec  8 12:16:30 2011
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Thu, 08 Dec 2011 15:16:30 -0500
+Subject: [Slony1-general] slow slony initial load + monitoring
+In-Reply-To: <4264E6801A11844992616B6359BA478D689B9A@invsci-svr1.invsci.local>
+References: <4264E6801A11844992616B6359BA478D689B9A@invsci-svr1.invsci.local>
+Message-ID: <4EE11B1E.7010708@ca.afilias.info>
+
+On 11-12-08 01:16 AM, Jonathon Soong wrote:
+> Hi guys,
+>
+> I'm new to the list and have setup Slony from Australia to Hong Kong
+> over a VPN - it is not a super fast link.
+>
+> I have done this on one database with around 5 million rows and it was
+> fine - took about 30 minutes to sync up.
+>
+> However with another database that has 90 million+ rows, i'm running
+> into trouble (I did remove indices first)
+>
+> The initial sync seems to be taking too long (15 hours+ when I stopped it).
+>
+> I was wondering how I monitor if anything is actually happening???:
+>
+>
+> 1. I can see on the origin node, that a COPY seems to be occurring -
+> */can anyone tell me if this is correct?/*
+> 16083 postgres 20 0 212m 7876 5480 S 1.7 0.0 0:10.12 postgres: postgres
+> mydatabase::1(39599) COPY
+>
+> 2. I can see on the slave node when I query sl_status that:
+> - st_last_event is *NOT CHANGING*
+> - st_last_event_ts is *NOT CHANGING*
+> - st_last_received is *NOT CHANGING*
+> - st_last_received_ts is *NOT CHANGING
+> *- st_last_received_event_ts is *NOT CHANGING
+> * - st_lag_num_events is *NOT CHANGING*
+> - st_lag_time is increasing (around 18 hours)
+>
+> Are these values expected or should some of them be increasing?
+
+While Slony is in the middle of a COPY operation it does so in a single 
+transaction so you should not expect to see the event confirmation 
+times/events change until the copy operation is complete.
+
+
+
+>
+> 3. The logs on the slave showed this when I started slony, I presume
+> this is correct:
+> NOTICE: truncate of "public"."my_table" succeeded
+
+This is normal.  Each time a new table is started you should see that.
+
+>
+> 4. The logs on the slave now show this repeatedly:
+> 2011-12-08 05:48:47 UTCDEBUG2 remoteListenThread_1: queue event
+> 1,5000001502 SYNC
+> 2011-12-08 05:48:47 UTCDEBUG2 remoteListenThread_1: queue event
+> 1,5000001503 SYNC
+> 2011-12-08 05:48:47 UTCDEBUG2 remoteListenThread_1: queue event
+> 1,5000001504 SYNC
+>
+
+These are unrelated to your copy but are normal.
+
+> 5. sl_log_1 and sl_log_2 are empty on both the master and slave ? am I
+> right in presuming these are only used when things change on an origin
+> node and that they are not used for initial syncs?
+>
+
+a copy/initial subscription will not insert any rows into sl_log_1 or 
+sl_log_2 on the slave.
+
+> What I would *LOVE*, is the ability to see what is happening. e.g.
+> "10,000 rows copied, 89 million to go", type logs.
+> I can't do a select on the slave node as that seems to just hang forever.
+>
+> Any help on what to do would be most appreciated.
+>
+> Note: slony 2.0.7
+>
+
+Slony does not log any progress information as it loops through tuples 
+during a COPY for an initial subscribe set.  You should see disk usage 
+on your slave go up, and maybe relpages in pg_class for your table or 
+the counts in pg_stat_activity.
+
+you should be able to verify that progress is being made though it isn't 
+clear to me how you can use that to get a % complete for your table
+
+> Thanks
+>
+> Jon
+>
+>
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+
+
+From jon at investmentscience.com.au  Thu Dec  8 15:14:23 2011
+From: jon at investmentscience.com.au (Jonathon Soong)
+Date: Fri, 9 Dec 2011 09:44:23 +1030
+Subject: [Slony1-general] slow slony initial load + monitoring
+In-Reply-To: <4EE11B1E.7010708@ca.afilias.info>
+References: <4264E6801A11844992616B6359BA478D689B9A@invsci-svr1.invsci.local>
+	<4EE11B1E.7010708@ca.afilias.info>
+Message-ID: <4264E6801A11844992616B6359BA478D689BA9@invsci-svr1.invsci.local>
+
+Thank you very much Steve, very helpful :)
+
+- Jon 
+
+> -----Original Message-----
+> From: Steve Singer [mailto:ssinger at ca.afilias.info]
+> Sent: Friday, December 09, 2011 6:47 AM
+> To: Jonathon Soong
+> Cc: slony1-general at lists.slony.info
+> Subject: Re: [Slony1-general] slow slony initial load + monitoring
+> 
+> On 11-12-08 01:16 AM, Jonathon Soong wrote:
+> > Hi guys,
+> >
+> > I'm new to the list and have setup Slony from Australia to Hong Kong
+> > over a VPN - it is not a super fast link.
+> >
+> > I have done this on one database with around 5 million rows and it
+was
+> > fine - took about 30 minutes to sync up.
+> >
+> > However with another database that has 90 million+ rows, i'm running
+> > into trouble (I did remove indices first)
+> >
+> > The initial sync seems to be taking too long (15 hours+ when I
+stopped it).
+> >
+> > I was wondering how I monitor if anything is actually happening???:
+> >
+> >
+> > 1. I can see on the origin node, that a COPY seems to be occurring -
+> > */can anyone tell me if this is correct?/*
+> > 16083 postgres 20 0 212m 7876 5480 S 1.7 0.0 0:10.12 postgres:
+> > postgres
+> > mydatabase::1(39599) COPY
+> >
+> > 2. I can see on the slave node when I query sl_status that:
+> > - st_last_event is *NOT CHANGING*
+> > - st_last_event_ts is *NOT CHANGING*
+> > - st_last_received is *NOT CHANGING*
+> > - st_last_received_ts is *NOT CHANGING
+> > *- st_last_received_event_ts is *NOT CHANGING
+> > * - st_lag_num_events is *NOT CHANGING*
+> > - st_lag_time is increasing (around 18 hours)
+> >
+> > Are these values expected or should some of them be increasing?
+> 
+> While Slony is in the middle of a COPY operation it does so in a
+single
+> transaction so you should not expect to see the event confirmation
+> times/events change until the copy operation is complete.
+> 
+> 
+> 
+> >
+> > 3. The logs on the slave showed this when I started slony, I presume
+> > this is correct:
+> > NOTICE: truncate of "public"."my_table" succeeded
+> 
+> This is normal.  Each time a new table is started you should see that.
+> 
+> >
+> > 4. The logs on the slave now show this repeatedly:
+> > 2011-12-08 05:48:47 UTCDEBUG2 remoteListenThread_1: queue event
+> > 1,5000001502 SYNC
+> > 2011-12-08 05:48:47 UTCDEBUG2 remoteListenThread_1: queue event
+> > 1,5000001503 SYNC
+> > 2011-12-08 05:48:47 UTCDEBUG2 remoteListenThread_1: queue event
+> > 1,5000001504 SYNC
+> >
+> 
+> These are unrelated to your copy but are normal.
+> 
+> > 5. sl_log_1 and sl_log_2 are empty on both the master and slave - am
+I
+> > right in presuming these are only used when things change on an
+origin
+> > node and that they are not used for initial syncs?
+> >
+> 
+> a copy/initial subscription will not insert any rows into sl_log_1 or
+> sl_log_2 on the slave.
+> 
+> > What I would *LOVE*, is the ability to see what is happening. e.g.
+> > "10,000 rows copied, 89 million to go", type logs.
+> > I can't do a select on the slave node as that seems to just hang
+forever.
+> >
+> > Any help on what to do would be most appreciated.
+> >
+> > Note: slony 2.0.7
+> >
+> 
+> Slony does not log any progress information as it loops through tuples
+during
+> a COPY for an initial subscribe set.  You should see disk usage on
+your slave go
+> up, and maybe relpages in pg_class for your table or the counts in
+> pg_stat_activity.
+> 
+> you should be able to verify that progress is being made though it
+isn't clear
+> to me how you can use that to get a % complete for your table
+> 
+> > Thanks
+> >
+> > Jon
+> >
+> >
+> >
+> > _______________________________________________
+> > Slony1-general mailing list
+> > Slony1-general at lists.slony.info
+> > http://lists.slony.info/mailman/listinfo/slony1-general
+
+
+From ssinger at ca.afilias.info  Fri Dec  9 08:58:18 2011
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Fri, 09 Dec 2011 11:58:18 -0500
+Subject: [Slony1-general] Strange bug with slony 2.0.7 and postgresql
+ 9.1.1
+In-Reply-To: <4ECD60F9.5040806@ca.afilias.info>
+References: <CAK-MWwR-_8yXrNAHEDDKpnOid0zBUuDjg567t1yRC8a=9NjmoQ@mail.gmail.com>	<CANfbgbb4K+E5M7mfn1RpsqE44q5jbgCrh-Nuy1x0cMzDhHvcPA@mail.gmail.com>	<CAK-MWwTAuXD+j1b9g1XZ8TRGQ5H3rkau6_kG6V5D1fHc32EteA@mail.gmail.com>	<CAK-MWwQxnfDy3F8TtG63L9MTLL3mXbwCHXZXs3kq7+SddL6TfQ@mail.gmail.com>	<4EC85FA6.8090104@ca.afilias.info>	<CAF6yO=3sgL91UarQZyufo9r6o4qzoXLGKXoWFomraCTveacp5w@mail.gmail.com>	<4ECC21A6.5070805@ca.afilias.info>	<CA+U5nMKRkdBLb1RQFRu45msPSNNoqqd-BOso2K6f+d61+Vzzzw@mail.gmail.com>	<4ECCFA52.9030109@ca.afilias.info>
+	<CA+U5nMJJi2rFO0BEgUUx12mzPO8OwVQ_hpFYsvJeZrjBnQFr_Q@mail.gmail.com>
+	<4ECD60F9.5040806@ca.afilias.info>
+Message-ID: <4EE23E2A.7000806@ca.afilias.info>
+
+On 11-11-23 04:09 PM, Steve Singer wrote:
+
+Maxim,
+
+Did you ever check to see if this patch actually fixes your problem with 
+running Slony against 9.1.x?
+
+Did you encounter any other issues with it?
+
+
+
+
+> On 11-11-23 09:27 AM, Simon Riggs wrote:
+>> On Wed, Nov 23, 2011 at 1:51 PM, Steve Singer<ssinger at ca.afilias.info>
+>> wrote:
+>>> On 11-11-23 04:28 AM, Simon Riggs wrote:
+>>>>
+>>>> On Tue, Nov 22, 2011 at 10:26 PM, Steve Singer<ssinger at ca.afilias.info>
+>>>> wrote:
+>>>>>
+>>>>> On 11-11-20 05:47 AM, C?dric Villemain wrote:
+>>>>>>
+>>>
+>>>>
+>>>> ISTM that setting the remote worker to REPEATABLE READ would work well
+>>>> for this case. Patch attached.
+>>>>
+>>>
+>>> Simon, Did you forget to attach the patch? I don't see it.
+>>
+>> Looks that way.
+>>
+>
+> Thanks for the patch.
+>
+> So why would a SERIALIZABLE READ ONLY DEFERRED transaction produce fewer
+> conflicts than a READ COMMITTED transaction? Currently the
+> remote_listener gets the default isolation level (READ COMMITTED).
+>
+> The attached patch combines your two patches plus performs the same
+> change to other places in remote_worker (there are places in
+> remote_worker.c where that initial transaction is rolledback and
+> restarted, this version also makes sure that those transactions are
+> started as READ COMMITTED). It also makes the connections that the
+> remote helpers do to the remote database for querying sl_log_x READ ONLY
+> DEFERRED.
+>
+> When I run this patch through the test suite on 9.1 I don't see any
+> serialization pivot failures (at least not yet).
+>
+
+
+From maxim.boguk at gmail.com  Fri Dec  9 13:56:48 2011
+From: maxim.boguk at gmail.com (Maxim Boguk)
+Date: Sat, 10 Dec 2011 08:56:48 +1100
+Subject: [Slony1-general] Strange bug with slony 2.0.7 and postgresql
+	9.1.1
+In-Reply-To: <4EE23E2A.7000806@ca.afilias.info>
+References: <CAK-MWwR-_8yXrNAHEDDKpnOid0zBUuDjg567t1yRC8a=9NjmoQ@mail.gmail.com>
+	<CANfbgbb4K+E5M7mfn1RpsqE44q5jbgCrh-Nuy1x0cMzDhHvcPA@mail.gmail.com>
+	<CAK-MWwTAuXD+j1b9g1XZ8TRGQ5H3rkau6_kG6V5D1fHc32EteA@mail.gmail.com>
+	<CAK-MWwQxnfDy3F8TtG63L9MTLL3mXbwCHXZXs3kq7+SddL6TfQ@mail.gmail.com>
+	<4EC85FA6.8090104@ca.afilias.info>
+	<CAF6yO=3sgL91UarQZyufo9r6o4qzoXLGKXoWFomraCTveacp5w@mail.gmail.com>
+	<4ECC21A6.5070805@ca.afilias.info>
+	<CA+U5nMKRkdBLb1RQFRu45msPSNNoqqd-BOso2K6f+d61+Vzzzw@mail.gmail.com>
+	<4ECCFA52.9030109@ca.afilias.info>
+	<CA+U5nMJJi2rFO0BEgUUx12mzPO8OwVQ_hpFYsvJeZrjBnQFr_Q@mail.gmail.com>
+	<4ECD60F9.5040806@ca.afilias.info> <4EE23E2A.7000806@ca.afilias.info>
+Message-ID: <CAK-MWwSN6YYXtYfvFvhXKtRoAMk8afypkr7EAzeZ9GbcpOXkDw@mail.gmail.com>
+
+Hi Steve,
+
+Unfortunatelly I have no chance to test that patch now.
+Slony was used as a temporary solution to migrate db cluster between 9.0
+and 9.1.
+And after that process were done, cluster returned to use hot-standby again.
+Sorry.
+
+Kind Regards,
+Maksym
+
+On Sat, Dec 10, 2011 at 3:58 AM, Steve Singer <ssinger at ca.afilias.info>wrote:
+
+> On 11-11-23 04:09 PM, Steve Singer wrote:
+>
+> Maxim,
+>
+> Did you ever check to see if this patch actually fixes your problem with
+> running Slony against 9.1.x?
+>
+> Did you encounter any other issues with it?
+>
+>
+>
+>
+>
+>  On 11-11-23 09:27 AM, Simon Riggs wrote:
+>>
+>>> On Wed, Nov 23, 2011 at 1:51 PM, Steve Singer<ssinger at ca.afilias.info**>
+>>> wrote:
+>>>
+>>>> On 11-11-23 04:28 AM, Simon Riggs wrote:
+>>>>
+>>>>>
+>>>>> On Tue, Nov 22, 2011 at 10:26 PM, Steve Singer<ssinger at ca.afilias.info
+>>>>> **>
+>>>>> wrote:
+>>>>>
+>>>>>>
+>>>>>> On 11-11-20 05:47 AM, C?dric Villemain wrote:
+>>>>>>
+>>>>>>>
+>>>>>>>
+>>>>
+>>>>> ISTM that setting the remote worker to REPEATABLE READ would work well
+>>>>> for this case. Patch attached.
+>>>>>
+>>>>>
+>>>> Simon, Did you forget to attach the patch? I don't see it.
+>>>>
+>>>
+>>> Looks that way.
+>>>
+>>>
+>> Thanks for the patch.
+>>
+>> So why would a SERIALIZABLE READ ONLY DEFERRED transaction produce fewer
+>> conflicts than a READ COMMITTED transaction? Currently the
+>> remote_listener gets the default isolation level (READ COMMITTED).
+>>
+>> The attached patch combines your two patches plus performs the same
+>> change to other places in remote_worker (there are places in
+>> remote_worker.c where that initial transaction is rolledback and
+>> restarted, this version also makes sure that those transactions are
+>> started as READ COMMITTED). It also makes the connections that the
+>> remote helpers do to the remote database for querying sl_log_x READ ONLY
+>> DEFERRED.
+>>
+>> When I run this patch through the test suite on 9.1 I don't see any
+>> serialization pivot failures (at least not yet).
+>>
+>>
+>
+
+
+-- 
+Maxim Boguk
+Senior Postgresql DBA.
+
+Phone RU: +7 910 405 4718
+Phone AU: +61 45 218 5678
+
+Skype: maxim.boguk
+Jabber: maxim.boguk at gmail.com
+
+LinkedIn profile: http://nz.linkedin.com/in/maximboguk
+If they can send one man to the moon... why can't they send them all?
+
+???????: http://mboguk.moikrug.ru/
+???? ?????? ?????, ?? ?? ??? ? ????? ????? - ??????, ?? ? ???? ?????? ??
+???.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20111210/963d5679/attachment.htm 
+
+From francescoboccacci at libero.it  Mon Dec 12 03:10:49 2011
+From: francescoboccacci at libero.it (francescoboccacci at libero.it)
+Date: Mon, 12 Dec 2011 12:10:49 +0100 (CET)
+Subject: [Slony1-general] Slony  help
+Message-ID: <5170846.2056641323688249465.JavaMail.defaultUser@defaultHost>
+
+Hi,
+
+I had a problem with Slony and I was wondering how I can solve it.
+
+Please let me know your point of view.
+
+ 
+
+I have a master database in one server and a slave database on a different 
+server.
+
+Unfortunately I found that the replica is not working. I checked the logs and 
+I found the following:
+
+ 
+
+Master log:
+
+2011-11-30 15:01:20 UCTFATAL  cleanupThread: "select "_sql_cluster_grade1".
+cleanupEvent('10 minutes'::interval, 'false'::boolean); " - FATAL:  terminating 
+connection due to administrator command
+
+server closed the connection unexpectedly
+
+        This probably means the server terminated abnormally
+
+        before or while processing the request.
+
+ 
+
+
+From ssinger_pg at sympatico.ca  Mon Dec 12 04:04:14 2011
+From: ssinger_pg at sympatico.ca (Steve Singer)
+Date: Mon, 12 Dec 2011 07:04:14 -0500
+Subject: [Slony1-general] Slony  help
+In-Reply-To: <5170846.2056641323688249465.JavaMail.defaultUser@defaultHost>
+References: <5170846.2056641323688249465.JavaMail.defaultUser@defaultHost>
+Message-ID: <BLU0-SMTP19B893C690F4E9401D643BACBC0@phx.gbl>
+
+On Mon, 12 Dec 2011, francescoboccacci at libero.it wrote:
+
+> Hi,
+>
+> I had a problem with Slony and I was wondering how I can solve it.
+>
+> Please let me know your point of view.
+>
+> ev_data7, ev_data8 from "_sql_cluster_grade1".sl_event e where (e.ev_origin =
+> '1' and e.ev_seqno > '5000053227') order by e.ev_origin, e.ev_seqno limit 40" -
+> no connection to the server
+>
+
+If you restart your slon processes does it fix the problem or do the 
+connections keep getting killed?
+
+You also don't tell us what version of slony you are running.
+
+>
+>
+> Please let me know how I can sync again the server without loose data and
+> restart the replica from the beginning.
+>
+>
+>
+> Thank you,
+>
+>
+> Francesco Boccacci
+>
+>
+>
+>
+>
+>
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+>
+
+
+From martin.marques at gmail.com  Mon Dec 12 05:50:31 2011
+From: martin.marques at gmail.com (=?UTF-8?B?TWFydMOtbiBNYXJxdcOpcw==?=)
+Date: Mon, 12 Dec 2011 10:50:31 -0300
+Subject: [Slony1-general] Slony for update
+Message-ID: <CABeG9LvYg7cfTHvwRAM7d5zN-aXiXhBftOS2GPDfCddh4Hxcfg@mail.gmail.com>
+
+I have a system which is in the middle of an upgrade, and during the
+upgrade some people will be working (using) the new system and others
+on the old one (systems have different DB but on the same cluster).
+
+The problem I have is that certain information has to be updated on
+both DBs, specifically, data loaded on the old DB should be passed to
+the new DB.
+
+I thought about slony right away, but wanted to know how feasible it
+may be (no need for synchronous updates). Structure of the relations
+involved in the synchronization are the same.
+
+Is it a good solution?
+
+-- 
+Mart?n Marqu?s
+select 'martin.marques' || '@' || 'gmail.com'
+DBA, Programador, Administrador
+
+From stephane.schildknecht at postgresql.fr  Mon Dec 12 06:05:54 2011
+From: stephane.schildknecht at postgresql.fr (=?ISO-8859-15?Q?=22St=E9phane_A=2E_Schildknecht=22?=)
+Date: Mon, 12 Dec 2011 15:05:54 +0100
+Subject: [Slony1-general] Slony for update
+In-Reply-To: <CABeG9LvYg7cfTHvwRAM7d5zN-aXiXhBftOS2GPDfCddh4Hxcfg@mail.gmail.com>
+References: <CABeG9LvYg7cfTHvwRAM7d5zN-aXiXhBftOS2GPDfCddh4Hxcfg@mail.gmail.com>
+Message-ID: <4EE60A42.5090603@postgresql.fr>
+
+Le 12/12/2011 14:50, Mart?n Marqu?s a ?crit :
+> I have a system which is in the middle of an upgrade, and during the
+> upgrade some people will be working (using) the new system and others
+> on the old one (systems have different DB but on the same cluster).
+> 
+> The problem I have is that certain information has to be updated on
+> both DBs, specifically, data loaded on the old DB should be passed to
+> the new DB.
+> 
+> I thought about slony right away, but wanted to know how feasible it
+> may be (no need for synchronous updates). Structure of the relations
+> involved in the synchronization are the same.
+> 
+> Is it a good solution?
+> 
+
+As long as you don't need updates on the new system, yes, you can use Slony for
+your upgrade.
+
+-- 
+St?phane Schildknecht
+http://www.Loxodata.com
+Contact r?gional PostgreSQL
+http://bistri.me/z8ez4m
+
+
+From ssinger at ca.afilias.info  Tue Dec 13 06:32:59 2011
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Tue, 13 Dec 2011 09:32:59 -0500
+Subject: [Slony1-general] Proposed Failover changes for 2.2
+Message-ID: <4EE7621B.9000405@ca.afilias.info>
+
+I've been working on improving the reliability of the FAILOVER command 
+when multiple nodes fail at the same time.  The changes I've had to make 
+have made the failover time logic very complicated.
+
+An alternative is restrict cluster configurations that can be used with 
+the failover command.
+
+I am proposing something along the lines of:
+
+If you have an origin node that you want to failover then  the failover 
+command would take a list of the failed nodes.  It would then look for 
+backup nodes that meet the following criteria
+
+* The backup node for a given origin is a subscribed forwarder to ALL 
+sets that the failed node is an origin for.
+* The backup node has bi-directional paths to all nodes that the failed 
+origin has paths to
+* Any other nodes that are not being fed from the one of the potential 
+failover targets will be dropped
+
+Out of the nodes that meet the above criteria the failover command would 
+then pick the most ahead node and make that the new origin for the sets 
+from the failed node.
+
+After the failover command finishes you could then use MOVE SET and 
+SUBSCRIBE SET to reshape the cluster as you please.
+
+How would this work:
+
+Example  1:
+1---->2
+
+FAILOVER ( node=(id=1));
+would fail node 1 to 2.
+
+
+Example 2:
+1---->2---->4
+|          .
+\----3......
+(3 and 4 are connected with a PATH but have no subscription using it)
+
+FAILOVER(node=(id=1));
+
+would result in a message such as
+'node 1 has no failover targets'
+
+because node 1 has paths to both 2 and 3, but no other node has paths to 
+both nodes 2 and 3.
+
+
+Example 3:
+1---->2---->4
+|     .
+\-----3
+
+FAILOVER(node=(id=1))
+
+slonik would pick one of 2 or 3 and failover to it.  It would pick the 
+one that is most ahead.
+
+Example 4:
+
+1---->2---->4
+       |
+       v
+       3
+
+FAILOVER (node=(id=1), node=(id=2));
+
+Results in 'no 1 has no failover targets'
+The above cluster can't survive both node 1 and 2 failing at the same time.
+
+
+Example 5:
+
+1(set1)----->2(set1)----->4(set1)
+| (set2)        .
+|               .
+V ...............
+3 (set1,set2)
+|
+|
+5(set2)
+
+Node 3 is the only acceptable failover target.  Node 4 would be 
+unsubscribed or dropped.
+
+
+Example 6
+
+   |<--------------->4 (set2)
+   1(set1)------>2--\
+   |
+   V       .   7
+   3........
+   |
+5   6
+
+In this example node 4 is the origin for set2, it replicates to node 1 
+which is the origin for set 1.  Nodes 2,3 then receive sets 1 and 2 from 
+node 1.  Node 4 is a subscriber for set 1.
+
+FAILOVER( node=(id=1))
+  would give node 2 or 3 as a failover target.  Node 4 would be 
+unsubscribed/dropped from set 1.   It is possible that set 2 would need 
+to be dropped from all nodes.
+
+
+
+I realize that this means some existing clusters will no longer work 
+with failover but I have doubts if the existing failover code will work 
+100% of the time for clusters of that type of configuration anyway.
+
+I also think it is safer for slonik to make the most ahead node the new 
+master and then let you reshape the cluster with move set.  Today if 
+additional things go wrong in the middle of a FAILOVER procedure it can 
+be very difficult to recover the cluster.  I feel that if we just 
+promote the most ahead node to the new master things will be safer.
+
+I am proposing this change for 2.2,  do any users object to this type of 
+change?  Is anyone using slony for failover building non-standard 
+cluster configurations?
+
+
+
+
+
+
+
+From cbbrowne at afilias.info  Tue Dec 13 07:07:04 2011
+From: cbbrowne at afilias.info (Christopher Browne)
+Date: Tue, 13 Dec 2011 10:07:04 -0500
+Subject: [Slony1-general] Proposed Failover changes for 2.2
+In-Reply-To: <4EE7621B.9000405@ca.afilias.info>
+References: <4EE7621B.9000405@ca.afilias.info>
+Message-ID: <CANfbgbY=Q3rGszNjDVUX_qtXAMXKN-Ds6jmfTc938Eq1PN-bdw@mail.gmail.com>
+
+On Tue, Dec 13, 2011 at 9:32 AM, Steve Singer <ssinger at ca.afilias.info> wrote:
+> I also think it is safer for slonik to make the most ahead node the new
+> master and then let you reshape the cluster with move set. ?Today if
+> additional things go wrong in the middle of a FAILOVER procedure it can
+> be very difficult to recover the cluster. ?I feel that if we just
+> promote the most ahead node to the new master things will be safer.
+
+I'm not thrilled with this introducing a rather non-deterministic
+factor into things.
+
+That is, you don't know what reshapings you need to do until *after* FAILOVER.
+
+I suspect we may want a bit of tooling to dump the shape of the
+cluster; I could see people be irritated if tell them...
+
+"After FAILOVER, you'll have to puzzle through some SQL queries
+against, erm, some of the nodes to figure out where things are, before
+reshaping it to the way you now want."
+
+But you're likely right that what may be preferable for Slony to do is
+to do the best failover that it can do, and leave it to admins to
+figure what next.
+
+If there are 3 nodes, then there are 6 different failures that may
+occur (e.g. - 1, 1+2, 1+3, 2, 2+3, 1+2+3).  If node #1 is the origin,
+there are 3 of those cases that permit FAILOVER to succeed (e.g. - 1,
+1+2, 1+3).
+
+And we really can't predict which of those will have occurred until
+they actually have occurred.
+
+(If there are 4 nodes, there would be a rather larger set of possible
+failovers, and the set grows for larger clusters.)
+
+In order for an admin to be properly prepared, they'd need a FAILOVER
+script for each of those cases, and they'd need to pick the right one.
+ I don't imagine it's fundamentally worse for Slony to say "I'll fix
+as well as I can; reshape subscriptions once I'm done."
+
+From gmc at esilibrary.com  Tue Dec 13 07:31:25 2011
+From: gmc at esilibrary.com (Galen Charlton)
+Date: Tue, 13 Dec 2011 10:31:25 -0500
+Subject: [Slony1-general] Strange bug with slony 2.0.7 and postgresql
+ 9.1.1
+In-Reply-To: <4EE23E2A.7000806@ca.afilias.info>
+References: <CAK-MWwR-_8yXrNAHEDDKpnOid0zBUuDjg567t1yRC8a=9NjmoQ@mail.gmail.com>	<CANfbgbb4K+E5M7mfn1RpsqE44q5jbgCrh-Nuy1x0cMzDhHvcPA@mail.gmail.com>	<CAK-MWwTAuXD+j1b9g1XZ8TRGQ5H3rkau6_kG6V5D1fHc32EteA@mail.gmail.com>	<CAK-MWwQxnfDy3F8TtG63L9MTLL3mXbwCHXZXs3kq7+SddL6TfQ@mail.gmail.com>	<4EC85FA6.8090104@ca.afilias.info>	<CAF6yO=3sgL91UarQZyufo9r6o4qzoXLGKXoWFomraCTveacp5w@mail.gmail.com>	<4ECC21A6.5070805@ca.afilias.info>	<CA+U5nMKRkdBLb1RQFRu45msPSNNoqqd-BOso2K6f+d61+Vzzzw@mail.gmail.com>	<4ECCFA52.9030109@ca.afilias.info>	<CA+U5nMJJi2rFO0BEgUUx12mzPO8OwVQ_hpFYsvJeZrjBnQFr_Q@mail.gmail.com>	<4ECD60F9.5040806@ca.afilias.info>
+	<4EE23E2A.7000806@ca.afilias.info>
+Message-ID: <4EE76FCD.9040407@esilibrary.com>
+
+Hi,
+
+On 12/09/2011 11:58 AM, Steve Singer wrote:
+> On 11-11-23 04:09 PM, Steve Singer wrote:
+>
+> Maxim,
+>
+> Did you ever check to see if this patch actually fixes your problem with
+> running Slony against 9.1.x?
+>
+> Did you encounter any other issues with it?
+
+I can't speak to Maxim's specific issue, but I can attest that the patch 
+did resolve a problem I was having trying to replicate a large 9.1.1 
+database using Slony 2.0.7.  Because the origin was being heavily used 
+at the same time that the subscribe set operation was running, the 
+initial copy failed repeatedly since the origin kept running out of 
+predicate locks.  Changing the transaction isolation level from 
+serializable to read committed allowed the copy to succeed.
+
+So, for what it's worth, here's my +1 for including the patch.
+
+Regards,
+
+Galen
+-- 
+Galen Charlton
+Director of Support and Implementation
+Equinox Software, Inc. / The Open Source Experts
+email:  gmc at esilibrary.com
+direct: +1 770-709-5581
+cell:   +1 404-984-4366
+skype:  gmcharlt
+web:    http://www.esilibrary.com/
+Supporting Koha and Evergreen: http://koha-community.org & 
+http://evergreen-ils.org
+
+From smriti.atrey at globallogic.com  Fri Dec 23 02:21:26 2011
+From: smriti.atrey at globallogic.com (Smriti Atrey)
+Date: Fri, 23 Dec 2011 15:51:26 +0530
+Subject: [Slony1-general] Deadlock detected in slony
+In-Reply-To: <CAL=XA_YMN7u96_wZ-yYTm1y4H3M-29mxyT9zWNfm0ejEhFYiHg@mail.gmail.com>
+References: <CAL=XA_YMN7u96_wZ-yYTm1y4H3M-29mxyT9zWNfm0ejEhFYiHg@mail.gmail.com>
+Message-ID: <CAL=XA_a-BuqCEqZK7uvtcNF_5qHMJk4NwNfbeHoGdG7yMEt3ZA@mail.gmail.com>
+
+>
+> Hi ,
+>
+> I am using slony1-2.0.4.rc2 and postgresql-8.4.0-0. I faced a deadlock in
+> slony uninstall process.
+>
+> I was trying to uninstall node from cluster . As per the slony document
+> unistall requires  AccessExclusive locks on all replicated table.
+> When slony process uninstalling the node from cluster , same time postgres
+> insert a row  in one of the table which is in replicated table list and a
+> Deadlock is occured.
+>
+> DETAIL:  Process 22593 waits for AccessExclusiveLock on relation 16392 of
+> database 16388; blocked by process 11808.
+> Process 11808 waits for AccessShareLock on relation 18366 of database
+> 16388; blocked by process 22593.
+>
+>
+> Can anyone tell me the reason and solution for it.
+>
+>
+> thanks
+> Smriti
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20111223/9aa21e54/attachment.htm 
+
+From smriti.atrey at globallogic.com  Fri Dec 23 02:17:59 2011
+From: smriti.atrey at globallogic.com (Smriti Atrey)
+Date: Fri, 23 Dec 2011 15:47:59 +0530
+Subject: [Slony1-general] Deadlock detected in slony
+Message-ID: <CAL=XA_YMN7u96_wZ-yYTm1y4H3M-29mxyT9zWNfm0ejEhFYiHg@mail.gmail.com>
+
+Hi ,
+
+I am using slony1-2.0.4.rc2 and postgresql-8.4.0-0. I faced a deadlock in
+slony uninstall process.
+
+I was trying to uninstall node from cluster . As per the slony document
+unistall requires  AccessExclusive locks on all replicated table.
+When slony process uninstalling the node from cluster , same time postgres
+insert a row  in one of the table which is in replicated table list and a
+Deadlock is occured.
+
+DETAIL:  Process 22593 waits for AccessExclusiveLock on relation 16392 of
+database 16388; blocked by process 11808.
+Process 11808 waits for AccessShareLock on relation 18366 of database
+16388; blocked by process 22593.
+
+
+Can anyone tell me the reason and solution for it.
+
+
+thanks
+Smriti
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20111223/619bff5b/attachment.htm 
+
+From zbbentley at gmail.com  Fri Dec 23 07:00:05 2011
+From: zbbentley at gmail.com (Zac Bentley)
+Date: Fri, 23 Dec 2011 10:00:05 -0500
+Subject: [Slony1-general] Locking Problems after Table Creation with SLONIK
+	EXECUTE SCRIPT
+Message-ID: <CAAFQqzQwKu1u6r6qqGr43rkr62uguZ-CPJ+-odphau2PNuqspA@mail.gmail.com>
+
+Context:
+
+
+Occasionally, we use SLONIK EXECUTE SCRIPT to create a table, and then add
+it to replication by putting the new table in a temporary set and merging
+it into our main set. The tables we create reference one of our
+highest-activity tables, locations_miles_log, which regularly receives
+hundreds of updates every few seconds.
+
+We run Slony 2.0.7 and Postgresql 8.4.9 on a single-master, single-slave
+cluster, connected by a fast WAN, with both slons running on the same
+server as the slave.
+
+
+Problem:
+
+
+Recently, we created a table via SLONIK EXECUTE SCRIPT, with the following
+structure (as reported by the slonik_execute_script altperl script):
+
+    DDL script consisting of 1 SQL statements
+
+    DDL Statement 0: (0,508) [CREATE TABLE display_field_data_23656(
+
+                  miles_log_id integer NOT NULL,
+
+                  locations_miles_log_id integer NOT NULL
+
+
+
+                 ,CONSTRAINT display_field_data_23656_pkey PRIMARY KEY
+(locations_miles_log_id)
+
+                 ,CONSTRAINT display_field_data_23656_fk FOREIGN KEY
+(locations_miles_log_id)
+
+                      REFERENCES locations_miles_log
+
+                      (locations_miles_log_id) MATCH SIMPLE ON UPDATE
+
+                       NO ACTION ON DELETE CASCADE
+
+                )]
+
+Shortly (30m) after running that through Slonik, our application crashed
+due to unreleased locks on tables. We checked, and the CREATE TABLE
+statement generated by Slonik was still in progress, presumably waiting. We
+had not yet added the created tables to replication; all we had done was
+run slonik_execute_script. It is possible that this is coincidental, and a
+problem with our application?s structure. However, that seems remote,
+considering the thousands of similar such changes we have made in the past,
+before we used Slony. Do you have any ideas why this might have occurred,
+or of why passing table creation statements through SLONIK EXECUTE SCRIPT
+might cause locking issues?
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20111223/572a300a/attachment.htm 
+
+From JanWieck at Yahoo.com  Fri Dec 23 08:11:30 2011
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Fri, 23 Dec 2011 11:11:30 -0500
+Subject: [Slony1-general] Enforcing the same data provider for all sets with
+	the same origin
+Message-ID: <4EF4A832.1010909@Yahoo.com>
+
+Some of the logic in the slon daemon is rather complicated and I was 
+wondering if anyone is actually using this "feature".
+
+Currently it is possible to subscribe to multiple sets that originate on 
+the same node through different data providers. Example
+
+   +-- node 1 --+                   +-- node 2 --+
+   |  origin A  | ------ A -------> |   sub A    |
+   |  origin B  |                   |            |
+   +------------+                   +------------+
+         |                                 |
+         B                                 A
+         |                                 |
+         V                                 V
+   +-- node 3 --+                   +-- node 4 --+
+   |   sub B    | ------ B -------> |   sub A    |
+   |            |                   |   sub B    |
+   +------------+                   +------------+
+
+This does create two problems.
+
+1) Node 4 must ensure that both nodes have processed a given SYNC. This
+    is currently implemented correctly, but causes SYNC retries and
+    thereby delays.
+
+2) The log rows from data providers 2 and 3 would need to be properly
+    merged according to their log_actionseq, or data updates could be
+    applied out of order with respect to tables in different sets. This
+    is currently NOT implemented right.
+
+I would like to simplify this code and make Slony require that a node 
+must use the same data provider for all the sets, that originate on 
+another node. In the above scenario, either 2 or 3 would have to 
+subscribe both sets and node 4 would have to get both from that node.
+
+It would still be possible to have another set originating on another 
+node and subscribe to that from a different data provider, like below:
+
+   +-- node 1 --+                   +-- node 2 --+
+   |  origin A  | ----- A,B ------> |   sub A    |
+   |  origin B  |                   |   sub B    |
+   +------------+                   +------------+
+         |                                 |
+         A                                A,B
+         |                                 |
+         V                                 V
+   +-- node 3 --+                   +-- node 4 --+
+   |   sub A    | ------ C -------> |   sub A    |
+   |  origin C  |                   |   sub B    |
+   +------------+                   |   sub C    |
+                                    +------------+
+
+
+If there are no objections to this change, it will most likely appear in 
+Slony-I version 2.2 which is supposed to go into BETA early next year.
+
+
+Jan
+
+-- 
+Anyone who trades liberty for security deserves neither
+liberty nor security. -- Benjamin Franklin
+
+From cbbrowne at afilias.info  Fri Dec 23 08:44:22 2011
+From: cbbrowne at afilias.info (Christopher Browne)
+Date: Fri, 23 Dec 2011 11:44:22 -0500
+Subject: [Slony1-general] Enforcing the same data provider for all sets
+ with the same origin
+In-Reply-To: <4EF4A832.1010909@Yahoo.com>
+References: <4EF4A832.1010909@Yahoo.com>
+Message-ID: <CANfbgbYsBWHugf3rDqRt-hhLN1ZR_BfGm7sEF3dbfPAVscAQcQ@mail.gmail.com>
+
+On Fri, Dec 23, 2011 at 11:11 AM, Jan Wieck <JanWieck at yahoo.com> wrote:
+> I would like to simplify this code and make Slony require that a node
+> must use the same data provider for all the sets, that originate on
+> another node. In the above scenario, either 2 or 3 would have to
+> subscribe both sets and node 4 would have to get both from that node.
+
+I see two theoretical problems, one of which may be sufficiently
+aethereal to likely be ignorable:
+
+1.  Suppose someone has a cluster today which violates the
+requirement...  What shall we do?
+
+Some quite acceptable answers would include:
+- Add a test to tools/test_slony_state.pl which looks for violations
+and warns "oh dear, incompatible with 2.2, and mightn't necessarily
+work right today!"
+- Add a pre-upgrade script that checks for violations
+- Add a check to the UPDATE FUNCTIONS slonik functionality that looks
+for violations, and causes the upgrade to fail if violations are
+found.  This might need to be a query that is run during the load of
+slony1_funcs.sql...
+
+Perhaps we need several of these.
+
+2.  Is it possible that we need to have a violation of this
+requirement in order to do some reshaping of a cluster?
+
+For usual SUBSCRIBE SET cases, I don't think so.
+
+But it's possible that FAILOVER could violate this, temporarily.  I
+don't think so, but it's worth validating.
+
+From JanWieck at Yahoo.com  Fri Dec 23 10:06:11 2011
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Fri, 23 Dec 2011 13:06:11 -0500
+Subject: [Slony1-general] Locking Problems after Table Creation with
+ SLONIK EXECUTE SCRIPT
+In-Reply-To: <CAAFQqzQwKu1u6r6qqGr43rkr62uguZ-CPJ+-odphau2PNuqspA@mail.gmail.com>
+References: <CAAFQqzQwKu1u6r6qqGr43rkr62uguZ-CPJ+-odphau2PNuqspA@mail.gmail.com>
+Message-ID: <4EF4C313.9080009@Yahoo.com>
+
+On 12/23/2011 10:00 AM, Zac Bentley wrote:
+>
+>      DDL Statement 0: (0,508) [CREATE TABLE display_field_data_23656(
+>
+>                    miles_log_id integer NOT NULL,
+>
+>                    locations_miles_log_id integer NOT NULL
+>
+>                   ,CONSTRAINT display_field_data_23656_pkey PRIMARY KEY
+> (locations_miles_log_id)
+>
+>                   ,CONSTRAINT display_field_data_23656_fk FOREIGN KEY
+> (locations_miles_log_id)
+>
+>                        REFERENCES locations_miles_log
+>
+>                        (locations_miles_log_id) MATCH SIMPLE ON UPDATE
+>
+>                         NO ACTION ON DELETE CASCADE
+>
+>                  )]
+
+This CREATE TABLE statement will require an AccessExclusiveLock on the 
+locations_miles_log table, no matter if it is executed through psql.
+
+> Shortly (30m) after running that through Slonik, our application crashed
+> due to unreleased locks on tables. We checked, and the CREATE TABLE
+> statement generated by Slonik was still in progress, presumably waiting.
+> We had not yet added the created tables to replication; all we had done
+> was run slonik_execute_script. It is possible that this is coincidental,
+> and a problem with our application?s structure. However, that seems
+> remote, considering the thousands of similar such changes we have made
+> in the past, before we used Slony. Do you have any ideas why this might
+> have occurred, or of why passing table creation statements through
+> SLONIK EXECUTE SCRIPT might cause locking issues?
+
+Unless the application is accessing any slony internal tables, there 
+should not be any such locking issues. Is it possible that some other 
+connection is/was "idle in transaction", holding a share lock on the table?
+
+Since you are on 2.0.x, you can create the table directly through psql 
+on all nodes, then add it to replication in the usual fashion. This will 
+remove Slony as a possible cause of problems during the CREATE TABLE part.
+
+
+Jan
+
+-- 
+Anyone who trades liberty for security deserves neither
+liberty nor security. -- Benjamin Franklin
+
+From JanWieck at Yahoo.com  Fri Dec 23 10:15:13 2011
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Fri, 23 Dec 2011 13:15:13 -0500
+Subject: [Slony1-general] Enforcing the same data provider for all sets
+ with the same origin
+In-Reply-To: <CANfbgbYsBWHugf3rDqRt-hhLN1ZR_BfGm7sEF3dbfPAVscAQcQ@mail.gmail.com>
+References: <4EF4A832.1010909@Yahoo.com>
+	<CANfbgbYsBWHugf3rDqRt-hhLN1ZR_BfGm7sEF3dbfPAVscAQcQ@mail.gmail.com>
+Message-ID: <4EF4C531.8060109@Yahoo.com>
+
+On 12/23/2011 11:44 AM, Christopher Browne wrote:
+> On Fri, Dec 23, 2011 at 11:11 AM, Jan Wieck<JanWieck at yahoo.com>  wrote:
+>>  I would like to simplify this code and make Slony require that a node
+>>  must use the same data provider for all the sets, that originate on
+>>  another node. In the above scenario, either 2 or 3 would have to
+>>  subscribe both sets and node 4 would have to get both from that node.
+>
+> I see two theoretical problems, one of which may be sufficiently
+> aethereal to likely be ignorable:
+>
+> 1.  Suppose someone has a cluster today which violates the
+> requirement...  What shall we do?
+>
+> Some quite acceptable answers would include:
+> - Add a test to tools/test_slony_state.pl which looks for violations
+> and warns "oh dear, incompatible with 2.2, and mightn't necessarily
+> work right today!"
+
+Such a check/warning would have to be added to minor releases of 2.0 and 
+2.1. In the past we (at Afilias) used the same outage that would be 
+needed to upgrade from 2.0.7 to 2.0.8, to actually upgrade to the next 
+major release if that is possible. I would expect other users to have 
+different upgrade patterns, so such a warning may never make it to the user.
+
+> - Add a pre-upgrade script that checks for violations
+
+That is certainly a useful thing in general.
+
+> - Add a check to the UPDATE FUNCTIONS slonik functionality that looks
+> for violations, and causes the upgrade to fail if violations are
+> found.  This might need to be a query that is run during the load of
+> slony1_funcs.sql...
+
+As a last stopgap, we will definitely have that.
+
+>
+> Perhaps we need several of these.
+>
+> 2.  Is it possible that we need to have a violation of this
+> requirement in order to do some reshaping of a cluster?
+>
+> For usual SUBSCRIBE SET cases, I don't think so.
+>
+> But it's possible that FAILOVER could violate this, temporarily.  I
+> don't think so, but it's worth validating.
+
+There may today be slonik scripts out there that try to change the data 
+provider of a node with multiple sets, that temporarily violate this 
+requirement. They need to be fixed by placing the multiple SUBSCRIBE SET 
+commands into a try block.
+
+
+Jan
+
+-- 
+Anyone who trades liberty for security deserves neither
+liberty nor security. -- Benjamin Franklin
+
+From JanWieck at Yahoo.com  Fri Dec 23 11:32:59 2011
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Fri, 23 Dec 2011 14:32:59 -0500
+Subject: [Slony1-general] Enforcing the same data provider for all sets
+ with the same origin
+In-Reply-To: <4EF4C531.8060109@Yahoo.com>
+References: <4EF4A832.1010909@Yahoo.com>
+	<CANfbgbYsBWHugf3rDqRt-hhLN1ZR_BfGm7sEF3dbfPAVscAQcQ@mail.gmail.com>
+	<4EF4C531.8060109@Yahoo.com>
+Message-ID: <4EF4D76B.8060509@Yahoo.com>
+
+On 12/23/2011 1:15 PM, Jan Wieck wrote:
+
+> major release if that is possible. I would expect other users to have
+> different upgrade patterns,
+
+Similar, not different, of course.
+
+
+Jan
+
+-- 
+Anyone who trades liberty for security deserves neither
+liberty nor security. -- Benjamin Franklin
+
+From mfwilson at gmail.com  Tue Dec 27 09:13:07 2011
+From: mfwilson at gmail.com (Mike Wilson)
+Date: Tue, 27 Dec 2011 09:13:07 -0800
+Subject: [Slony1-general] log switch to sl_log_1 still in progress -
+	sl_log_2 not truncated
+Message-ID: <D8A4C3BD-888E-4695-89F6-8EEA2151A7B0@gmail.com>
+
+Under incredible load last week during the Christmas season our primary PG (8.4.7: Slony 2.0.7) stopped replicating.  Now that we are past the Christmas season I need to figure out how to clear the back log of replication rows in sl_log_1/2.  This is all running on our commercial website and if possible I would prefer not to have to restart the PG instance as it would require a scheduled maintenance window on a week where everyone is out of the office.  In an attempt to fix the issue without rebooting the PG instance and  I've already restarted the Slony services on the primary PG node as a first attempt at a fix.  This did not get replication working again and I'm still getting the same error from Slony in the logs: log switch to sl_log_1 still in progress - sl_log_2 not truncated
+
+From my research I can see that this error message is called when the function logswitch_finish() is called.  I did have some hung vacuums during this period of high load on the server but I have killed them with pg_cancel_backend.  From other lock analysis I can see that nothing is currently running or locked in the db (nothing more than a few milliseconds old at least).  I'm certain whatever transaction was in progress that prevented the switch from occurring is long since past.  
+
+Any ideas on the best way to get replication working again?  I'm adverse to rebooting the PG instance but I am willing to do it if someone more knowlegable out there thinks it would fix this issue.  We currently are operating without a backup of all of our XMas sales data and I *really* want to get this data replicated.  Any help would be appreciated.
+
+Mike Wilson
+Predicate Logic
+Cell: (310) 600-8777
+SkypeID: lycovian
+
+
+
+
+
+From ssinger_pg at sympatico.ca  Tue Dec 27 09:54:32 2011
+From: ssinger_pg at sympatico.ca (Steve Singer)
+Date: Tue, 27 Dec 2011 12:54:32 -0500
+Subject: [Slony1-general] log switch to sl_log_1 still in progress -
+ sl_log_2 not truncated
+In-Reply-To: <D8A4C3BD-888E-4695-89F6-8EEA2151A7B0@gmail.com>
+References: <D8A4C3BD-888E-4695-89F6-8EEA2151A7B0@gmail.com>
+Message-ID: <BLU0-SMTP30DC24127D473FF537B4D1ACAF0@phx.gbl>
+
+On Tue, 27 Dec 2011, Mike Wilson wrote:
+
+1. The good news is restarting postgresql is unlikely to fix your problem.
+
+2. Now that you have killed the old vacuums you need to determine what if 
+anything slony is doing.
+
+a) Are new SYNC events being generated on the master?
+
+b) According to the master is the master confirming SYNC events.  Even if 
+the slave  is two weeks behind is the highest confirmed event # increasing 
+over time (ie over an hour).
+
+c) Is the slave receiving new SYNC events FROM THE MASTER?
+
+d) What does your slon log for the slave slon say it is doing?  Is it 
+processing SYNC events that take a very long time? Is it stuck? How long 
+does it take to process a SYNC event? How many inserts,updates,deletes are 
+in this?
+
+e) Are there any other ERROR messages in your slon log (use search, don't 
+eyeball it).  ERROR messages contain the word 'ERROR'
+
+If replication  is working just very far behind it might be faster for you 
+to create a new slave instead of waiting for the existing slave to catch up. 
+This depends on how large your database is, how far behind it is and how 
+fast your network is.
+
+Steve
+
+> Under incredible load last week during the Christmas season our primary PG 
+> (8.4.7: Slony 2.0.7) stopped replicating.  Now that we are past the 
+> Christmas season I need to figure out how to clear the back log of 
+> replication rows in sl_log_1/2.  This is all running on our commercial 
+> website and if possible I would prefer not to have to restart the PG 
+> instance as it would require a scheduled maintenance window on a week 
+> where everyone is out of the office.  In an attempt to fix the issue 
+> without rebooting the PG instance and I've already restarted the Slony 
+> services on the primary PG node as a first attempt at a fix.  This did not 
+> get replication working again and I'm still getting the same error from 
+> Slony in the logs: log switch to sl_log_1 still in progress - sl_log_2 not 
+> truncated
+>
+>> From my research I can see that this error message is called when the 
+>> function logswitch_finish() is called.  I did have some hung vacuums 
+>> during this period of high load on the server but I have killed them with 
+>> pg_cancel_backend.  From other lock analysis I can see that nothing is 
+>> currently running or locked in the db (nothing more than a few 
+>> milliseconds old at least).  I'm certain whatever transaction was in 
+>> progress that prevented the switch from occurring is long since past.
+>
+> Any ideas on the best way to get replication working again?  I'm adverse to rebooting the PG instance but I am willing to do it if someone more knowlegable out there thinks it would fix this issue.  We currently are operating without a backup of all of our XMas sales data and I *really* want to get this data replicated.  Any help would be appreciated.
+>
+> Mike Wilson
+> Predicate Logic
+> Cell: (310) 600-8777
+> SkypeID: lycovian
+>
+>
+>
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+>
+
+
+From mfwilson at gmail.com  Tue Dec 27 14:18:03 2011
+From: mfwilson at gmail.com (Mike Wilson)
+Date: Tue, 27 Dec 2011 14:18:03 -0800
+Subject: [Slony1-general] log switch to sl_log_1 still in progress -
+	sl_log_2 not truncated
+In-Reply-To: <BLU0-SMTP30DC24127D473FF537B4D1ACAF0@phx.gbl>
+References: <D8A4C3BD-888E-4695-89F6-8EEA2151A7B0@gmail.com>
+	<BLU0-SMTP30DC24127D473FF537B4D1ACAF0@phx.gbl>
+Message-ID: <A98DAE90-EC51-4950-8478-39CD86AAD514@gmail.com>
+
+Thanks for the reply.  Per your questions here is additional information.  For the purposes of this discussion db1 (node: 101) is our Slave and db2 (node:102) is our Slony Master.
+
+> On Tue, 27 Dec 2011, Mike Wilson wrote:
+> 
+> 1. The good news is restarting postgresql is unlikely to fix your problem.
+I figured as much but I would still like to try it.  I've hunted around to try to find out how to track down the PG session that is associated with an xid but thus far no such luck.
+> 
+> 2. Now that you have killed the old vacuums you need to determine what if anything slony is doing.
+During the period where the replication stopped I found several vacuums that had been running for upwards of 11 days.   I killed the processes (using pg_cancel_backup) and shortly after that started to get pings from Nagios which monitors the sl_status table that replication was falling behind.
+> 
+> a) Are new SYNC events being generated on the master?
+I'm not sure how I determine this.
+> 
+> b) According to the master is the master confirming SYNC events.  Even if the slave  is two weeks behind is the highest confirmed event # increasing over time (ie over an hour).
+See next question. The slave's st_last_event value is increasing, whereas the master's is static.
+> 
+> c) Is the slave receiving new SYNC events FROM THE MASTER?
+I'm not sure.  How would I tell?  See below for snippets of our current logs.  It does appear that the two nodes are doing "something".
+Here is the query output of the slave over a period of a few minutes:
+=# select * from sl_status;
+ st_origin | st_received | st_last_event |      st_last_event_ts      | st_last_received |    st_last_received_ts     | st_last_received_event_ts  | st_lag_num_events |   st_lag_time   
+-----------+-------------+---------------+----------------------------+------------------+----------------------------+----------------------------+-------------------+-----------------
+       101 |         102 |    5000826162 | 2011-12-27 13:55:56.563939 |       5000824786 | 2011-12-27 10:06:32.519807 | 2011-12-27 10:06:31.719339 |              1376 | 03:49:28.222625
+
+=# select * from sl_status;
+ st_origin | st_received | st_last_event |      st_last_event_ts      | st_last_received |    st_last_received_ts     | st_last_received_event_ts  | st_lag_num_events |  st_lag_time   
+-----------+-------------+---------------+----------------------------+------------------+----------------------------+----------------------------+-------------------+----------------
+       101 |         102 |    5000826238 | 2011-12-27 14:08:36.821359 |       5000824786 | 2011-12-27 10:06:32.519807 | 2011-12-27 10:06:31.719339 |              1452 | 04:02:05.30789
+
+
+Here is the sl_status table from the master over the same few minutes:
+=# select * from sl_status;
+ st_origin | st_received | st_last_event |      st_last_event_ts      | st_last_received |    st_last_received_ts     | st_last_received_event_ts  | st_lag_num_events |      st_lag_time       
+-----------+-------------+---------------+----------------------------+------------------+----------------------------+----------------------------+-------------------+------------------------
+       102 |         101 |    5004119000 | 2011-12-27 10:06:44.327499 |       5003985169 | 2011-12-27 10:04:16.351454 | 2011-12-24 07:13:35.509854 |            133831 | 3 days 06:40:41.911154
+
+=# select * from sl_status;
+ st_origin | st_received | st_last_event |      st_last_event_ts      | st_last_received |    st_last_received_ts     | st_last_received_event_ts  | st_lag_num_events |      st_lag_time       
+-----------+-------------+---------------+----------------------------+------------------+----------------------------+----------------------------+-------------------+------------------------
+       102 |         101 |    5004119000 | 2011-12-27 10:06:44.327499 |       5003985169 | 2011-12-27 10:04:16.351454 | 2011-12-24 07:13:35.509854 |            133831 | 3 days 06:42:49.222796
+
+As you can see the slaves st_last_event value appears to be increasing, whereas the master's appears to be static.
+
+> 
+> d) What does your slon log for the slave slon say it is doing?  Is it processing SYNC events that take a very long time? Is it stuck? How long does it take to process a SYNC event? How many inserts,updates,deletes are in this?
+Please see below for snippets of the master/slave slony.log
+> 
+> e) Are there any other ERROR messages in your slon log (use search, don't eyeball it).  ERROR messages contain the word 'ERROR'
+There are no recent error messages in either the master or slaves Slony logs.  There was an error in the master's slony.log regarding an xid.  When I restarted the Slony processes though on our master it apparently overwrote the log and I don't have a copy of the log from before the restart.
+
+Here is a small bit of the current slony.log from the master (node: 102).  Other then the NOTICE regarding the log switch the log is clean (I grep'd it for errors also):
+2011-12-27 09:23:47 PSTINFO   cleanupThread:    4.996 seconds for cleanupEvent()
+NOTICE:  Slony-I: log switch to sl_log_1 still in progress - sl_log_2 not truncated
+CONTEXT:  PL/pgSQL function "cleanupevent" line 99 at assignment
+2011-12-27 09:34:37 PSTINFO   cleanupThread:    4.903 seconds for cleanupEvent()
+NOTICE:  Slony-I: log switch to sl_log_1 still in progress - sl_log_2 not truncated
+CONTEXT:  PL/pgSQL function "cleanupevent" line 99 at assignment
+2011-12-27 09:45:13 PSTINFO   cleanupThread:    2.795 seconds for cleanupEvent()
+2011-12-27 09:45:13 PSTINFO   cleanupThread:    0.005 seconds for vacuuming
+NOTICE:  Slony-I: log switch to sl_log_1 still in progress - sl_log_2 not truncated
+CONTEXT:  PL/pgSQL function "cleanupevent" line 99 at assignment
+
+Here is what I'm seeing on the slaves (node: 101) slony.log, it also looks clean with no recent errors (I grep'd).
+2011-12-27 14:05:11 PSTINFO   remoteWorkerThread_102: syncing set 3 with 24 table(s) from provider 102
+2011-12-27 14:05:11 PSTINFO   remoteWorkerThread_102: syncing set 1 with 185 table(s) from provider 102
+2011-12-27 14:05:11 PSTINFO   remoteWorkerThread_102: syncing set 2 with 13 table(s) from provider 102
+NOTICE:  Slony-I: log switch to sl_log_1 complete - truncate sl_log_2
+CONTEXT:  PL/pgSQL function "cleanupevent" line 99 at assignment
+2011-12-27 14:05:45 PSTINFO   cleanupThread:    0.037 seconds for cleanupEvent()
+2011-12-27 14:05:45 PSTINFO   cleanupThread:    0.008 seconds for vacuuming
+2011-12-27 14:06:32 PSTINFO   remoteWorkerThread_102: SYNC 5003985339 done in 80.973 seconds
+2011-12-27 14:06:32 PSTINFO   remoteWorkerThread_102: syncing set 3 with 24 table(s) from provider 102
+2011-12-27 14:06:32 PSTINFO   remoteWorkerThread_102: syncing set 1 with 185 table(s) from provider 102
+2011-12-27 14:06:32 PSTINFO   remoteWorkerThread_102: syncing set 2 with 13 table(s) from provider 102
+
+Note that I have three replication sets defined.
+
+> 
+> If replication  is working just very far behind it might be faster for you to create a new slave instead of waiting for the existing slave to catch up. This depends on how large your database is, how far behind it is and how fast your network is.
+If at all possible I need to heal the current cluster rather than producing a new one.  The slave has numerous other schemas, tables, indexes, etc so it isn't a duplicate of the master.  Because of this, if at all possible, I would like to try to get replication working again, even if it took weeks for the two systems to come back in sync.  
+
+Thanks so much for your help thus far.  Please advise with any attempted fixes you can think of or if you can possibly describe what is currently going on.  Cheers.
+
+> 
+> Steve
+> 
+>> Under incredible load last week during the Christmas season our primary PG (8.4.7: Slony 2.0.7) stopped replicating.  Now that we are past the Christmas season I need to figure out how to clear the back log of replication rows in sl_log_1/2.  This is all running on our commercial website and if possible I would prefer not to have to restart the PG instance as it would require a scheduled maintenance window on a week where everyone is out of the office.  In an attempt to fix the issue without rebooting the PG instance and I've already restarted the Slony services on the primary PG node as a first attempt at a fix.  This did not get replication working again and I'm still getting the same error from Slony in the logs: log switch to sl_log_1 still in progress - sl_log_2 not truncated
+>> 
+>>> From my research I can see that this error message is called when the function logswitch_finish() is called.  I did have some hung vacuums during this period of high load on the server but I have killed them with pg_cancel_backend.  From other lock analysis I can see that nothing is currently running or locked in the db (nothing more than a few milliseconds old at least).  I'm certain whatever transaction was in progress that prevented the switch from occurring is long since past.
+>> 
+>> Any ideas on the best way to get replication working again?  I'm adverse to rebooting the PG instance but I am willing to do it if someone more knowlegable out there thinks it would fix this issue.  We currently are operating without a backup of all of our XMas sales data and I *really* want to get this data replicated.  Any help would be appreciated.
+>> 
+>> Mike Wilson
+>> Predicate Logic
+>> Cell: (310) 600-8777
+>> SkypeID: lycovian
+>> 
+>> 
+>> 
+>> 
+>> _______________________________________________
+>> Slony1-general mailing list
+>> Slony1-general at lists.slony.info
+>> http://lists.slony.info/mailman/listinfo/slony1-general
+>> 
+> 
+
+
+From ssinger_pg at sympatico.ca  Tue Dec 27 17:25:58 2011
+From: ssinger_pg at sympatico.ca (Steve Singer)
+Date: Tue, 27 Dec 2011 20:25:58 -0500
+Subject: [Slony1-general] log switch to sl_log_1 still in progress -
+ sl_log_2 not truncated
+In-Reply-To: <A98DAE90-EC51-4950-8478-39CD86AAD514@gmail.com>
+References: <D8A4C3BD-888E-4695-89F6-8EEA2151A7B0@gmail.com>
+	<BLU0-SMTP30DC24127D473FF537B4D1ACAF0@phx.gbl>
+	<A98DAE90-EC51-4950-8478-39CD86AAD514@gmail.com>
+Message-ID: <BLU0-SMTP167E74C602655AC14740D8ACAC0@phx.gbl>
+
+On Tue, 27 Dec 2011, Mike Wilson wrote:
+
+> Thanks for the reply.  Per your questions here is additional information.  For the purposes of this discussion db1 (node: 101) is our Slave and db2 (node:102) is our Slony Master.
+>
+>> On Tue, 27 Dec 2011, Mike Wilson wrote:
+
+>>
+>> 2. Now that you have killed the old vacuums you need to determine what if anything slony is doing.
+> During the period where the replication stopped I found several vacuums that had been running for upwards of 11 days.   I killed the processes (using pg_cancel_backup) and shortly after that started to get pings from Nagios which monitors the sl_status table that replication was falling behind.
+>>
+>> a) Are new SYNC events being generated on the master?
+> I'm not sure how I determine this.
+
+select max(ev_seqno) FROM sl_event where ev_origin=102;
+Every few seconds that number should be increasing.
+
+>
+> Here is the sl_status table from the master over the same few minutes:
+> =# select * from sl_status;
+> st_origin | st_received | st_last_event |      st_last_event_ts      | st_last_received |    st_last_received_ts     | st_last_received_event_ts  | st_lag_num_events |      st_lag_time
+> -----------+-------------+---------------+----------------------------+------------------+----------------------------+----------------------------+-------------------+------------------------
+>       102 |         101 |    5004119000 | 2011-12-27 10:06:44.327499 |       5003985169 | 2011-12-27 10:04:16.351454 | 2011-12-24 07:13:35.509854 |            133831 | 3 days 06:40:41.911154
+>
+> =# select * from sl_status;
+> st_origin | st_received | st_last_event |      st_last_event_ts      | st_last_received |    st_last_received_ts     | st_last_received_event_ts  | st_lag_num_events |      st_lag_time
+> -----------+-------------+---------------+----------------------------+------------------+----------------------------+----------------------------+-------------------+------------------------
+>       102 |         101 |    5004119000 | 2011-12-27 10:06:44.327499 |       5003985169 | 2011-12-27 10:04:16.351454 | 2011-12-24 07:13:35.509854 |            133831 | 3 days 06:42:49.222796
+>
+> As you can see the slaves st_last_event value appears to be increasing, whereas the master's appears to be static.
+
+This tells me that (according to the master) the slave has so far processed 
+event (102,5003985169) and the last event generated on the master is 
+(102,5004119000).  This means that your slave is 133,831 events behind.  You 
+didn't tell me what time you run the above query at.
+
+If the above query was run at about 2011-12-27 10:06:xx then it proabably 
+means that replication is now working normally but your slave is behind 
+133,000 events.
+
+The line from your slave.slon.log below
+2011-12-27 14:06:32 PSTINFO   remoteWorkerThread_102: SYNC 5003985339 done in 80.973 seconds
+
+tells me that at 14:06:32 the slave processed a SYNC from the master that 
+took 80 seconds to process.  Every 80 seconds or so you should be seeing 
+another similar line.  The difference in the SYNC # in the previous 
+log line and these one tells you how many SYNC's were processed in that 
+80.973 seconds.
+
+Now that it is 6-8 or so hours later, is your cluster closing to being 
+caught up or has it fallen more behind?
+
+If your getting caught up then you should be able to estimate when you will 
+be caught up.
+
+If your falling even farther behind then your options are
+
+1) To unsubscribe + resubscribe the slave.  As I mentioned this morning that 
+if your database is small enough and your network is fast enough this 
+might be faster then letting it get caught up
+2) If you can't resubscribe, then tune the the sync_interval(make it larger) 
+on the master and tune the sync_max_groupsize (make it larger) on the slave 
+as described 
+http://www.slony.info/documentation/2.0/slon-config-interval.html to make 
+the master generate fewer syncs and the slave to process more of those syncs 
+together.
+3) Consider upgrading your cluster to 2.1.0, you can upgrade from 2.0.7 to 
+2.1.0 on a cluster that is not caught up.
+
+If my assumptions are correct then this is an instance of slony bug #167 
+(fixed in 2.1.0) where sync processing in a cluster that is behind takes a 
+lot longer than it should.  Your long running transactions made sl_log get 
+very big and now slony takse longer to process a SYNC then it does to 
+generate a new one.  2.1.0 should process SYNC events in this case much 
+faster.
+
+
+
+
+> Thanks so much for your help thus far.  Please advise with any attempted 
+> fixes you can think of or if you can possibly describe what is currently 
+> going on.  Cheers.
+>
+>>
+>> Steve
+>>
+>>> Under incredible load last week during the Christmas season our primary PG (8.4.7: Slony 2.0.7) stopped replicating.  Now that we are past the Christmas season I need to figure out how to clear the back log of replication rows in sl_log_1/2.  This is all running on our commercial website and if possible I would prefer not to have to restart the PG instance as it would require a scheduled maintenance window on a week where everyone is out of the office.  In an attempt to fix the issue without rebooting the PG instance and I've already restarted the Slony services on the primary PG node as a first attempt at a fix.  This did not get replication working again and I'm still getting the same error from Slony in the logs: log switch to sl_log_1 still in progress - sl_log_2 not truncated
+>>>
+>>>> From my research I can see that this error message is called when the function logswitch_finish() is called.  I did have some hung vacuums during this period of high load on the server but I have killed them with pg_cancel_backend.  From other lock analysis I can see that nothing is currently running or locked in the db (nothing more than a few milliseconds old at least).  I'm certain whatever transaction was in progress that prevented the switch from occurring is long since past.
+>>>
+>>> Any ideas on the best way to get replication working again?  I'm adverse to rebooting the PG instance but I am willing to do it if someone more knowlegable out there thinks it would fix this issue.  We currently are operating without a backup of all of our XMas sales data and I *really* want to get this data replicated.  Any help would be appreciated.
+>>>
+>>> Mike Wilson
+>>> Predicate Logic
+>>> Cell: (310) 600-8777
+>>> SkypeID: lycovian
+>>>
+>>>
+>>>
+>>>
+>>> _______________________________________________
+>>> Slony1-general mailing list
+>>> Slony1-general at lists.slony.info
+>>> http://lists.slony.info/mailman/listinfo/slony1-general
+>>>
+>>
+>
+>
+
+
+From JanWieck at Yahoo.com  Tue Dec 27 20:29:12 2011
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Tue, 27 Dec 2011 23:29:12 -0500
+Subject: [Slony1-general] log switch to sl_log_1 still in progress -
+ sl_log_2 not truncated
+In-Reply-To: <BLU0-SMTP167E74C602655AC14740D8ACAC0@phx.gbl>
+References: <D8A4C3BD-888E-4695-89F6-8EEA2151A7B0@gmail.com>
+	<BLU0-SMTP30DC24127D473FF537B4D1ACAF0@phx.gbl>
+	<A98DAE90-EC51-4950-8478-39CD86AAD514@gmail.com>
+	<BLU0-SMTP167E74C602655AC14740D8ACAC0@phx.gbl>
+Message-ID: <4EFA9B18.4060401@Yahoo.com>
+
+This looks very much like a prime example of the log selection query 
+problem, we fixed in 2.1. The catch up is getting slower and slower over 
+time, until the log switch succeeds.
+
+
+Jan
+
+
+On 12/27/2011 8:25 PM, Steve Singer wrote:
+> On Tue, 27 Dec 2011, Mike Wilson wrote:
+>
+>>  Thanks for the reply.  Per your questions here is additional information.  For the purposes of this discussion db1 (node: 101) is our Slave and db2 (node:102) is our Slony Master.
+>>
+>>>  On Tue, 27 Dec 2011, Mike Wilson wrote:
+>
+>>>
+>>>  2. Now that you have killed the old vacuums you need to determine what if anything slony is doing.
+>>  During the period where the replication stopped I found several vacuums that had been running for upwards of 11 days.   I killed the processes (using pg_cancel_backup) and shortly after that started to get pings from Nagios which monitors the sl_status table that replication was falling behind.
+>>>
+>>>  a) Are new SYNC events being generated on the master?
+>>  I'm not sure how I determine this.
+>
+> select max(ev_seqno) FROM sl_event where ev_origin=102;
+> Every few seconds that number should be increasing.
+>
+>>
+>>  Here is the sl_status table from the master over the same few minutes:
+>>  =# select * from sl_status;
+>>  st_origin | st_received | st_last_event |      st_last_event_ts      | st_last_received |    st_last_received_ts     | st_last_received_event_ts  | st_lag_num_events |      st_lag_time
+>>  -----------+-------------+---------------+----------------------------+------------------+----------------------------+----------------------------+-------------------+------------------------
+>>        102 |         101 |    5004119000 | 2011-12-27 10:06:44.327499 |       5003985169 | 2011-12-27 10:04:16.351454 | 2011-12-24 07:13:35.509854 |            133831 | 3 days 06:40:41.911154
+>>
+>>  =# select * from sl_status;
+>>  st_origin | st_received | st_last_event |      st_last_event_ts      | st_last_received |    st_last_received_ts     | st_last_received_event_ts  | st_lag_num_events |      st_lag_time
+>>  -----------+-------------+---------------+----------------------------+------------------+----------------------------+----------------------------+-------------------+------------------------
+>>        102 |         101 |    5004119000 | 2011-12-27 10:06:44.327499 |       5003985169 | 2011-12-27 10:04:16.351454 | 2011-12-24 07:13:35.509854 |            133831 | 3 days 06:42:49.222796
+>>
+>>  As you can see the slaves st_last_event value appears to be increasing, whereas the master's appears to be static.
+>
+> This tells me that (according to the master) the slave has so far processed
+> event (102,5003985169) and the last event generated on the master is
+> (102,5004119000).  This means that your slave is 133,831 events behind.  You
+> didn't tell me what time you run the above query at.
+>
+> If the above query was run at about 2011-12-27 10:06:xx then it proabably
+> means that replication is now working normally but your slave is behind
+> 133,000 events.
+>
+> The line from your slave.slon.log below
+> 2011-12-27 14:06:32 PSTINFO   remoteWorkerThread_102: SYNC 5003985339 done in 80.973 seconds
+>
+> tells me that at 14:06:32 the slave processed a SYNC from the master that
+> took 80 seconds to process.  Every 80 seconds or so you should be seeing
+> another similar line.  The difference in the SYNC # in the previous
+> log line and these one tells you how many SYNC's were processed in that
+> 80.973 seconds.
+>
+> Now that it is 6-8 or so hours later, is your cluster closing to being
+> caught up or has it fallen more behind?
+>
+> If your getting caught up then you should be able to estimate when you will
+> be caught up.
+>
+> If your falling even farther behind then your options are
+>
+> 1) To unsubscribe + resubscribe the slave.  As I mentioned this morning that
+> if your database is small enough and your network is fast enough this
+> might be faster then letting it get caught up
+> 2) If you can't resubscribe, then tune the the sync_interval(make it larger)
+> on the master and tune the sync_max_groupsize (make it larger) on the slave
+> as described
+> http://www.slony.info/documentation/2.0/slon-config-interval.html to make
+> the master generate fewer syncs and the slave to process more of those syncs
+> together.
+> 3) Consider upgrading your cluster to 2.1.0, you can upgrade from 2.0.7 to
+> 2.1.0 on a cluster that is not caught up.
+>
+> If my assumptions are correct then this is an instance of slony bug #167
+> (fixed in 2.1.0) where sync processing in a cluster that is behind takes a
+> lot longer than it should.  Your long running transactions made sl_log get
+> very big and now slony takse longer to process a SYNC then it does to
+> generate a new one.  2.1.0 should process SYNC events in this case much
+> faster.
+>
+>
+>
+>
+>>  Thanks so much for your help thus far.  Please advise with any attempted
+>>  fixes you can think of or if you can possibly describe what is currently
+>>  going on.  Cheers.
+>>
+>>>
+>>>  Steve
+>>>
+>>>>  Under incredible load last week during the Christmas season our primary PG (8.4.7: Slony 2.0.7) stopped replicating.  Now that we are past the Christmas season I need to figure out how to clear the back log of replication rows in sl_log_1/2.  This is all running on our commercial website and if possible I would prefer not to have to restart the PG instance as it would require a scheduled maintenance window on a week where everyone is out of the office.  In an attempt to fix the issue without rebooting the PG instance and I've already restarted the Slony services on the primary PG node as a first attempt at a fix.  This did not get replication working again and I'm still getting the same error from Slony in the logs: log switch to sl_log_1 still in progress - sl_log_2 not truncated
+>>>>
+>>>>>   From my research I can see that this error message is called when the function logswitch_finish() is called.  I did have some hung vacuums during this period of high load on the server but I have killed them with pg_cancel_backend.  From other lock analysis I can see that nothing is currently running or locked in the db (nothing more than a few milliseconds old at least).  I'm certain whatever transaction was in progress that prevented the switch from occurring is long since past.
+>>>>
+>>>>  Any ideas on the best way to get replication working again?  I'm adverse to rebooting the PG instance but I am willing to do it if someone more knowlegable out there thinks it would fix this issue.  We currently are operating without a backup of all of our XMas sales data and I *really* want to get this data replicated.  Any help would be appreciated.
+>>>>
+>>>>  Mike Wilson
+>>>>  Predicate Logic
+>>>>  Cell: (310) 600-8777
+>>>>  SkypeID: lycovian
+>>>>
+>>>>
+>>>>
+>>>>
+>>>>  _______________________________________________
+>>>>  Slony1-general mailing list
+>>>>  Slony1-general at lists.slony.info
+>>>>  http://lists.slony.info/mailman/listinfo/slony1-general
+>>>>
+>>>
+>>
+>>
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+
+
+-- 
+Anyone who trades liberty for security deserves neither
+liberty nor security. -- Benjamin Franklin
+
+From mfwilson at gmail.com  Tue Dec 27 19:16:05 2011
+From: mfwilson at gmail.com (Mike Wilson)
+Date: Tue, 27 Dec 2011 19:16:05 -0800
+Subject: [Slony1-general] log switch to sl_log_1 still in progress -
+	sl_log_2 not truncated
+In-Reply-To: <BLU0-SMTP167E74C602655AC14740D8ACAC0@phx.gbl>
+References: <D8A4C3BD-888E-4695-89F6-8EEA2151A7B0@gmail.com>
+	<BLU0-SMTP30DC24127D473FF537B4D1ACAF0@phx.gbl>
+	<A98DAE90-EC51-4950-8478-39CD86AAD514@gmail.com>
+	<BLU0-SMTP167E74C602655AC14740D8ACAC0@phx.gbl>
+Message-ID: <F98D3238-2CB0-4669-94B3-B3001A328A2D@gmail.com>
+
+Thanks Steve.  I've restored the master/slave slon processes with roughly 5 times the size of the previous parameters to see if it helps.  I'll let it run overnight.  If in the morning we are still falling behind I will take your advice and compile and implement 2.1.0.  Thanks for your help, you rock!
+
+Mike Wilson
+Predicate Logic
+Cell: (310) 600-8777
+SkypeID: lycovian
+
+
+
+
+On Dec 27, 2011, at 5:25 PM, Steve Singer wrote:
+
+> On Tue, 27 Dec 2011, Mike Wilson wrote:
+> 
+>> Thanks for the reply.  Per your questions here is additional information.  For the purposes of this discussion db1 (node: 101) is our Slave and db2 (node:102) is our Slony Master.
+>> 
+>>> On Tue, 27 Dec 2011, Mike Wilson wrote:
+> 
+>>> 
+>>> 2. Now that you have killed the old vacuums you need to determine what if anything slony is doing.
+>> During the period where the replication stopped I found several vacuums that had been running for upwards of 11 days.   I killed the processes (using pg_cancel_backup) and shortly after that started to get pings from Nagios which monitors the sl_status table that replication was falling behind.
+>>> 
+>>> a) Are new SYNC events being generated on the master?
+>> I'm not sure how I determine this.
+> 
+> select max(ev_seqno) FROM sl_event where ev_origin=102;
+> Every few seconds that number should be increasing.
+> 
+>> 
+>> Here is the sl_status table from the master over the same few minutes:
+>> =# select * from sl_status;
+>> st_origin | st_received | st_last_event |      st_last_event_ts      | st_last_received |    st_last_received_ts     | st_last_received_event_ts  | st_lag_num_events |      st_lag_time
+>> -----------+-------------+---------------+----------------------------+------------------+----------------------------+----------------------------+-------------------+------------------------
+>>      102 |         101 |    5004119000 | 2011-12-27 10:06:44.327499 |       5003985169 | 2011-12-27 10:04:16.351454 | 2011-12-24 07:13:35.509854 |            133831 | 3 days 06:40:41.911154
+>> 
+>> =# select * from sl_status;
+>> st_origin | st_received | st_last_event |      st_last_event_ts      | st_last_received |    st_last_received_ts     | st_last_received_event_ts  | st_lag_num_events |      st_lag_time
+>> -----------+-------------+---------------+----------------------------+------------------+----------------------------+----------------------------+-------------------+------------------------
+>>      102 |         101 |    5004119000 | 2011-12-27 10:06:44.327499 |       5003985169 | 2011-12-27 10:04:16.351454 | 2011-12-24 07:13:35.509854 |            133831 | 3 days 06:42:49.222796
+>> 
+>> As you can see the slaves st_last_event value appears to be increasing, whereas the master's appears to be static.
+> 
+> This tells me that (according to the master) the slave has so far processed event (102,5003985169) and the last event generated on the master is (102,5004119000).  This means that your slave is 133,831 events behind.  You didn't tell me what time you run the above query at.
+> 
+> If the above query was run at about 2011-12-27 10:06:xx then it proabably means that replication is now working normally but your slave is behind 133,000 events.
+> 
+> The line from your slave.slon.log below
+> 2011-12-27 14:06:32 PSTINFO   remoteWorkerThread_102: SYNC 5003985339 done in 80.973 seconds
+> 
+> tells me that at 14:06:32 the slave processed a SYNC from the master that took 80 seconds to process.  Every 80 seconds or so you should be seeing another similar line.  The difference in the SYNC # in the previous log line and these one tells you how many SYNC's were processed in that 80.973 seconds.
+> 
+> Now that it is 6-8 or so hours later, is your cluster closing to being caught up or has it fallen more behind?
+> 
+> If your getting caught up then you should be able to estimate when you will be caught up.
+> 
+> If your falling even farther behind then your options are
+> 
+> 1) To unsubscribe + resubscribe the slave.  As I mentioned this morning that if your database is small enough and your network is fast enough this might be faster then letting it get caught up
+> 2) If you can't resubscribe, then tune the the sync_interval(make it larger) on the master and tune the sync_max_groupsize (make it larger) on the slave as described http://www.slony.info/documentation/2.0/slon-config-interval.html to make the master generate fewer syncs and the slave to process more of those syncs together.
+> 3) Consider upgrading your cluster to 2.1.0, you can upgrade from 2.0.7 to 2.1.0 on a cluster that is not caught up.
+> 
+> If my assumptions are correct then this is an instance of slony bug #167 (fixed in 2.1.0) where sync processing in a cluster that is behind takes a lot longer than it should.  Your long running transactions made sl_log get very big and now slony takse longer to process a SYNC then it does to generate a new one.  2.1.0 should process SYNC events in this case much faster.
+> 
+> 
+> 
+> 
+>> Thanks so much for your help thus far.  Please advise with any attempted fixes you can think of or if you can possibly describe what is currently going on.  Cheers.
+>> 
+>>> 
+>>> Steve
+>>> 
+>>>> Under incredible load last week during the Christmas season our primary PG (8.4.7: Slony 2.0.7) stopped replicating.  Now that we are past the Christmas season I need to figure out how to clear the back log of replication rows in sl_log_1/2.  This is all running on our commercial website and if possible I would prefer not to have to restart the PG instance as it would require a scheduled maintenance window on a week where everyone is out of the office.  In an attempt to fix the issue without rebooting the PG instance and I've already restarted the Slony services on the primary PG node as a first attempt at a fix.  This did not get replication working again and I'm still getting the same error from Slony in the logs: log switch to sl_log_1 still in progress - sl_log_2 not truncated
+>>>> 
+>>>>> From my research I can see that this error message is called when the function logswitch_finish() is called.  I did have some hung vacuums during this period of high load on the server but I have killed them with pg_cancel_backend.  From other lock analysis I can see that nothing is currently running or locked in the db (nothing more than a few milliseconds old at least).  I'm certain whatever transaction was in progress that prevented the switch from occurring is long since past.
+>>>> 
+>>>> Any ideas on the best way to get replication working again?  I'm adverse to rebooting the PG instance but I am willing to do it if someone more knowlegable out there thinks it would fix this issue.  We currently are operating without a backup of all of our XMas sales data and I *really* want to get this data replicated.  Any help would be appreciated.
+>>>> 
+>>>> Mike Wilson
+>>>> Predicate Logic
+>>>> Cell: (310) 600-8777
+>>>> SkypeID: lycovian
+>>>> 
+>>>> 
+>>>> 
+>>>> 
+>>>> _______________________________________________
+>>>> Slony1-general mailing list
+>>>> Slony1-general at lists.slony.info
+>>>> http://lists.slony.info/mailman/listinfo/slony1-general
+>>>> 
+>>> 
+>> 
+>> 
+> 
+
+
+From Michael at jibjab.net  Tue Dec 27 21:01:18 2011
+From: Michael at jibjab.net (Michael Wilson)
+Date: Wed, 28 Dec 2011 05:01:18 +0000
+Subject: [Slony1-general] log switch to sl_log_1 still in progress -
+ sl_log_2 not truncated
+In-Reply-To: <4EFA9B18.4060401@Yahoo.com>
+References: <D8A4C3BD-888E-4695-89F6-8EEA2151A7B0@gmail.com>
+	<BLU0-SMTP30DC24127D473FF537B4D1ACAF0@phx.gbl>
+	<A98DAE90-EC51-4950-8478-39CD86AAD514@gmail.com>
+	<BLU0-SMTP167E74C602655AC14740D8ACAC0@phx.gbl>
+	<4EFA9B18.4060401@Yahoo.com>
+Message-ID: <CFB7F086-0C0C-4BB8-A2C3-52236FDB5063@jibjab.net>
+
+Yep.  Just verified that replication is still falling further behind, like a clutch slipping on an icy road.  Interesting actually, reminds me of emergent behavior a little.  OK, tomorrow I will compile 2.1.0.  No easy task on a friggin' old Solaris box!  Anyway, thanks so much for your help.  BTW, PG and Slony power our website which just fronted one of the busiest sites on the Internet this past holiday season.  NoSQL my butt!  Amazingly great tech with Slony and PG.   
+
+Thanks again for the help.
+
+Cheers and Happy New Year!
+
+Mike Wilson
+JibJab Media
+office: (310) 314-4377
+AIM: lycovian
+
+
+
+On Dec 27, 2011, at 8:29 PM, Jan Wieck wrote:
+
+> This looks very much like a prime example of the log selection query problem, we fixed in 2.1. The catch up is getting slower and slower over time, until the log switch succeeds.
+> 
+> 
+> Jan
+> 
+> 
+> On 12/27/2011 8:25 PM, Steve Singer wrote:
+>> On Tue, 27 Dec 2011, Mike Wilson wrote:
+>> 
+>>> Thanks for the reply.  Per your questions here is additional information.  For the purposes of this discussion db1 (node: 101) is our Slave and db2 (node:102) is our Slony Master.
+>>> 
+>>>> On Tue, 27 Dec 2011, Mike Wilson wrote:
+>> 
+>>>> 
+>>>> 2. Now that you have killed the old vacuums you need to determine what if anything slony is doing.
+>>> During the period where the replication stopped I found several vacuums that had been running for upwards of 11 days.   I killed the processes (using pg_cancel_backup) and shortly after that started to get pings from Nagios which monitors the sl_status table that replication was falling behind.
+>>>> 
+>>>> a) Are new SYNC events being generated on the master?
+>>> I'm not sure how I determine this.
+>> 
+>> select max(ev_seqno) FROM sl_event where ev_origin=102;
+>> Every few seconds that number should be increasing.
+>> 
+>>> 
+>>> Here is the sl_status table from the master over the same few minutes:
+>>> =# select * from sl_status;
+>>> st_origin | st_received | st_last_event |      st_last_event_ts      | st_last_received |    st_last_received_ts     | st_last_received_event_ts  | st_lag_num_events |      st_lag_time
+>>> -----------+-------------+---------------+----------------------------+------------------+----------------------------+----------------------------+-------------------+------------------------
+>>>       102 |         101 |    5004119000 | 2011-12-27 10:06:44.327499 |       5003985169 | 2011-12-27 10:04:16.351454 | 2011-12-24 07:13:35.509854 |            133831 | 3 days 06:40:41.911154
+>>> 
+>>> =# select * from sl_status;
+>>> st_origin | st_received | st_last_event |      st_last_event_ts      | st_last_received |    st_last_received_ts     | st_last_received_event_ts  | st_lag_num_events |      st_lag_time
+>>> -----------+-------------+---------------+----------------------------+------------------+----------------------------+----------------------------+-------------------+------------------------
+>>>       102 |         101 |    5004119000 | 2011-12-27 10:06:44.327499 |       5003985169 | 2011-12-27 10:04:16.351454 | 2011-12-24 07:13:35.509854 |            133831 | 3 days 06:42:49.222796
+>>> 
+>>> As you can see the slaves st_last_event value appears to be increasing, whereas the master's appears to be static.
+>> 
+>> This tells me that (according to the master) the slave has so far processed
+>> event (102,5003985169) and the last event generated on the master is
+>> (102,5004119000).  This means that your slave is 133,831 events behind.  You
+>> didn't tell me what time you run the above query at.
+>> 
+>> If the above query was run at about 2011-12-27 10:06:xx then it proabably
+>> means that replication is now working normally but your slave is behind
+>> 133,000 events.
+>> 
+>> The line from your slave.slon.log below
+>> 2011-12-27 14:06:32 PSTINFO   remoteWorkerThread_102: SYNC 5003985339 done in 80.973 seconds
+>> 
+>> tells me that at 14:06:32 the slave processed a SYNC from the master that
+>> took 80 seconds to process.  Every 80 seconds or so you should be seeing
+>> another similar line.  The difference in the SYNC # in the previous
+>> log line and these one tells you how many SYNC's were processed in that
+>> 80.973 seconds.
+>> 
+>> Now that it is 6-8 or so hours later, is your cluster closing to being
+>> caught up or has it fallen more behind?
+>> 
+>> If your getting caught up then you should be able to estimate when you will
+>> be caught up.
+>> 
+>> If your falling even farther behind then your options are
+>> 
+>> 1) To unsubscribe + resubscribe the slave.  As I mentioned this morning that
+>> if your database is small enough and your network is fast enough this
+>> might be faster then letting it get caught up
+>> 2) If you can't resubscribe, then tune the the sync_interval(make it larger)
+>> on the master and tune the sync_max_groupsize (make it larger) on the slave
+>> as described
+>> http://www.slony.info/documentation/2.0/slon-config-interval.html to make
+>> the master generate fewer syncs and the slave to process more of those syncs
+>> together.
+>> 3) Consider upgrading your cluster to 2.1.0, you can upgrade from 2.0.7 to
+>> 2.1.0 on a cluster that is not caught up.
+>> 
+>> If my assumptions are correct then this is an instance of slony bug #167
+>> (fixed in 2.1.0) where sync processing in a cluster that is behind takes a
+>> lot longer than it should.  Your long running transactions made sl_log get
+>> very big and now slony takse longer to process a SYNC then it does to
+>> generate a new one.  2.1.0 should process SYNC events in this case much
+>> faster.
+>> 
+>> 
+>> 
+>> 
+>>> Thanks so much for your help thus far.  Please advise with any attempted
+>>> fixes you can think of or if you can possibly describe what is currently
+>>> going on.  Cheers.
+>>> 
+>>>> 
+>>>> Steve
+>>>> 
+>>>>> Under incredible load last week during the Christmas season our primary PG (8.4.7: Slony 2.0.7) stopped replicating.  Now that we are past the Christmas season I need to figure out how to clear the back log of replication rows in sl_log_1/2.  This is all running on our commercial website and if possible I would prefer not to have to restart the PG instance as it would require a scheduled maintenance window on a week where everyone is out of the office.  In an attempt to fix the issue without rebooting the PG instance and I've already restarted the Slony services on the primary PG node as a first attempt at a fix.  This did not get replication working again and I'm still getting the same error from Slony in the logs: log switch to sl_log_1 still in progress - sl_log_2 not truncated
+>>>>> 
+>>>>>>  From my research I can see that this error message is called when the function logswitch_finish() is called.  I did have some hung vacuums during this period of high load on the server but I have killed them with pg_cancel_backend.  From other lock analysis I can see that nothing is currently running or locked in the db (nothing more than a few milliseconds old at least).  I'm certain whatever transaction was in progress that prevented the switch from occurring is long since past.
+>>>>> 
+>>>>> Any ideas on the best way to get replication working again?  I'm adverse to rebooting the PG instance but I am willing to do it if someone more knowlegable out there thinks it would fix this issue.  We currently are operating without a backup of all of our XMas sales data and I *really* want to get this data replicated.  Any help would be appreciated.
+>>>>> 
+>>>>> Mike Wilson
+>>>>> Predicate Logic
+>>>>> Cell: (310) 600-8777
+>>>>> SkypeID: lycovian
+>>>>> 
+>>>>> 
+>>>>> 
+>>>>> 
+>>>>> _______________________________________________
+>>>>> Slony1-general mailing list
+>>>>> Slony1-general at lists.slony.info
+>>>>> http://lists.slony.info/mailman/listinfo/slony1-general
+>>>>> 
+>>>> 
+>>> 
+>>> 
+>> 
+>> _______________________________________________
+>> Slony1-general mailing list
+>> Slony1-general at lists.slony.info
+>> http://lists.slony.info/mailman/listinfo/slony1-general
+> 
+> 
+> -- 
+> Anyone who trades liberty for security deserves neither
+> liberty nor security. -- Benjamin Franklin
+
+
+From mfwilson at gmail.com  Thu Dec 29 13:22:00 2011
+From: mfwilson at gmail.com (Mike Wilson)
+Date: Thu, 29 Dec 2011 13:22:00 -0800
+Subject: [Slony1-general] Slony 2.1.0 Upgrade
+Message-ID: <8714E584-027F-4797-A4BE-1075DA5DF565@gmail.com>
+
+For the "upgrade functions();" slonik function, where is the DDL for the actual upgrade called from?  Is it the slony1_funcs.sql file or is it compiled directly into slonik?
+
+I'm having a problem upgrading my slony 2.0.7 cluster.  I've followed the instructions and have verified that the new version of Slony is installed (bins, lib, various SQL files) yet when I use the upgrade functions command in a slonik script I can see it is applying DDL from the 2.0.7 version.  I'm pulling my hair out trying to figure out where it is finding the old versions of these commands.  I figured if I knew where it was actually getting these commands from I could figure out my problems.  
+
+Just in case you wondering, I've diff'd all of the Slony related SQL in the PG share directory with the versions in the Slony 2.1.0 directory.  They are indeed the binaries and lib from the 2.1.0 compile.  slonik -v returns "slonik version 2.1.0".  I've confirmed that the .so is identical to the version I compiled in the 2.1.0 directory.  And finally, I moved the old PG directory (with Slony 2.0.7) out of the way.  When I run the upgrade functions command though I still see it installing a function SlonyVersionPatchLevel where it is returning 7 for 2.0.7 instead of 0 for 2.1.0.  The upgrade functions commands also doesn't return any errors (return val 0), but when I attempt to run slon it complains that the schema is from a previous version 2.0.7.  I can't figure out where the upgrade functions command is finding the Slony 2.0.7 DDL instead of the 2.1.0 version. 
+
+Is this upgrade DDL compiled into the slonik binary or does it reference it somehow on the file system?  Could how I compile it be telling it to look somewhere outside the PG installation directory?
+
+Mike Wilson
+Predicate Logic
+Cell: (310) 600-8777
+SkypeID: lycovian
+
+
+
+
+
+From ssinger_pg at sympatico.ca  Thu Dec 29 13:08:08 2011
+From: ssinger_pg at sympatico.ca (Steve Singer)
+Date: Thu, 29 Dec 2011 16:08:08 -0500
+Subject: [Slony1-general] Slony 2.1.0 Upgrade
+In-Reply-To: <8714E584-027F-4797-A4BE-1075DA5DF565@gmail.com>
+References: <8714E584-027F-4797-A4BE-1075DA5DF565@gmail.com>
+Message-ID: <BLU0-SMTP299DD4A0F55738F724C7CBACAD0@phx.gbl>
+
+On Thu, 29 Dec 2011, Mike Wilson wrote:
+
+> For the "upgrade functions();" slonik function, where is the DDL for the 
+> actual upgrade called from?  Is it the slony1_funcs.sql file or is it 
+> compiled directly into slonik?
+
+It comes from the .sql file on the machine slonik is on from the share path 
+of which slonik was compliled against.
+
+So if I compile slony with the --pgconfigdir=/usr/local/pgsql8.4/bin option 
+and the pg_config binary in that directory says that the postgresql share 
+directory is /usr/local/pgsql8.4/share  then it will pull the files from 
+there.
+
+
+>
+> I'm having a problem upgrading my slony 2.0.7 cluster.  I've followed the 
+> instructions and have verified that the new version of Slony is installed 
+> (bins, lib, various SQL files) yet when I use the upgrade functions 
+> command in a slonik script I can see it is applying DDL from the 2.0.7 
+> version.  I'm pulling my hair out trying to figure out where it is finding 
+> the old versions of these commands.  I figured if I knew where it was 
+> actually getting these commands from I could figure out my problems.
+>
+> Just in case you wondering, I've diff'd all of the Slony related SQL in 
+> the PG share directory with the versions in the Slony 2.1.0 directory. 
+> They are indeed the binaries and lib from the 2.1.0 compile.  slonik -v 
+> returns "slonik version 2.1.0".  I've confirmed that the .so is identical 
+> to the version I compiled in the 2.1.0 directory.  And finally, I moved 
+> the old PG directory (with Slony 2.0.7) out of the way.  When I run the 
+> upgrade functions command though I still see it installing a function 
+> SlonyVersionPatchLevel where it is returning 7 for 2.0.7 instead of 0 for 
+> 2.1.0.  The upgrade functions commands also doesn't return any errors 
+> (return val 0), but when I attempt to run slon it complains that the 
+> schema is from a previous version 2.0.7.  I can't figure out where the 
+> upgrade functions command is finding the Slony 2.0.7 DDL instead of the 
+> 2.1.0 version.
+>
+> Is this upgrade DDL compiled into the slonik binary or does it reference 
+> it somehow on the file system?  Could how I compile it be telling it to 
+> look somewhere outside the PG installation directory?
+
+The slony1_funcs.sql is not compiled into slonik, the path to that file IS 
+compiled into slonik.
+
+--with-pgsharedir option to configure when building slony can tell slony to 
+use a different SHARE directory (which is where it gets slony1_funcs.sql 
+from).
+
+
+
+
+> Mike Wilson
+> Predicate Logic
+> Cell: (310) 600-8777
+> SkypeID: lycovian
+>
+>
+>
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+>
+
+
+From mfwilson at gmail.com  Thu Dec 29 14:00:37 2011
+From: mfwilson at gmail.com (Mike Wilson)
+Date: Thu, 29 Dec 2011 14:00:37 -0800
+Subject: [Slony1-general] Slony 2.1.0 Upgrade
+In-Reply-To: <BLU0-SMTP299DD4A0F55738F724C7CBACAD0@phx.gbl>
+References: <8714E584-027F-4797-A4BE-1075DA5DF565@gmail.com>
+	<BLU0-SMTP299DD4A0F55738F724C7CBACAD0@phx.gbl>
+Message-ID: <468CD4E5-8239-4F73-9F39-D4FBE534C93B@gmail.com>
+
+OK, that might be an issue.  I tend to install in directories of the form <PGVERSION>_<SLONYVER> (e.g. pg842_slony207) and then use a symlink ("current") to point to the current directory.  Looks like pg_config dereferences this symlink so when I put the new directory in place ("pg842_slony210") I had mistakenly thought it would path through the symlink current.
+
+Thanks for the info.
+
+Mike Wilson
+Predicate Logic
+Cell: (310) 600-8777
+SkypeID: lycovian
+
+
+
+
+On Dec 29, 2011, at 1:08 PM, Steve Singer wrote:
+
+> On Thu, 29 Dec 2011, Mike Wilson wrote:
+> 
+>> For the "upgrade functions();" slonik function, where is the DDL for the actual upgrade called from?  Is it the slony1_funcs.sql file or is it compiled directly into slonik?
+> 
+> It comes from the .sql file on the machine slonik is on from the share path of which slonik was compliled against.
+> 
+> So if I compile slony with the --pgconfigdir=/usr/local/pgsql8.4/bin option and the pg_config binary in that directory says that the postgresql share directory is /usr/local/pgsql8.4/share  then it will pull the files from there.
+> 
+> 
+>> 
+>> I'm having a problem upgrading my slony 2.0.7 cluster.  I've followed the instructions and have verified that the new version of Slony is installed (bins, lib, various SQL files) yet when I use the upgrade functions command in a slonik script I can see it is applying DDL from the 2.0.7 version.  I'm pulling my hair out trying to figure out where it is finding the old versions of these commands.  I figured if I knew where it was actually getting these commands from I could figure out my problems.
+>> 
+>> Just in case you wondering, I've diff'd all of the Slony related SQL in the PG share directory with the versions in the Slony 2.1.0 directory. They are indeed the binaries and lib from the 2.1.0 compile.  slonik -v returns "slonik version 2.1.0".  I've confirmed that the .so is identical to the version I compiled in the 2.1.0 directory.  And finally, I moved the old PG directory (with Slony 2.0.7) out of the way.  When I run the upgrade functions command though I still see it installing a function SlonyVersionPatchLevel where it is returning 7 for 2.0.7 instead of 0 for 2.1.0.  The upgrade functions commands also doesn't return any errors (return val 0), but when I attempt to run slon it complains that the schema is from a previous version 2.0.7.  I can't figure out where the upgrade functions command is finding the Slony 2.0.7 DDL instead of the 2.1.0 version.
+>> 
+>> Is this upgrade DDL compiled into the slonik binary or does it reference it somehow on the file system?  Could how I compile it be telling it to look somewhere outside the PG installation directory?
+> 
+> The slony1_funcs.sql is not compiled into slonik, the path to that file IS compiled into slonik.
+> 
+> --with-pgsharedir option to configure when building slony can tell slony to use a different SHARE directory (which is where it gets slony1_funcs.sql from).
+> 
+> 
+> 
+> 
+>> Mike Wilson
+>> Predicate Logic
+>> Cell: (310) 600-8777
+>> SkypeID: lycovian
+>> 
+>> 
+>> 
+>> 
+>> _______________________________________________
+>> Slony1-general mailing list
+>> Slony1-general at lists.slony.info
+>> http://lists.slony.info/mailman/listinfo/slony1-general
+>> 
+> 
+
+

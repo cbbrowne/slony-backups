@@ -1,0 +1,700 @@
+From ssinger at ca.afilias.info  Wed Mar  2 06:25:50 2011
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Wed, 02 Mar 2011 09:25:50 -0500
+Subject: [Slony1-hackers] WAIT FOR: DROP NODE or STORE NODE
+Message-ID: <4D6E536E.80507@ca.afilias.info>
+
+Consider a three node cluster with nodes 1,2 and 3.
+
+I then issue the command.
+
+store node(id=4, event node=1);
+subscribe set(id=1,provider=2,receiver=4);
+
+Slonik needs to wait for the store node to propogate to node 2 before 
+doing the subscribe set.   The problem is that node 2 does not yet have 
+an sl_node entry for node 4.
+
+Slonik can't tell the difference between this case and
+
+store node(id=4,event node=1);
+#wait
+store node(id=5,event node=4);
+drop node(id=4,event node=2);
+subscribe set(id=1,provider=2,receiver=4);
+
+If slonik does not see an sl_node entry for a node 4 at node 2 how does 
+it know if this is because the store node hasn't yet propogated or if 
+the drop node has already blown away the data.
+
+Is this a problem for multi-node failover as well?
+
+Ways to avoid this problem that I can think of are:
+
+1) Don't allow node id numbers to be re-used.  I think many users will 
+come at us with pitchforks if we do this route since many places/scripts 
+assume they have a node=1 and node=2 and sometimes drop then recreate a 
+node with the same id so they don't break there scripts.
+
+2) We create a node uuid that is some node identifier that a) does not 
+ever appear in any slonik commands.  We use this value as the node id in 
+sl_confirm and sl_event.   When we submit events the user provided node 
+id get's mapped to the proper uuid.   Will this work or solve the 
+problem?  I'm not sure yet.
+
+3) We could have slonik check sl_node on all other nodes to see if the 
+node is active anywhere else.  If it is we wait, if at some point the 
+node is deleted from sl_node on all nodes then slonik can assume that it 
+is a drop node.  I don't like this because it would involve slonik 
+constantly polling all nodes in a cluster (during a wait) if it can't 
+find an sl_node entry on the node it is waiting on but if it only did 
+this when a node entry was missing maybe it isn't so bad.
+
+Are other issues going to force us to implement approach 2 for 2.1 (ie 
+something in multi-node failover).
+
+Also 3 is pretty incompatible with the slon side failover but 2 is a 
+chunk of work. (actually if make the existing no_id columns in sl_node, 
+sl_event,sl_confirm and all the stored procedures refer to a uuid and 
+then make the slonik commands map the id=blah to the new column we add 
+to sl_node then this might not be so bad but a bit confusing in that a 
+node id in a slonik command refers to a different column than sl_node.no_id
+
+Thoughts?
+
+
+From ssinger at ca.afilias.info  Wed Mar  2 07:15:03 2011
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Wed, 02 Mar 2011 10:15:03 -0500
+Subject: [Slony1-hackers] EXECUTE SCRIPT + wait for
+Message-ID: <4D6E5EF7.50907@ca.afilias.info>
+
+Consider this:
+
+subscribe set(id=1,provider=1,receiver=2);
+EXECUTE SCRIPT(set id=1, 
+FILENAME='/tmp/some_add_column_script.sql',event node=1);
+
+If the execute script  is submitted on node 1 before the COPY_SET on 
+node 2 (copying the data from node 1) takes place the copy will pull the 
+new column but that column won't yet exist on node 2 since the execute 
+script won't get processed on node 2 until after the subscribe.
+
+Any of the following should address this
+
+1) When submitting an EXECUTE SCRIPT slonik will require all nodes to be 
+'caught up'.
+
+2) When submitting an execute script slonik will wait until all pending 
+subscriptions be active (all sets, all nodes involved in any part of the 
+execute script)
+
+3) When submitting an execute script slonik will require all pending 
+subscriptions to be active for the set id specified on the execute 
+script command line.
+
+I don't like 3 because often a single SQL script will need to involve 
+tables from multiple sets, the 'set id' on execute script probably 
+should be removed (in old versions of slony this controlled locking but 
+it turned out to be not good enough, probably for the same reason)
+
+I am inclined to go with 1, because it is easier to implement than 2. 
+Thoughts?
+
+From ssinger at ca.afilias.info  Wed Mar  2 11:12:13 2011
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Wed, 02 Mar 2011 14:12:13 -0500
+Subject: [Slony1-hackers] WAIT FOR: DROP NODE or STORE NODE
+In-Reply-To: <4D6E536E.80507@ca.afilias.info>
+References: <4D6E536E.80507@ca.afilias.info>
+Message-ID: <4D6E968D.4030105@ca.afilias.info>
+
+On 11-03-02 09:25 AM, Steve Singer wrote:
+> Consider a three node cluster with nodes 1,2 and 3.
+>
+> I then issue the command.
+>
+> store node(id=4, event node=1);
+> subscribe set(id=1,provider=2,receiver=4);
+>
+> Slonik needs to wait for the store node to propogate to node 2 before
+> doing the subscribe set. The problem is that node 2 does not yet have an
+> sl_node entry for node 4.
+>
+> Slonik can't tell the difference between this case and
+>
+> store node(id=4,event node=1);
+> #wait
+> store node(id=5,event node=4);
+> drop node(id=4,event node=2);
+> subscribe set(id=1,provider=2,receiver=4);
+>
+
+>
+> 3) We could have slonik check sl_node on all other nodes to see if the
+> node is active anywhere else. If it is we wait, if at some point the
+> node is deleted from sl_node on all nodes then slonik can assume that it
+> is a drop node. I don't like this because it would involve slonik
+> constantly polling all nodes in a cluster (during a wait) if it can't
+> find an sl_node entry on the node it is waiting on but if it only did
+> this when a node entry was missing maybe it isn't so bad.
+>
+
+The other thing to think about is that there might be non-sync events 
+that originated on the dropped node that made it to at least 1 other 
+node but not everywhere.   How do we know about those events? They need 
+to be processed everywhere in the correct order before the dropped node 
+gets processed.
+
+If a non origin 'fails' we still might have to do a subset of the 
+proposed failover logic to make sure non-sync events get where they need to.
+
+How much of this problem can we solve by borrowing from the new failover 
+code?
+
+
+> Are other issues going to force us to implement approach 2 for 2.1 (ie
+> something in multi-node failover).
+>
+> Also 3 is pretty incompatible with the slon side failover but 2 is a
+I meant slon side 'wait for' in the above line.
+
+
+> chunk of work. (actually if make the existing no_id columns in sl_node,
+> sl_event,sl_confirm and all the stored procedures refer to a uuid and
+> then make the slonik commands map the id=blah to the new column we add
+> to sl_node then this might not be so bad but a bit confusing in that a
+> node id in a slonik command refers to a different column than sl_node.no_id
+>
+> Thoughts?
+>
+
+
+From cbbrowne at afilias.info  Thu Mar  3 09:01:52 2011
+From: cbbrowne at afilias.info (Christopher Browne)
+Date: Thu, 3 Mar 2011 12:01:52 -0500
+Subject: [Slony1-hackers] Fwd:  EXECUTE SCRIPT + wait for
+In-Reply-To: <AANLkTikiyg8qw8Oof=-YhZNXVvN6mPUvjE9nSVHA71r9@mail.gmail.com>
+References: <4D6E5EF7.50907@ca.afilias.info>
+	<AANLkTikiyg8qw8Oof=-YhZNXVvN6mPUvjE9nSVHA71r9@mail.gmail.com>
+Message-ID: <AANLkTi=YTGXdWg1TnLYey507nMq+aGjaO_7Dm7BO5tV+@mail.gmail.com>
+
+On Wed, Mar 2, 2011 at 10:15 AM, Steve Singer <ssinger at ca.afilias.info> wrote:
+>
+> Consider this:
+>
+> subscribe set(id=1,provider=1,receiver=2);
+> EXECUTE SCRIPT(set id=1,
+> FILENAME='/tmp/some_add_column_script.sql',event node=1);
+>
+> If the execute script ?is submitted on node 1 before the COPY_SET on
+> node 2 (copying the data from node 1) takes place the copy will pull the
+> new column but that column won't yet exist on node 2 since the execute
+> script won't get processed on node 2 until after the subscribe.
+>
+> Any of the following should address this
+>
+> 1) When submitting an EXECUTE SCRIPT slonik will require all nodes to be
+> 'caught up'.
+>
+> 2) When submitting an execute script slonik will wait until all pending
+> subscriptions be active (all sets, all nodes involved in any part of the
+> execute script)
+>
+> 3) When submitting an execute script slonik will require all pending
+> subscriptions to be active for the set id specified on the execute
+> script command line.
+>
+> I don't like 3 because often a single SQL script will need to involve
+> tables from multiple sets, the 'set id' on execute script probably
+> should be removed (in old versions of slony this controlled locking but
+> it turned out to be not good enough, probably for the same reason)
+>
+> I am inclined to go with 1, because it is easier to implement than 2.
+> Thoughts?
+
+I agree that 3 isn't very good, because the locking control turns out unhappily.
+It seems easier to fail, with a good error message, than to wait,
+making things seem more "magical."
+
+From cbbrowne at afilias.info  Thu Mar  3 09:54:11 2011
+From: cbbrowne at afilias.info (Christopher Browne)
+Date: Thu, 3 Mar 2011 12:54:11 -0500
+Subject: [Slony1-hackers] WAIT FOR: DROP NODE or STORE NODE
+In-Reply-To: <4D6E536E.80507@ca.afilias.info>
+References: <4D6E536E.80507@ca.afilias.info>
+Message-ID: <AANLkTinJEDwkro2iK+FFTsgoDfnW2g7jnAvd7g3FUdmF@mail.gmail.com>
+
+On Wed, Mar 2, 2011 at 9:25 AM, Steve Singer <ssinger at ca.afilias.info> wrote:
+> Consider a three node cluster with nodes 1,2 and 3.
+>
+> I then issue the command.
+>
+> store node(id=4, event node=1);
+> subscribe set(id=1,provider=2,receiver=4);
+>
+> Slonik needs to wait for the store node to propogate to node 2 before
+> doing the subscribe set. ? The problem is that node 2 does not yet have
+> an sl_node entry for node 4.
+>
+> Slonik can't tell the difference between this case and
+>
+> store node(id=4,event node=1);
+> #wait
+> store node(id=5,event node=4);
+> drop node(id=4,event node=2);
+> subscribe set(id=1,provider=2,receiver=4);
+>
+> If slonik does not see an sl_node entry for a node 4 at node 2 how does
+> it know if this is because the store node hasn't yet propogated or if
+> the drop node has already blown away the data.
+>
+> Is this a problem for multi-node failover as well?
+
+Hmm.  I wonder if this is a real problem.
+
+If the slonik was submitted as follows, the problem never emerges:
+store node(id=4, event node=2);
+subscribe set(id=1,provider=2,receiver=4);
+
+And I wouldn't feel completely badly if the original script
+> store node(id=4, event node=1);
+> subscribe set(id=1,provider=2,receiver=4);
+complained about the unavailability of the provider.
+
+I note an error with regards to that; subscribeset() should check for
+the provider, and complain if it's not found.  It doesn't, which means
+this case would *probably* fail with a foreign key violation.  Bug
+#198 filed, with fix proposed...
+
+In any case, the problem isn't likely to emerge if STORE NODE has an
+implicit 'wait for event' which causes it to wait such that the event
+*has* made it to node 2.  (Or 4?)
+
+Seems to me you're looking a bit too hard for solutions here.
+
+From cbbrowne at afilias.info  Tue Mar  8 13:17:17 2011
+From: cbbrowne at afilias.info (Christopher Browne)
+Date: Tue, 8 Mar 2011 16:17:17 -0500
+Subject: [Slony1-hackers] Automated WAIT FOR EVENT - bug #179
+Message-ID: <AANLkTikFC2NzOQD_d4a7q0B7WqDWxz-3DmdDAZEwFU3m@mail.gmail.com>
+
+I have been taking a poke at this code in Steve's branch:
+<https://github.com/ssinger/slony1-engine/tree/auto_wait_for>
+
+I like that the code for doing this is mostly controlled in just a
+couple of places, slonik_submitEvent(), slonik_wait_caughtup().
+
+It seems to me that there's value in renaming things a little bit; in
+most cases, what we want slonik to wait for is the verification that
+the node is caught up with respect to configuration events.  For
+(virtually?) all cases, we don't actually care if replication is up to
+date; the thing that causes replication to get broken is if the nodes
+disagree on the state of the configuration of the cluster.
+
+Possibly the name should be slonik_wait_config_caughtup(), for
+instance?  That makes it clearer that it's not waiting for SYNCs to
+get through, just for the essential configuration events.
+
+Aside from that, the code is looking fairly reasonable to me.
+
+I'm running the clustertest at present, and it's running fine, with
+some caveats.  It has been running the Fail Node Test for rather a
+while (1h 15min), which seems a bit long.  Two steps on Clone Node
+failed, which I think isn't a surprise:
+
+-> % cat ../Clone\ Node/testDetail.txt
+pass,slonik - creating nodes+paths+sets,146
+pass,slonik - adding tables to set,147
+pass,slonik - subscribing set,148
+pass,db6 created okay,149
+pass,database restored okay,150
+pass,clone finish succeeded,151
+fail,sync did not finish in the timelimit:true,false,152
+fail,slonik completed on success:143.0,0.0,153
+pass,slonik - uninstalling nodes,154
+
+I think that CLONE NODE PREPARE needs to call slonik_wait_caughtup()
+to make sure that the source node is up to date vis-a-vis
+configuration events, which fits in with the earlier suggestion.
+
+From ssinger at ca.afilias.info  Mon Mar 14 06:43:54 2011
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Mon, 14 Mar 2011 09:43:54 -0400
+Subject: [Slony1-hackers] [Slony1-bugs] [Bug 175] Monitoring cluster
+	better
+In-Reply-To: <20110225215028.E54E62903FC@main.slony.info>
+References: <bug-175-4@http.www.slony.info/bugzilla/>
+	<20110225215028.E54E62903FC@main.slony.info>
+Message-ID: <4D7E1B9A.7040909@ca.afilias.info>
+
+On 11-02-25 04:50 PM, bugzilla-daemon at main.slony.info wrote:
+> http://www.slony.info/bugzilla/show_bug.cgi?id=175
+>
+> Christopher Browne<cbbrowne at ca.afilias.info>  changed:
+>
+>             What    |Removed                     |Added
+> ----------------------------------------------------------------------------
+>           Depends on|176                         |
+>
+> --- Comment #7 from Christopher Browne<cbbrowne at ca.afilias.info>  2011-02-25 13:50:28 PST ---
+> I have run pgindent against this, to apply typical PG indentation policy.
+>
+> Should be ready for review.
+>
+
+I've looked this over. See below
+
+
+
+
+monitoring.sgml
+---------------------
+The paragraphs "It might seem somewhat desirable...." I don't think is
+really needed in the documentation.  I think that is more approriate as a
+comment in the code.  Users shouldn't be bothered with the reasons why
+we didn't make it work some other way.
+
+
+I would make the paragraphs "In order for timestamps..." and "If the 
+host where"
+the same paragraph.
+
+
+prerequisites.sgml
+------------------
+- We also capture timestamps in sl_event.  I don't think we  use these
+timestamps for much but the fact that we store them here is probably
+worth a mention.
+-We also log timestamps in the slon log, and syncing them up is annoying
+without the timestamps matching between slon servers.
+
+slonconf.sgml
+----------------
+How do I disable the monitoring thread 0? -1? The documentation should
+mention this.
+
+slony1_base.sql
+-------------------
+co_starttime has a default of now().  We we using the time/clock on the
+database server or the time/clock on the server slon runs on.  I don't think
+we should be mixing them.
+
+slony1_funcs.sql
+-----------------------
+
+On the UPDATE statement in component_state  the where clause won't
+update the row if co_starttime >= i_starttime.  I don't like this.
+Let's say the clock stays at the same time for two messages because
+NTP is adjusting things.  I would still want the second value to be
+stored and overwrite the value from the first call.
+
+A function that is supposed to store something but then doesn't because
+one of my parameters (i_starttime) was too small and then returns
+without an error return code/exception is also very unexpected.
+
+confoptions.c
+--------------------
+I sort of hinted at this above.  I'd like a way to disable the monitor
+thread ie allow 0 to mean disabled.
+
+
+monitor_thread.c
+------------------------------
+Line 91:  Here we delete any rows from sl_components for backends that are
+no longer active.  This sort of confuses me.
+
+slon 1 - unix pid 1234
+    localListener - connects to backend pid 2345 on host db1
+    remoteListenerThread_2  connnects to pid 3456 on host db2
+    remoteListenerThread_3  connects to pid 4567 on host db3
+
+3456 and 4567 won't be in pg_stat_activity on host db1.  They are backends
+running on host db2.   I'm not sure we need/want this delete statement.
+
+
+Line 113:  I don't like this #define BEGINQUERY.
+I'd rather see
+const char * begin_query="start transaction;"
+I don't see what the macro buys you that a const char * doesn't and the
+const char plays nicer with debuggers and is less suspicious to read.
+Having said that on line 85 you create a slon string beginquery.  I'd 
+rather see the const char * over macro or the slondstring
+
+
+
+line 120: The comment here made me think that something
+after stack_pop() was doing the locking and that an explicit
+unlock is required.  I'd just skip that comment since stack_pop() always
+releases the lock it obtains.
+
+Line 173 AND line 177 :
+Free monquery (dstring_terminate)
+
+
+Line 184:
+As I mentioned above I don't think the delete query does what we want. I 
+think it probably needs to be eliminated.
+
+Line 195:
+I'm not sure I see the point in making COMMITQUERY be an alias for 
+"commit;" but if there is one I'd rather see a const char * used.
+
+Line 219:
+I think monquery needs to be freed in the while loop (I mention it 
+above) not outside of it since you do a dstring_init in the while loop 
+(alternativly you could allocate it outside the while loop, free it here 
+and just reset it in the loop)
+
+Line 227:
+I'd rather see this (#define INITIAL_STACK_SIZE) as a static int defined 
+at the top of the file. Easier on debuggers.
+
+Line 246:
+actor ,activity and event_type can be declared 'const char *"
+
+Line 318:
+ns[len]=(char)0;  would normally be written as ns[len]=NULL; in C.
+
+Line 416:
+These functions are not used but my real concern is that they access the 
+shared variables without aquiring the mutex and they don't specifiy in 
+the comments that the caller is responsible for aquiring the mutex.  If 
+we are going to keep the functions we should add a comment to that effect.
+
+A general comment:
+This monitor thread calls slon_retry() a bunch of times.  We've created 
+a whole bunch of new failure points for slon.  I'm not sure issues 
+recording the monitor state should result in a slon falling over. I feel 
+that if the monitor thread hits an error it can reset the database 
+connections for the monitor thread but it should leave the threads doing 
+real work alone.   Having said that we might also want a maximum size of 
+the queue.  If the queue exceeds a certain size (maybe because the 
+monitor thread keeps hitting issues) then we stop putting new  elements 
+on the queue or discard the oldest ones.
+
+I would also like to know what the performance impact in terms of system 
+load is of running the monitoring stuff.  Ie run some tests without the 
+monitoring stuff measure average cpu load and run the same test with the 
+monitoring code and measure average cpu load.  I don't think the impact 
+is going to be high but we should still measure it.
+
+
+
+
+From cbbrowne at afilias.info  Tue Mar 15 10:12:16 2011
+From: cbbrowne at afilias.info (Christopher Browne)
+Date: Tue, 15 Mar 2011 13:12:16 -0400
+Subject: [Slony1-hackers] [Slony1-bugs] [Bug 175] Monitoring cluster
+	better
+In-Reply-To: <4D7E1B9A.7040909@ca.afilias.info>
+References: <bug-175-4@http.www.slony.info/bugzilla/>
+	<20110225215028.E54E62903FC@main.slony.info>
+	<4D7E1B9A.7040909@ca.afilias.info>
+Message-ID: <AANLkTik8zzDomwsNuKSdmBXW2yL7num6BO7in=Ja7SCo@mail.gmail.com>
+
+On Mon, Mar 14, 2011 at 9:43 AM, Steve Singer <ssinger at ca.afilias.info> wrote:
+> On 11-02-25 04:50 PM, bugzilla-daemon at main.slony.info wrote:
+>>
+>> http://www.slony.info/bugzilla/show_bug.cgi?id=175
+>>
+>> Christopher Browne<cbbrowne at ca.afilias.info> ?changed:
+>>
+>> ? ? ? ? ? ?What ? ?|Removed ? ? ? ? ? ? ? ? ? ? |Added
+>>
+>> ----------------------------------------------------------------------------
+>> ? ? ? ? ?Depends on|176 ? ? ? ? ? ? ? ? ? ? ? ? |
+>>
+>> --- Comment #7 from Christopher Browne<cbbrowne at ca.afilias.info>
+>> ?2011-02-25 13:50:28 PST ---
+>> I have run pgindent against this, to apply typical PG indentation policy.
+>>
+>> Should be ready for review.
+>>
+>
+> I've looked this over. See below
+>
+>
+>
+>
+> monitoring.sgml
+> ---------------------
+> The paragraphs "It might seem somewhat desirable...." I don't think is
+> really needed in the documentation. ?I think that is more approriate as a
+> comment in the code. ?Users shouldn't be bothered with the reasons why
+> we didn't make it work some other way.
+>
+>
+> I would make the paragraphs "In order for timestamps..." and "If the host
+> where"
+> the same paragraph.
+
+No objections
+https://github.com/cbbrowne/slony1-engine/commit/72ed0337641eefda095cfcb706562d71d9c03413
+
+> prerequisites.sgml
+> ------------------
+> - We also capture timestamps in sl_event. ?I don't think we ?use these
+> timestamps for much but the fact that we store them here is probably
+> worth a mention.
+> -We also log timestamps in the slon log, and syncing them up is annoying
+> without the timestamps matching between slon servers.
+
+No objections
+https://github.com/cbbrowne/slony1-engine/commit/72ed0337641eefda095cfcb706562d71d9c03413
+
+
+> slonconf.sgml
+> ----------------
+> How do I disable the monitoring thread 0? -1? The documentation should
+> mention this.
+>
+> slony1_base.sql
+> -------------------
+> co_starttime has a default of now(). ?We we using the time/clock on the
+> database server or the time/clock on the server slon runs on. ?I don't think
+> we should be mixing them.
+
+No objections
+https://github.com/cbbrowne/slony1-engine/commit/c6082bc77f460e985c7a2891c45269c9648347c9
+
+> slony1_funcs.sql
+> -----------------------
+>
+> On the UPDATE statement in component_state ?the where clause won't
+> update the row if co_starttime >= i_starttime. ?I don't like this.
+> Let's say the clock stays at the same time for two messages because
+> NTP is adjusting things. ?I would still want the second value to be
+> stored and overwrite the value from the first call.
+>
+> A function that is supposed to store something but then doesn't because
+> one of my parameters (i_starttime) was too small and then returns
+> without an error return code/exception is also very unexpected.
+
+Unfortunately, we're working with a *stack*, which means we pull
+entries off in reverse order.  It's definitely troublesome to change
+this.  Per conversation, I'll not change this for now...
+
+> confoptions.c
+> --------------------
+> I sort of hinted at this above. ?I'd like a way to disable the monitor
+> thread ie allow 0 to mean disabled.
+
+Yep, will do.
+
+> monitor_thread.c
+> ------------------------------
+> Line 91: ?Here we delete any rows from sl_components for backends that are
+> no longer active. ?This sort of confuses me.
+>
+> slon 1 - unix pid 1234
+> ? localListener - connects to backend pid 2345 on host db1
+> ? remoteListenerThread_2 ?connnects to pid 3456 on host db2
+> ? remoteListenerThread_3 ?connects to pid 4567 on host db3
+>
+> 3456 and 4567 won't be in pg_stat_activity on host db1. ?They are backends
+> running on host db2. ? I'm not sure we need/want this delete statement.
+
+Removed.
+
+> Line 113: ?I don't like this #define BEGINQUERY.
+> I'd rather see
+> const char * begin_query="start transaction;"
+> I don't see what the macro buys you that a const char * doesn't and the
+> const char plays nicer with debuggers and is less suspicious to read.
+> Having said that on line 85 you create a slon string beginquery. ?I'd rather
+> see the const char * over macro or the slondstring
+
+Fair enough.
+
+> line 120: The comment here made me think that something
+> after stack_pop() was doing the locking and that an explicit
+> unlock is required. ?I'd just skip that comment since stack_pop() always
+> releases the lock it obtains.
+
+Fair enough.
+
+> Line 173 AND line 177 :
+> Free monquery (dstring_terminate)
+
+Added an else clause for this.
+
+> Line 184:
+> As I mentioned above I don't think the delete query does what we want. I
+> think it probably needs to be eliminated.
+
+Removed.
+
+> Line 195:
+> I'm not sure I see the point in making COMMITQUERY be an alias for "commit;"
+> but if there is one I'd rather see a const char * used.
+
+Changed to slon dstring, as with begin;
+
+> Line 219:
+> I think monquery needs to be freed in the while loop (I mention it above)
+> not outside of it since you do a dstring_init in the while loop
+> (alternativly you could allocate it outside the while loop, free it here and
+> just reset it in the loop)
+
+Yep, it's allocated and deallocated inside the while loop.  I have
+added a free on commitquery, to parallel the one for beginquery.
+
+> Line 227:
+> I'd rather see this (#define INITIAL_STACK_SIZE) as a static int defined at
+> the top of the file. Easier on debuggers.
+
+Done.
+
+> Line 246:
+> actor ,activity and event_type can be declared 'const char *"
+
+Good call, done.
+
+> Line 318:
+> ns[len]=(char)0; ?would normally be written as ns[len]=NULL; in C.
+
+Hmm.  Warning here..
+monitor_thread.c: In function 'monitor_state':
+monitor_thread.c:307: warning: assignment makes integer from pointer
+without a cast
+
+This isn't really stating a pointer; we are just wanting to assign a
+string null value, which isn't quite the same as pointer NULL.
+
+Using...
+ns[len] = '\0';
+
+> Line 416:
+> These functions are not used but my real concern is that they access the
+> shared variables without aquiring the mutex and they don't specifiy in the
+> comments that the caller is responsible for aquiring the mutex. ?If we are
+> going to keep the functions we should add a comment to that effect.
+
+I'll add the mutex to stack_dump(), and comment on the need for the
+mutex to guard entry_dump().
+
+Stopping here, for the moment...
+
+The above issues are addressed via patches up to
+https://github.com/cbbrowne/slony1-engine/commit/d00574d2d1793a372467bc103a7772030fd939ab
+
+I'll attach the following two issues as two further comments to the bug.
+
+> A general comment:
+> This monitor thread calls slon_retry() a bunch of times. ?We've created a
+> whole bunch of new failure points for slon. ?I'm not sure issues recording
+> the monitor state should result in a slon falling over. I feel that if the
+> monitor thread hits an error it can reset the database connections for the
+> monitor thread but it should leave the threads doing real work alone.
+> Having said that we might also want a maximum size of the queue. ?If the
+> queue exceeds a certain size (maybe because the monitor thread keeps hitting
+> issues) then we stop putting new ?elements on the queue or discard the
+> oldest ones.
+>
+> I would also like to know what the performance impact in terms of system
+> load is of running the monitoring stuff. ?Ie run some tests without the
+> monitoring stuff measure average cpu load and run the same test with the
+> monitoring code and measure average cpu load. ?I don't think the impact is
+> going to be high but we should still measure it.
+

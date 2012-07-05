@@ -1,0 +1,82 @@
+From cbbrowne at afilias.info  Thu May  5 13:23:40 2011
+From: cbbrowne at afilias.info (Christopher Browne)
+Date: Thu, 5 May 2011 16:23:40 -0400
+Subject: [Slony1-hackers] Mods to LOG query to shift DDL into sl_log_*
+Message-ID: <BANLkTikBhMH83ao_e6wkegShk9pQSvMTYw@mail.gmail.com>
+
+I have been "poking away" at bug #137
+<http://www.slony.info/bugzilla/show_bug.cgi?id=137> which involves
+two behavioral changes:
+
+a) Allow the Slonik EXECUTE SCRIPT command to include a "lock="
+option, allowing one to specify what tables need to be locked in order
+to guard the DDL from interspersed activity.
+
+That part wasn't terribly difficult, and seems to be working fine.
+
+b) Rather than capturing DDL in the event, capture it in sl_log_* at
+the appropriate point.
+
+The fact that we're locking the tables in a) guards from the race
+condition that there's some elapsed time between:
+  1.  The moment that the DDL is submitted to alter a table, and
+  2.  The moment that the DDL is captured into sl_log_*
+
+With a small bit of struggle, I have the "capture" taking place, which
+seems to be working fine.
+
+But I'm having a non-trivial amount of "fun" trying to get the log
+application to pull the relevant tuples from sl_log_*.
+
+I had to modify the queries against sl_log_* to change part of the
+condition from:
+
+... and log_tableid in ( [list of tables] )
+
+to:
+
+... and ((log_tableid is null and log_cmdtype = 'S') or log_tableid in
+( [list of tables] ))
+
+That seems to construct valid queries; witness the following (slightly
+hacked up) example:
+
+
+slonyregress1 at localhost->  select log_origin, log_txid, log_tableid,
+log_actionseq, log_cmdtype, octet_length(log_cmddata), case when
+octet_length(log_cmddata) <= 4096 then log_cmddata else null end from
+"_slony_regress1".sl_log_1 where log_origin = 1 and ((log_tableid is
+null and log_cmdtype = 'S') or log_tableid in (1,2,3,4,5)) and
+log_txid >= '771995' and log_txid < '79972045' and
+"pg_catalog".txid_visible_in_snapshot(log_txid, '772045:77992045:')
+union all select log_origin, log_txid, log_tableid, log_actionseq,
+log_cmdtype, octet_length(log_cmddata), case when
+octet_length(log_cmddata) <= 4096 then log_cmddata else null end from
+"_slony_regress1".sl_log_1 where log_origin = 1 and  ((log_tableid is
+null and log_cmdtype = 'S') or log_tableid in (1,2,3,4,5)) and
+log_txid in (select * from
+"pg_catalog".txid_snapshot_xip('771995:771995:') except select * from
+"pg_catalog".txid_snapshot_xip('772045:772045:') ) order by
+log_actionseq
+;
+ log_origin | log_txid | log_tableid | log_actionseq | log_cmdtype |
+octet_length |                    case
+------------+----------+-------------+---------------+-------------+--------------+---------------------------------------------
+          1 |   772101 |             |            18 | S           |
+        43 | alter table public.table1 drop column foo ;
+          1 |   772101 |             |            19 | S           |
+         1 |                                            +
+            |          |             |               |             |
+           |
+(2 rows)
+
+Unfortunately, the DDL is consistently seeming to be lost, anyways.
+
+I'm speculating that there's more logic in sync_event() than is
+meeting the eye, and it's checking rather harder than I'm perceiving
+that "there are valid tables in this SYNC," and perhaps not bothering
+to go further because even though the query can return data, it's
+thinking there are no tuples to process.
+
+Help?
+
