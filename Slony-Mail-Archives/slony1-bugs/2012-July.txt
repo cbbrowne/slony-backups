@@ -185,3 +185,93 @@ Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
 You are on the CC list for the bug.
 You are the assignee for the bug.
 
+From bugzilla-daemon at main.slony.info  Fri Jul  6 13:47:57 2012
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Fri,  6 Jul 2012 13:47:57 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 273] New: Slon can try to pull data from a
+	behind provider.
+Message-ID: <bug-273-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=273
+
+           Summary: Slon can try to pull data from a behind provider.
+           Product: Slony-I
+           Version: devel
+          Platform: PC
+        OS/Version: Linux
+            Status: NEW
+          Severity: enhancement
+          Priority: low
+         Component: slon
+        AssignedTo: slony1-bugs at lists.slony.info
+        ReportedBy: ssinger at ca.afilias.info
+                CC: slony1-bugs at lists.slony.info
+   Estimated Hours: 0.0
+
+
+In master/2.2 I've been getting the occasional failure of one of the disorder
+tests ('merge set', before any set merging takes place).  What happens is one
+of the subscriber nodes (often node 3) will try to pull data in sync_event from
+a node that is not the provider or origin (often node 5).  This node is too far
+behind so the sync fails.
+
+I had attached with gdb and saw that the wd->provider chain contains two nodes,
+a) The origin node 1 and b) the node that it was not far enough behind.  The
+SYNC event it is processing comes from event_provider=1
+
+The adjust_provider_info function seems to process some event that came from
+listener 5. It logs the following:
+
+just after the subscription to set 1 finishes.
+
+2012-06-28 15:40:34,803 [db3 stdout] DEBUG . - 2012-06-28 15:40:34 EDT CONFIG
+remoteWorkerThread_1: added active set 1 to provider 1
+2012-06-28 15:40:34,803 [db3 stdout] DEBUG . - 2012-06-28 15:40:34 EDT CONFIG
+remoteWorkerThread_1: added event provider provider 5
+
+The 'added event provider provider 5' is debugging I added to the if block in
+'step 4' of adjust_provider info.
+
+What I *suspect* is happening is that
+* Node 3 is not yet subscribed to any sets
+* remoteListener_5 on node 3 queues up the subscription events and a SYNC event
+from node 1
+* The subscription finishes
+* adjust_provider_info is called it adds node 1 as a provider since it is the
+origin of the set.  It also adds node 5 as a provider since it is where the
+event was received from (step 4).
+* We process the SYNC event from node 1.
+
+In sync_event we expect BOTH of those providers in the provider list (1 and 5)
+to be far enough ahead.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Fri Jul  6 13:54:15 2012
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Fri,  6 Jul 2012 13:54:15 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 273] Slon can try to pull data from a behind
+	provider.
+In-Reply-To: <bug-273-4@http.www.slony.info/bugzilla/>
+References: <bug-273-4@http.www.slony.info/bugzilla/>
+Message-ID: <20120706205415.3F3862910E3@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=273
+
+--- Comment #1 from Steve Singer <ssinger at ca.afilias.info> 2012-07-06 13:54:15 PDT ---
+Created an attachment (id=150)
+ --> (http://www.slony.info/bugzilla/attachment.cgi?id=150)
+Patch
+
+Please review
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
