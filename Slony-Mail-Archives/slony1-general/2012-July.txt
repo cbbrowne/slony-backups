@@ -353,3 +353,123 @@ Disregarding things such as trigger activity etc, isn't Vick's statement is stil
 
 We're on 2.0 and I've got a console that reads the slony configuration and allows our devs to execute a restricted set of DDL under their own credentials via a 2 phase commit, the rest is done via execute script.
 
+From stuart at stuartbishop.net  Sun Jul  8 23:21:14 2012
+From: stuart at stuartbishop.net (Stuart Bishop)
+Date: Mon, 9 Jul 2012 13:21:14 +0700
+Subject: [Slony1-general] Initial replication failing due to collation error
+Message-ID: <CADmi=6Nh8D8VjdcDSe9xz+z8K27svxJWgZawodB=+V2UEv9Bxg@mail.gmail.com>
+
+Anyone seen something like this before?
+
+2012-07-09 04:48:59 UTC[4137] ERROR  remoteWorkerThread_1: "select
+"_sl".finishTableAfterCopy(20); analyze "public"."reviewsapp_review";
+" PGRES_FATAL_ERROR ERROR:  could not determine which collation to use
+for string comparison
+HINT:  Use the COLLATE clause to set the collation explicitly.
+CONTEXT:  SQL statement "reindex table "public"."reviewsapp_review""
+PL/pgSQL function "finishtableaftercopy" line 27 at EXECUTE statement
+
+I'm replicating an 8.4 master to a 9.1 slave as part of an upgrade.
+The only thing unusual about this table I can see is the column using
+the debversion type, but we have successfully done the 8.4 -> 9.1
+replication with other databases using that type before.
+
+                                                 Table
+"public.reviewsapp_review"
+          Column          |           Type           |
+                Modifiers
+--------------------------+--------------------------+----------------------------------------------------------------------------
+ id                       | integer                  | not null
+default nextval('reviewsapp_review_id_seq'::regclass)
+ softwareitem_id          | integer                  | not null
+ version                  | debversion               | not null
+ architecture_id          | integer                  | not null
+ repository_id            | integer                  | not null
+ reviewer_id              | integer                  | not null
+ date_created             | timestamp with time zone | not null
+default '2010-12-09 20:47:18.910573+00'::timestamp with time zone
+ rating                   | integer                  | not null
+ summary                  | character varying(80)    | not null
+ review_text              | character varying(5000)  | not null
+ language                 | character varying(10)    | not null
+ hide                     | boolean                  | not null default false
+ usefulness_total         | integer                  | not null default 0
+ usefulness_favorable     | integer                  | not null default 0
+ usefulness_percentage    | integer                  | not null default 0
+ app_name                 | character varying(100)   | not null
+default ''::character varying
+ date_deleted             | timestamp with time zone |
+ usefulness_wilson_rating | double precision         | not null default 0.0
+Indexes:
+    "reviewsapp_review_pkey" PRIMARY KEY, btree (id)
+    "reviewsapp_review_architecture_id" btree (architecture_id)
+    "reviewsapp_review_hide" btree (hide)
+    "reviewsapp_review_language" btree (language)
+    "reviewsapp_review_repository_id" btree (repository_id)
+    "reviewsapp_review_reviewer_id" btree (reviewer_id)
+    "reviewsapp_review_softwareitem_id" btree (softwareitem_id)
+    "reviewsapp_review_version" btree (version)
+Foreign-key constraints:
+    "architecture_id_refs_id_3635e112ecae648a" FOREIGN KEY
+(architecture_id) REFERENCES reviewsapp_architecture(id) DEFERRABLE
+INITIALLY DEFERRED
+    "repository_id_refs_id_2f7062e6db353aa7" FOREIGN KEY
+(repository_id) REFERENCES reviewsapp_repository(id) DEFERRABLE
+INITIALLY DEFERRED
+    "reviewer_id_refs_id_28b87f276a073e1e" FOREIGN KEY (reviewer_id)
+REFERENCES auth_user(id) DEFERRABLE INITIALLY DEFERRED
+    "softwareitem_id_refs_id_677a12388e4ffc27" FOREIGN KEY
+(softwareitem_id) REFERENCES reviewsapp_softwareitem(id) DEFERRABLE
+INITIALLY DEFERRED
+Referenced by:
+    TABLE "reviewsapp_usefulness" CONSTRAINT
+"review_id_refs_id_286d40f88d5acdc" FOREIGN KEY (review_id) REFERENCES
+reviewsapp_review(id) DEFERRABLE INITIALLY DEFERRED
+    TABLE "reviewsapp_reviewmoderation" CONSTRAINT
+"review_id_refs_id_6bfc7f3d50ef538b" FOREIGN KEY (review_id)
+REFERENCES reviewsapp_review(id) DEFERRABLE INITIALLY DEFERRED
+
+
+
+-- 
+Stuart Bishop <stuart at stuartbishop.net>
+http://www.stuartbishop.net/
+
+From stuart at stuartbishop.net  Mon Jul  9 01:59:55 2012
+From: stuart at stuartbishop.net (Stuart Bishop)
+Date: Mon, 9 Jul 2012 15:59:55 +0700
+Subject: [Slony1-general] Initial replication failing due to collation
+	error
+In-Reply-To: <CADmi=6Nh8D8VjdcDSe9xz+z8K27svxJWgZawodB=+V2UEv9Bxg@mail.gmail.com>
+References: <CADmi=6Nh8D8VjdcDSe9xz+z8K27svxJWgZawodB=+V2UEv9Bxg@mail.gmail.com>
+Message-ID: <CADmi=6PRJ7NuJiEyFjDQGMV4PMTvzc_G2WSMNx+c8LHhkGv6bg@mail.gmail.com>
+
+On Mon, Jul 9, 2012 at 1:21 PM, Stuart Bishop <stuart at stuartbishop.net> wrote:
+> Anyone seen something like this before?
+>
+> 2012-07-09 04:48:59 UTC[4137] ERROR  remoteWorkerThread_1: "select
+> "_sl".finishTableAfterCopy(20); analyze "public"."reviewsapp_review";
+> " PGRES_FATAL_ERROR ERROR:  could not determine which collation to use
+> for string comparison
+> HINT:  Use the COLLATE clause to set the collation explicitly.
+> CONTEXT:  SQL statement "reindex table "public"."reviewsapp_review""
+> PL/pgSQL function "finishtableaftercopy" line 27 at EXECUTE statement
+
+I've sorted this.
+
+For the record, I think the sequence of actions to cause this was:
+  - Build the db schema on the slave database.
+  - Install the debversion package on the slave server, installing its
+.so and support files.
+  - Attempt to set up slony replication
+
+Those first two steps are obviously the wrong way around, yet I'm
+pretty certain no errors were reported so I don't know what happened.
+Dropping the new node and dropping the database, recreating it and
+resubscribing worked fine.
+
+
+-- 
+Stuart Bishop <stuart at stuartbishop.net>
+http://www.stuartbishop.net/
+
