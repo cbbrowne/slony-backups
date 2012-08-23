@@ -451,3 +451,166 @@ The argument is not immune to rebuff, but it seems worth trying.
 An HTML attachment was scrubbed...
 URL: http://lists.slony.info/pipermail/slony1-general/attachments/20120817/0701b119/attachment.htm 
 
+From cs_dba at consistentstate.com  Tue Aug 21 14:41:26 2012
+From: cs_dba at consistentstate.com (CS DBA)
+Date: Tue, 21 Aug 2012 15:41:26 -0600
+Subject: [Slony1-general] Monitoring big table sync
+Message-ID: <75D98554-4465-4190-8722-69719639C6E5@consistentstate.com>
+
+Hi all;
+
+I have an initial sync in progress.  It's currently syncing a 32GB table. I'd like to be able to verify that some progress is happening.  Here's what I see:
+
+
+
+log1 (the master slon log) has this:
+
+NOTICE:  Slony-I: log switch to sl_log_2 still in progress - sl_log_1 not truncated
+CONTEXT:  PL/pgSQL function "cleanupevent" line 99 at assignment
+2012-08-21 14:40:26 MDTINFO   cleanupThread:    0.043 seconds for cleanupEvent()
+NOTICE:  Slony-I: log switch to sl_log_2 still in progress - sl_log_1 not truncated
+CONTEXT:  PL/pgSQL function "cleanupevent" line 99 at assignment
+2012-08-21 14:51:48 MDTINFO   cleanupThread:    0.054 seconds for cleanupEvent()
+2012-08-21 14:51:48 MDTINFO   cleanupThread:    0.006 seconds for vacuuming
+NOTICE:  Slony-I: log switch to sl_log_2 still in progress - sl_log_1 not truncated
+CONTEXT:  PL/pgSQL function "cleanupevent" line 99 at assignment
+2012-08-21 15:03:06 MDTINFO   cleanupThread:    0.043 seconds for cleanupEvent()
+
+
+log2 (the slave slon log) has this:
+$ tail slon.node2.log
+2012-08-21 04:24:05 MDTCONFIG remoteWorkerThread_1: 92441 bytes copied for table "sch1"."rtl_pkg"
+2012-08-21 04:24:05 MDTCONFIG remoteWorkerThread_1: 0.377 seconds to copy table "sch1"."rtl_pkg"
+2012-08-21 04:24:05 MDTCONFIG remoteWorkerThread_1: copy table "sch1"."std_contr"
+2012-08-21 04:24:05 MDTCONFIG remoteWorkerThread_1: Begin COPY of table "sch1"."std_contr"
+NOTICE:  truncate of "sch1"."std_contr" succeeded
+2012-08-21 04:24:05 MDTCONFIG remoteWorkerThread_1: 35072 bytes copied for table "sch1"."std_contr"
+2012-08-21 04:24:05 MDTCONFIG remoteWorkerThread_1: 0.345 seconds to copy table "sch1"."std_contr"
+2012-08-21 04:24:05 MDTCONFIG remoteWorkerThread_1: copy table "sch2"."order_hist"
+2012-08-21 04:24:05 MDTCONFIG remoteWorkerThread_1: Begin COPY of table "sch2"."order_hist"
+NOTICE:  truncate of "sch2"."order_hist" succeeded
+
+
+The system time is now :
+Tue Aug 21 15:24:30 MDT 2012
+
+So the sch2.order_hist table has been syncing for 11 hours.  The sch2.order_hist table is 32GB and I did expect it to take some time but I would like to be able to validate some progress.  A select * from pg_stat_activity on the master shows me that this sql is running:
+
+ copy "sch1"."order_hist" ("id","order_hist_id","cust_name","order_id","order_type", "order_dt","sw_version") to stdout;
+
+
+And, a select * from pg_stat_activity on the slave shows me that this sql is running:
+select "_custdb_slony".prepareTableForCopy(186); copy "sch2"."order_hist" ("id","order_hist_id","cust_name","order_id","order_type", "order_dt","sw_version")  from stdin; 
+
+
+Other than this I see no "verifiable" activity, plus the lag_events in sl_status on the master continue to grow, currently we're at 57,355 lag events.
+
+
+Thoughts?
+
+
+Thanks in advance
+
+
+
+From cbbrowne at afilias.info  Tue Aug 21 15:16:29 2012
+From: cbbrowne at afilias.info (Christopher Browne)
+Date: Tue, 21 Aug 2012 18:16:29 -0400
+Subject: [Slony1-general] Monitoring big table sync
+In-Reply-To: <75D98554-4465-4190-8722-69719639C6E5@consistentstate.com>
+References: <75D98554-4465-4190-8722-69719639C6E5@consistentstate.com>
+Message-ID: <CANfbgbYKWmjBH5KO7sB-9AcaZW-eUrp4FMMxrunSGb6T8w_74Q@mail.gmail.com>
+
+On Tue, Aug 21, 2012 at 5:41 PM, CS DBA <cs_dba at consistentstate.com> wrote:
+> Hi all;
+>
+> I have an initial sync in progress.  It's currently syncing a 32GB table. I'd like to be able to verify that some progress is happening.  Here's what I see:
+>
+>
+> log1 (the master slon log) has this:
+>
+> NOTICE:  Slony-I: log switch to sl_log_2 still in progress - sl_log_1 not truncated
+> CONTEXT:  PL/pgSQL function "cleanupevent" line 99 at assignment
+> 2012-08-21 14:40:26 MDTINFO   cleanupThread:    0.043 seconds for cleanupEvent()
+> NOTICE:  Slony-I: log switch to sl_log_2 still in progress - sl_log_1 not truncated
+> CONTEXT:  PL/pgSQL function "cleanupevent" line 99 at assignment
+> 2012-08-21 14:51:48 MDTINFO   cleanupThread:    0.054 seconds for cleanupEvent()
+> 2012-08-21 14:51:48 MDTINFO   cleanupThread:    0.006 seconds for vacuuming
+> NOTICE:  Slony-I: log switch to sl_log_2 still in progress - sl_log_1 not truncated
+> CONTEXT:  PL/pgSQL function "cleanupevent" line 99 at assignment
+> 2012-08-21 15:03:06 MDTINFO   cleanupThread:    0.043 seconds for cleanupEvent()
+>
+>
+> log2 (the slave slon log) has this:
+> $ tail slon.node2.log
+> 2012-08-21 04:24:05 MDTCONFIG remoteWorkerThread_1: 92441 bytes copied for table "sch1"."rtl_pkg"
+> 2012-08-21 04:24:05 MDTCONFIG remoteWorkerThread_1: 0.377 seconds to copy table "sch1"."rtl_pkg"
+> 2012-08-21 04:24:05 MDTCONFIG remoteWorkerThread_1: copy table "sch1"."std_contr"
+> 2012-08-21 04:24:05 MDTCONFIG remoteWorkerThread_1: Begin COPY of table "sch1"."std_contr"
+> NOTICE:  truncate of "sch1"."std_contr" succeeded
+> 2012-08-21 04:24:05 MDTCONFIG remoteWorkerThread_1: 35072 bytes copied for table "sch1"."std_contr"
+> 2012-08-21 04:24:05 MDTCONFIG remoteWorkerThread_1: 0.345 seconds to copy table "sch1"."std_contr"
+> 2012-08-21 04:24:05 MDTCONFIG remoteWorkerThread_1: copy table "sch2"."order_hist"
+> 2012-08-21 04:24:05 MDTCONFIG remoteWorkerThread_1: Begin COPY of table "sch2"."order_hist"
+> NOTICE:  truncate of "sch2"."order_hist" succeeded
+>
+>
+> The system time is now :
+> Tue Aug 21 15:24:30 MDT 2012
+>
+> So the sch2.order_hist table has been syncing for 11 hours.  The sch2.order_hist table is 32GB and I did expect it to take some time but I would like to be able to validate some progress.  A select * from pg_stat_activity on the master shows me that this sql is running:
+>
+>  copy "sch1"."order_hist" ("id","order_hist_id","cust_name","order_id","order_type", "order_dt","sw_version") to stdout;
+>
+>
+> And, a select * from pg_stat_activity on the slave shows me that this sql is running:
+> select "_custdb_slony".prepareTableForCopy(186); copy "sch2"."order_hist" ("id","order_hist_id","cust_name","order_id","order_type", "order_dt","sw_version")  from stdin;
+>
+>
+> Other than this I see no "verifiable" activity, plus the lag_events in sl_status on the master continue to grow, currently we're at 57,355 lag events.
+>
+>
+> Thoughts?
+
+That is exactly what I'd expect to see if things are working properly.
+
+The one thing that I'd be a *bit* concerned about is the 57K event
+lag.  At one point, I recall there being a possible troublesome case
+where one of the queries for the first SYNC processing after that
+could time out when trying to read in all of the tens of thousands of
+events.  It would be nicer if, during this laggy period, SYNCs got
+generated somewhat less often, let's say, every 10-20s rather than
+every 0.5s.
+
+There's not much benefit to having super-fine granularity if you are
+catching up on 40 hours of backlog.  Fine granularity of SYNCs might
+be of benefit in keeping replicas more up to date once subscribed, but
+doesn't help one bit during the 40 hour backlog.
+
+You could increase the parm "sync_interval" for the slon process
+managing the origin node, perhaps changing it to 1000 or even 10000,
+to have less frequent SYNCs generated on that node.  And you can do
+this without interrupting the subscription; the slon process that is
+copying data to the subscriber is the one managing the subscriber
+node.  Bad mojo to kill *that* slon - that would restart the
+subscription process!  :-(
+
+But it should be fine to kill and restart the slon managing the origin
+node with the new parameter value.  If you're most of the way through,
+there's little point.
+
+Thinking aloud, I wonder if we might want to have this parameter be
+more "adaptive", so that we'd lengthen sync_interval automatically if
+all subscriptions are way behind.  But that's not of any use to you,
+today.
+
+There's one more thing you could do on the replica, which is to run
+"vacuum verbose" against the 32GB table.  The output of that should
+give you an idea as to how far thru the process it is.
+
+Mind you, it kicks off a re-index of all indexes on the table after
+the COPY, so it could be that the data's all in place, and it's busy
+indexing.  Note that this re-index is a performance WIN; we shut off
+indexes and reindex at the end because mass-reindexing is quite a bit
+faster than loading data into the table with indexes turned on.
+
