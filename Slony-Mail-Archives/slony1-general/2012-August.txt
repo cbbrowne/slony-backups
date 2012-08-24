@@ -614,3 +614,146 @@ indexing.  Note that this re-index is a performance WIN; we shut off
 indexes and reindex at the end because mass-reindexing is quite a bit
 faster than loading data into the table with indexes turned on.
 
+From JanWieck at Yahoo.com  Wed Aug 22 08:34:26 2012
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Wed, 22 Aug 2012 11:34:26 -0400
+Subject: [Slony1-general] Monitoring big table sync
+In-Reply-To: <CANfbgbYKWmjBH5KO7sB-9AcaZW-eUrp4FMMxrunSGb6T8w_74Q@mail.gmail.com>
+References: <75D98554-4465-4190-8722-69719639C6E5@consistentstate.com>
+	<CANfbgbYKWmjBH5KO7sB-9AcaZW-eUrp4FMMxrunSGb6T8w_74Q@mail.gmail.com>
+Message-ID: <5034FC02.3060503@Yahoo.com>
+
+On 8/21/2012 6:16 PM, Christopher Browne wrote:
+> The one thing that I'd be a *bit* concerned about is the 57K event
+> lag.  At one point, I recall there being a possible troublesome case
+> where one of the queries for the first SYNC processing after that
+> could time out when trying to read in all of the tens of thousands of
+> events.  It would be nicer if, during this laggy period, SYNCs got
+> generated somewhat less often, let's say, every 10-20s rather than
+> every 0.5s.
+
+That can only happen on slon startup, when the remote_listen thread 
+selects all NEW events. During the copy_set(), the remote listener is 
+still getting these events and queues them in memory.
+
+Unless something is interrupting the copy, I'm not worried yet.
+
+
+Jan
+
+-- 
+Anyone who trades liberty for security deserves neither
+liberty nor security. -- Benjamin Franklin
+
+From cbbrowne at afilias.info  Wed Aug 22 08:45:51 2012
+From: cbbrowne at afilias.info (Christopher Browne)
+Date: Wed, 22 Aug 2012 11:45:51 -0400
+Subject: [Slony1-general] Monitoring big table sync
+In-Reply-To: <5034FC02.3060503@Yahoo.com>
+References: <75D98554-4465-4190-8722-69719639C6E5@consistentstate.com>
+	<CANfbgbYKWmjBH5KO7sB-9AcaZW-eUrp4FMMxrunSGb6T8w_74Q@mail.gmail.com>
+	<5034FC02.3060503@Yahoo.com>
+Message-ID: <CANfbgbaUG4XKBqjxYcqKf=n-7dNffjvZ5y=7bCXjUbqkZnkDiw@mail.gmail.com>
+
+On Wed, Aug 22, 2012 at 11:34 AM, Jan Wieck <JanWieck at yahoo.com> wrote:
+> On 8/21/2012 6:16 PM, Christopher Browne wrote:
+>>
+>> The one thing that I'd be a *bit* concerned about is the 57K event
+>> lag.  At one point, I recall there being a possible troublesome case
+>> where one of the queries for the first SYNC processing after that
+>> could time out when trying to read in all of the tens of thousands of
+>> events.  It would be nicer if, during this laggy period, SYNCs got
+>> generated somewhat less often, let's say, every 10-20s rather than
+>> every 0.5s.
+>
+>
+> That can only happen on slon startup, when the remote_listen thread selects
+> all NEW events. During the copy_set(), the remote listener is still getting
+> these events and queues them in memory.
+>
+> Unless something is interrupting the copy, I'm not worried yet.
+
+Agreed.
+
+I do recall seeing trouble come up *afterwards*, if there were so many
+events to process that it took too long to run the query to draw them
+in.
+
+Ah, poking at the code is useful.  There is a configuration option for
+this, remote_listen_timeout, which defaults to 300 seconds, but might
+be set higher.
+
+If, after the subscription completes, there are wildly too many SYNC
+events lingering around, and it takes too long to process them, the
+remote_listen thread will time out, complaining thus:
+
+remoteListenThread_%d: timeout (%d s) for event selection\n"
+
+(Fill in values as needed :-).)
+
+The initial COPY has completed, but the slon could get stuck at that
+point, timing out repeatedly.  If so, then setting the config option
+remote_listen_timeout to something larger than 300 will allow it to
+get past that problem.
+
+And it is by no means certain that there WILL be a failure there; it's
+just that it's *possible*, and that's a reasonable resolution.
+-- 
+"Bother,"  said Pooh,  "Eeyore, ready  two photon  torpedoes  and lock
+phasers on the Heffalump, Piglet, meet me in transporter room three"
+
+From JanWieck at Yahoo.com  Wed Aug 22 09:45:17 2012
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Wed, 22 Aug 2012 12:45:17 -0400
+Subject: [Slony1-general] Monitoring big table sync
+In-Reply-To: <CANfbgbaUG4XKBqjxYcqKf=n-7dNffjvZ5y=7bCXjUbqkZnkDiw@mail.gmail.com>
+References: <75D98554-4465-4190-8722-69719639C6E5@consistentstate.com>
+	<CANfbgbYKWmjBH5KO7sB-9AcaZW-eUrp4FMMxrunSGb6T8w_74Q@mail.gmail.com>
+	<5034FC02.3060503@Yahoo.com>
+	<CANfbgbaUG4XKBqjxYcqKf=n-7dNffjvZ5y=7bCXjUbqkZnkDiw@mail.gmail.com>
+Message-ID: <50350C9D.8000305@Yahoo.com>
+
+On 8/22/2012 11:45 AM, Christopher Browne wrote:
+> On Wed, Aug 22, 2012 at 11:34 AM, Jan Wieck <JanWieck at yahoo.com> wrote:
+>> On 8/21/2012 6:16 PM, Christopher Browne wrote:
+>>>
+>>> The one thing that I'd be a *bit* concerned about is the 57K event
+>>> lag.  At one point, I recall there being a possible troublesome case
+>>> where one of the queries for the first SYNC processing after that
+>>> could time out when trying to read in all of the tens of thousands of
+>>> events.  It would be nicer if, during this laggy period, SYNCs got
+>>> generated somewhat less often, let's say, every 10-20s rather than
+>>> every 0.5s.
+>>
+>>
+>> That can only happen on slon startup, when the remote_listen thread selects
+>> all NEW events. During the copy_set(), the remote listener is still getting
+>> these events and queues them in memory.
+>>
+>> Unless something is interrupting the copy, I'm not worried yet.
+>
+> Agreed.
+>
+> I do recall seeing trouble come up *afterwards*, if there were so many
+> events to process that it took too long to run the query to draw them
+> in.
+>
+> Ah, poking at the code is useful.  There is a configuration option for
+> this, remote_listen_timeout, which defaults to 300 seconds, but might
+> be set higher.
+>
+> If, after the subscription completes, there are wildly too many SYNC
+> events lingering around, and it takes too long to process them, the
+> remote_listen thread will time out, complaining thus:
+
+You are missing the point. However many unprocessed SYNC events there 
+will be after the copy, the remote_listener will have shoveled them into 
+memory as they appeared already. There is no BIG EVENT SELECT after the 
+copy.
+
+
+
+-- 
+Anyone who trades liberty for security deserves neither
+liberty nor security. -- Benjamin Franklin
+
