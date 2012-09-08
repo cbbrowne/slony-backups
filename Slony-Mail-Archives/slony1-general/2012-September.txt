@@ -93,3 +93,282 @@ il8An2fynXRvQaBMoVH9JvFZo8nK/OJH
 =S8Sm
 -----END PGP SIGNATURE-----
 
+From cbbrowne at afilias.info  Thu Sep  6 09:56:03 2012
+From: cbbrowne at afilias.info (Christopher Browne)
+Date: Thu, 6 Sep 2012 12:56:03 -0400
+Subject: [Slony1-general] Using Slony to migrate from PostgreSQL 8.2 to
+	9.2
+In-Reply-To: <504857BF.8070906@postgresql.fr>
+References: <504857BF.8070906@postgresql.fr>
+Message-ID: <CANfbgbbhm3Dc3UEeHQPHL=Y5iYu9k7Sg1Z_HKBJmyD=cNm4_Hg@mail.gmail.com>
+
+On Thu, Sep 6, 2012 at 3:58 AM, "St?phane A. Schildknecht"
+<stephane.schildknecht at postgresql.fr> wrote:
+> -----BEGIN PGP SIGNED MESSAGE-----
+> Hash: SHA1
+>
+> Hello,
+>
+> I currently have a 1.2 slony cluster replicating PostgreSQL 8.2 databases.
+>
+> On our way to migrate to PostgreSQL 9.2, we would like to use Slony to ease
+> the migration process.
+>
+> But, I wonder which version of Slony I could use, as the version currently
+> used won't compile vs PostgreSQL 9.2rc1. Neither would slony 2.1.2 compile
+> with PG 8.2.
+
+We did something of a "sea change" with version 2 of Slony; there were
+substantial changes provided in PostgreSQL 8.3 that 2.0 and up depend
+on, and there is no intent to attempt to get 2.0 and later versions to
+work with earlier versions of Postgres.
+
+I'm not certain offhand what is the latest version of Postgres which
+version 1.2 supports; what is likely disappointing to you is that I
+don't think it gets as far as 9.2.  I see notes in git history
+indicating that it has had changes that might bring it as far as 9.0,
+but I'd be inclined to be a bit tentative about 9.0.  No doubt there
+have been changes in 9.1 and 9.2 that have not been backported into
+the 1.2 branch.
+
+This does not indicate that Slony is useless to the purpose, but you
+might need to have two phases.
+
+1.  Upgrade from 8.2 to 8.3 or so using Slony 1.2
+
+Theoretically, you could get an upgrade to 9.0, but I'd be inclined to
+go from 8.2 to 8.3; that's got much less risk of running into any
+issues of parts of 9.0 that weren't totally supported in the 1.2
+branch.
+
+2.  Then upgrade from (say) 8.3 to 9.2 using Slony 2.1
+
+That's not as wonderful an answer as you might have wanted, certainly
+more work than you'd have preferred.  But it ought to work all the
+same.
+
+From brianf at consistentstate.com  Thu Sep  6 14:09:05 2012
+From: brianf at consistentstate.com (Brian Fehrle)
+Date: Thu, 06 Sep 2012 15:09:05 -0600
+Subject: [Slony1-general] Slony lagging, no errors, due to bulk data change?
+Message-ID: <504910F1.7080706@consistentstate.com>
+
+Hi all,
+
+postgresql 8.4
+slony 1.2
+centos system
+
+I have single master to single slave slony cluster where slony is very 
+far behind. There are no errors in the logs or anything, but what looks 
+to be happeneing is that queries slony is executing on the slony log 
+table on the master are taking a long time to complete.
+
+The query is "fetch 100 from LOG;" which can take a long time to 
+complete, over 15 minutes at times. Each time this happens we process 1 
+event. This usually takes milliseconds to complete.
+
+At this point, the query on the master 'fetch 100 from log' takes about 
+20 minutes to complete, and after it completes the slave processes 1 
+more event, and then 'fetch 100 from log' kicks off again and takes yet 
+another 20 or so minutes. So the slave is processing an event about once 
+per 20 minutes.
+
+As for a cause I believe it's due to the follow up work after adding a 
+column to a table in replication. After adding the column, I believe 
+that the table is being updated to set new values in the newly added 
+column. This could result in millions of new items for slony to process, 
+which may have caused the tables to become so large that they are 
+resulting in sequential scans or something.
+
+I'm trying to dig in and see what exactly 'fetch 100 from log' is doing 
+on the master, and if I can speed it up. Is this querying sl_log_<1/2> 
+tables?
+
+the pg table pg_notify does not have outstanding dead rows, it's at 0. 
+also out of all the slony tables in the slony schema, the one with the 
+most dead rows is at about 2K dead rows.
+
+sl_log_1 has 0 rows, sl_log_2 has about 9,326,260 rows (and zero dead rows).
+
+I'm going to see if we can reduce group size, see if for whatever reason 
+that reduces the query result set so it does a index scan vs sequential 
+(if that's even the issue).
+
+Any help is greatly appreciated.
+
+- Brian F
+
+From brianf at consistentstate.com  Thu Sep  6 14:49:34 2012
+From: brianf at consistentstate.com (Brian Fehrle)
+Date: Thu, 06 Sep 2012 15:49:34 -0600
+Subject: [Slony1-general] Slony lagging, no errors,
+	due to bulk data change?
+In-Reply-To: <504910F1.7080706@consistentstate.com>
+References: <504910F1.7080706@consistentstate.com>
+Message-ID: <50491A6E.5040501@consistentstate.com>
+
+More information:
+
+I can confirm that over the course of 3 or so hours, our sl_log_2 table 
+grew from 1,000 rows to over 9 million rows. This is due to us doing 
+huge table wide updates I believe.
+
+So now sl_log_2 is huge, and the 'fetch 100 from LOG' is a query hitting 
+the cursor LOG, which is defined as:
+
+                                                  "declare LOG cursor 
+for select "
+                                                  "    log_origin, 
+log_xid, log_tableid, "
+                                                  "    log_actionseq, 
+log_cmdtype, "
+                                                  "    
+octet_length(log_cmddata), "
+                                                  "    case when 
+octet_length(log_cmddata) <= %d "
+                                                  "        then 
+log_cmddata "
+                                                  "        else null end "
+                                                  "from %s.sl_log_2 %s 
+order by log_actionseq; ",
+
+
+Looking at the pg_stat_activity, it looks like 'fetch 1200 from LOG' has 
+the same transaction start time as the query start time, which suggests 
+that each time it fetches 100 from the log it is starting a new cursor, 
+is this normal / expected?
+
+
+select now() - xact_start as transaction_age, now() - query_start as 
+query_age, current_query::varchar(80), waiting from pg_stat_activity 
+where usename = 'slony' and current_query like '%LOG%';
+  transaction_age |    query_age    |    current_query     | waiting
+-----------------+-----------------+----------------------+---------
+  00:27:01.652087 | 00:27:01.650933 | fetch 100 from LOG;  | f
+(1 row)
+
+
+So this has to be my issue. The query that hits sl_log_2 is a sequential 
+scan, does this mean every time we retrieve 100 from the cursor, we do 
+another sequential scan on the table to get the next 100 rows?
+
+- Brian F
+
+
+On 09/06/2012 03:09 PM, Brian Fehrle wrote:
+> Hi all,
+>
+> postgresql 8.4
+> slony 1.2
+> centos system
+>
+> I have single master to single slave slony cluster where slony is very
+> far behind. There are no errors in the logs or anything, but what looks
+> to be happeneing is that queries slony is executing on the slony log
+> table on the master are taking a long time to complete.
+>
+> The query is "fetch 100 from LOG;" which can take a long time to
+> complete, over 15 minutes at times. Each time this happens we process 1
+> event. This usually takes milliseconds to complete.
+>
+> At this point, the query on the master 'fetch 100 from log' takes about
+> 20 minutes to complete, and after it completes the slave processes 1
+> more event, and then 'fetch 100 from log' kicks off again and takes yet
+> another 20 or so minutes. So the slave is processing an event about once
+> per 20 minutes.
+>
+> As for a cause I believe it's due to the follow up work after adding a
+> column to a table in replication. After adding the column, I believe
+> that the table is being updated to set new values in the newly added
+> column. This could result in millions of new items for slony to process,
+> which may have caused the tables to become so large that they are
+> resulting in sequential scans or something.
+>
+> I'm trying to dig in and see what exactly 'fetch 100 from log' is doing
+> on the master, and if I can speed it up. Is this querying sl_log_<1/2>
+> tables?
+>
+> the pg table pg_notify does not have outstanding dead rows, it's at 0.
+> also out of all the slony tables in the slony schema, the one with the
+> most dead rows is at about 2K dead rows.
+>
+> sl_log_1 has 0 rows, sl_log_2 has about 9,326,260 rows (and zero dead rows).
+>
+> I'm going to see if we can reduce group size, see if for whatever reason
+> that reduces the query result set so it does a index scan vs sequential
+> (if that's even the issue).
+>
+> Any help is greatly appreciated.
+>
+> - Brian F
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20120906/ec9367a4/attachment.htm 
+
+From steve at ssinger.info  Thu Sep  6 18:46:42 2012
+From: steve at ssinger.info (Steve Singer)
+Date: Thu, 6 Sep 2012 21:46:42 -0400
+Subject: [Slony1-general] Using Slony to migrate from PostgreSQL 8.2 to
+ 9.2
+In-Reply-To: <504857BF.8070906@postgresql.fr>
+References: <504857BF.8070906@postgresql.fr>
+Message-ID: <BLU0-SMTP176BAD969A624FA481915AADCAF0@phx.gbl>
+
+On 09/06/2012 03:58 AM, "St?phane A. Schildknecht" wrote:
+> -----BEGIN PGP SIGNED MESSAGE-----
+> Hash: SHA1
+>
+> Hello,
+>
+> I currently have a 1.2 slony cluster replicating PostgreSQL 8.2 databases.
+>
+> On our way to migrate to PostgreSQL 9.2, we would like to use Slony to ease
+> the migration process.
+>
+> But, I wonder which version of Slony I could use, as the version currently
+> used won't compile vs PostgreSQL 9.2rc1. Neither would slony 2.1.2 compile
+> with PG 8.2.
+>
+> Thanks in advance for any advice.
+
+You won't be able to get slony 2.0.x or 2.1.x to work with 8.2.    I 
+suspect it won't be that hard to get 1.2 to compile against 9.2, the 
+patches to get 2.1.x compiling against 9.2 were not that involved.  It 
+won't work well because of the serialization conflicts that slony prior 
+to 2.1.1 gets with PG 9.1+ but it might work well enough for an 
+upgrade.  (I also can't say if there are any other issues with running 
+1.2 against 9.2 since I've never tried it).
+
+Your other option is, as Chris mentioned, to upgrade in two steps.
+
+Steve
+
+> Regards,
+> - -- 
+> St?phane Schildknecht
+> http://www.Loxodata.com
+> Contact r?gional PostgreSQL
+>
+>
+> -----BEGIN PGP SIGNATURE-----
+> Version: GnuPG v1.4.11 (GNU/Linux)
+> Comment: Using GnuPG with Mozilla - http://www.enigmail.net/
+>
+> iEYEARECAAYFAlBIV78ACgkQA+REPKWGI0E/uACglepw4b1o+Wq79gUxVA75yqbO
+> il8An2fynXRvQaBMoVH9JvFZo8nK/OJH
+> =S8Sm
+> -----END PGP SIGNATURE-----
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+>
+>
+
+
