@@ -372,3 +372,270 @@ Steve
 >
 
 
+From smarchand at sgo.fr  Fri Sep  7 06:46:33 2012
+From: smarchand at sgo.fr (Sebastien Marchand)
+Date: Fri, 7 Sep 2012 15:46:33 +0200
+Subject: [Slony1-general] Lagtime by set ?
+Message-ID: <001d01cd8cff$338efb50$9aacf1f0$@sgo.fr>
+
+Hi everybody,
+
+ 
+
+I would like to know if i can find the lagtime by Set.
+
+ 
+
+Just for information i got 1 cluster and 3 sets in. Example :
+
+ 
+
+Instance              set         master                 slave
+
+F_repli                  1             1             2
+
+F_repli                  2             2             1
+
+F_repli                  3             2             1
+
+ 
+
+(Set 2 and 3 same direction but different schema)                        
+
+Thanks a lot.
+
+ 
+
+Cordialement, 
+
+S?bastien Marchand
+
+Soci?t? SGO
+
+ 
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20120907/a943eda6/attachment.htm 
+
+From steve at ssinger.info  Fri Sep  7 08:46:54 2012
+From: steve at ssinger.info (Steve Singer)
+Date: Fri, 7 Sep 2012 11:46:54 -0400
+Subject: [Slony1-general] Slony lagging, no errors,
+	due to bulk data change?
+In-Reply-To: <50491A6E.5040501@consistentstate.com>
+References: <504910F1.7080706@consistentstate.com>
+	<50491A6E.5040501@consistentstate.com>
+Message-ID: <BLU0-SMTP4436669A0E30A1BFF5C0D9DCAF0@phx.gbl>
+
+On 09/06/2012 05:49 PM, Brian Fehrle wrote:
+> More information:
+
+> Looking at the pg_stat_activity, it looks like 'fetch 1200 from LOG' 
+> has the same transaction start time as the query start time, which 
+> suggests that each time it fetches 100 from the log it is starting a 
+> new cursor, is this normal / expected?
+>
+
+Yes this is normal for your version of slony, but a bug.  It was fixed 
+in slony 2.1.  I think the bug number was bug 167.
+
+>
+> select now() - xact_start as transaction_age, now() - query_start as 
+> query_age, current_query::varchar(80), waiting from pg_stat_activity 
+> where usename = 'slony' and current_query like '%LOG%';
+>  transaction_age |    query_age    |    current_query     | waiting
+> -----------------+-----------------+----------------------+---------
+>  00:27:01.652087 | 00:27:01.650933 | fetch 100 from LOG;  | f
+> (1 row)
+>
+>
+> So this has to be my issue. The query that hits sl_log_2 is a 
+> sequential scan, does this mean every time we retrieve 100 from the 
+> cursor, we do another sequential scan on the table to get the next 100 
+> rows?
+>
+> - Brian F
+>
+>
+> On 09/06/2012 03:09 PM, Brian Fehrle wrote:
+>> Hi all,
+>>
+>> postgresql 8.4
+>> slony 1.2
+>> centos system
+>>
+>> I have single master to single slave slony cluster where slony is very
+>> far behind. There are no errors in the logs or anything, but what looks
+>> to be happeneing is that queries slony is executing on the slony log
+>> table on the master are taking a long time to complete.
+>>
+>> The query is "fetch 100 from LOG;" which can take a long time to
+>> complete, over 15 minutes at times. Each time this happens we process 1
+>> event. This usually takes milliseconds to complete.
+>>
+>> At this point, the query on the master 'fetch 100 from log' takes about
+>> 20 minutes to complete, and after it completes the slave processes 1
+>> more event, and then 'fetch 100 from log' kicks off again and takes yet
+>> another 20 or so minutes. So the slave is processing an event about once
+>> per 20 minutes.
+>>
+>> As for a cause I believe it's due to the follow up work after adding a
+>> column to a table in replication. After adding the column, I believe
+>> that the table is being updated to set new values in the newly added
+>> column. This could result in millions of new items for slony to process,
+>> which may have caused the tables to become so large that they are
+>> resulting in sequential scans or something.
+>>
+>> I'm trying to dig in and see what exactly 'fetch 100 from log' is doing
+>> on the master, and if I can speed it up. Is this querying sl_log_<1/2>
+>> tables?
+>>
+>> the pg table pg_notify does not have outstanding dead rows, it's at 0.
+>> also out of all the slony tables in the slony schema, the one with the
+>> most dead rows is at about 2K dead rows.
+>>
+>> sl_log_1 has 0 rows, sl_log_2 has about 9,326,260 rows (and zero dead rows).
+>>
+>> I'm going to see if we can reduce group size, see if for whatever reason
+>> that reduces the query result set so it does a index scan vs sequential
+>> (if that's even the issue).
+>>
+>> Any help is greatly appreciated.
+>>
+>> - Brian F
+>> _______________________________________________
+>> Slony1-general mailing list
+>> Slony1-general at lists.slony.info
+>> http://lists.slony.info/mailman/listinfo/slony1-general
+>
+>
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20120907/24e0bb6b/attachment-0001.htm 
+
+From brianf at consistentstate.com  Fri Sep  7 08:50:59 2012
+From: brianf at consistentstate.com (Brian Fehrle)
+Date: Fri, 07 Sep 2012 09:50:59 -0600
+Subject: [Slony1-general] Slony lagging, no errors,
+	due to bulk data change?
+In-Reply-To: <BLU0-SMTP4436669A0E30A1BFF5C0D9DCAF0@phx.gbl>
+References: <504910F1.7080706@consistentstate.com>
+	<50491A6E.5040501@consistentstate.com>
+	<BLU0-SMTP4436669A0E30A1BFF5C0D9DCAF0@phx.gbl>
+Message-ID: <504A17E3.6030604@consistentstate.com>
+
+On 09/07/2012 09:46 AM, Steve Singer wrote:
+> On 09/06/2012 05:49 PM, Brian Fehrle wrote:
+>> More information:
+>
+>> Looking at the pg_stat_activity, it looks like 'fetch 1200 from LOG' 
+>> has the same transaction start time as the query start time, which 
+>> suggests that each time it fetches 100 from the log it is starting a 
+>> new cursor, is this normal / expected?
+>>
+>
+> Yes this is normal for your version of slony, but a bug.  It was fixed 
+> in slony 2.1.  I think the bug number was bug 167.
+>
+Ok thanks. I did look at the source for both 1.2 and 2.1 and noticed 
+that the worker thread changed significantly, and suspected it changed.
+
+Unfortunately it's been running for a full day in this state, and in 1 
+day it processed about 1 hour worth of events. So we're going to be 
+uninstalling both nodes and re-setting it up. Long process because we 
+have dozens of remote subscribers via log shipping too.
+
+In the future, if we need to perform mass updates to tables like this, 
+it may be a good idea to remove the table from replication, do all the 
+updates, then add it back. It would still  be annoying for remote 
+subscribers but we have processes in place to handle it.
+
+- Brian F
+>>
+>> select now() - xact_start as transaction_age, now() - query_start as 
+>> query_age, current_query::varchar(80), waiting from pg_stat_activity 
+>> where usename = 'slony' and current_query like '%LOG%';
+>>  transaction_age |    query_age    |    current_query     | waiting
+>> -----------------+-----------------+----------------------+---------
+>>  00:27:01.652087 | 00:27:01.650933 | fetch 100 from LOG;  | f
+>> (1 row)
+>>
+>>
+>> So this has to be my issue. The query that hits sl_log_2 is a 
+>> sequential scan, does this mean every time we retrieve 100 from the 
+>> cursor, we do another sequential scan on the table to get the next 
+>> 100 rows?
+>>
+>> - Brian F
+>>
+>>
+>> On 09/06/2012 03:09 PM, Brian Fehrle wrote:
+>>> Hi all,
+>>>
+>>> postgresql 8.4
+>>> slony 1.2
+>>> centos system
+>>>
+>>> I have single master to single slave slony cluster where slony is very
+>>> far behind. There are no errors in the logs or anything, but what looks
+>>> to be happeneing is that queries slony is executing on the slony log
+>>> table on the master are taking a long time to complete.
+>>>
+>>> The query is "fetch 100 from LOG;" which can take a long time to
+>>> complete, over 15 minutes at times. Each time this happens we process 1
+>>> event. This usually takes milliseconds to complete.
+>>>
+>>> At this point, the query on the master 'fetch 100 from log' takes about
+>>> 20 minutes to complete, and after it completes the slave processes 1
+>>> more event, and then 'fetch 100 from log' kicks off again and takes yet
+>>> another 20 or so minutes. So the slave is processing an event about once
+>>> per 20 minutes.
+>>>
+>>> As for a cause I believe it's due to the follow up work after adding a
+>>> column to a table in replication. After adding the column, I believe
+>>> that the table is being updated to set new values in the newly added
+>>> column. This could result in millions of new items for slony to process,
+>>> which may have caused the tables to become so large that they are
+>>> resulting in sequential scans or something.
+>>>
+>>> I'm trying to dig in and see what exactly 'fetch 100 from log' is doing
+>>> on the master, and if I can speed it up. Is this querying sl_log_<1/2>
+>>> tables?
+>>>
+>>> the pg table pg_notify does not have outstanding dead rows, it's at 0.
+>>> also out of all the slony tables in the slony schema, the one with the
+>>> most dead rows is at about 2K dead rows.
+>>>
+>>> sl_log_1 has 0 rows, sl_log_2 has about 9,326,260 rows (and zero dead rows).
+>>>
+>>> I'm going to see if we can reduce group size, see if for whatever reason
+>>> that reduces the query result set so it does a index scan vs sequential
+>>> (if that's even the issue).
+>>>
+>>> Any help is greatly appreciated.
+>>>
+>>> - Brian F
+>>> _______________________________________________
+>>> Slony1-general mailing list
+>>> Slony1-general at lists.slony.info
+>>> http://lists.slony.info/mailman/listinfo/slony1-general
+>>
+>>
+>>
+>> _______________________________________________
+>> Slony1-general mailing list
+>> Slony1-general at lists.slony.info
+>> http://lists.slony.info/mailman/listinfo/slony1-general
+>
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20120907/ff466aef/attachment.htm 
+
