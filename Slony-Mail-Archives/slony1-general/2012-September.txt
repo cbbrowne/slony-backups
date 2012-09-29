@@ -1157,3 +1157,637 @@ Jan
 Anyone who trades liberty for security deserves neither
 liberty nor security. -- Benjamin Franklin
 
+From nicolas.gineau at productys.com  Wed Sep 26 06:53:18 2012
+From: nicolas.gineau at productys.com (nicogineau)
+Date: Wed, 26 Sep 2012 06:53:18 -0700 (PDT)
+Subject: [Slony1-general] Slony replication between two database (server and
+ workshop) sometimes not fired
+Message-ID: <34482368.post@talk.nabble.com>
+
+
+Hello everyone,
+
+I have a worry concerning the replication between a Workshop database and a
+Server database with for example a A table, replicated in the sense Server
+--> Workshop and a B table replicated in the sense Workshop --> Server.
+The replication works fine except in the following case:
+- Modification of a field of the A table on the Server,
+- Replication of the modification of the field of the A table on the
+Workshop database --> OK,
+- Fire of a trigger on modification, which updates a field of the B table on
+the Workshop --> OK,
+- Here is my problem: the modification of the field of the B table on the
+Workshop is not replicated on the Server.
+However, if I directly modify the field of the A table on the Workshop (not
+on the Server), the trigger updates well the field of the B table, and this
+modification is well replicated on the B table of the Server.
+
+There should be something somewhere to configure to authorize the
+modifications from the Workshop to be replicated on the Server???
+
+For information, I use Windows 7 with Postgres V9.0 and Slony-I V2.0.4-1.
+
+Cordially
+
+(Apologies for my possible English mistakes)
+-- 
+View this message in context: http://old.nabble.com/Slony-replication-between-two-database-%28server-and-workshop%29-sometimes-not-fired-tp34482368p34482368.html
+Sent from the Slony-I -- General mailing list archive at Nabble.com.
+
+
+From brianf at consistentstate.com  Thu Sep 27 11:34:16 2012
+From: brianf at consistentstate.com (Brian Fehrle)
+Date: Thu, 27 Sep 2012 12:34:16 -0600
+Subject: [Slony1-general] Issue when adding node to replication
+Message-ID: <50649C28.2010002@consistentstate.com>
+
+Hi all,
+
+PostgreSQL v 9.1.5 - 9.1.6
+Slony version 2.1.0
+
+I'm having an issue that's occurred twice now. I have 4 node slony 
+cluster, and one of the operations is to drop a node from replication, 
+do maintenance on it, then add it back to replication.
+
+Node 1 = master
+Node 2 = slave
+Node 3 = slave  -> dropped then readded
+Node 4 = slave
+
+I dropped node 2 from replication, then a while later added it back. I 
+have my own set of scripts that add it to replication all automatically. 
+They have been used dozens of times over the past few months without 
+issue. But recently, I've had the issue where after adding back the node 
+(in this example, node 3), node 4 suddenly stops syncing. I've attached 
+a snip of the log for node 4 in this email. The main thing I'm seeing is 
+this:
+
+Node 4 (the one that stopped syncing) was proccessing the following SYNC 
+events
+5000030355
+5000030357
+5000030358
+5000030359
+
+Then at this point it receives the event recognizing the new node 
+addition to the slony cluster.
+
+then we have the error where it's attempting to insert the event 
+5000000032 (see log attached).
+
+Are these sequential event id's supposed to be related?
+
+I looked at the sl_event on the node 4 box that's erroring, and did the 
+following query:
+
+select now() -  ev_timestamp, ev_seqno from _slony.sl_event where 
+ev_origin = 4 order by 1;
+(how long ago was this event
+     ?column?     |  ev_seqno
+-----------------+------------
+  01:48:30.7277   | 5000000031
+  01:48:40.731095 | 5000000030
+  01:48:50.734454 | 5000000029
+  01:49:00.735438 | 5000000028
+  01:49:10.728117 | 5000000027
+  01:49:20.731387 | 5000000026
+  01:49:30.734199 | 5000000025
+  01:49:40.726768 | 5000000024
+  01:49:50.730152 | 5000000023
+  01:50:00.732747 | 5000000022
+  01:50:10.736126 | 5000000021
+  01:50:20.737394 | 5000000020
+  01:50:30.733839 | 5000000019
+  01:50:40.736928 | 5000000018
+  01:50:50.739931 | 5000000017
+  01:51:00.742365 | 5000000016
+  01:51:10.745724 | 5000000015
+  01:51:20.748913 | 5000000014
+  01:51:30.751388 | 5000000013
+  01:51:40.754439 | 5000000012
+  01:51:50.757796 | 5000000011
+  01:52:00.760079 | 5000000010
+  01:52:10.763595 | 5000000009
+  01:52:20.762106 | 5000000008
+  01:52:30.764838 | 5000000007
+  01:52:40.768154 | 5000000006
+  01:52:50.771847 | 5000000005
+  01:53:00.775925 | 5000000004
+  01:53:38.2839   | 5000000003
+  01:53:38.422047 | 5000000002
+  01:53:38.435689 | 5000000001
+  01:55:29.173397 | 5000000032
+
+NOTE: At the moment I took this snapshot, the st_lag_time for this node 
+was '01:55:28.411043', which falls between the last two timestamps above.
+
+What strikes me as 'interesting' is that 5000000032 (the one it's 
+erroring on) happened way before the rest of them timestamp wise. So I'm 
+thinking that perhaps it was leftover from the previous 'node' before I 
+dropped it, and it was never cleaned up?
+
+The last time this happened, I deleted that offending row myself 
+(desperate, i know to usually never touch the slony schema data), and it 
+actually did completely break slony replication. It's a smaller set so 
+wasn't too hard to set up again from scratch.
+
+So I'm going to do some testing to see if it's due to lack of cleanup, 
+but thought I'd throw this out there. Is there anything else that could 
+possibly cause this?
+
+thanks in advance,
+- Brian F
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20120927/e4ac6750/attachment.htm 
+-------------- next part --------------
+An embedded and charset-unspecified text was scrubbed...
+Name: temp.db8.log
+Url: http://lists.slony.info/pipermail/slony1-general/attachments/20120927/e4ac6750/attachment.txt 
+
+From JanWieck at Yahoo.com  Thu Sep 27 12:26:17 2012
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Thu, 27 Sep 2012 15:26:17 -0400
+Subject: [Slony1-general] Issue when adding node to replication
+In-Reply-To: <50649C28.2010002@consistentstate.com>
+References: <50649C28.2010002@consistentstate.com>
+Message-ID: <5064A859.9030606@Yahoo.com>
+
+On 9/27/2012 2:34 PM, Brian Fehrle wrote:
+> Hi all,
+>
+> PostgreSQL v 9.1.5 - 9.1.6
+> Slony version 2.1.0
+>
+> I'm having an issue that's occurred twice now. I have 4 node slony
+> cluster, and one of the operations is to drop a node from replication,
+> do maintenance on it, then add it back to replication.
+>
+> Node 1 = master
+> Node 2 = slave
+> Node 3 = slave  -> dropped then readded
+> Node 4 = slave
+
+First, why is the node actually dropped and readded so fast, instead of 
+just doing the maintenance while it falls behind, then let it catch up?
+
+You apparently have a full blown path network from everyone to everyone. 
+This is not good under normal circumstances since the automatic listen 
+generation will cause every node to listen on every other node for 
+events, from non-origins. Way too many useless database connections.
+
+What seems to happen here are some race conditions. The node is dropped 
+and when it is added back again, some third node still didn't process 
+the DROP NODE and when node 4 looks for events from node 3, it finds old 
+ones somewhere else (like on 1 or 2). When node 3 then comes around to 
+use those event IDs again, you get the dupkey error.
+
+What you could do if you really need to drop/readd it, use an explicit 
+WAIT FOR EVENT for the DROP NODE to make sure all traces of that node 
+are gone from the whole cluster.
+
+
+Jan
+
+-- 
+Anyone who trades liberty for security deserves neither
+liberty nor security. -- Benjamin Franklin
+
+From brianf at consistentstate.com  Thu Sep 27 12:28:48 2012
+From: brianf at consistentstate.com (Brian Fehrle)
+Date: Thu, 27 Sep 2012 13:28:48 -0600
+Subject: [Slony1-general] Issue when adding node to replication
+In-Reply-To: <5064A859.9030606@Yahoo.com>
+References: <50649C28.2010002@consistentstate.com> <5064A859.9030606@Yahoo.com>
+Message-ID: <5064A8F0.9080801@consistentstate.com>
+
+On 09/27/2012 01:26 PM, Jan Wieck wrote:
+> On 9/27/2012 2:34 PM, Brian Fehrle wrote:
+>> Hi all,
+>>
+>> PostgreSQL v 9.1.5 - 9.1.6
+>> Slony version 2.1.0
+>>
+>> I'm having an issue that's occurred twice now. I have 4 node slony
+>> cluster, and one of the operations is to drop a node from replication,
+>> do maintenance on it, then add it back to replication.
+>>
+>> Node 1 = master
+>> Node 2 = slave
+>> Node 3 = slave  -> dropped then readded
+>> Node 4 = slave
+>
+> First, why is the node actually dropped and readded so fast, instead 
+> of just doing the maintenance while it falls behind, then let it catch 
+> up?
+>
+We have several cases where it makes sense, such as re-installing the OS 
+or in todays case, we replaced the physical machine with a new one.
+
+> You apparently have a full blown path network from everyone to 
+> everyone. This is not good under normal circumstances since the 
+> automatic listen generation will cause every node to listen on every 
+> other node for events, from non-origins. Way too many useless database 
+> connections.
+ From my understanding, without this set-up, all events must then be 
+passed through the master node to relay it. So master node = 1, slave = 
+2 and 3, 3 must communicate with 2, and without direct access it will 
+relay through the master. Is this understanding wrong?
+
+>
+> What seems to happen here are some race conditions. The node is 
+> dropped and when it is added back again, some third node still didn't 
+> process the DROP NODE and when node 4 looks for events from node 3, it 
+> finds old ones somewhere else (like on 1 or 2). When node 3 then comes 
+> around to use those event IDs again, you get the dupkey error.
+>
+> What you could do if you really need to drop/readd it, use an explicit 
+> WAIT FOR EVENT for the DROP NODE to make sure all traces of that node 
+> are gone from the whole cluster.
+>
+Ok, I'll look into implementing that. Another thought was to issue a 
+cleanupEvent() on each of the nodes still attached to replication after 
+I do the dump.
+
+Thanks
+- Brian F
+>
+> Jan
+>
+
+
+From brianf at consistentstate.com  Thu Sep 27 12:58:00 2012
+From: brianf at consistentstate.com (Brian Fehrle)
+Date: Thu, 27 Sep 2012 13:58:00 -0600
+Subject: [Slony1-general] Issue when adding node to replication
+In-Reply-To: <5064A8F0.9080801@consistentstate.com>
+References: <50649C28.2010002@consistentstate.com> <5064A859.9030606@Yahoo.com>
+	<5064A8F0.9080801@consistentstate.com>
+Message-ID: <5064AFC8.6080105@consistentstate.com>
+
+Follow up:
+
+I executed this on the master:
+mydatabase=# select * from _slony.sl_event where ev_origin not in 
+(select no_id from _slony.sl_node);
+  ev_origin |  ev_seqno  |         ev_timestamp          |    
+ev_snapshot     | ev_type | ev_data1 | ev_data2 | ev_data3 | ev_data4 | 
+ev_data5 | ev_data6 | ev_data7 | ev_data8
+-----------+------------+-------------------------------+--------------------+---------+----------+----------+----------+----------+----------+----------+----------+----------
+          3 | 5000290161 | 2012-09-27 09:48:03.749424-04 | 
+40580084:40580084: | SYNC    |          |          |          |          
+|          |          |          |
+(1 row)
+
+There is a row in sl_event that shouldn't be there, because it's 
+referencing a node that nolonger exists. I need to add this node back to 
+replication, but I don't want to run into the same issue as before. I 
+ran a cleanupEvent('10 minute') and it did nothing (even did it with 0 
+minutes).
+
+Will this row eventually go away? will it cause issue if we attempt to 
+add a new node to replication with node = 3? How can I safely clean this up?
+
+thanks,
+- Brian F
+
+On 09/27/2012 01:28 PM, Brian Fehrle wrote:
+> On 09/27/2012 01:26 PM, Jan Wieck wrote:
+>> On 9/27/2012 2:34 PM, Brian Fehrle wrote:
+>>> Hi all,
+>>>
+>>> PostgreSQL v 9.1.5 - 9.1.6
+>>> Slony version 2.1.0
+>>>
+>>> I'm having an issue that's occurred twice now. I have 4 node slony
+>>> cluster, and one of the operations is to drop a node from replication,
+>>> do maintenance on it, then add it back to replication.
+>>>
+>>> Node 1 = master
+>>> Node 2 = slave
+>>> Node 3 = slave  ->  dropped then readded
+>>> Node 4 = slave
+>> First, why is the node actually dropped and readded so fast, instead
+>> of just doing the maintenance while it falls behind, then let it catch
+>> up?
+>>
+> We have several cases where it makes sense, such as re-installing the OS
+> or in todays case, we replaced the physical machine with a new one.
+>
+>> You apparently have a full blown path network from everyone to
+>> everyone. This is not good under normal circumstances since the
+>> automatic listen generation will cause every node to listen on every
+>> other node for events, from non-origins. Way too many useless database
+>> connections.
+>    From my understanding, without this set-up, all events must then be
+> passed through the master node to relay it. So master node = 1, slave =
+> 2 and 3, 3 must communicate with 2, and without direct access it will
+> relay through the master. Is this understanding wrong?
+>
+>> What seems to happen here are some race conditions. The node is
+>> dropped and when it is added back again, some third node still didn't
+>> process the DROP NODE and when node 4 looks for events from node 3, it
+>> finds old ones somewhere else (like on 1 or 2). When node 3 then comes
+>> around to use those event IDs again, you get the dupkey error.
+>>
+>> What you could do if you really need to drop/readd it, use an explicit
+>> WAIT FOR EVENT for the DROP NODE to make sure all traces of that node
+>> are gone from the whole cluster.
+>>
+> Ok, I'll look into implementing that. Another thought was to issue a
+> cleanupEvent() on each of the nodes still attached to replication after
+> I do the dump.
+>
+> Thanks
+> - Brian F
+>> Jan
+>>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20120927/100d8e0c/attachment.htm 
+
+From JanWieck at Yahoo.com  Thu Sep 27 14:26:31 2012
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Thu, 27 Sep 2012 17:26:31 -0400
+Subject: [Slony1-general] Issue when adding node to replication
+In-Reply-To: <5064AFC8.6080105@consistentstate.com>
+References: <50649C28.2010002@consistentstate.com> <5064A859.9030606@Yahoo.com>
+	<5064A8F0.9080801@consistentstate.com>
+	<5064AFC8.6080105@consistentstate.com>
+Message-ID: <5064C487.6040709@Yahoo.com>
+
+On 9/27/2012 3:58 PM, Brian Fehrle wrote:
+> Follow up:
+>
+> I executed this on the master:
+> mydatabase=# select * from _slony.sl_event where ev_origin not in
+> (select no_id from _slony.sl_node);
+>   ev_origin |  ev_seqno  | ev_timestamp          |    ev_snapshot     |
+> ev_type | ev_data1 | ev_data2 | ev_data3 | ev_data4 | ev_data5 |
+> ev_data6 | ev_data7 | ev_data8
+> -----------+------------+-------------------------------+--------------------+---------+----------+----------+----------+----------+----------+----------+----------+----------
+>           3 | 5000290161 | 2012-09-27 09:48:03.749424-04 |
+> 40580084:40580084: | SYNC    |          |          | |
+> |          |          |          |
+> (1 row)
+>
+> There is a row in sl_event that shouldn't be there, because it's
+> referencing a node that nolonger exists. I need to add this node back to
+> replication, but I don't want to run into the same issue as before. I
+> ran a cleanupEvent('10 minute') and it did nothing (even did it with 0
+> minutes).
+>
+> Will this row eventually go away? will it cause issue if we attempt to
+> add a new node to replication with node = 3? How can I safely clean this up?
+
+Hmmm,
+
+this actually looks like a more severe race condition or even a bug.
+
+The thing is that processing the DROP NODE and replicating the SYNC are 
+different worker threads, since the events originate on different nodes. 
+Cleaning out the sl_event is part of dropNode_int(). But the 
+remoteWorker for 3 may just have inserted that SYNC concurrently and 
+therefore it was left behind.
+
+My guess is that the right solution to this is to clean out everything 
+again when a STORE NODE comes along. We had been thinking of making the 
+node ID non-reusable to prevent this sort of race conditions.
+
+
+Jan
+
+-- 
+Anyone who trades liberty for security deserves neither
+liberty nor security. -- Benjamin Franklin
+
+From cbbrowne at afilias.info  Thu Sep 27 14:30:47 2012
+From: cbbrowne at afilias.info (Christopher Browne)
+Date: Thu, 27 Sep 2012 17:30:47 -0400
+Subject: [Slony1-general] Issue when adding node to replication
+In-Reply-To: <5064C487.6040709@Yahoo.com>
+References: <50649C28.2010002@consistentstate.com> <5064A859.9030606@Yahoo.com>
+	<5064A8F0.9080801@consistentstate.com>
+	<5064AFC8.6080105@consistentstate.com> <5064C487.6040709@Yahoo.com>
+Message-ID: <CANfbgba9=ijsAtDbhkNC4xSck3HF2MR02KBfFT5QmEnXCoUU9w@mail.gmail.com>
+
+On Thu, Sep 27, 2012 at 5:26 PM, Jan Wieck <JanWieck at yahoo.com> wrote:
+> My guess is that the right solution to this is to clean out everything
+> again when a STORE NODE comes along. We had been thinking of making the
+> node ID non-reusable to prevent this sort of race conditions.
+
+I'm not sure I'm totally comfortable with cleaning it all out
+instantly; as a step towards that, I'd think it a good idea for slonik
+to check all the nodes for existence of a node ID, and refuse if it's
+found anywhere.
+
+Under that circumstance, you might need to wait, to run the STORE
+NODE, until the cleanup thread has run on all the nodes to expunge the
+last bits of the node on all nodes' databases.
+
+Smells a bit safer to me...
+
+From JanWieck at Yahoo.com  Thu Sep 27 14:40:46 2012
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Thu, 27 Sep 2012 17:40:46 -0400
+Subject: [Slony1-general] Issue when adding node to replication
+In-Reply-To: <CANfbgba9=ijsAtDbhkNC4xSck3HF2MR02KBfFT5QmEnXCoUU9w@mail.gmail.com>
+References: <50649C28.2010002@consistentstate.com> <5064A859.9030606@Yahoo.com>
+	<5064A8F0.9080801@consistentstate.com>
+	<5064AFC8.6080105@consistentstate.com> <5064C487.6040709@Yahoo.com>
+	<CANfbgba9=ijsAtDbhkNC4xSck3HF2MR02KBfFT5QmEnXCoUU9w@mail.gmail.com>
+Message-ID: <5064C7DE.8050402@Yahoo.com>
+
+On 9/27/2012 5:30 PM, Christopher Browne wrote:
+> On Thu, Sep 27, 2012 at 5:26 PM, Jan Wieck <JanWieck at yahoo.com> wrote:
+>> My guess is that the right solution to this is to clean out everything
+>> again when a STORE NODE comes along. We had been thinking of making the
+>> node ID non-reusable to prevent this sort of race conditions.
+>
+> I'm not sure I'm totally comfortable with cleaning it all out
+> instantly; as a step towards that, I'd think it a good idea for slonik
+> to check all the nodes for existence of a node ID, and refuse if it's
+> found anywhere.
+>
+> Under that circumstance, you might need to wait, to run the STORE
+> NODE, until the cleanup thread has run on all the nodes to expunge the
+> last bits of the node on all nodes' databases.
+>
+> Smells a bit safer to me...
+>
+
+Check cleanupEvent(). I think it will never remove that stale event.
+
+
+Jan
+
+-- 
+Anyone who trades liberty for security deserves neither
+liberty nor security. -- Benjamin Franklin
+
+From brianf at consistentstate.com  Thu Sep 27 15:48:30 2012
+From: brianf at consistentstate.com (Brian Fehrle)
+Date: Thu, 27 Sep 2012 16:48:30 -0600
+Subject: [Slony1-general] Issue when adding node to replication
+In-Reply-To: <5064C7DE.8050402@Yahoo.com>
+References: <50649C28.2010002@consistentstate.com> <5064A859.9030606@Yahoo.com>
+	<5064A8F0.9080801@consistentstate.com>
+	<5064AFC8.6080105@consistentstate.com> <5064C487.6040709@Yahoo.com>
+	<CANfbgba9=ijsAtDbhkNC4xSck3HF2MR02KBfFT5QmEnXCoUU9w@mail.gmail.com>
+	<5064C7DE.8050402@Yahoo.com>
+Message-ID: <5064D7BE.4080201@consistentstate.com>
+
+On 09/27/2012 03:40 PM, Jan Wieck wrote:
+> On 9/27/2012 5:30 PM, Christopher Browne wrote:
+>> On Thu, Sep 27, 2012 at 5:26 PM, Jan Wieck <JanWieck at yahoo.com> wrote:
+>>> My guess is that the right solution to this is to clean out everything
+>>> again when a STORE NODE comes along. We had been thinking of making the
+>>> node ID non-reusable to prevent this sort of race conditions.
+>>
+>> I'm not sure I'm totally comfortable with cleaning it all out
+>> instantly; as a step towards that, I'd think it a good idea for slonik
+>> to check all the nodes for existence of a node ID, and refuse if it's
+>> found anywhere.
+>>
+>> Under that circumstance, you might need to wait, to run the STORE
+>> NODE, until the cleanup thread has run on all the nodes to expunge the
+>> last bits of the node on all nodes' databases.
+>>
+>> Smells a bit safer to me...
+>>
+>
+> Check cleanupEvent(). I think it will never remove that stale event.
+>
+Yeah, it looks like it will only remove confirmed ones.
+
+--------------code from cleanupEvent()-----------------
+     -- ----
+     -- Then remove all events that are confirmed by all nodes in the
+     -- whole cluster up to the last SYNC
+     -- ----
+     for v_min_row in select con_origin, min(con_seqno) as con_seqno
+                 from sl_confirm
+                 group by con_origin
+     loop
+         select coalesce(max(ev_seqno), 0) into v_max_sync
+                 from sl_event
+                 where ev_origin = v_min_row.con_origin
+                 and ev_seqno <= v_min_row.con_seqno
+                 and ev_type = 'SYNC';
+         if v_max_sync > 0 then
+             delete from sl_event
+                     where ev_origin = v_min_row.con_origin
+                     and ev_seqno < v_max_sync;
+         end if;
+     end loop;
+
+the query that hits sl_confirm for the loop returns the following:
+  con_origin | con_seqn0
+------------+------------
+           1 | 5000242178
+           2 | 5000661718
+           4 | 5000060743
+
+So it never hits node 3 to do any delets from sl_event on node three. 
+This is the only place in cleanupEvent i believe will do any deletes 
+from sl_event.
+
+So should I try to delete this row myself, or would that cause major 
+issues also? I'm still wrapping my head around how sl_confirm and 
+sl_event work together when adding/removing nodes.
+
+- Brian F
+
+>
+> Jan
+>
+
+
+From JanWieck at Yahoo.com  Thu Sep 27 17:32:10 2012
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Thu, 27 Sep 2012 20:32:10 -0400
+Subject: [Slony1-general] Issue when adding node to replication
+In-Reply-To: <5064D7BE.4080201@consistentstate.com>
+References: <50649C28.2010002@consistentstate.com> <5064A859.9030606@Yahoo.com>
+	<5064A8F0.9080801@consistentstate.com>
+	<5064AFC8.6080105@consistentstate.com> <5064C487.6040709@Yahoo.com>
+	<CANfbgba9=ijsAtDbhkNC4xSck3HF2MR02KBfFT5QmEnXCoUU9w@mail.gmail.com>
+	<5064C7DE.8050402@Yahoo.com> <5064D7BE.4080201@consistentstate.com>
+Message-ID: <5064F00A.6080905@Yahoo.com>
+
+On 9/27/2012 6:48 PM, Brian Fehrle wrote:
+> On 09/27/2012 03:40 PM, Jan Wieck wrote:
+>> On 9/27/2012 5:30 PM, Christopher Browne wrote:
+>>> On Thu, Sep 27, 2012 at 5:26 PM, Jan Wieck <JanWieck at yahoo.com> wrote:
+>>>> My guess is that the right solution to this is to clean out everything
+>>>> again when a STORE NODE comes along. We had been thinking of making the
+>>>> node ID non-reusable to prevent this sort of race conditions.
+>>>
+>>> I'm not sure I'm totally comfortable with cleaning it all out
+>>> instantly; as a step towards that, I'd think it a good idea for slonik
+>>> to check all the nodes for existence of a node ID, and refuse if it's
+>>> found anywhere.
+>>>
+>>> Under that circumstance, you might need to wait, to run the STORE
+>>> NODE, until the cleanup thread has run on all the nodes to expunge the
+>>> last bits of the node on all nodes' databases.
+>>>
+>>> Smells a bit safer to me...
+>>>
+>>
+>> Check cleanupEvent(). I think it will never remove that stale event.
+>>
+> Yeah, it looks like it will only remove confirmed ones.
+>
+> --------------code from cleanupEvent()-----------------
+>       -- ----
+>       -- Then remove all events that are confirmed by all nodes in the
+>       -- whole cluster up to the last SYNC
+>       -- ----
+>       for v_min_row in select con_origin, min(con_seqno) as con_seqno
+>                   from sl_confirm
+>                   group by con_origin
+>       loop
+>           select coalesce(max(ev_seqno), 0) into v_max_sync
+>                   from sl_event
+>                   where ev_origin = v_min_row.con_origin
+>                   and ev_seqno <= v_min_row.con_seqno
+>                   and ev_type = 'SYNC';
+>           if v_max_sync > 0 then
+>               delete from sl_event
+>                       where ev_origin = v_min_row.con_origin
+>                       and ev_seqno < v_max_sync;
+>           end if;
+>       end loop;
+>
+> the query that hits sl_confirm for the loop returns the following:
+>    con_origin | con_seqn0
+> ------------+------------
+>             1 | 5000242178
+>             2 | 5000661718
+>             4 | 5000060743
+>
+> So it never hits node 3 to do any delets from sl_event on node three.
+> This is the only place in cleanupEvent i believe will do any deletes
+> from sl_event.
+>
+> So should I try to delete this row myself, or would that cause major
+> issues also? I'm still wrapping my head around how sl_confirm and
+> sl_event work together when adding/removing nodes.
+
+Since there isn't even a node 3 in sl_node, it is safe to delete that row.
+
+
+Jan
+
+-- 
+Anyone who trades liberty for security deserves neither
+liberty nor security. -- Benjamin Franklin
+
