@@ -1,0 +1,116 @@
+From vivek at khera.org  Mon Oct  1 07:26:32 2012
+From: vivek at khera.org (Vick Khera)
+Date: Mon, 1 Oct 2012 10:26:32 -0400
+Subject: [Slony1-general] Slony replication between two database (server
+ and workshop) sometimes not fired
+In-Reply-To: <34482368.post@talk.nabble.com>
+References: <34482368.post@talk.nabble.com>
+Message-ID: <CALd+dcfWvzj6riNjEXiMaoEY0LsznJa0EE6MPDonFUrQwNXHWA@mail.gmail.com>
+
+Slony disables triggers on replicated tables on all but the origin server.
+ Thus, table A on your workshop will not fire any triggers when it is
+updated. Also, it should be denying you to alter any rows in the table A on
+workshop.  How are you doing that?
+
+On Wed, Sep 26, 2012 at 9:53 AM, nicogineau <nicolas.gineau at productys.com>wrote:
+
+> - Fire of a trigger on modification, which updates a field of the B table
+> on
+> the Workshop --> OK,
+> - Here is my problem: the modification of the field of the B table on the
+> Workshop is not replicated on the Server.
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20121001/faadacf0/attachment.html 
+
+From ssinger at ca.afilias.info  Mon Oct  1 10:42:28 2012
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Mon, 01 Oct 2012 13:42:28 -0400
+Subject: [Slony1-general] Issue when adding node to replication
+In-Reply-To: <5065EF02.2010007@consistentstate.com>
+References: <50649C28.2010002@consistentstate.com> <5064A859.9030606@Yahoo.com>
+	<5064A8F0.9080801@consistentstate.com>
+	<5064AFC8.6080105@consistentstate.com>
+	<5064C487.6040709@Yahoo.com> <5065A2EA.3030606@ca.afilias.info>
+	<5065C0DF.60609@Yahoo.com> <5065C270.9090109@ca.afilias.info>
+	<5065EF02.2010007@consistentstate.com>
+Message-ID: <5069D604.5090100@ca.afilias.info>
+
+On 12-09-28 02:40 PM, Brian Fehrle wrote:
+
+> Is there anything I can provide that could help us dig into this more?
+> Are we counting this as a bug that may have been fixed in 2.2(haven't
+> looked at what you mentioned yet Steve)?
+
+My best guess is that this like the situation that Jan described where 
+one thread was processing/adding a SYNC from the dropped node at the 
+same time a different thread in the same slon was processing the DROP 
+NODE.
+
+My understanding is that the automatic WAIT FOR in 2.1 only waits for 
+non-sync events to propogate everywhere before starting with the DROP 
+NODE.  I *think* this has been fixed in 2.2 but 2.2 does need more testing.
+
+
+
+>
+> Thanks,
+> - Brian F
+>
+>>
+>>>
+>>> Jan
+>>>
+>>
+>
+
+
+From JanWieck at Yahoo.com  Mon Oct  1 12:36:30 2012
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Mon, 01 Oct 2012 15:36:30 -0400
+Subject: [Slony1-general] Issue when adding node to replication
+In-Reply-To: <5065EF02.2010007@consistentstate.com>
+References: <50649C28.2010002@consistentstate.com> <5064A859.9030606@Yahoo.com>
+	<5064A8F0.9080801@consistentstate.com>
+	<5064AFC8.6080105@consistentstate.com>
+	<5064C487.6040709@Yahoo.com> <5065A2EA.3030606@ca.afilias.info>
+	<5065C0DF.60609@Yahoo.com> <5065C270.9090109@ca.afilias.info>
+	<5065EF02.2010007@consistentstate.com>
+Message-ID: <5069F0BE.4060807@Yahoo.com>
+
+On 9/28/2012 2:40 PM, Brian Fehrle wrote:
+> I'm going to go ahead and delete the offending row in sl_event for the
+> node that doesn't exist. This is a production environment so I need to
+> get up and running again.
+
+Deleting a SYNC event of a non-origin node can never have any negative 
+side effects. They are noise that keeps sl_status looking good, but 
+that's really all they do.
+
+SYNC events from a set origin are a little different. A SYNC immediately 
+before an EXECUTE_SCRIPT event prior to 2.2 may be important. Other than 
+that, they don't matter that much either.
+
+When a node has fallen behind, it deliberately skips a number of SYNC 
+events, a feature we call sync-grouping, to catch up in larger leaps. 
+There is no difference at all between slon grouping SYNC events and some 
+SYNC event rows missing in sl_event. Absolutely zero difference.
+
+The difference for the SYNC event from a set origin in front of an 
+EXECUTE_SCRIPT is because that DDL may add a column to a table. That 
+SYNC event was supposed to make sure that the column exists on a 
+subscriber when the first data containing that column appeared in 
+sl_log_N. That all changed in 2.2 as well, where DDL from script 
+execution now travels within sl_log_N too, so as of 2.2 you can simply 
+delete all SYNC events from sl_event if you feel like. Slon will 
+generate another SYNC soon and the processing of that will just leap the 
+receivers to that state.
+
+
+Jan
+
+-- 
+Anyone who trades liberty for security deserves neither
+liberty nor security. -- Benjamin Franklin
+
