@@ -1080,3 +1080,98 @@ If your using the altperl tools you can look at slonik_create_set, slonik_subscr
 
 
 
+From ssinger at ca.afilias.info  Sat Oct  6 07:09:42 2012
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Sat, 06 Oct 2012 10:09:42 -0400
+Subject: [Slony1-general] offline log shipping errors
+In-Reply-To: <F024DCE3402750409CD407C414C07E1A8CE176@BY2PRD0811MB404.namprd08.prod.outlook.com>
+References: <F024DCE3402750409CD407C414C07E1A8C3D6E@BY2PRD0811MB404.namprd08.prod.outlook.com>
+	<506DDD31.20507@ca.afilias.info>
+	<F024DCE3402750409CD407C414C07E1A8C3FEB@BY2PRD0811MB404.namprd08.prod.outlook.com>
+	<F024DCE3402750409CD407C414C07E1A8C40CC@BY2PRD0811MB404.namprd08.prod.outlook.com>
+	<506E0205.5020905@ca.afilias.info>
+	<F024DCE3402750409CD407C414C07E1A8CAFF8@BY2PRD0811MB404.namprd08.prod.outlook.com>
+	<506EE2C7.9030204@ca.afilias.info>
+	<F024DCE3402750409CD407C414C07E1A8CE176@BY2PRD0811MB404.namprd08.prod.outlook.com>
+Message-ID: <50703BA6.2050304@ca.afilias.info>
+
+On 12-10-05 02:46 PM, Mike James wrote:
+> Newbie alert...  Ok, I'm following the online docs (http://slony.info/documentation/2.0/logshipping.html#AEN1572). I started the subscriber slon with the -a option. I ran the slony1_dump.sh script and captured the output to a file. Copied the file to the remote server.
+>
+> So, my next steps are:
+> 1. stop slon on the remote server, which is out-of-sync anyway.
+
+I'm a bit confused again.   Which server is your 'remote' server, you 
+previously were talking about a master server, a slave server and an 
+offline node.
+
+The slave server that is running the slon instance with '-a' is part of 
+your replication set and should be up-to-date.
+
+> 2. do I need to drop the out-of-sync database from the remote server?
+
+
+I don't think you need to drop the database from the offline/log 
+shipping target node.  If you run the slony1_dump.sh script the output 
+it generates should truncate all the tables in the offine databsae and 
+re-seed them.
+
+
+
+> 3. what psql commandline do I need to run on the remote server? I realize this is pretty basic, but as noted, I'm not the DBA. He's on vacation this week. :(
+> 4. If I then restart slon on the remote server, will it catch up?
+>
+
+If you restart the slon node on the slave server it should catch up, you 
+shouldn't need to run any extra psql commands.
+
+
+You then what to run slony1_dump.sh against the slave database and 
+capture redirect the output of that to psql.
+
+I *think* something like
+slony1_dump.sh mydbname myclustername | psql -h offline_host_name mydbname
+
+is what you want.  You would then resume the logshipping apply daemon.
+
+
+
+> Thanks for your patience!
+> Mike
+>
+>
+> -----Original Message-----
+> From: Steve Singer [mailto:ssinger at ca.afilias.info]
+> Sent: Friday, October 05, 2012 9:38 AM
+> To: Mike James
+> Cc: slony1-general at lists.slony.info
+> Subject: Re: [Slony1-general] offline log shipping errors
+>
+> On 12-10-05 08:37 AM, Mike James wrote:
+>> Here's what the DBA did as I understand it. This is his procedure for changing the replication set. Slony version is slony1-2.0.3-rc. Postgres 8.3.9 on the Master. I might be mis-using some of the terminology, as I'm not a DBA and this is my 1st foray with slony.
+>> 1. Kill the slon running on the master and slave. Leave the slon on the remote host running.
+>> 2. he uses PGAdmin to remove the slony schema (slony replication cluster) from Master and Slave.
+>> 3. regenerate the set records using a shell script on the Master.
+>> 4. use slonik to initialize the cluster with the set records from above on Master and Slave.
+>> 5. start the slon on the Master.
+>> 6. start the slon on the Slave with -a option.
+>> 7. use slonik to subscribe the Slave to the Master.
+>>
+>> On the remote postgres server, the value of at_counter in the _cluster1.sl_archive_tracking table is 338005. But it looks like the new logs being shipped started over at sequence number 1.
+>>
+>> Does that description make sense? This can't be the optimal way to add a table to the replication set!
+>>
+> What you describe makes perfect sense.  Step 2, removing the slony schema uninstalls slony from both the master and the slave.  When you reinstall slony with step 4 you are creating a new slony cluster.  The offline node isn't in sync with the new cluster it was sync'd with the old one.  You will need to rebuild your offline node with slony1_dump.sh
+>
+> The proper way to add tables to a replication set is described here http://www.slony.info/documentation/2.0/administration.html#ADDTHINGS
+>
+> If your using the altperl tools you can look at slonik_create_set, slonik_subscribe_set and slonik_merge_sets
+>
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+>
+
+
