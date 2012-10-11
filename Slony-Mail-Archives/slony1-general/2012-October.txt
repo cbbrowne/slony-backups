@@ -1276,3 +1276,100 @@ is what you want.  You would then resume the logshipping apply daemon.
 
 
 
+From nyamada at millburncorp.com  Thu Oct  4 11:47:12 2012
+From: nyamada at millburncorp.com (Norman Yamada)
+Date: Thu, 4 Oct 2012 14:47:12 -0400
+Subject: [Slony1-general] pg_reorg and reorganizing tables in slony cluster
+Message-ID: <434FA33C-7A0B-4B85-92D6-44533C19B163@millburncorp.com>
+
+Dear all -- I've discovered a problem using pg_reorg 1.1.7 with Slony versions 2.0 and/or 2.1. 
+
+If you run a reorg on a table that is part of a slony slave set while there is write activity on the master node, pg_reorg will silently drop changes committed by slony to the slave node during the reorganization.
+
+The problem is that the z_reorg_trigger doesn't fire on the changes that slony commits to the slave table, because slony has a session_replication_role on the slave of REPLICA. 
+
+To get around this, after the z_reorg_trigger is created on a table, you have to run the command
+
+ALTER TABLE [table_name] ENABLE ALWAYS TRIGGER z_reorg_trigger. Then the log table will capture changes pushed by Slony (or other trigger-based replication programs) during the time of reorganizing the table.
+
+This is a subtle problem, because pg_reorg works fine with reorganizing tables on the _master_ node of a slony set, but it will drop changes on the slave nodes silently.
+
+If I have time, I'll try to write at least a rough patch for pg_reorg to fix this, but I'm hoping that both the pg_reorg and slony community can be aware of this problem. Until it's fixed, best practice would be to stop slony while reorganizing tables on a slave node.
+
+Best,
+
+Norman Yamada
+
+(Cross-posted to reorg_general at pgfoundry.org)
+
+From rroblak at gmail.com  Tue Oct  9 16:57:49 2012
+From: rroblak at gmail.com (Ryan Oblak)
+Date: Tue, 9 Oct 2012 16:57:49 -0700
+Subject: [Slony1-general] Staging/reporting replication
+Message-ID: <CA+W5Wuccg5_+sEU0hd7UzLSEukUTo5ZczuoiSFt-Lq4aiWpThA@mail.gmail.com>
+
+Hi,
+
+I'd like to replicate my production database to 2 separate Postgres
+instances --- one for reporting and one for staging. The main requirement
+is that the data needs be current up to the state of the production db the
+day before.
+
+
+From glynastill at yahoo.co.uk  Wed Oct 10 02:02:52 2012
+From: glynastill at yahoo.co.uk (Glyn Astill)
+Date: Wed, 10 Oct 2012 10:02:52 +0100 (BST)
+Subject: [Slony1-general] Staging/reporting replication
+In-Reply-To: <CA+W5Wuccg5_+sEU0hd7UzLSEukUTo5ZczuoiSFt-Lq4aiWpThA@mail.gmail.com>
+References: <CA+W5Wuccg5_+sEU0hd7UzLSEukUTo5ZczuoiSFt-Lq4aiWpThA@mail.gmail.com>
+Message-ID: <1349859772.27374.YahooMailNeo@web133204.mail.ir2.yahoo.com>
+
+> From: Ryan Oblak <rroblak at gmail.com>
+>Subject: [Slony1-general] Staging/reporting replication
+> 
+>Hi,
+>
+>
+>I'd
+ like to replicate my production database to 2 separate Postgres 
+instances --- one for reporting and one for staging. The main 
+requirement is that the data needs be current up to the state of the 
+production db the day before.?
+>
+>
+>From what I've 
+read it seems like using an asynchronous replication solution (i.e. 
+slony) or just a simple pg_dump/pg_restore script would work. Ideally 
+I'd like to have as little additional load on the production server as 
+possible. Also, the production db is currently at 12GB (and growing 
+steadily), so I'm a bit concerned that doing a full pg_restore every day
+ might become infeasible at some point.
+>
+>
+>Any thoughts?
+>
+>
+>Thanks,
+>Ryan
+
+
+If
+ you want to have a slave lag behind you can pass the "lag_interval" 
+parameter to the slon, or set it in the slon.conf you're passing.? If 
+you needed the data to be a point in time you could probably do that 
+with slonys log shipping.? This would of course be a read only replica.
+
+I'd
+ guess a slony slave would be best for your reporting, but for a staging
+ environment you might want to just go with a dump and restore.
+
+Here
+ I've a couple of servers (old dell 1850s with md raid, hopefully to be 
+upgraded soon) that restore our latest backups daily in the early hours,
+ the database is 160Gb at present and it takes 4 hours including checks 
+to ensure the backups are good and a database wide vacuum analyse.? This
+ serves two purposes; to check the backups are viable and once done 
+provide a staging environment for our devs.
+
+Glyn
+
