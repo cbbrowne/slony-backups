@@ -1,0 +1,244 @@
+From mail at joeconway.com  Mon Oct 15 18:55:36 2012
+From: mail at joeconway.com (Joe Conway)
+Date: Mon, 15 Oct 2012 18:55:36 -0700
+Subject: [Slony1-hackers] Failover never completes
+Message-ID: <507CBE98.60503@joeconway.com>
+
+I have a client which is seeing something just like:
+  http://www.slony.info/bugzilla/show_bug.cgi?id=130
+which is a duplicate of
+  http://www.slony.info/bugzilla/show_bug.cgi?id=80
+The latter apparently was never fixed.
+
+The comments in the bug say:
+
+  "recommend not rushing to drop the node out of the
+   cluster until you actually get the failover completed.
+
+   As a first response, that's definitely what I'd
+   recommend.
+
+  When you drop it "too quickly," that introduces the
+  risk, which you ran into, that some later node gets
+  the DROP NODE event before receiving the FAILOVER
+  event."
+
+Here's what we do in a nutshell:
+-----------------------
+A == original master
+B == slave1
+C == new master
+D == slave2
+
+all commands run from C
+
+* switchover from A to B
+* clone A to make C
+* switchback from B to A
+* failover from A to C
+* drop A
+-----------------------
+
+This works fine 90% of the time (using some scripts to ensure we are
+doing it exactly the same each time).
+
+When we do the failover (which is run on/from C), slonik completes the
+failover "successfully" (at least no errors reported by slonik), but
+hours later (i.e. it is not a matter of not waiting long enough I think)
+the original master is still the set_origin in the slony catalog of the
+new master (this is on a test cluster with no activity). Consequently
+when we try to drop the old master it fails (which is probably a good
+thing since the failover was not really successful).
+
+ sl_path looks correct
+ sl_subscribe has an extra row marked active=false with
+   B as the provider (leftover from the switchback?)
+ sl_set still has set_origin pointing to A
+ sl_node still shows all 4 nodes as active=true
+
+So questions:
+1) Is bug 80 still open?
+2) Any plan to fix it or even ideas how to fix it?
+3) Anything obvious we are missing?
+4) Is there a better/more reliable way to get C stood
+   up as the new master without taking down the cluster
+   longer than the sequence above would do?
+
+Thanks,
+
+Joe
+
+-- 
+Joe Conway
+credativ LLC: http://www.credativ.us
+Linux, PostgreSQL, and general Open Source
+Training, Service, Consulting, & 24x7 Support
+
+
+From ssinger at ca.afilias.info  Mon Oct 15 19:49:44 2012
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Mon, 15 Oct 2012 22:49:44 -0400
+Subject: [Slony1-hackers] Failover never completes
+In-Reply-To: <507CBE98.60503@joeconway.com>
+References: <507CBE98.60503@joeconway.com>
+Message-ID: <507CCB48.10405@ca.afilias.info>
+
+On 12-10-15 09:55 PM, Joe Conway wrote:
+> I have a client which is seeing something just like:
+>    http://www.slony.info/bugzilla/show_bug.cgi?id=130
+> which is a duplicate of
+>    http://www.slony.info/bugzilla/show_bug.cgi?id=80
+> The latter apparently was never fixed.
+>
+> The comments in the bug say:
+>
+<snip>
+
+>
+> Here's what we do in a nutshell:
+> -----------------------
+> A == original master
+> B == slave1
+> C == new master
+> D == slave2
+>
+> all commands run from C
+>
+> * switchover from A to B
+> * clone A to make C
+> * switchback from B to A
+
+Do you make sure that all nodes have confirmed the switchback before 
+proceeding to the failover below?  If not it would be better if you did.
+
+
+> * failover from A to C
+> * drop A
+> -----------------------
+>
+> This works fine 90% of the time (using some scripts to ensure we are
+> doing it exactly the same each time).
+>
+> When we do the failover (which is run on/from C), slonik completes the
+> failover "successfully" (at least no errors reported by slonik), but
+> hours later (i.e. it is not a matter of not waiting long enough I think)
+> the original master is still the set_origin in the slony catalog of the
+> new master (this is on a test cluster with no activity). Consequently
+> when we try to drop the old master it fails (which is probably a good
+> thing since the failover was not really successful).
+>
+>   sl_path looks correct
+>   sl_subscribe has an extra row marked active=false with
+>     B as the provider (leftover from the switchback?)
+
+Exactly which version of slony are you using?   I assume this isn't bug 
+http://www.slony.info/bugzilla/show_bug.cgi?id=260 by any chance?
+
+>   sl_set still has set_origin pointing to A
+>   sl_node still shows all 4 nodes as active=true
+>
+> So questions:
+> 1) Is bug 80 still open?
+> 2) Any plan to fix it or even ideas how to fix it?
+
+I substantially rewrote a lot of the failover logic for 2.2 (grab master 
+from git).  One of the big things holding up a 2.2 release is that it 
+needs people other than myself to test it to verify that I haven't 
+missed something obvious and that the new behaviours are sane.
+
+A FAILOVER in 2.2 no longer involves that 'faked event' from the old 
+origin,  The changes in 2.2 also allow you to specify multiple failed 
+nodes as arguments to the FAILOVER command.  The hope is that it 
+addresses the issues Jan alludes to with multiple failed nodes.
+
+
+
+> 3) Anything obvious we are missing?
+> 4) Is there a better/more reliable way to get C stood
+>     up as the new master without taking down the cluster
+>     longer than the sequence above would do?
+>
+
+
+
+> Thanks,
+>
+> Joe
+>
+
+
+From mail at joeconway.com  Mon Oct 15 20:20:56 2012
+From: mail at joeconway.com (Joe Conway)
+Date: Mon, 15 Oct 2012 20:20:56 -0700
+Subject: [Slony1-hackers] Failover never completes
+In-Reply-To: <507CCB48.10405@ca.afilias.info>
+References: <507CBE98.60503@joeconway.com> <507CCB48.10405@ca.afilias.info>
+Message-ID: <507CD298.6080704@joeconway.com>
+
+On 10/15/2012 07:49 PM, Steve Singer wrote:
+>> all commands run from C
+>>
+>> * switchover from A to B
+>> * clone A to make C
+>> * switchback from B to A
+> 
+> Do you make sure that all nodes have confirmed the switchback before
+> proceeding to the failover below?  If not it would be better if you did.
+
+Yes -- in fact we wait for confirmation, and then do a sync on each node
+and wait for confirmation of those as well.
+
+>>   sl_path looks correct
+>>   sl_subscribe has an extra row marked active=false with
+>>     B as the provider (leftover from the switchback?)
+> 
+> Exactly which version of slony are you using?   I assume this isn't bug
+> http://www.slony.info/bugzilla/show_bug.cgi?id=260 by any chance?
+
+We are using 2.1.0. We tried upgrading to 2.1.2 but got stuck because we
+cannot have a mixed 2.1.0/2.1.2 cluster. We have constraints that do not
+allow for upgrade-in-place of existing nodes, which is why we want to
+add a new node and failover to it (to facilitate upgrades of components
+other than slony, e.g. postgres itself).
+
+I guess if you think this bug is our problem we can set up an entirely
+2.1.2 test environment, but it will be painful, and not solve all our
+problems as we have some 2.1.0 clusters that we eventually need to upgrade.
+
+Is bug 260 issue #2 deterministic or a race condition? Our current
+process works 9 out of 10 times...
+
+FWIW we only have one set so I don't think issue #1 applies.
+
+>>   sl_set still has set_origin pointing to A
+>>   sl_node still shows all 4 nodes as active=true
+>>
+>> So questions:
+>> 1) Is bug 80 still open?
+>> 2) Any plan to fix it or even ideas how to fix it?
+> 
+> I substantially rewrote a lot of the failover logic for 2.2 (grab master
+> from git).  One of the big things holding up a 2.2 release is that it
+> needs people other than myself to test it to verify that I haven't
+> missed something obvious and that the new behaviours are sane.
+> 
+> A FAILOVER in 2.2 no longer involves that 'faked event' from the old
+> origin,  The changes in 2.2 also allow you to specify multiple failed
+> nodes as arguments to the FAILOVER command.  The hope is that it
+> addresses the issues Jan alludes to with multiple failed nodes.
+
+Interesting, but even more difficult to test in our environment for
+reasons I cannot really go into on a public list.
+
+Thanks for the reply.
+
+Joe
+
+-- 
+Joe Conway
+credativ LLC: http://www.credativ.us
+Linux, PostgreSQL, and general Open Source
+Training, Service, Consulting, & 24x7 Support
+
+
+
