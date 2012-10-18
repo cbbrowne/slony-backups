@@ -242,3 +242,226 @@ Training, Service, Consulting, & 24x7 Support
 
 
 
+From ssinger at ca.afilias.info  Tue Oct 16 05:50:26 2012
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Tue, 16 Oct 2012 08:50:26 -0400
+Subject: [Slony1-hackers] Failover never completes
+In-Reply-To: <507CD298.6080704@joeconway.com>
+References: <507CBE98.60503@joeconway.com> <507CCB48.10405@ca.afilias.info>
+	<507CD298.6080704@joeconway.com>
+Message-ID: <507D5812.30009@ca.afilias.info>
+
+On 12-10-15 11:20 PM, Joe Conway wrote:
+> On 10/15/2012 07:49 PM, Steve Singer wrote:
+>>> all commands run from C
+>>>
+>>> * switchover from A to B
+>>> * clone A to make C
+>>> * switchback from B to A
+>>
+>> Do you make sure that all nodes have confirmed the switchback before
+>> proceeding to the failover below?  If not it would be better if you did.
+>
+> Yes -- in fact we wait for confirmation, and then do a sync on each node
+> and wait for confirmation of those as well.
+>
+>>>    sl_path looks correct
+>>>    sl_subscribe has an extra row marked active=false with
+>>>      B as the provider (leftover from the switchback?)
+>>
+>> Exactly which version of slony are you using?   I assume this isn't bug
+>> http://www.slony.info/bugzilla/show_bug.cgi?id=260 by any chance?
+>
+> We are using 2.1.0. We tried upgrading to 2.1.2 but got stuck because we
+> cannot have a mixed 2.1.0/2.1.2 cluster. We have constraints that do not
+> allow for upgrade-in-place of existing nodes, which is why we want to
+> add a new node and failover to it (to facilitate upgrades of components
+> other than slony, e.g. postgres itself).
+>
+
+So your
+1. Adding a new node
+2. Stopping the old node
+3. Running UPGRADE FUNCTIONS on the new node
+4. Starting up the new slon and running 'FAILOVER' ?
+
+
+
+> I guess if you think this bug is our problem we can set up an entirely
+> 2.1.2 test environment, but it will be painful, and not solve all our
+> problems as we have some 2.1.0 clusters that we eventually need to upgrade.
+>
+> Is bug 260 issue #2 deterministic or a race condition? Our current
+> process works 9 out of 10 times...
+>
+
+My recollection was that #260 usually tended to happen, but there are a 
+lot of other rare race conditions I had occasionally hit which lead to 
+the failover changes in 2.2
+
+Does your sl_listen table have any cycles in it, ie
+a-->b
+b--->a
+(or even cycles through a third node)
+
+Which nodes have processed the FAILVOVER_SET event?  Which (if any) 
+nodes have processed the ACCEPT_SET?   Which node is the 'most ahead 
+node', I think slonik reports this on stdout when it runs.   Are the 
+remoteWorkerThread_'A' threads running on the other nodes and what are 
+they doing?
+
+I'm asking these questions to try and get a sense of what the cluster 
+state is and where the problem might be.
+
+
+
+> FWIW we only have one set so I don't think issue #1 applies.
+>
+>>>    sl_set still has set_origin pointing to A
+>>>    sl_node still shows all 4 nodes as active=true
+>>>
+>>> So questions:
+>>> 1) Is bug 80 still open?
+>>> 2) Any plan to fix it or even ideas how to fix it?
+>>
+>> I substantially rewrote a lot of the failover logic for 2.2 (grab master
+>> from git).  One of the big things holding up a 2.2 release is that it
+>> needs people other than myself to test it to verify that I haven't
+>> missed something obvious and that the new behaviours are sane.
+>>
+>> A FAILOVER in 2.2 no longer involves that 'faked event' from the old
+>> origin,  The changes in 2.2 also allow you to specify multiple failed
+>> nodes as arguments to the FAILOVER command.  The hope is that it
+>> addresses the issues Jan alludes to with multiple failed nodes.
+>
+> Interesting, but even more difficult to test in our environment for
+> reasons I cannot really go into on a public list.
+>
+> Thanks for the reply.
+>
+> Joe
+>
+
+
+From mail at joeconway.com  Tue Oct 16 09:56:40 2012
+From: mail at joeconway.com (Joe Conway)
+Date: Tue, 16 Oct 2012 09:56:40 -0700
+Subject: [Slony1-hackers] Failover never completes
+In-Reply-To: <507D5812.30009@ca.afilias.info>
+References: <507CBE98.60503@joeconway.com> <507CCB48.10405@ca.afilias.info>
+	<507CD298.6080704@joeconway.com> <507D5812.30009@ca.afilias.info>
+Message-ID: <507D91C8.9060502@joeconway.com>
+
+On 10/16/2012 05:50 AM, Steve Singer wrote:
+> On 12-10-15 11:20 PM, Joe Conway wrote:
+>> We are using 2.1.0. We tried upgrading to 2.1.2 but got stuck because we
+>> cannot have a mixed 2.1.0/2.1.2 cluster. We have constraints that do not
+>> allow for upgrade-in-place of existing nodes, which is why we want to
+>> add a new node and failover to it (to facilitate upgrades of components
+>> other than slony, e.g. postgres itself).
+> 
+> So your
+> 1. Adding a new node
+> 2. Stopping the old node
+> 3. Running UPGRADE FUNCTIONS on the new node
+> 4. Starting up the new slon and running 'FAILOVER' ?
+
+No, as I understand it from
+  http://slony.info/documentation/slonyupgrade.html
+we would need to:
+
+  1) Stop the slon processes on all nodes. (e.g. - old
+     version of slon)
+  2) Install the new version of slon software on all
+     nodes.
+  3) Execute a slonik script containing the command
+     update functions (id = [whatever]); for each node
+     in the cluster.
+
+We are trying to avoid #1, and in any case cannot easily do #2 (no
+upgrade in place).
+
+At the moment we are testing with clusters that are all running 2.1.0.
+It is in this configuration where failover is failing.
+
+We *attempted* to run a mixed 2.1.0/2.1.2 cluster so that we could
+failover to the new version, but slon refused to start up in a mixed
+cluster.
+
+We could possibly test a cluster with all 2.1.2, which might be
+instructive, especially if it turns out that the problem we are running
+into is solved in 2.1.2. However we would still have the challenge of
+getting from existing 2.1.0 clusters to 2.1.2 clusters without excessive
+downtime.
+
+>> Is bug 260 issue #2 deterministic or a race condition? Our current
+>> process works 9 out of 10 times...
+> 
+> My recollection was that #260 usually tended to happen, but there are a
+> lot of other rare race conditions I had occasionally hit which lead to
+> the failover changes in 2.2
+> 
+> Does your sl_listen table have any cycles in it, ie
+> a-->b
+> b--->a
+> (or even cycles through a third node)
+
+I assume you mean provider->receiver? If so, tons of cycles:
+A->C
+C->A
+
+C->B
+B->C
+
+C->D
+D->C
+
+A->B
+B->A
+
+...and more...
+
+
+> Which nodes have processed the FAILVOVER_SET event?  Which (if any)
+> nodes have processed the ACCEPT_SET?   Which node is the 'most ahead
+> node', I think slonik reports this on stdout when it runs.   Are the
+> remoteWorkerThread_'A' threads running on the other nodes and what are
+> they doing?
+
+I am not seeing any events in the slony tables now except SYNC events --
+does that mean slon has cleaned out the ones from yesterday when I ran
+into this?
+
+
+> I'm asking these questions to try and get a sense of what the cluster
+> state is and where the problem might be.
+
+
+Node D (slave2) has processed the failover and shows node C (new master)
+as the set origin. It also seems to have correct/expected rows in the
+other tables (based on comparison with a run that was successful).
+
+Node B (slave1) shows node A (original master) as the set origin.
+However sl_subscribe is correct (provider is C, B and D as the
+receivers, no extra rows), sl_path looks correct, sl_node looks correct.
+
+Node C (new master) shows node A (original master) as the set origin.
+sl_subscribe has two correct rows (provider is C, B and D as the
+receivers) and one extra row (provider B, subscriber C, active false).
+sl_path looks correct, sl_node looks correct.
+
+Node A (orig master) shows node A (original master) as the set origin.
+sl_subscribe has three incorrect rows (provider is A, B and D as the
+receivers; and provider B, subscriber C, active true). The sl_path table
+has "Event Pending" in the path rows for B->C and D->C.
+
+Joe
+
+
+-- 
+Joe Conway
+credativ LLC: http://www.credativ.us
+Linux, PostgreSQL, and general Open Source
+Training, Service, Consulting, & 24x7 Support
+
+
