@@ -465,3 +465,484 @@ Linux, PostgreSQL, and general Open Source
 Training, Service, Consulting, & 24x7 Support
 
 
+From ssinger at ca.afilias.info  Wed Oct 17 06:53:11 2012
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Wed, 17 Oct 2012 09:53:11 -0400
+Subject: [Slony1-hackers] Failover never completes
+In-Reply-To: <507D91C8.9060502@joeconway.com>
+References: <507CBE98.60503@joeconway.com> <507CCB48.10405@ca.afilias.info>
+	<507CD298.6080704@joeconway.com> <507D5812.30009@ca.afilias.info>
+	<507D91C8.9060502@joeconway.com>
+Message-ID: <507EB847.1060404@ca.afilias.info>
+
+On 12-10-16 12:56 PM, Joe Conway wrote:
+> On 10/16/2012 05:50 AM, Steve Singer wrote:
+>
+> No, as I understand it from
+>    http://slony.info/documentation/slonyupgrade.html
+> we would need to:
+>
+>    1) Stop the slon processes on all nodes. (e.g. - old
+>       version of slon)
+>    2) Install the new version of slon software on all
+>       nodes.
+>    3) Execute a slonik script containing the command
+>       update functions (id = [whatever]); for each node
+>       in the cluster.
+>
+> We are trying to avoid #1, and in any case cannot easily do #2 (no
+> upgrade in place).
+
+Yes that is the only way you can upgrade.
+
+>
+> At the moment we are testing with clusters that are all running 2.1.0.
+> It is in this configuration where failover is failing.
+>
+> We *attempted* to run a mixed 2.1.0/2.1.2 cluster so that we could
+> failover to the new version, but slon refused to start up in a mixed
+> cluster.
+>
+> We could possibly test a cluster with all 2.1.2, which might be
+> instructive, especially if it turns out that the problem we are running
+> into is solved in 2.1.2. However we would still have the challenge of
+> getting from existing 2.1.0 clusters to 2.1.2 clusters without excessive
+> downtime.
+>
+
+Yes this will be a challenge. The upgrade from 2.1.0 to 2.1.x is also a 
+lot easier than say the upgrade from 2.1.x to 2.2.x.  I don't have a 
+good solution for you if you can't shutdown the slons and do an inplace 
+UPDATE FUNCTIONS.  This shouldn't necessarily require you to shutdown 
+your application, but everyones application environment is different.
+
+>>> Is bug 260 issue #2 deterministic or a race condition? Our current
+>>> process works 9 out of 10 times...
+>>
+>> My recollection was that #260 usually tended to happen, but there are a
+>> lot of other rare race conditions I had occasionally hit which lead to
+>> the failover changes in 2.2
+>>
+>> Does your sl_listen table have any cycles in it, ie
+>> a-->b
+>> b--->a
+>> (or even cycles through a third node)
+>
+> I assume you mean provider->receiver? If so, tons of cycles:
+> A->C
+> C->A
+>
+
+I mean origin, provider, receiver cycles like
+1, 2,3
+1, 3,2
+
+2,2,3
+3,3,2
+
+is normal and isn't a cycle becaues they deal with the source for 
+different event origins.
+
+>
+> I am not seeing any events in the slony tables now except SYNC events --
+> does that mean slon has cleaned out the ones from yesterday when I ran
+> into this?
+>
+
+There is a race condition that I occasionally have seen in testing where 
+the nodes that you are 'simulating' the FAILOVER of generates say
+SYNC 1,1234 but when slonik runs this SYNC isn't YET visible on any of 
+the other nodes.  It is possible that after slonik picks the most ahead 
+node and generates the 'fake'
+FAILOVER 1,1234  on another node (say node 2). the real 1,1234 might 
+show up in sl_event on a third node.
+
+The nodes will think the failover event has been processed by other 
+nodes where they didn't process the FAILOVER event but instead processed 
+a SYNC event with the same number.
+
+My best advice to mitigate this is to shutdown the slon on the node you 
+are simulating the failover of and then wait a bit to make sure any 'in 
+flight' nodes get processed.  I tried to address this in a better in 2.2
+
+
+
+
+
+>
+> Node D (slave2) has processed the failover and shows node C (new master)
+> as the set origin. It also seems to have correct/expected rows in the
+> other tables (based on comparison with a run that was successful).
+>
+> Node B (slave1) shows node A (original master) as the set origin.
+> However sl_subscribe is correct (provider is C, B and D as the
+> receivers, no extra rows), sl_path looks correct, sl_node looks correct.
+>
+> Node C (new master) shows node A (original master) as the set origin.
+> sl_subscribe has two correct rows (provider is C, B and D as the
+> receivers) and one extra row (provider B, subscriber C, active false).
+> sl_path looks correct, sl_node looks correct.
+>
+> Node A (orig master) shows node A (original master) as the set origin.
+> sl_subscribe has three incorrect rows (provider is A, B and D as the
+> receivers; and provider B, subscriber C, active true). The sl_path table
+> has "Event Pending" in the path rows for B->C and D->C.
+>
+
+What about the ACCEPT_SET ? I suspect it hasn't been confirmed/processed 
+on all nodes.
+
+
+
+> Joe
+>
+>
+
+
+From JanWieck at Yahoo.com  Wed Oct 17 15:35:00 2012
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Wed, 17 Oct 2012 18:35:00 -0400
+Subject: [Slony1-hackers] Failover never completes
+In-Reply-To: <507D91C8.9060502@joeconway.com>
+References: <507CBE98.60503@joeconway.com> <507CCB48.10405@ca.afilias.info>
+	<507CD298.6080704@joeconway.com> <507D5812.30009@ca.afilias.info>
+	<507D91C8.9060502@joeconway.com>
+Message-ID: <507F3294.6070208@Yahoo.com>
+
+On 10/16/2012 12:56 PM, Joe Conway wrote:
+> On 10/16/2012 05:50 AM, Steve Singer wrote:
+>> On 12-10-15 11:20 PM, Joe Conway wrote:
+>>> We are using 2.1.0. We tried upgrading to 2.1.2 but got stuck because we
+>>> cannot have a mixed 2.1.0/2.1.2 cluster. We have constraints that do not
+>>> allow for upgrade-in-place of existing nodes, which is why we want to
+>>> add a new node and failover to it (to facilitate upgrades of components
+>>> other than slony, e.g. postgres itself).
+
+Please elaborate on those constraints. Does that mean you cannot deploy 
+any binaries on an existing, running master?
+
+If that is the case, you could deploy the 2.1.2 binaries but not use 
+them yet on all replicas. Switch over to one of them (still using 2.1.0) 
+to deploy the 2.1.2 on the previous master (now replica). Then use the 
+regular Slony upgrade mechanism from there.
+
+>>
+>> So your
+>> 1. Adding a new node
+>> 2. Stopping the old node
+>> 3. Running UPGRADE FUNCTIONS on the new node
+>> 4. Starting up the new slon and running 'FAILOVER' ?
+>
+> No, as I understand it from
+>    http://slony.info/documentation/slonyupgrade.html
+> we would need to:
+>
+>    1) Stop the slon processes on all nodes. (e.g. - old
+>       version of slon)
+>    2) Install the new version of slon software on all
+>       nodes.
+>    3) Execute a slonik script containing the command
+>       update functions (id = [whatever]); for each node
+>       in the cluster.
+>
+> We are trying to avoid #1, and in any case cannot easily do #2 (no
+> upgrade in place).
+>
+> At the moment we are testing with clusters that are all running 2.1.0.
+> It is in this configuration where failover is failing.
+
+People need to stop using FAILOVER when there is actually no physical 
+problem with the existing master node. What you probably want to do is a 
+controlled MOVE SET instead.
+
+> We could possibly test a cluster with all 2.1.2, which might be
+> instructive, especially if it turns out that the problem we are running
+> into is solved in 2.1.2. However we would still have the challenge of
+> getting from existing 2.1.0 clusters to 2.1.2 clusters without excessive
+> downtime.
+
+Stopping the slon processes, running the update functions slonik script 
+and starting the slon processes again doesn't take hours.
+
+
+Jan
+
+-- 
+Anyone who trades liberty for security deserves neither
+liberty nor security. -- Benjamin Franklin
+
+From mail at joeconway.com  Wed Oct 17 15:45:21 2012
+From: mail at joeconway.com (Joe Conway)
+Date: Wed, 17 Oct 2012 15:45:21 -0700
+Subject: [Slony1-hackers] Failover never completes
+In-Reply-To: <507F3294.6070208@Yahoo.com>
+References: <507CBE98.60503@joeconway.com> <507CCB48.10405@ca.afilias.info>
+	<507CD298.6080704@joeconway.com> <507D5812.30009@ca.afilias.info>
+	<507D91C8.9060502@joeconway.com> <507F3294.6070208@Yahoo.com>
+Message-ID: <507F3501.7090003@joeconway.com>
+
+On 10/17/2012 03:35 PM, Jan Wieck wrote:
+> Please elaborate on those constraints. Does that mean you cannot deploy
+> any binaries on an existing, running master?
+
+not my choice, but yes
+
+> If that is the case, you could deploy the 2.1.2 binaries but not use
+> them yet on all replicas. Switch over to one of them (still using 2.1.0)
+> to deploy the 2.1.2 on the previous master (now replica). Then use the
+> regular Slony upgrade mechanism from there.
+
+The environment is strictly controlled, and binaries only deployed
+through the original rpms in the repo when the machine was provisioned.
+This situation might force a reevaluation of that.
+
+But in any case this is the least of our problems unless you can tell me
+that 2.1.2 won't have the same problem when we failover.
+
+>> At the moment we are testing with clusters that are all running 2.1.0.
+>> It is in this configuration where failover is failing.
+> 
+> People need to stop using FAILOVER when there is actually no physical
+> problem with the existing master node. What you probably want to do is a
+> controlled MOVE SET instead.
+
+Not possible. We MUST failover because when we are all done the original
+master will be taken out of service. If we do a move set we cannot take
+out the old node from service.
+
+>> We could possibly test a cluster with all 2.1.2, which might be
+>> instructive, especially if it turns out that the problem we are running
+>> into is solved in 2.1.2. However we would still have the challenge of
+>> getting from existing 2.1.0 clusters to 2.1.2 clusters without excessive
+>> downtime.
+> 
+> Stopping the slon processes, running the update functions slonik script
+> and starting the slon processes again doesn't take hours.
+
+As I said, when are verboten from doing in place upgrades of binaries.
+So to do this upgrade we would need to stop the entire cluster, pg_dump
+the master, restore to a new master, and then bring up a new cluster.
+Takes too long.
+
+Joe
+
+-- 
+Joe Conway
+credativ LLC: http://www.credativ.us
+Linux, PostgreSQL, and general Open Source
+Training, Service, Consulting, & 24x7 Support
+
+
+
+From ssinger at ca.afilias.info  Wed Oct 17 17:19:26 2012
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Wed, 17 Oct 2012 20:19:26 -0400
+Subject: [Slony1-hackers] Failover never completes
+In-Reply-To: <507F3501.7090003@joeconway.com>
+References: <507CBE98.60503@joeconway.com> <507CCB48.10405@ca.afilias.info>
+	<507CD298.6080704@joeconway.com> <507D5812.30009@ca.afilias.info>
+	<507D91C8.9060502@joeconway.com> <507F3294.6070208@Yahoo.com>
+	<507F3501.7090003@joeconway.com>
+Message-ID: <507F4B0E.2050309@ca.afilias.info>
+
+On 12-10-17 06:45 PM, Joe Conway wrote:
+> On 10/17/2012 03:35 PM, Jan Wieck wrote:
+>> Please elaborate on those constraints. Does that mean you cannot deploy
+>> any binaries on an existing, running master?
+>
+> not my choice, but yes
+>
+>> If that is the case, you could deploy the 2.1.2 binaries but not use
+>> them yet on all replicas. Switch over to one of them (still using 2.1.0)
+>> to deploy the 2.1.2 on the previous master (now replica). Then use the
+>> regular Slony upgrade mechanism from there.
+>
+> The environment is strictly controlled, and binaries only deployed
+> through the original rpms in the repo when the machine was provisioned.
+> This situation might force a reevaluation of that.
+>
+> But in any case this is the least of our problems unless you can tell me
+> that 2.1.2 won't have the same problem when we failover.
+>
+>>> At the moment we are testing with clusters that are all running 2.1.0.
+>>> It is in this configuration where failover is failing.
+>>
+>> People need to stop using FAILOVER when there is actually no physical
+>> problem with the existing master node. What you probably want to do is a
+>> controlled MOVE SET instead.
+>
+> Not possible. We MUST failover because when we are all done the original
+> master will be taken out of service. If we do a move set we cannot take
+> out the old node from service.
+>
+
+After your done your MOVE SET you can issue SUBSCRIBE SET to make any 
+other nodes use your new master as a provider.  Then you should be able 
+to issue DROP NODE commands to drop the old master.  I don't see why you 
+can't take the old nodes out of service after you do a DROP NODE.
+
+This of course doesn't help you want slony to help you in the case of a 
+real failover.  I thought you were trying to test your failover 
+scenarios, If people are planning on using slony for failover I 
+*strongly* encourage them to test their scripts before hand.
+
+If your going to move forward with Jan's idea of provisioning a box with 
+both slony 2.1.0 and slony 2.1.2 (I am not convinced that the failover 
+bug you hit is fixed in 2.1.2/ is #260 ) you will need to put two 
+versions of slony on the same machine.  A 2.2 feature we added puts the 
+slony version number inside of the slony_funcs.so filename to make this 
+work nicely.  We have back-ported this to the 2.1 branch here
+https://github.com/ssinger/slony1-engine/tree/REL_2_1_STABLE_multiversion
+
+I've built 2.1.1 and 2.1.2 versions from the multiversion branch, these 
+should install on the same system as your existing 2.1.0 binaries. I 
+also have RPM spec files that allows an install multiple slony versions 
+at the same time. Your policies probably also prevent you from deploying 
+code on a new machine from a random github branch, so this might not be 
+much help.
+
+Steve
+
+From mail at joeconway.com  Wed Oct 17 18:38:05 2012
+From: mail at joeconway.com (Joe Conway)
+Date: Wed, 17 Oct 2012 18:38:05 -0700
+Subject: [Slony1-hackers] Failover never completes
+In-Reply-To: <507F4B0E.2050309@ca.afilias.info>
+References: <507CBE98.60503@joeconway.com> <507CCB48.10405@ca.afilias.info>
+	<507CD298.6080704@joeconway.com> <507D5812.30009@ca.afilias.info>
+	<507D91C8.9060502@joeconway.com> <507F3294.6070208@Yahoo.com>
+	<507F3501.7090003@joeconway.com> <507F4B0E.2050309@ca.afilias.info>
+Message-ID: <507F5D7D.5040307@joeconway.com>
+
+On 10/17/2012 05:19 PM, Steve Singer wrote:
+> After your done your MOVE SET you can issue SUBSCRIBE SET to make any
+> other nodes use your new master as a provider.  Then you should be able
+> to issue DROP NODE commands to drop the old master.  I don't see why you
+> can't take the old nodes out of service after you do a DROP NODE.
+
+OK, I'll try that -- thanks!
+
+> This of course doesn't help you want slony to help you in the case of a
+> real failover.  I thought you were trying to test your failover
+> scenarios, If people are planning on using slony for failover I
+> *strongly* encourage them to test their scripts before hand.
+
+We need to do both. My immediate task is to figure out how to "migrate"
+a slony cluster from one set of servers to a new set with minimal
+disruption and downtime. Understanding now that they all must be the
+same minor version on slony helps. Your tip above about the
+move/subscribe helps more if it gets us a reliable process.
+
+But the fact that failover seems so fragile is troubling. If it fails to
+failover so often in our "migration" tests, why should we think that it
+won't fail to failover when we really need it? Is failover fragile
+because we need to STONITH before doing the failover? Would that prevent
+these race conditions?
+
+> If your going to move forward with Jan's idea of provisioning a box with
+> both slony 2.1.0 and slony 2.1.2 (I am not convinced that the failover
+> bug you hit is fixed in 2.1.2/ is #260 ) you will need to put two
+> versions of slony on the same machine.  A 2.2 feature we added puts the
+> slony version number inside of the slony_funcs.so filename to make this
+> work nicely.  We have back-ported this to the 2.1 branch here
+> https://github.com/ssinger/slony1-engine/tree/REL_2_1_STABLE_multiversion
+> 
+> I've built 2.1.1 and 2.1.2 versions from the multiversion branch, these
+> should install on the same system as your existing 2.1.0 binaries. I
+> also have RPM spec files that allows an install multiple slony versions
+> at the same time. Your policies probably also prevent you from deploying
+> code on a new machine from a random github branch, so this might not be
+> much help.
+
+I'm not sure how much that helps but I appreciate the pointers as we may
+ultimately need them :-)
+
+Joe
+
+
+-- 
+Joe Conway
+credativ LLC: http://www.credativ.us
+Linux, PostgreSQL, and general Open Source
+Training, Service, Consulting, & 24x7 Support
+
+
+From JanWieck at Yahoo.com  Wed Oct 17 19:55:57 2012
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Wed, 17 Oct 2012 22:55:57 -0400
+Subject: [Slony1-hackers] Failover never completes
+In-Reply-To: <507F5D7D.5040307@joeconway.com>
+References: <507CBE98.60503@joeconway.com> <507CCB48.10405@ca.afilias.info>
+	<507CD298.6080704@joeconway.com> <507D5812.30009@ca.afilias.info>
+	<507D91C8.9060502@joeconway.com> <507F3294.6070208@Yahoo.com>
+	<507F3501.7090003@joeconway.com> <507F4B0E.2050309@ca.afilias.info>
+	<507F5D7D.5040307@joeconway.com>
+Message-ID: <507F6FBD.3090103@Yahoo.com>
+
+On 10/17/2012 9:38 PM, Joe Conway wrote:
+> But the fact that failover seems so fragile is troubling. If it fails to
+> failover so often in our "migration" tests, why should we think that it
+> won't fail to failover when we really need it? Is failover fragile
+> because we need to STONITH before doing the failover? Would that prevent
+> these race conditions?
+
+Failover was never meant as a "migration" path. It was meant as a "last 
+resort" thing when the old master was found "dead for good".
+
+Unfortunately no other replication system (for PostgreSQL) has any 
+mechanism for controlled transfer of the master role, while the old 
+master is still alive, so people think "failover" is the right way to do 
+migrations and shoot failover from the hip all the time. It is not.
+
+The fact that failover seems so fragile is troubling us too. I am 
+thinking for quite a while now that we have tried too hard to "make it 
+work" with all the complicated configurations we can think of, instead 
+of limiting the possible complexity instead. But that is an entirely 
+different discussion.
+
+
+Jan
+
+-- 
+Anyone who trades liberty for security deserves neither
+liberty nor security. -- Benjamin Franklin
+
+From mail at joeconway.com  Wed Oct 17 21:30:16 2012
+From: mail at joeconway.com (Joe Conway)
+Date: Wed, 17 Oct 2012 21:30:16 -0700
+Subject: [Slony1-hackers] Failover never completes
+In-Reply-To: <507F6FBD.3090103@Yahoo.com>
+References: <507CBE98.60503@joeconway.com> <507CCB48.10405@ca.afilias.info>
+	<507CD298.6080704@joeconway.com> <507D5812.30009@ca.afilias.info>
+	<507D91C8.9060502@joeconway.com> <507F3294.6070208@Yahoo.com>
+	<507F3501.7090003@joeconway.com> <507F4B0E.2050309@ca.afilias.info>
+	<507F5D7D.5040307@joeconway.com> <507F6FBD.3090103@Yahoo.com>
+Message-ID: <507F85D8.30002@joeconway.com>
+
+On 10/17/2012 07:55 PM, Jan Wieck wrote:
+> On 10/17/2012 9:38 PM, Joe Conway wrote:
+>> But the fact that failover seems so fragile is troubling. If it fails to
+>> failover so often in our "migration" tests, why should we think that it
+>> won't fail to failover when we really need it? Is failover fragile
+>> because we need to STONITH before doing the failover? Would that prevent
+>> these race conditions?
+> 
+> Failover was never meant as a "migration" path. It was meant as a "last
+> resort" thing when the old master was found "dead for good".
+
+OK. Now I understand that part ;-)
+We will switch to the method Steve mentioned (at least for our
+migrations) -- move set and then subscribe set.
+
+Thanks for all the help!
+
+Joe
+
+-- 
+Joe Conway
+credativ LLC: http://www.credativ.us
+Linux, PostgreSQL, and general Open Source
+Training, Service, Consulting, & 24x7 Support
+
+
+
