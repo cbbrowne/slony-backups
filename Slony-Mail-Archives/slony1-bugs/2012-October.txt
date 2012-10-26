@@ -1,0 +1,135 @@
+From bugzilla-daemon at main.slony.info  Thu Oct 18 15:18:38 2012
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu, 18 Oct 2012 15:18:38 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 281] New: Change LISTEN strategy to reduce
+	communications load
+Message-ID: <bug-281-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=281
+
+           Summary: Change LISTEN strategy to reduce communications load
+           Product: Slony-I
+           Version: devel
+          Platform: PC
+        OS/Version: Linux
+            Status: ASSIGNED
+          Severity: enhancement
+          Priority: medium
+         Component: slon
+        AssignedTo: cbbrowne at ca.afilias.info
+        ReportedBy: cbbrowne at ca.afilias.info
+                CC: slony1-bugs at lists.slony.info
+   Estimated Hours: 0.0
+
+
+We observe that the listen networks are commonly overly populated, particularly
+in view that people configuring their Slony clusters often set up (not
+wrongly!) full cross-product paths from all nodes to all nodes.
+
+The trouble with this is that the resulting listen networks wind up setting up
+event listening from too many node sources, and hence the slons servicing these
+nodes are opening connections to multiple other nodes in the cluster, and we
+therefore have more database connections being opened than we properly ought to
+need.
+
+Instead, we propose changing the listen networks as follows:
+
+- If a node, A, is a subscriber to a set provided from node B, then node A need
+*only* listen for events through node B.  We expect most nodes in a cluster to
+be subscribers, and hence this rule typically allows them to have just one
+listener entry, and one connection listening for events.
+
+The more complex case, here is if A subscribes to sets from nodes B and C.  In
+that case, we ought to be able to choose arbitrarily between B and C as a
+source for all events coming to node A.
+
+- If a node, B, does not subscribe to any sets, then we may expect one of two
+things to be the case:
+
+ a) Node B is quite likely to be the origin node for subscriptions.
+
+ b) Alternatively, perhaps Node B is not yet a subscriber to any replication
+set.
+
+ In either case, we set up node B to listen for events from all nodes with
+which it can communicate.  There may be quite a few listener entries in that
+case, for node B, but, as the slon for this node isn't doing terribly much
+other work (as, since this is not a subscribed node, there is no regular work
+for a remote_worker thread), we mayn't care very much at there being somewhat
+more connections being opened.
+
+Unfortunately, this combination of rules does not ensure that all nodes are
+being listened to; there may exist a set of nodes (A, B, C) where:
+
+1.  B subscribes to sets on a node D, not in the set (A, B, C)
+
+2.  Nodes A and C are non-subscribing nodes (whether origin or
+non-participating does not matter)
+
+3.  There is no path in sl_path from A to C
+
+Hence, based on the rules above, nothing is yet listening for events from node
+C, and node A is unable to do so directly
+
+4.  Assume there is a path in sl_path from B to C
+
+THEN...
+
+In order for the listen network to work, we need to add two extra paths:
+
+i) B must listen for events from node C directly, in spite of our expectation
+that, as a subscriber, it could get all of its events from its subscription
+provider.
+
+ii) A must listen for events from node C via node B.
+
+There may be more recursion involved with this than I have thus far pointed out
+:-(.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Tue Oct 23 12:03:28 2012
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Tue, 23 Oct 2012 12:03:28 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 281] Change LISTEN strategy to reduce
+	communications load
+In-Reply-To: <bug-281-4@http.www.slony.info/bugzilla/>
+References: <bug-281-4@http.www.slony.info/bugzilla/>
+Message-ID: <20121023190328.8FDBF2911D2@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=281
+
+--- Comment #1 from Christopher Browne <cbbrowne at ca.afilias.info> 2012-10-23 12:03:28 PDT ---
+Steve Singer suggests that perhaps we're "trying too hard" here.
+
+Ensuring that, with *possibly* partial sets of paths, all nodes are getting all
+events, may be pretty troublesome when considering the non-subscribing nodes.
+
+The alternative is to consider that:
+
+a) If the administrator set up a STORE PATH entry to indicate that node #1 can
+pull data from node #3, then it is not unreasonable for the slon to use that
+connection, as clearly intended.
+
+b) If an administrator wishes to diminish the number of database connections,
+they may readily do so by removing them (either by omitting STORE PATH, or by
+submitting DROP PATH).  They may expect to benefit from there being fewer
+database connections being opened.
+
+c) There are times when additional paths will need to be added, such as at the
+time of FAIL OVER.  Administrators are free to do so; it is expected to work
+perfectly well, as long as the nodes are up.
+
+We might improve our documentation to explain this.  Probably this would best
+fit with the discussion of Listen Paths:
+
+http://slony.info/documentation/2.1/listenpaths.html
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
