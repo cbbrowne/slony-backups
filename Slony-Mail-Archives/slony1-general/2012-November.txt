@@ -398,3 +398,296 @@ Supporting Koha and Evergreen: http://koha-community.org & http://evergreen-ils.
 An HTML attachment was scrubbed...
 URL: http://lists.slony.info/pipermail/slony1-general/attachments/20121109/50bd27ae/attachment.htm 
 
+From glynastill at yahoo.co.uk  Mon Nov 12 04:35:28 2012
+From: glynastill at yahoo.co.uk (Glyn Astill)
+Date: Mon, 12 Nov 2012 12:35:28 +0000 (GMT)
+Subject: [Slony1-general] Lock set behaviour difference between 2.0 and
+	2.1
+In-Reply-To: <509D47E2.2010308@ca.afilias.info>
+References: <1352395905.8369.YahooMailNeo@web133204.mail.ir2.yahoo.com>
+	<509D47E2.2010308@ca.afilias.info>
+Message-ID: <1352723728.46750.YahooMailNeo@web133202.mail.ir2.yahoo.com>
+
+> From: Steve Singer <ssinger at ca.afilias.info>
+
+>To: Glyn Astill <glynastill at yahoo.co.uk> 
+>Cc: slony <slony1-general at lists.slony.info> 
+>Sent: Friday, 9 November 2012, 18:13
+>Subject: Re: [Slony1-general] Lock set behaviour difference between 2.0 and 2.1
+> 
+>
+>Why can't you just do
+>
+>try {
+>LOCK SET ( ID = 1, ORIGIN = 1);
+>LOCK SET ( ID = 2, ORIGIN = 1);
+>MOVE SET ( ID = 1, OLD ORIGIN = 1, NEW ORIGIN = 2);
+>MOVE SET ( ID = 2, OLD ORIGIN = 1, NEW ORIGIN = 2);
+>}
+>WAIT FOR EVENT(ORIGIN=1, CONFIRMED=ALL...)
+>
+>(I haven't actually tested the above but I think it will work in cases 
+>were both sets are on the same origin).
+>
+>
+
+Hi Steve,
+
+I've just tried the above on 2.1.2 and I get the same error message as on 2.0.7? when I try to lock the second set:
+
+
+"cannot lock set - admin connection already in transaction"
+
+I'm guessing "lock set" and "move set" have to be run consecutively?
+
+From ssinger at ca.afilias.info  Mon Nov 12 06:09:44 2012
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Mon, 12 Nov 2012 09:09:44 -0500
+Subject: [Slony1-general] Lock set behaviour difference between 2.0 and
+ 2.1
+In-Reply-To: <1352723728.46750.YahooMailNeo@web133202.mail.ir2.yahoo.com>
+References: <1352395905.8369.YahooMailNeo@web133204.mail.ir2.yahoo.com>
+	<509D47E2.2010308@ca.afilias.info>
+	<1352723728.46750.YahooMailNeo@web133202.mail.ir2.yahoo.com>
+Message-ID: <50A10328.9050105@ca.afilias.info>
+
+On 12-11-12 07:35 AM, Glyn Astill wrote:
+>>
+>
+> Hi Steve,
+>
+> I've just tried the above on 2.1.2 and I get the same error message as on 2.0.7  when I try to lock the second set:
+>
+>
+> "cannot lock set - admin connection already in transaction"
+>
+> I'm guessing "lock set" and "move set" have to be run consecutively?
+>
+
+Actually the issue is that the lock set needs to be in its own 
+transaction so it can't really be used in an 'active' try block except 
+as the first command (which the documentation say)
+
+The message you are getting was apparently added with this commit.
+
+commit d013758b4823e2d386a2a0738e0d9a5534f11556
+Author: Jan Wieck <JanWieck at yahoo.com>
+Date:   Thu Mar 18 22:47:00 2004 +0000
+
+     Added "lock set", "unlock set" and "move set" commands
+     to slonik. "lock set" requires to be the first statement
+     in a transaction since it actually needs to commit the
+     lockSet() call and then wait until the lock's xmax <=
+     xmin. To prevent accidential misuse we don't allow other
+     statements in the same transaction.
+
+     Jan
+
+
+One solution is to allow LOCK SET to take/lock multiple sets at once 
+(this change won't happen before slony 2.3), but I'm not sure if there 
+is a different solution.
+
+I think you could still do
+
+LOCK SET(...)
+LOCK SET(...)
+MOVE SET(...)
+MOVE SET(...)
+
+just NOT inside of a TRY block.
+
+
+From glynastill at yahoo.co.uk  Mon Nov 12 08:29:28 2012
+From: glynastill at yahoo.co.uk (Glyn Astill)
+Date: Mon, 12 Nov 2012 16:29:28 +0000 (GMT)
+Subject: [Slony1-general] Lock set behaviour difference between 2.0 and
+	2.1
+In-Reply-To: <50A10328.9050105@ca.afilias.info>
+References: <1352395905.8369.YahooMailNeo@web133204.mail.ir2.yahoo.com>
+	<509D47E2.2010308@ca.afilias.info>
+	<1352723728.46750.YahooMailNeo@web133202.mail.ir2.yahoo.com>
+	<50A10328.9050105@ca.afilias.info>
+Message-ID: <1352737768.85604.YahooMailNeo@web133202.mail.ir2.yahoo.com>
+
+----- Original Message -----
+
+> From: Steve Singer <ssinger at ca.afilias.info>
+> To: Glyn Astill <glynastill at yahoo.co.uk>
+> Cc: slony <slony1-general at lists.slony.info>
+> Sent: Monday, 12 November 2012, 14:09
+> Subject: Re: [Slony1-general] Lock set behaviour difference between 2.0 and 2.1
+> 
+> On 12-11-12 07:35 AM, Glyn Astill wrote:
+>>> 
+>> 
+>>  Hi Steve,
+>> 
+>>  I've just tried the above on 2.1.2 and I get the same error message as 
+> on 2.0.7? when I try to lock the second set:
+>> 
+>> 
+>>  "cannot lock set - admin connection already in transaction"
+>> 
+>>  I'm guessing "lock set" and "move set" have to be 
+> run consecutively?
+>> 
+> 
+> Actually the issue is that the lock set needs to be in its own transaction so it 
+> can't really be used in an 'active' try block except as the first 
+> command (which the documentation say)
+> 
+> The message you are getting was apparently added with this commit.
+> 
+> commit d013758b4823e2d386a2a0738e0d9a5534f11556
+> Author: Jan Wieck <JanWieck at yahoo.com>
+> Date:?  Thu Mar 18 22:47:00 2004 +0000
+> 
+> ? ? Added "lock set", "unlock set" and "move set" 
+> commands
+> ? ? to slonik. "lock set" requires to be the first statement
+> ? ? in a transaction since it actually needs to commit the
+> ? ? lockSet() call and then wait until the lock's xmax <=
+> ? ? xmin. To prevent accidential misuse we don't allow other
+> ? ? statements in the same transaction.
+> 
+> ? ? Jan
+> 
+> 
+> One solution is to allow LOCK SET to take/lock multiple sets at once (this 
+> change won't happen before slony 2.3), but I'm not sure if there is a 
+> different solution.
+
+Ah that's what I was hoping for!
+
+> 
+> I think you could still do
+> 
+> LOCK SET(...)
+> LOCK SET(...)
+> MOVE SET(...)
+> MOVE SET(...)
+> 
+> just NOT inside of a TRY block.
+>
+
+Yeah, it's just nice to be able to unlock the sets locked so far if something goes wrong half way through.
+
+
+From mark at summersault.com  Mon Nov 12 11:33:54 2012
+From: mark at summersault.com (Mark Stosberg)
+Date: Mon, 12 Nov 2012 14:33:54 -0500
+Subject: [Slony1-general] replication fails to due bad DNS at startup,
+ requires slony restart to fix
+Message-ID: <k7riv0$dnv$1@ger.gmane.org>
+
+
+This feedback concerns Slony 2.1.2, being used with PostgreSQL 9.1.
+
+We're using it on Amazon EC2, which ads the complication that the
+internal IP address of the machine changes every time it starts up.
+
+On Friday, our underlying hardware failed on the master, and we had to
+stop/start the master DB instance, to move it to new hardware.
+
+When slony started, the name of the server itself was still resolving to
+the old internal IP, so this happened:
+
+###
+2012-11-09 21:35:20 EST FATAL  main: Cannot connect to local database -
+could not connect to server: Con
+nection timed out
+        Is the server running on host "db.example.com" (10.79.78.214)
+and accepting
+        TCP/IP connections on port 5432?
+###
+
+After that, Slony was never able to correct itself, even long after the
+TTL for the related DNS record would have expired. It took a manual
+stop/start to get things going in.
+
+Perhaps Slony aggressively caches DNS? Or perhaps it could recover from
+this "FATAL" condition? Is this expected behavior, or should slony
+behave better in the face of temporary DNS problems?
+
+Thanks for insights!
+
+   Mark
+
+
+From vivek at khera.org  Mon Nov 12 12:51:16 2012
+From: vivek at khera.org (Vick Khera)
+Date: Mon, 12 Nov 2012 15:51:16 -0500
+Subject: [Slony1-general] replication fails to due bad DNS at startup,
+ requires slony restart to fix
+In-Reply-To: <k7riv0$dnv$1@ger.gmane.org>
+References: <k7riv0$dnv$1@ger.gmane.org>
+Message-ID: <CALd+dcfH9YajUT_6NvOiJPzuyQa3aW7VzGDn8C7iwLy2uGN45Q@mail.gmail.com>
+
+I don't think most programs do any sort of TTL expiry of DNS lookups. It
+seems reasonable to me to restart a program upon DNS configuration changes.
+
+On Mon, Nov 12, 2012 at 2:33 PM, Mark Stosberg <mark at summersault.com> wrote:
+
+> Perhaps Slony aggressively caches DNS? Or perhaps it could recover from
+> this "FATAL" condition? Is this expected behavior, or should slony
+> behave better in the face of temporary DNS problems?
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20121112/0e59329a/attachment.htm 
+
+From cbbrowne at afilias.info  Mon Nov 12 13:05:37 2012
+From: cbbrowne at afilias.info (Christopher Browne)
+Date: Mon, 12 Nov 2012 16:05:37 -0500
+Subject: [Slony1-general] replication fails to due bad DNS at startup,
+ requires slony restart to fix
+In-Reply-To: <k7riv0$dnv$1@ger.gmane.org>
+References: <k7riv0$dnv$1@ger.gmane.org>
+Message-ID: <CANfbgbata6wcP=cdhbwDfMHEFiQNrBS0-hjsxiR98Dm4Yk4ByA@mail.gmail.com>
+
+On Mon, Nov 12, 2012 at 2:33 PM, Mark Stosberg <mark at summersault.com> wrote:
+> Perhaps Slony aggressively caches DNS? Or perhaps it could recover from
+> this "FATAL" condition? Is this expected behavior, or should slony
+> behave better in the face of temporary DNS problems?
+
+Slony does nothing concerning cacheing DNS.
+
+It simply uses the libpq function, PQconnectdb(conninfo) to connect to
+databases.
+
+All the relevant code is localized to src/slon/dbutils.c, so you can
+poke at the code if you want to.
+
+I think you'll find that other clients that attempted to use libpq,
+such as psql, would fail pretty much identically.
+
+Is it possible that your libc is doing cacheing?  If *that's* the
+case, and I'm suspicious of it, then you really would need to restart
+the slon to get "unstuck" from what libc has cached on you...
+
+From ajs at crankycanuck.ca  Mon Nov 12 13:15:33 2012
+From: ajs at crankycanuck.ca (Andrew Sullivan)
+Date: Mon, 12 Nov 2012 16:15:33 -0500
+Subject: [Slony1-general] replication fails to due bad DNS at startup,
+ requires slony restart to fix
+In-Reply-To: <CANfbgbata6wcP=cdhbwDfMHEFiQNrBS0-hjsxiR98Dm4Yk4ByA@mail.gmail.com>
+References: <k7riv0$dnv$1@ger.gmane.org>
+	<CANfbgbata6wcP=cdhbwDfMHEFiQNrBS0-hjsxiR98Dm4Yk4ByA@mail.gmail.com>
+Message-ID: <20121112211533.GF82038@crankycanuck.ca>
+
+On Mon, Nov 12, 2012 at 04:05:37PM -0500, Christopher Browne wrote:
+> Is it possible that your libc is doing cacheing?  If *that's* the
+> case, and I'm suspicious of it, then you really would need to restart
+> the slon to get "unstuck" from what libc has cached on you...
+
+More likely, the system resolver is pointing at a caching name server.
+
+Best,
+
+A
+
+-- 
+Andrew Sullivan
+ajs at crankycanuck.ca
+
