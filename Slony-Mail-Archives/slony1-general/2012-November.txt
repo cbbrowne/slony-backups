@@ -3572,3 +3572,143 @@ Slony1-general mailing list
 Slony1-general at lists.slony.info
 http://lists.slony.info/mailman/listinfo/slony1-general
 
+From achill at matrix.gatewaynet.com  Wed Nov 21 06:57:32 2012
+From: achill at matrix.gatewaynet.com (Achilleas Mantzios)
+Date: Wed, 21 Nov 2012 16:57:32 +0200
+Subject: [Slony1-general] Trigger based replication with ENABLE REPLICA
+	triggers and session_replication_role best practice(s)
+Message-ID: <1663203.fSACAC55JW@smadev.internal.net>
+
+Hello, (pls ignore my previous msg, the address is internal)
+
+You might think that i am in the wrong list since i explicitly mention DBmirror here, but my question is
+DISABLE/ENABLE [ REPLICA | ALWAYS ] TRIGGER , and session_replication_role related
+and I have the idea that maybe those features were introduced specifically for Slony, hence why i ask
+for your opinions here. Pls read on.
+
+we have based all our replication infrastructure on a heavily hacked version of DBMirror, which now runs in a 
+single master (office DB) -> multiple slaves (vessels DBs) mode for 80+ slaves and about 300 tables and in 
+multiple masters (the same vessels DBs as above) (having partitions of the data) -> single slave (the same office db as above) mode 
+for just two tables. 
+Now we are in the process of designing a new solution which requires to have some form of multi-master functionality,
+without being so much concerned about conflict resolution at this stage.
+The issue that we are facing is to prevent replication data originating from a vessel DB and consumed into the office DB,
+(or replication data originating from the office DB and consumed into a vessel DB) to be bounced back to the
+originating server because of the invocation of the DBMirror trigger.
+
+We have thought of :
+Solution 1)
+explicitly disabling the triggers at the start of the transaction and re-enabling them,
+but that would require knowledge of the name of table in question prior to execution of the replication command,
+but in our case this not known unless parsing the SQL file which came from the originating server.
+Since the number of those multi-master tables is not large, we could explicit insert the 
+ALTER TABLE <tblname> DISABLE TRIGGER <tblname>_dbmirror_trig commands prior to actual SQL execution
+for each table involved and then insert the respective 
+ALTER TABLE <tblname> ENABLE TRIGGER <tblname>_dbmirror_trig commands after the SQL execution.
+However this would require hardcoding those commands into the code which runs the replication SQL,
+and this has many and obvious disadvantages.
+
+Then i looked upon :
+Solution 2)
+the ENABLE REPLICA TRIGGER in combination with session_replication_role.
+Setting default ALTER DATABASE dbname SET session_replication_role TO REPLICA  (single master + multi-master ones) 
+in combination with ALTER TABLE ENABLE REPLICA TRIGGER <tblname>_dbmirror_trig for *all* tables involved in replication
+would allow the default behavior of INSERTS/UPDATES/DELETES to result in firing the DBmirror trigger, which would work
+similar to the default way it has been running for the single direction replicated tables.
+Then in the code which plays the replication SQLs for the multi-master tables we would simply set smth like :
+BEGIN ;
+SET local session_replication_role TO origin;
+<execute SQL here>
+END;
+preventing the trigger to be called, and thus eliminating the bounce-back effect.
+
+One thing that worries me is setting the database-wide session_replication_role to smth different than the default.
+In our case, it would be ideal to be able to set session_replication_role to some value which would have 
+the complimentary effect of REPLICA, smth like e.g. NOREPLICA which would result in on-demand temporary
+disablement of the triggers while leaving session_replication_role to a non-REPLICA value (such as the default value=origin).
+In short I would like to have the triggers always executed by default (acting as master), except the situation
+where we read (or play/replay) SQL originating from the one *big* Master (the office).
+(in Office we plan to have the triggers always executed, regardless of the origin of the data, so in the Office
+everything remains at the defaults)
+
+One third solution would be to :
+Solution 3)
+make the code updating those multi-master tables, replication-aware by putting 
+SET local session_replication_role TO REPLICA; inside the affecting transactions. But this also has
+the obvious disadvantage of making application and system logic blend together, and also
+making the app programmer prone to errors.
+
+The most elegant solution IMHO is the 2nd but i am concerned that setting the 
+database-wide session_replication_role to smth different than the default might just 
+hide some future risks.
+
+What are your thoughts on that?
+
+Thank you a lot for any input.
+-
+Achilleas Mantzios
+IT DEV
+IT DEPT
+Dynacom Tankers Mgmt
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20121121/5962ac9f/attachment.htm 
+
+From greg at endpoint.com  Wed Nov 21 13:24:53 2012
+From: greg at endpoint.com (Greg Sabino Mullane)
+Date: Wed, 21 Nov 2012 16:24:53 -0500
+Subject: [Slony1-general] Trigger based replication with ENABLE REPLICA
+ triggers and session_replication_role best practice(s)
+In-Reply-To: <1663203.fSACAC55JW@smadev.internal.net>
+References: <1663203.fSACAC55JW@smadev.internal.net>
+Message-ID: <20121121212453.GB3140@tinybird.home>
+
+On Wed, Nov 21, 2012 at 04:57:32PM +0200, Achilleas Mantzios wrote:
+...
+> session_replication_role related and I have the idea that maybe those 
+> features were introduced specifically for Slony
+
+Yes, they were.
+
+> Solution 1)
+> explicitly disabling the triggers at the start of the 
+> transaction and re-enabling them, but that would require 
+> knowledge of the name of table in question prior to execution 
+> of the replication command
+
+It also does heavy locking, and does not turn off rules, so 
+using session_replication_role (SRR) is much better.
+
+> Solution 2)
+> the ENABLE REPLICA TRIGGER in combination with session_replication_role.
+> Setting default ALTER DATABASE dbname SET session_replication_role TO REPLICA
+
+Not good. Pretty dangerous unless you are 100% sure that every application 
+logging into the database is aware of that setting. That's backwards of the 
+optimal solution:
+
+> Solution 3)
+> make the code updating those multi-master tables, replication-aware by putting 
+> SET local session_replication_role TO REPLICA; inside the affecting transactions. 
+> But this also has the obvious disadvantage of making application and 
+> system logic blend together, and also making the app programmer prone to errors.
+
+Well, this is exactly the use case that session_replication_role was 
+designed for, so I would prefer to see stronger reasons for 
+rejecting it.
+
+/twocents
+
+
+-- 
+Greg Sabino Mullane greg at endpoint.com
+End Point Corporation
+PGP Key: 0x14964AC8
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: not available
+Type: application/pgp-signature
+Size: 163 bytes
+Desc: not available
+Url : http://lists.slony.info/pipermail/slony1-general/attachments/20121121/cd779a7c/attachment.pgp 
+
