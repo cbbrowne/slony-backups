@@ -3854,3 +3854,86 @@ trigger on the replica tables to prevent writes.
 Steve
 
 
+From achill at matrix.gatewaynet.com  Fri Nov 23 00:57:52 2012
+From: achill at matrix.gatewaynet.com (Achilleas Mantzios)
+Date: Fri, 23 Nov 2012 10:57:52 +0200
+Subject: [Slony1-general] Trigger based replication with ENABLE REPLICA
+	triggers and session_replication_role best practice(s)
+In-Reply-To: <BLU0-SMTP26146049CA59863939E5A7DDC5A0@phx.gbl>
+References: <1663203.fSACAC55JW@smadev.internal.net>
+	<2522945.rhrpqsIpdT@smadev.internal.net>
+	<BLU0-SMTP26146049CA59863939E5A7DDC5A0@phx.gbl>
+Message-ID: <5315563.P07aQ4EUZ9@smadev.internal.net>
+
+On Thursday, November 22, 2012 10:26:55 PM Steve Singer wrote:
+> On Thu, 22 Nov 2012, Achilleas Mantzios wrote:
+> 
+> > 
+> > Thank you for your answer.
+> > 
+> > 
+> > 
+> > It is this case 3) that we must deal with. At the vessel side (we don't care for the Office for the moment)
+> > 
+> > we want to eliminate bounce back while reading SQL from the master, therefore we would like to allow
+> > 
+> > triggers operating freely as by default on all occasions except in the program which reads and executes
+> > 
+> > SQL generated and sent by the Office.
+
+Thank you Steve. For some completely crazy reason (lots of pressure lately), and having not done a single 
+test, i had the completely false impression that setting 
+SET local session_replication_role TO REPLICA;
+(besides being the only way for a ENABLE REPLICA trigger to fire, which is true), 
+that this would also result in firing of normal triggers as well, hence all my references to the term "complementary".
+(in short i completely messed up the meaning of "simple" and "ENABLE ALWAYS" triggers).
+In the docs : (http://www.postgresql.org/docs/8.3/interactive/sql-altertable.html) (on some vessels we are still at 8.3) it reads :
+"Simply enabled triggers will fire when the replication role is "origin" (the default) or "local". Triggers configured ENABLE REPLICA will only fire if the session is in "replica" mode..."
+In the ENABLE REPLICA the word "only" is used, whereas in the simply enabled it is not. Maybe i got confused because of that.
+
+> 
+> Can't you just make the dbmirror log trigger a 'normal' trigger that is 
+> enabled everywhere.  You would then modify 
+> dbmirror.pl to connect with session_replication_role='replica'.  The 
+> dbmirror triggers won't fire on the replica in response to data being 
+> sent from dbmirror so there will be no rows in the pendingData table to 
+> bounce back.
+> 
+
+In our case, dbmirror.pl just produces files, that are transported (via a customized version of UUCP - no TCPIP)
+and replayed at the other end. So, session_local replication_role='replica'; should go to the program 
+reading those SQL files at the Vessel site.
+
+> The application on the ships would connect with out touching 
+> session_replication_role so the dbmirror trigger would fire for any inserts 
+> they do leaving you rows in pendingData to pull elsewhere.
+
+Also, this would make the data consistent, even at the expense of having one bounce back 
+at the Office side->Vessel side. So if we imagine that someone makes an update at the office side
+on a row in one of those multi-master'ed tables, and at the same time someone aboard the vessel
+makes a change as well on this same row, then the triggers will be fired on both sides. Then the vessel connects
+to the Office to exchange data, and the office reads the change from the vessel, while the vessel
+reads the change from the office, resulting in a swap of their versions of this specific row. But the
+trigger on the office side would have fired, and send back this change to the vessel (at its next connection), 
+therefore both sides will end up with the Vessel version, which is sane. 
+(i dont expect/hope to see that situation often tho).
+
+> 
+> This is basically how slony works, except slony installs a deny access 
+> trigger on the replica tables to prevent writes.
+> 
+
+Interesting to know, thanks a lot.
+
+> 
+> Steve
+> 
+-
+Achilleas Mantzios
+IT DEV
+IT DEPT
+Dynacom Tankers Mgmt
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20121123/e47b0409/attachment.htm 
+
