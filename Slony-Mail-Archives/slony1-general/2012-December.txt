@@ -52,3 +52,137 @@ Jan
 Anyone who trades liberty for security deserves neither
 liberty nor security. -- Benjamin Franklin
 
+From drees76 at gmail.com  Tue Dec  4 12:13:11 2012
+From: drees76 at gmail.com (David Rees)
+Date: Tue, 4 Dec 2012 12:13:11 -0800
+Subject: [Slony1-general] Multiple sets w/same table
+Message-ID: <CAHtT9RuY9OYbRyE=D80f++RErqT+GpBc+byfDMzSH8bwiu=zzQ@mail.gmail.com>
+
+For some reason I thought this was possible, but I'm running into problems.
+
+3 nodes (2 pg 8.4, one 9.0) all running slony 2.1.2.
+The same database schema is on all 3 nodes.
+Set 1 consists of all tables in the database - node 2 subscribes to
+set 1 from node 1.
+Set 2 consists of a subset of the tables in the database - node 3
+subscribes to set 2 from node 2.
+
+The problem is that when I try to create set 2, slony complains
+'ERROR:  duplicate key value violates unique constraint
+"sl_table_tab_reloid_key"'
+
+Looking at sl_table_tab_reloid_key it appears that this key would
+prevent any single table from being in multiple sets.
+
+In which case, I believe that I could work around this by using a
+different cluster for set 2.
+
+Or am I missing something?
+
+Thank you!
+
+Dave
+
+From steve at ssinger.info  Tue Dec  4 19:34:12 2012
+From: steve at ssinger.info (Steve Singer)
+Date: Tue, 4 Dec 2012 22:34:12 -0500
+Subject: [Slony1-general] Multiple sets w/same table
+In-Reply-To: <CAHtT9RuY9OYbRyE=D80f++RErqT+GpBc+byfDMzSH8bwiu=zzQ@mail.gmail.com>
+References: <CAHtT9RuY9OYbRyE=D80f++RErqT+GpBc+byfDMzSH8bwiu=zzQ@mail.gmail.com>
+Message-ID: <BLU0-SMTP20818CE4A2C25BABF659562DC460@phx.gbl>
+
+On Tue, 4 Dec 2012, David Rees wrote:
+
+> For some reason I thought this was possible, but I'm running into problems.
+>
+> 3 nodes (2 pg 8.4, one 9.0) all running slony 2.1.2.
+> The same database schema is on all 3 nodes.
+> Set 1 consists of all tables in the database - node 2 subscribes to
+> set 1 from node 1.
+> Set 2 consists of a subset of the tables in the database - node 3
+> subscribes to set 2 from node 2.
+
+Why don't you put your subset of tables in set 2, the rest of the tables in 
+set 1.  Then
+
+subscribe set(set id=1, provider=1,provider=2)
+subscribe set(set id=2, provider=1,provider=2)
+subscibe set(set id=2,provider=2,receiver=3)
+
+You can't have the same table in multiple sets, but a node can subscribe to 
+multiple sets.
+
+
+>
+> The problem is that when I try to create set 2, slony complains
+> 'ERROR:  duplicate key value violates unique constraint
+> "sl_table_tab_reloid_key"'
+>
+> Looking at sl_table_tab_reloid_key it appears that this key would
+> prevent any single table from being in multiple sets.
+>
+> In which case, I believe that I could work around this by using a
+> different cluster for set 2.
+>
+> Or am I missing something?
+>
+> Thank you!
+>
+> Dave
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+>
+
+
+From drees76 at gmail.com  Tue Dec  4 20:50:29 2012
+From: drees76 at gmail.com (David Rees)
+Date: Tue, 4 Dec 2012 20:50:29 -0800
+Subject: [Slony1-general] Multiple sets w/same table
+In-Reply-To: <BLU0-SMTP20818CE4A2C25BABF659562DC460@phx.gbl>
+References: <CAHtT9RuY9OYbRyE=D80f++RErqT+GpBc+byfDMzSH8bwiu=zzQ@mail.gmail.com>
+	<BLU0-SMTP20818CE4A2C25BABF659562DC460@phx.gbl>
+Message-ID: <CAHtT9RsANTGpan9ovnF-Evfvur71hoGRMAOdrJAs39TY6FfrMw@mail.gmail.com>
+
+On Tue, Dec 4, 2012 at 7:34 PM, Steve Singer <steve at ssinger.info> wrote:
+> On Tue, 4 Dec 2012, David Rees wrote:
+>> For some reason I thought this was possible, but I'm running into
+>> problems.
+>>
+>> 3 nodes (2 pg 8.4, one 9.0) all running slony 2.1.2.
+>> The same database schema is on all 3 nodes.
+>> Set 1 consists of all tables in the database - node 2 subscribes to
+>> set 1 from node 1.
+>> Set 2 consists of a subset of the tables in the database - node 3
+>> subscribes to set 2 from node 2.
+>
+> Why don't you put your subset of tables in set 2, the rest of the tables in
+> set 1.  Then
+>
+> subscribe set(set id=1, provider=1,provider=2)
+> subscribe set(set id=2, provider=1,provider=2)
+> subscibe set(set id=2,provider=2,receiver=3)
+>
+> You can't have the same table in multiple sets, but a node can subscribe to
+> multiple sets.
+
+Thanks - after some playing around (tried a separate cluster which
+didn't work - no changes were propagated to node 3.
+
+There are some foreign keys which exist on node 1/2 which would cross
+the 2 sets (node 3 doesn't have those foreign keys) - are there any
+issues with consistency or will all changes to the database still be
+committed in the same order as they occurred on the originating node?
+
+For example, table 1 is in set 1 and table 2 is in set 2 and table 1
+has a foreign key that refers to table 2.
+
+Changes that occur on the origin node 1 which will be the same for set
+1/2 will obviously be fine, but is it possible for an event to be
+committed out-of-order on node 2?
+
+Thank you!
+
+Dave
+
