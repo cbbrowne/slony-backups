@@ -1,0 +1,137 @@
+From mail at joeconway.com  Tue Feb  5 14:07:13 2013
+From: mail at joeconway.com (Joe Conway)
+Date: Tue, 05 Feb 2013 16:07:13 -0600
+Subject: [Slony1-general] slony cluster snapshot
+Message-ID: <51118291.2030005@joeconway.com>
+
+What is the recommended way to capture a "snapshot" of an entire slony
+cluster at a point in time, such that it is possible to restore the
+cluster to that point in time (without having to drop/resubscribe nodes)?
+
+We can stop activity on the cluster while taking the snapshot, but
+ideally would like to avoid having to dump every node independently. We
+will have both slony-managed and non-slony-managed tables (although the
+non-slony-managed tables should also be in sync across the nodes).
+
+The ultimate goal it to provide a way to reset the cluster to a known
+state in order to facilitate testing.
+
+Pointers, ideas, URLs appreciated.
+
+Thanks,
+
+Joe
+
+
+
+
+-- 
+Joe Conway
+credativ LLC: http://www.credativ.us
+Linux, PostgreSQL, and general Open Source
+Training, Service, Consulting, & 24x7 Support
+
+From cbbrowne at afilias.info  Tue Feb  5 14:48:07 2013
+From: cbbrowne at afilias.info (Christopher Browne)
+Date: Tue, 5 Feb 2013 17:48:07 -0500
+Subject: [Slony1-general] slony cluster snapshot
+In-Reply-To: <51118291.2030005@joeconway.com>
+References: <51118291.2030005@joeconway.com>
+Message-ID: <CANfbgbbzf452V7AWnAiSiCnNF7jUtCf0jwRvGBRujg27Phz5yA@mail.gmail.com>
+
+On Tue, Feb 5, 2013 at 5:07 PM, Joe Conway <mail at joeconway.com> wrote:
+> What is the recommended way to capture a "snapshot" of an entire slony
+> cluster at a point in time, such that it is possible to restore the
+> cluster to that point in time (without having to drop/resubscribe nodes)?
+>
+> We can stop activity on the cluster while taking the snapshot, but
+> ideally would like to avoid having to dump every node independently. We
+> will have both slony-managed and non-slony-managed tables (although the
+> non-slony-managed tables should also be in sync across the nodes).
+>
+> The ultimate goal it to provide a way to reset the cluster to a known
+> state in order to facilitate testing.
+>
+> Pointers, ideas, URLs appreciated.
+
+There's a built-in tool for dumping the configuration of a cluster:
+http://git.postgresql.org/gitweb/?p=slony1-engine.git;a=blob;f=tools/slonikconfdump.sh
+
+I'm pretty sure that's not what you have in mind; I think you're
+thinking not just about the slony configuration, but about the
+combination of all the nodes and their cross-database state.
+
+If all of the databases are located on reasonably sophisticated disk
+array hardware, then you could probably use the disk array's
+capabilities to generate snapshots of the states of the respective
+databases, perhaps complete with deduplication of data via
+copy-on-write cloning.
+
+I'd think that's the only particularly reasonable way to do this
+without doing a bunch of pg_dumps.
+
+Similar could be done on Linux using LVM, copying via dd, or doing
+something filesystem-specific using btrfs (btrfs subvolume snapshot)
+or XFS (xfs_copy).
+
+On FreeBSD (perhaps other BSDs), ZFS has a "zfs clone" command that is
+analogous.
+
+It's probably also conceivable to use PITR to this end, checking the
+end XID on each database node, and setting things up to recover to
+that point.  But I rather expect that filesystem/disk array snapshots
+will be the easiest way to do this.
+
+From mail at joeconway.com  Tue Feb  5 15:12:43 2013
+From: mail at joeconway.com (Joe Conway)
+Date: Tue, 05 Feb 2013 17:12:43 -0600
+Subject: [Slony1-general] slony cluster snapshot
+In-Reply-To: <CANfbgbbzf452V7AWnAiSiCnNF7jUtCf0jwRvGBRujg27Phz5yA@mail.gmail.com>
+References: <51118291.2030005@joeconway.com>
+	<CANfbgbbzf452V7AWnAiSiCnNF7jUtCf0jwRvGBRujg27Phz5yA@mail.gmail.com>
+Message-ID: <511191EB.1070400@joeconway.com>
+
+On 02/05/2013 04:48 PM, Christopher Browne wrote:
+> It's probably also conceivable to use PITR to this end, checking the
+> end XID on each database node, and setting things up to recover to
+> that point.  But I rather expect that filesystem/disk array snapshots
+> will be the easiest way to do this.
+
+Is there a function or query we could use to verify that the nodes are
+all in sync as far as the slony replicated data?
+
+If so, I'm thinking we could then do something like:
+
+On backup:
+1) stop all activity on the cluster
+2) check the nodes are all in sync
+   -> if not wait, check again
+3) once all in sync
+   -> back up data-only from slon schema on each node
+   -> back up user tables data-only on master node
+4) start up slony, recommence activity
+
+On restore:
+1) stop all activity on the cluster
+2) stop all the slons
+3) disable the slony triggers
+4) truncate all slony and user tables
+5) reload all nodes from previous backups
+   -> slony data from local node backup
+   -> user data from master node backup
+6) re-enable triggers
+7) start all the slons, recommence activity
+
+Does this sound feasible?
+
+Thanks,
+
+Joe
+
+
+-- 
+Joe Conway
+credativ LLC: http://www.credativ.us
+Linux, PostgreSQL, and general Open Source
+Training, Service, Consulting, & 24x7 Support
+
