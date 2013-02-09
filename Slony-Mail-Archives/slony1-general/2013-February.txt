@@ -156,3 +156,132 @@ Steve
 An HTML attachment was scrubbed...
 URL: http://lists.slony.info/pipermail/slony1-general/attachments/20130206/fbebc8da/attachment.htm 
 
+From andrew at asi-web.com  Thu Feb  7 09:28:07 2013
+From: andrew at asi-web.com (andrew)
+Date: Thu, 7 Feb 2013 17:28:07 +0000
+Subject: [Slony1-general] Is there a way to cap the file size of slony log
+	shipping files?
+Message-ID: <88CAA3D677DBF347A10B6CA1B28D6DFE02BC2BF2@MSSERVER.asi-web.local>
+
+Hello.
+
+
+
+I am working with a SuSE machine (cat /etc/issue: SUSE Linux Enterprise Server 11 SP1  (i586)) running Postgresql 8.1.3 and the Slony-I replication system (slon version 1.1.5).  We have a working replication setup going between the databases on this server, which is generating log shipping files to be sent to the remote machines we are tasked to maintain.  The cluster itself is set up around three nodes (Node1, Node2, Node3) - Node 1 is the master, and Node 3 the slave.  Node 2 appears to be a legacy of the original build done by my predecessor; that database is blank.
+
+
+
+As of this morning, we ran into a problem with this.
+
+
+
+For a while now, we've had strange memory problems on this machine - the oom-killer seems to be striking even when there is plenty of free memory left.  That has set the stage for our current issue to occur - we ran a massive update on our system last night, while replication was turned off.  Now, as things currently stand, we cannot replicate the changes out - slony is attempting to compile all the changes into a single massive log file, and after about half an hour or so of running, it trips over the oom-killer issue, which appears to restart the replication package.  Since it is constantly trying to rebuild that same package, it never gets anywhere.
+
+
+
+My first question is this: Is there a way to cap the size of Slony log shipping files, so that it writes out no more than 'X' bytes (or K, or Meg, etc.) and after going over that size, closes the current log shipping file and starts a new one?  We've been able to hit about four megs in size before the oom-killer hits with fair regularity, so if I could cap it there, I could at least start generating the smaller files and hopefully eventually get through this.
+
+
+
+My second question, I guess, is this: Does anyone have a better solution for this issue than the one I'm asking about?  It's quite possible I'm getting tunnel vision looking at the problem, and all I really need is -a- solution, not necessarily -my- solution.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20130207/74bd3d5d/attachment.htm 
+
+From cbbrowne at afilias.info  Thu Feb  7 13:21:20 2013
+From: cbbrowne at afilias.info (Christopher Browne)
+Date: Thu, 7 Feb 2013 16:21:20 -0500
+Subject: [Slony1-general] Is there a way to cap the file size of slony
+ log shipping files?
+In-Reply-To: <88CAA3D677DBF347A10B6CA1B28D6DFE02BC2BF2@MSSERVER.asi-web.local>
+References: <88CAA3D677DBF347A10B6CA1B28D6DFE02BC2BF2@MSSERVER.asi-web.local>
+Message-ID: <CANfbgbaNSrb43rBS+7Ma5aDGEf-xO5ttWKqhKRMY6HqtZ0SZVg@mail.gmail.com>
+
+On Thu, Feb 7, 2013 at 12:28 PM, andrew <andrew at asi-web.com> wrote:
+> I am working with a SuSE machine (cat /etc/issue: SUSE Linux Enterprise
+> Server 11 SP1  (i586)) running Postgresql 8.1.3 and the Slony-I replication
+> system (slon version 1.1.5).  We have a working replication setup going
+> between the databases on this server, which is generating log shipping files
+> to be sent to the remote machines we are tasked to maintain.  The cluster
+> itself is set up around three nodes (Node1, Node2, Node3) - Node 1 is the
+> master, and Node 3 the slave.  Node 2 appears to be a legacy of the original
+> build done by my predecessor; that database is blank.
+>
+>
+>
+> As of this morning, we ran into a problem with this.
+>
+>
+>
+> For a while now, we've had strange memory problems on this machine - the
+> oom-killer seems to be striking even when there is plenty of free memory
+> left.  That has set the stage for our current issue to occur - we ran a
+> massive update on our system last night, while replication was turned off.
+> Now, as things currently stand, we cannot replicate the changes out - slony
+> is attempting to compile all the changes into a single massive log file, and
+> after about half an hour or so of running, it trips over the oom-killer
+> issue, which appears to restart the replication package.  Since it is
+> constantly trying to rebuild that same package, it never gets anywhere.
+>
+>
+>
+> My first question is this: Is there a way to cap the size of Slony log
+> shipping files, so that it writes out no more than 'X' bytes (or K, or Meg,
+> etc.) and after going over that size, closes the current log shipping file
+> and starts a new one?  We've been able to hit about four megs in size before
+> the oom-killer hits with fair regularity, so if I could cap it there, I
+> could at least start generating the smaller files and hopefully eventually
+> get through this.
+>
+>
+>
+> My second question, I guess, is this: Does anyone have a better solution for
+> this issue than the one I'm asking about?  It's quite possible I'm getting
+> tunnel vision looking at the problem, and all I really need is -a- solution,
+> not necessarily -my- solution.
+
+Here are some observations, not necessarily particularly ordered...
+
+1.  A 4MB limit seems rather small.
+
+2.  I wouldn't expect the file size to have much, if anything, to do with
+how much memory is consumed.  Data is thrown into the file and
+then thrown away on a more or less query-by-query basis.  So really,
+I'd expect limiting file size to not actually help with OOM.
+
+The "predecessor" system to Slony, eRServer, had quite different
+habits; it would draw query data into memory, and not throw anything
+out of memory until it finished its notion of a "Sync."  Which meant
+that if a replica fell far enough behind, you'd run out of memory,
+perhaps in a tough place, like the maximum that a JVM (eRServer
+was written in Java) could allocate, e.g. - 2GB, and replication was
+at that point "toast," as it could never catch up.
+
+But Slony shouldn't be pulling *too* much data into memory at any
+given time, so I'm thinking you're looking at the wrong problem.
+
+3.  Well, there *is* a place where Slony can chew memory, and that's
+if you have enormous tuples.  We used to replicate an RT/3
+(Request Tracker 3) instance, and ticket attachments could get very
+large, and would get drawn into memory.  A few tuples 50MB in size
+within the same SYNC would lead to memory running out pretty
+quickly.
+
+That was changed in version 1.2, so it's pretty possible that this
+would be the root of your troubles.
+
+4. Note that we released 1.2.0 back in 2006, some seven years ago,
+and basically stopped maintaining the 1.1 branch in 2007.
+
+5.  If the issues of #4 are the problem, then a temporary fix that
+might help would be to to reduce the #define for
+SLON_DATA_FETCH_DATA_SIZE from 100 to maybe just 1,
+and similarly, SLON_COMMANDS_PER_LINE from 10 to 1.
+(see src/slon/slon.h)
+
+That'll lower efficiency, but it means you won't be blowing memory
+as much on those big tuples.
+
+But you're on an exceeding old version, and should try to get to
+something rather less than 7 years old.
+
