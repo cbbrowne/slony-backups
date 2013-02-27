@@ -6,9 +6,7 @@ git fetch origin
 git pull origin master
 
 # Set up password for Mailman
-MAILMANPASSFILE=${MAILMANPASSFILE:-"${HOME}/GitHome/InitFiles/Slony/slony-mailman-password.sh"}
-### This script sets MAILMANPASSWORD
-. ${MAILMANPASSFILE}
+MAILMANPASSFILE=${MAILMANPASSFILE:-"${HOME}/GitHome/InitFiles/Slony/slony-mailman-password"}
 
 MAILMANSUBTOOL=${MAILMANSUBTOOL:-"${HOME}/GitStuff/mailman-subscribers/mailman-subscribers.py"}
 
@@ -19,7 +17,7 @@ for list in bugs commit general hackers patches; do
     listfile=${ARCHIVEHOME}/${listname}/subscribers.asc
     templocation=`mktemp`
     echo "Grabbing subscribers of Slony list ${listname} into data file: [${templocation}]"
-    python ${MAILMANSUBTOOL} -o ${templocation} lists.slony.info ${listname} "${MAILMANPASSWORD}"
+    python ${MAILMANSUBTOOL} -o ${templocation} --password-file=${MAILMANPASSFILE} lists.slony.info ${listname} 
     echo "Encrypt [${templocation}] into [${listfile}] for GPG user list ${GPGKEYS}"
     gpg --encrypt --armor -r "${GPGKEYS}" --batch --yes --trust-model always -o ${listfile} ${templocation}
     rm -f ${templocation}
