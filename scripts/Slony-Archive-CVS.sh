@@ -16,3 +16,5 @@ git rm -r slony1-www
 CVSROOT=":pserver:anonymous@main.slony.info:/slony1" cvs co slony1-www
 echo "CVS" >> $ARCHIVEHOME/slony1-www/.gitignore
 git add slony1-www
+git commit -m "Check in CVS updates - run of scripts/Slony-Archive-CVS.sh"
+git push origin master
