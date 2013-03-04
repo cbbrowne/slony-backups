@@ -1,0 +1,124 @@
+From Ger.Timmens at adyen.com  Fri Mar  1 04:08:21 2013
+From: Ger.Timmens at adyen.com (Ger Timmens)
+Date: Fri, 01 Mar 2013 13:08:21 +0100
+Subject: [Slony1-general] drop node
+Message-ID: <51309A35.7040307@adyen.com>
+
+All,
+
+When you do a drop node (e.g. node 19), there can still be records for
+that node in sl_confirm (both for con_received and con_origin.
+Shouldn't the drop node command just delete those records ?
+
+delete From _live_config.sl_confirm where con_received = 19;
+delete From _live_config.sl_confirm where con_origin = 19;
+
+Regards,
+
+Ger
+
+-- 
+Ger Timmens
+Adyen - Payments Made Easy
+http://www.adyen.com
+
+Visiting Address: Kantoorgebouw Nijenburg  Mail Address:
+Simon Carmiggeltstraat 6-50, 5th floor      P.O. Box 10095
+1011 DJ Amsterdam                          1001 EB Amsterdam
+The Netherlands                            The Netherlands
+
+Direct +31.20.240.1248
+Office +31.20.240.1240
+Mobile +31.62.483.8468
+Email ger.timmens at adyen.com
+
+
+
+From ssinger at ca.afilias.info  Fri Mar  1 08:51:51 2013
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Fri, 01 Mar 2013 11:51:51 -0500
+Subject: [Slony1-general] drop node
+In-Reply-To: <51309A35.7040307@adyen.com>
+References: <51309A35.7040307@adyen.com>
+Message-ID: <5130DCA7.7010302@ca.afilias.info>
+
+On 13-03-01 07:08 AM, Ger Timmens wrote:
+> All,
+>
+> When you do a drop node (e.g. node 19), there can still be records for
+> that node in sl_confirm (both for con_received and con_origin.
+> Shouldn't the drop node command just delete those records ?
+>
+> delete From _live_config.sl_confirm where con_received = 19;
+> delete From _live_config.sl_confirm where con_origin = 19;
+>
+
+Yes, ideally after the DROP node has been confirmed by all other nodes 
+then the records should be gone from sl_confirm on those nodes.
+
+I have a feeling there might be a situation where a remote worker can 
+pull in sl_confirms for node 19 from node 18 while the dropInt_int() is 
+being processed on say node 17.
+
+What version of slony are you using?
+
+In the master/2.2 branch I added some code with the following comment to 
+the drop_node function.
+
+
+    /**
+     * find the last event (including SYNC events)
+     * from the node being dropped that is visible on
+     * any of the remaining nodes.
+     * we must wait for ALL remaining nodes to get caught up.
+     *
+     * we can't ignore SYNC events even though the dropped
+     * node is not an origin it might have been an old
+     * origin before a FAILOVER. Some behind node still
+     * might need to get caught up from its provider.
+     */
+
+If a SYNC event from your node 19 is visible on ANY remaining node then 
+it will should be confirmed by all other nodes before the drop_node gets 
+submitted.
+
+
+
+
+
+
+> Regards,
+>
+> Ger
+>
+
+
+From cbbrowne at afilias.info  Fri Mar  1 09:13:32 2013
+From: cbbrowne at afilias.info (Christopher Browne)
+Date: Fri, 1 Mar 2013 12:13:32 -0500
+Subject: [Slony1-general] drop node
+In-Reply-To: <51309A35.7040307@adyen.com>
+References: <51309A35.7040307@adyen.com>
+Message-ID: <CANfbgbZGJ3RW6WMDzmXVqq7K-QKY+oVwz=mKNv1-UONC42NLrw@mail.gmail.com>
+
+On Fri, Mar 1, 2013 at 7:08 AM, Ger Timmens <Ger.Timmens at adyen.com> wrote:
+> All,
+>
+> When you do a drop node (e.g. node 19), there can still be records for
+> that node in sl_confirm (both for con_received and con_origin.
+> Shouldn't the drop node command just delete those records ?
+>
+> delete From _live_config.sl_confirm where con_received = 19;
+> delete From _live_config.sl_confirm where con_origin = 19;
+
+That logic is spread around a bit, and somewhat deferred.
+
+See:
+   function dropNode_int()
+   function cleanupEvent()
+
+The latter is the notable deferral; it's not desirable to drop the "entrails"
+of node #19 immediately, as other nodes might still be working on
+the last activity that had taken place on that node, so that the drop
+mightn't take place "cleanly" if all the work takes place immediately.
+
