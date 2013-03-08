@@ -122,3 +122,548 @@ of node #19 immediately, as other nodes might still be working on
 the last activity that had taken place on that node, so that the drop
 mightn't take place "cleanly" if all the work takes place immediately.
 
+From jon at investmentscience.com.au  Wed Mar  6 04:08:11 2013
+From: jon at investmentscience.com.au (Jonathan Soong)
+Date: Wed, 6 Mar 2013 12:08:11 +0000
+Subject: [Slony1-general] Help - replication has broken,
+ best way to restart it without destroying data.
+Message-ID: <3FB956A028D92E47A66668DCD0CD6E6806855E7B@INVSCI-SVR1.invsci.local>
+
+Hi guys
+
+Replication has died on my master-slave.
+
+What i would really like to do is stop replication and then get it to clear out the replicated tables in the Slave and start again (i.e truncate the replicated tables ONLY ).
+
+The problem I have is that only SOME tables are replicated between the Master and the Slave. 
+
+- i do NOT want the replication to destroy the un-replicated tables on the Slave.
+
+I have seen all the instructions on how to start replication but most of them have the step of drop the Slave db and re-import the schema from the Master. I can't do this as I don't want to clobber my un-replicated tables.
+
+Is it possible to do what I want?
+
+My initial thoughts were to do an slonik "unsubscribe set" and then do a slonik "subscribe set"
+
+The problem I have is that the slon daemon on the Slave is erroring (see below), and from what I understand the "unsubscribe set" event will just be put in the event queue. I.e. The Slave will never be able to unsubscribe because it is erroring on an earlier event.
+
+I was thinking there might be a way to delete all events in the queue so it could just continue ... is this possible? I realise that after that the data is not in sync, but im planning on blowing away the replicated tables and starting again anyway...
+
+Although there might be a way to fix replication, i kind of want to know how to just do a "clean replication" from this point, as I see it as an important task.
+
+Thanks for any thoughts/opinions.
+
+Cheers
+
+Jon
+
+----------------------------------------------------------------
+
+
+
+Error in Slave log is:
+2013-03-06 19:56:41 HKTINFO   remoteWorkerThread_1: syncing set 1 with 47 table(s) from provider 1
+2013-03-06 19:56:42 HKTERROR  remoteWorkerThread_1: "select "_replication".sequenceSetValue(10,1,'5002597503','291048'); " PGRES_FATAL_ERROR ERROR:  Slony-I: sequenceSetValue(): sequence 10 not found
+
+
+From JanWieck at Yahoo.com  Wed Mar  6 05:39:23 2013
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Wed, 06 Mar 2013 08:39:23 -0500
+Subject: [Slony1-general] Help - replication has broken,
+ best way to restart it without destroying data.
+In-Reply-To: <3FB956A028D92E47A66668DCD0CD6E6806855E7B@INVSCI-SVR1.invsci.local>
+References: <3FB956A028D92E47A66668DCD0CD6E6806855E7B@INVSCI-SVR1.invsci.local>
+Message-ID: <5137470B.1030200@Yahoo.com>
+
+On 3/6/2013 7:08 AM, Jonathan Soong wrote:
+> Hi guys
+>
+> Replication has died on my master-slave.
+>
+> What i would really like to do is stop replication and then get it to clear out the replicated tables in the Slave and start again (i.e truncate the replicated tables ONLY ).
+>
+> The problem I have is that only SOME tables are replicated between the Master and the Slave.
+>
+> - i do NOT want the replication to destroy the un-replicated tables on the Slave.
+>
+> I have seen all the instructions on how to start replication but most of them have the step of drop the Slave db and re-import the schema from the Master. I can't do this as I don't want to clobber my un-replicated tables.
+>
+> Is it possible to do what I want?
+
+Certainly.
+
+>
+> My initial thoughts were to do an slonik "unsubscribe set" and then do a slonik "subscribe set"
+>
+> The problem I have is that the slon daemon on the Slave is erroring (see below), and from what I understand the "unsubscribe set" event will just be put in the event queue. I.e. The Slave will never be able to unsubscribe because it is erroring on an earlier event.
+>
+> I was thinking there might be a way to delete all events in the queue so it could just continue ... is this possible? I realise that after that the data is not in sync, but im planning on blowing away the replicated tables and starting again anyway...
+>
+> Although there might be a way to fix replication, i kind of want to know how to just do a "clean replication" from this point, as I see it as an important task.
+>
+> Thanks for any thoughts/opinions.
+>
+> Cheers
+>
+> Jon
+>
+> ----------------------------------------------------------------
+>
+>
+>
+> Error in Slave log is:
+> 2013-03-06 19:56:41 HKTINFO   remoteWorkerThread_1: syncing set 1 with 47 table(s) from provider 1
+> 2013-03-06 19:56:42 HKTERROR  remoteWorkerThread_1: "select "_replication".sequenceSetValue(10,1,'5002597503','291048'); " PGRES_FATAL_ERROR ERROR:  Slony-I: sequenceSetValue(): sequence 10 not found
+
+You did not tell us which version of Slony you are running. That is 
+always good to include in a problem report. In this case it is 
+especially relevant since the above is probably the result from doing 
+some DDL on the replica (slave) directly, without sending it through 
+slonik's EXECUTE SCRIPT functionality. My bet is that someone dropped 
+and recreated the sequence in question. You can find out what sequence 
+that is by doing
+
+     SELECT * FROM "_replication".sl_sequence where seq_id = 10;
+
+If you are still running Slony 1.2 then it is important to know what 
+other DDL may have been executed on the replica since doing that in 1.2 
+can lead to a permanently corrupted system catalog. There is no danger 
+of that in 2.0 or 2.1.
+
+Operations harmful on replicated tables on a replica under 1.2 include 
+things like create/drop index, add/drop constraint, create/drop trigger 
+as well as dropping columns.
+
+If you conclude that your system catalog must still be consistent 
+because you are running 2.0 or higher or none of the above has happened, 
+then you can try to fix the problem first by running the slonik command 
+REPAIR CONFIG against the replica node.
+
+     http://slony.info/documentation/2.1/stmtrepairconfig.html
+
+If that does not fix the problem, then you can uninstall Slony using the 
+UNINSTALL NODE command for all nodes.
+
+     http://slony.info/documentation/1.2/stmtuninstallnode.html
+
+This does not touch any data on any of the nodes. It only restores 
+things so that both systems at that point are stand alone databases.
+
+After that you simply rebuild your replication cluster like it was done 
+originally. Creating nodes, paths, sets, tables and subscribing them.
+
+You do not need to truncate anything on the replica. Slony will take 
+care of that.
+
+If you have to go through that it would be a good opportunity to upgrade 
+to Slony 2.1 while at it.
+
+
+Regards,
+Jan
+
+-- 
+Anyone who trades liberty for security deserves neither
+liberty nor security. -- Benjamin Franklin
+
+From jon at investmentscience.com.au  Wed Mar  6 12:24:58 2013
+From: jon at investmentscience.com.au (Jonathan Soong)
+Date: Wed, 6 Mar 2013 20:24:58 +0000
+Subject: [Slony1-general] Help - replication has broken,
+ best way to restart it without destroying data.
+In-Reply-To: <5137470B.1030200@Yahoo.com>
+References: <3FB956A028D92E47A66668DCD0CD6E6806855E7B@INVSCI-SVR1.invsci.local>,
+	<5137470B.1030200@Yahoo.com>
+Message-ID: <3FB956A028D92E47A66668DCD0CD6E6806855F80@INVSCI-SVR1.invsci.local>
+
+Hi Jan
+
+Sorry for not including version, yup im 2.0.7 and pg 8.4.11.
+
+That's good, at least I know no data has been corrupted.
+
+As you say, I think DDL was run against the Slave by itself and i think it is corrupted. I don't think i can repair it because things were done against the Slave since then.
+
+I am presuming the UNINSTALL NODE will bypass the slony event queue (which is blocked up with an error) ?
+
+Thanks very much for your advice :)
+
+Jon
+________________________________________
+From: Jan Wieck [JanWieck at Yahoo.com]
+Sent: 07 March 2013 00:09
+To: Jonathan Soong
+Cc: slony1-general at lists.slony.info
+Subject: Re: [Slony1-general] Help - replication has broken, best way to restart it without destroying data.
+
+On 3/6/2013 7:08 AM, Jonathan Soong wrote:
+> Hi guys
+>
+> Replication has died on my master-slave.
+>
+> What i would really like to do is stop replication and then get it to clear out the replicated tables in the Slave and start again (i.e truncate the replicated tables ONLY ).
+>
+> The problem I have is that only SOME tables are replicated between the Master and the Slave.
+>
+> - i do NOT want the replication to destroy the un-replicated tables on the Slave.
+>
+> I have seen all the instructions on how to start replication but most of them have the step of drop the Slave db and re-import the schema from the Master. I can't do this as I don't want to clobber my un-replicated tables.
+>
+> Is it possible to do what I want?
+
+Certainly.
+
+>
+> My initial thoughts were to do an slonik "unsubscribe set" and then do a slonik "subscribe set"
+>
+> The problem I have is that the slon daemon on the Slave is erroring (see below), and from what I understand the "unsubscribe set" event will just be put in the event queue. I.e. The Slave will never be able to unsubscribe because it is erroring on an earlier event.
+>
+> I was thinking there might be a way to delete all events in the queue so it could just continue ... is this possible? I realise that after that the data is not in sync, but im planning on blowing away the replicated tables and starting again anyway...
+>
+> Although there might be a way to fix replication, i kind of want to know how to just do a "clean replication" from this point, as I see it as an important task.
+>
+> Thanks for any thoughts/opinions.
+>
+> Cheers
+>
+> Jon
+>
+> ----------------------------------------------------------------
+>
+>
+>
+> Error in Slave log is:
+> 2013-03-06 19:56:41 HKTINFO   remoteWorkerThread_1: syncing set 1 with 47 table(s) from provider 1
+> 2013-03-06 19:56:42 HKTERROR  remoteWorkerThread_1: "select "_replication".sequenceSetValue(10,1,'5002597503','291048'); " PGRES_FATAL_ERROR ERROR:  Slony-I: sequenceSetValue(): sequence 10 not found
+
+You did not tell us which version of Slony you are running. That is
+always good to include in a problem report. In this case it is
+especially relevant since the above is probably the result from doing
+some DDL on the replica (slave) directly, without sending it through
+slonik's EXECUTE SCRIPT functionality. My bet is that someone dropped
+and recreated the sequence in question. You can find out what sequence
+that is by doing
+
+     SELECT * FROM "_replication".sl_sequence where seq_id = 10;
+
+If you are still running Slony 1.2 then it is important to know what
+other DDL may have been executed on the replica since doing that in 1.2
+can lead to a permanently corrupted system catalog. There is no danger
+of that in 2.0 or 2.1.
+
+Operations harmful on replicated tables on a replica under 1.2 include
+things like create/drop index, add/drop constraint, create/drop trigger
+as well as dropping columns.
+
+If you conclude that your system catalog must still be consistent
+because you are running 2.0 or higher or none of the above has happened,
+then you can try to fix the problem first by running the slonik command
+REPAIR CONFIG against the replica node.
+
+     http://slony.info/documentation/2.1/stmtrepairconfig.html
+
+If that does not fix the problem, then you can uninstall Slony using the
+UNINSTALL NODE command for all nodes.
+
+     http://slony.info/documentation/1.2/stmtuninstallnode.html
+
+This does not touch any data on any of the nodes. It only restores
+things so that both systems at that point are stand alone databases.
+
+After that you simply rebuild your replication cluster like it was done
+originally. Creating nodes, paths, sets, tables and subscribing them.
+
+You do not need to truncate anything on the replica. Slony will take
+care of that.
+
+If you have to go through that it would be a good opportunity to upgrade
+to Slony 2.1 while at it.
+
+
+Regards,
+Jan
+
+--
+Anyone who trades liberty for security deserves neither
+liberty nor security. -- Benjamin Franklin
+
+From JanWieck at Yahoo.com  Wed Mar  6 12:40:48 2013
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Wed, 06 Mar 2013 15:40:48 -0500
+Subject: [Slony1-general] Help - replication has broken,
+ best way to restart it without destroying data.
+In-Reply-To: <3FB956A028D92E47A66668DCD0CD6E6806855F80@INVSCI-SVR1.invsci.local>
+References: <3FB956A028D92E47A66668DCD0CD6E6806855E7B@INVSCI-SVR1.invsci.local>,
+	<5137470B.1030200@Yahoo.com>
+	<3FB956A028D92E47A66668DCD0CD6E6806855F80@INVSCI-SVR1.invsci.local>
+Message-ID: <5137A9D0.4020804@Yahoo.com>
+
+On 3/6/2013 3:24 PM, Jonathan Soong wrote:
+> Hi Jan
+>
+> Sorry for not including version, yup im 2.0.7 and pg 8.4.11.
+>
+> That's good, at least I know no data has been corrupted.
+
+Indeed, that is a good thing.
+
+>
+> As you say, I think DDL was run against the Slave by itself and i think it is corrupted. I don't think i can repair it because things were done against the Slave since then.
+
+Well, have you tried to run the REPAIR CONFIG slonik command for the set 
+against the slave? The damage may not be as severe as you think.
+
+What is the actual name of that sequence 10 according to sl_sequence? 
+Does that sequence exist in the slave database?
+
+
+>
+> I am presuming the UNINSTALL NODE will bypass the slony event queue (which is blocked up with an error) ?
+
+UNINSTALL NODE is a command that actually removes all traces of Slony 
+from a database. There should not be a slon daemon running at that time 
+and you are left with a standalone database, that has no idea what Slony 
+is at all.
+
+Both databases would still have all your tables with whatever data is 
+currently in them.
+
+So you would stop the slon daemons, run UNINSTALL NODE against both, 
+master and slave. Then rebuild your replication from scratch, just 
+assuming that you don't have to copy any schema. The tables already 
+exist on the slave, so there is not need to do that.
+
+
+Jan
+
+-- 
+Anyone who trades liberty for security deserves neither
+liberty nor security. -- Benjamin Franklin
+
+From jon at investmentscience.com.au  Wed Mar  6 16:10:21 2013
+From: jon at investmentscience.com.au (Jonathan Soong)
+Date: Thu, 7 Mar 2013 00:10:21 +0000
+Subject: [Slony1-general] Help - replication has broken,
+ best way to restart it without destroying data.
+In-Reply-To: <5137A9D0.4020804@Yahoo.com>
+References: <3FB956A028D92E47A66668DCD0CD6E6806855E7B@INVSCI-SVR1.invsci.local>,
+	<5137470B.1030200@Yahoo.com>
+	<3FB956A028D92E47A66668DCD0CD6E6806855F80@INVSCI-SVR1.invsci.local>
+	<5137A9D0.4020804@Yahoo.com>
+Message-ID: <3FB956A028D92E47A66668DCD0CD6E6806856014@INVSCI-SVR1.invsci.local>
+
+Thanks Jan, all fixed.
+
+:)
+
+Cheers
+
+Jon
+
+-----Original Message-----
+From: Jan Wieck [mailto:JanWieck at Yahoo.com] 
+Sent: Thursday, 7 March 2013 7:11 AM
+To: Jonathan Soong
+Cc: slony1-general at lists.slony.info
+Subject: Re: [Slony1-general] Help - replication has broken, best way to restart it without destroying data.
+
+On 3/6/2013 3:24 PM, Jonathan Soong wrote:
+> Hi Jan
+>
+> Sorry for not including version, yup im 2.0.7 and pg 8.4.11.
+>
+> That's good, at least I know no data has been corrupted.
+
+Indeed, that is a good thing.
+
+>
+> As you say, I think DDL was run against the Slave by itself and i think it is corrupted. I don't think i can repair it because things were done against the Slave since then.
+
+Well, have you tried to run the REPAIR CONFIG slonik command for the set against the slave? The damage may not be as severe as you think.
+
+What is the actual name of that sequence 10 according to sl_sequence? 
+Does that sequence exist in the slave database?
+
+
+>
+> I am presuming the UNINSTALL NODE will bypass the slony event queue (which is blocked up with an error) ?
+
+UNINSTALL NODE is a command that actually removes all traces of Slony from a database. There should not be a slon daemon running at that time and you are left with a standalone database, that has no idea what Slony is at all.
+
+Both databases would still have all your tables with whatever data is currently in them.
+
+So you would stop the slon daemons, run UNINSTALL NODE against both, master and slave. Then rebuild your replication from scratch, just assuming that you don't have to copy any schema. The tables already exist on the slave, so there is not need to do that.
+
+
+Jan
+
+--
+Anyone who trades liberty for security deserves neither liberty nor security. -- Benjamin Franklin
+
+From JanWieck at Yahoo.com  Wed Mar  6 18:31:23 2013
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Wed, 06 Mar 2013 21:31:23 -0500
+Subject: [Slony1-general] Help - replication has broken,
+ best way to restart it without destroying data.
+In-Reply-To: <3FB956A028D92E47A66668DCD0CD6E6806856014@INVSCI-SVR1.invsci.local>
+References: <3FB956A028D92E47A66668DCD0CD6E6806855E7B@INVSCI-SVR1.invsci.local>,
+	<5137470B.1030200@Yahoo.com>
+	<3FB956A028D92E47A66668DCD0CD6E6806855F80@INVSCI-SVR1.invsci.local>
+	<5137A9D0.4020804@Yahoo.com>
+	<3FB956A028D92E47A66668DCD0CD6E6806856014@INVSCI-SVR1.invsci.local>
+Message-ID: <5137FBFB.8000301@Yahoo.com>
+
+On 3/6/2013 7:10 PM, Jonathan Soong wrote:
+> Thanks Jan, all fixed.
+>
+> :)
+
+Most glad that it all turned out well.
+
+Just for the record, did the REPAIR CONFIG do the trick or did you have 
+to rebuild the cluster?
+
+
+Jan
+
+>
+> Cheers
+>
+> Jon
+>
+> -----Original Message-----
+> From: Jan Wieck [mailto:JanWieck at Yahoo.com]
+> Sent: Thursday, 7 March 2013 7:11 AM
+> To: Jonathan Soong
+> Cc: slony1-general at lists.slony.info
+> Subject: Re: [Slony1-general] Help - replication has broken, best way to restart it without destroying data.
+>
+> On 3/6/2013 3:24 PM, Jonathan Soong wrote:
+>> Hi Jan
+>>
+>> Sorry for not including version, yup im 2.0.7 and pg 8.4.11.
+>>
+>> That's good, at least I know no data has been corrupted.
+>
+> Indeed, that is a good thing.
+>
+>>
+>> As you say, I think DDL was run against the Slave by itself and i think it is corrupted. I don't think i can repair it because things were done against the Slave since then.
+>
+> Well, have you tried to run the REPAIR CONFIG slonik command for the set against the slave? The damage may not be as severe as you think.
+>
+> What is the actual name of that sequence 10 according to sl_sequence?
+> Does that sequence exist in the slave database?
+>
+>
+>>
+>> I am presuming the UNINSTALL NODE will bypass the slony event queue (which is blocked up with an error) ?
+>
+> UNINSTALL NODE is a command that actually removes all traces of Slony from a database. There should not be a slon daemon running at that time and you are left with a standalone database, that has no idea what Slony is at all.
+>
+> Both databases would still have all your tables with whatever data is currently in them.
+>
+> So you would stop the slon daemons, run UNINSTALL NODE against both, master and slave. Then rebuild your replication from scratch, just assuming that you don't have to copy any schema. The tables already exist on the slave, so there is not need to do that.
+>
+>
+> Jan
+>
+> --
+> Anyone who trades liberty for security deserves neither liberty nor security. -- Benjamin Franklin
+>
+
+
+-- 
+Anyone who trades liberty for security deserves neither
+liberty nor security. -- Benjamin Franklin
+
+From jon at investmentscience.com.au  Wed Mar  6 19:34:55 2013
+From: jon at investmentscience.com.au (Jonathan Soong)
+Date: Thu, 7 Mar 2013 03:34:55 +0000
+Subject: [Slony1-general] Help - replication has broken,
+ best way to restart it without destroying data.
+In-Reply-To: <5137FBFB.8000301@Yahoo.com>
+References: <3FB956A028D92E47A66668DCD0CD6E6806855E7B@INVSCI-SVR1.invsci.local>,
+	<5137470B.1030200@Yahoo.com>
+	<3FB956A028D92E47A66668DCD0CD6E6806855F80@INVSCI-SVR1.invsci.local>
+	<5137A9D0.4020804@Yahoo.com>
+	<3FB956A028D92E47A66668DCD0CD6E6806856014@INVSCI-SVR1.invsci.local>
+	<5137FBFB.8000301@Yahoo.com>
+Message-ID: <3FB956A028D92E47A66668DCD0CD6E6806856164@INVSCI-SVR1.invsci.local>
+
+I had to rebuild the cluster, but I had messed with the tables before trying the repair, so I'm not surprised :)
+
+Thanks
+
+Jon
+
+-----Original Message-----
+From: Jan Wieck [mailto:JanWieck at Yahoo.com] 
+Sent: Thursday, 7 March 2013 1:01 PM
+To: Jonathan Soong
+Cc: slony1-general at lists.slony.info
+Subject: Re: [Slony1-general] Help - replication has broken, best way to restart it without destroying data.
+
+On 3/6/2013 7:10 PM, Jonathan Soong wrote:
+> Thanks Jan, all fixed.
+>
+> :)
+
+Most glad that it all turned out well.
+
+Just for the record, did the REPAIR CONFIG do the trick or did you have to rebuild the cluster?
+
+
+Jan
+
+>
+> Cheers
+>
+> Jon
+>
+> -----Original Message-----
+> From: Jan Wieck [mailto:JanWieck at Yahoo.com]
+> Sent: Thursday, 7 March 2013 7:11 AM
+> To: Jonathan Soong
+> Cc: slony1-general at lists.slony.info
+> Subject: Re: [Slony1-general] Help - replication has broken, best way to restart it without destroying data.
+>
+> On 3/6/2013 3:24 PM, Jonathan Soong wrote:
+>> Hi Jan
+>>
+>> Sorry for not including version, yup im 2.0.7 and pg 8.4.11.
+>>
+>> That's good, at least I know no data has been corrupted.
+>
+> Indeed, that is a good thing.
+>
+>>
+>> As you say, I think DDL was run against the Slave by itself and i think it is corrupted. I don't think i can repair it because things were done against the Slave since then.
+>
+> Well, have you tried to run the REPAIR CONFIG slonik command for the set against the slave? The damage may not be as severe as you think.
+>
+> What is the actual name of that sequence 10 according to sl_sequence?
+> Does that sequence exist in the slave database?
+>
+>
+>>
+>> I am presuming the UNINSTALL NODE will bypass the slony event queue (which is blocked up with an error) ?
+>
+> UNINSTALL NODE is a command that actually removes all traces of Slony from a database. There should not be a slon daemon running at that time and you are left with a standalone database, that has no idea what Slony is at all.
+>
+> Both databases would still have all your tables with whatever data is currently in them.
+>
+> So you would stop the slon daemons, run UNINSTALL NODE against both, master and slave. Then rebuild your replication from scratch, just assuming that you don't have to copy any schema. The tables already exist on the slave, so there is not need to do that.
+>
+>
+> Jan
+>
+> --
+> Anyone who trades liberty for security deserves neither liberty nor security. -- Benjamin Franklin
+>
+
+
+-- 
+Anyone who trades liberty for security deserves neither
+liberty nor security. -- Benjamin Franklin
+
