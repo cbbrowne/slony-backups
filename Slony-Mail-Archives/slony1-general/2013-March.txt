@@ -839,3 +839,116 @@ View this message in context: http://old.nabble.com/Slony-replication-monitoring
 Sent from the Slony-I -- General mailing list archive at Nabble.com.
 
 
+From ncslists at googlemail.com  Wed Mar 27 10:07:28 2013
+From: ncslists at googlemail.com (Csaba Nagy)
+Date: Wed, 27 Mar 2013 18:07:28 +0100
+Subject: [Slony1-general] PGRES_FATAL_ERROR ERROR: stack depth limit exceeded
+Message-ID: <1364404048.3071.808.camel@clnt-sysecm-cnagy>
+
+Hi all,
+
+We have here a slony setup where this error is consistently showing up:
+
+PGRES_FATAL_ERROR ERROR:  stack depth limit exceeded
+HINT:  Increase the configuration parameter "max_stack_depth", after
+ensuring the platform's stack depth limit is adequate.
+
+The line before this error message in the slony logs has ~11MB worth of
+text consisting mainly in a long concatenation of:
+
+... and  log_actionseq <> '...'
+
+This data is also present in the sl_setsync table.
+
+The problem happens immediately after the slave finishes syncing the
+set, enables the subscription and tries to do the first sync.
+
+I found a thread about it here:
+
+http://old.nabble.com/Slave-can%27t-catch-up,-postgres-error-%
+27stack-depth-limit-exceeded%27-td33182661.html
+
+We're running on postgres 9.0.10 and slony1 version 2.0.7, and upgrading
+is not an option in the near future (eventually we will upgrade both
+postgres and slony).
+
+The problem is that we hit this issue now more and more regularly - and
+it is a killer for the slony replication, as it is not possible to
+reliably set it up...
+
+What I already tried and didn't help:
+
+ * set max_stack_depth up to ridiculous amounts (10s of GB) - not sure
+if I got the OS side of it right, but I did my best;
+
+ * decrease the slon deamon's SYNC_CHECK_INTERVAL to 1 second;
+
+With both those I still get the error regularly...
+
+I wonder if this is fixed in newer slony releases, or if there's any
+chance I can get some help/directions on how to fix/patch it in the
+version we use to avoid this problem ?
+
+Jan Wieck mentions in the thread cited above that the a solution would
+be:
+
+<quote>
+The improvement for a future release would be to have the remote worker 
+get the log_actionseq list at the beginning of copy_set. If that list is
+longer than a configurable maximum, it would abort the subscribe and 
+retry in a few seconds. It may take a couple of retries, but it should 
+eventually hit a moment where a SYNC event was created recently enough 
+so that there are only a few hundred log rows to ignore.
+</quote>
+
+Was this already implemented in a newer release ?
+
+If not I would like to work on it, including back-patch for the 2.0.7
+version we use...
+
+I would appreciate any help/hints on how to approach this !
+
+Cheers,
+Csaba
+
+
+
+
+
+
+
+From cbbrowne at afilias.info  Wed Mar 27 12:17:53 2013
+From: cbbrowne at afilias.info (Christopher Browne)
+Date: Wed, 27 Mar 2013 15:17:53 -0400
+Subject: [Slony1-general] PGRES_FATAL_ERROR ERROR: stack depth limit
+	exceeded
+In-Reply-To: <1364404048.3071.808.camel@clnt-sysecm-cnagy>
+References: <1364404048.3071.808.camel@clnt-sysecm-cnagy>
+Message-ID: <CANfbgba=9WXd-AV4H2YPRqmvHO8EaAyEy1Dcm0msSfkPu__OsA@mail.gmail.com>
+
+On Wed, Mar 27, 2013 at 1:07 PM, Csaba Nagy <ncslists at googlemail.com> wrote:
+> Hi all,
+>
+> We have here a slony setup where this error is consistently showing up:
+>
+> PGRES_FATAL_ERROR ERROR:  stack depth limit exceeded
+> HINT:  Increase the configuration parameter "max_stack_depth", after
+> ensuring the platform's stack depth limit is adequate.
+>
+> The line before this error message in the slony logs has ~11MB worth of
+> text consisting mainly in a long concatenation of:
+>
+> ... and  log_actionseq <> '...'
+
+This was noticed in 2.0.7, reported as bug #264, and fixed:
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=264
+
+Essentially, adding an "ORDER BY" to two queries.  (See the patches
+attached to the bug)
+
+You'd need to recompile slon, but it shouldn't be necessary to upgrade
+to an altogether newer version.  We did get a positive response that
+the patch rectified things in 2.0.7, so that seems precisely relevant
+to your situation.
+
