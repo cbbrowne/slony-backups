@@ -155,3 +155,139 @@ patches referenced.
 >
 
 
+From vivek at khera.org  Tue Apr 16 06:10:58 2013
+From: vivek at khera.org (Vick Khera)
+Date: Tue, 16 Apr 2013 09:10:58 -0400
+Subject: [Slony1-general] replication stalls with long-running vacuum
+Message-ID: <CALd+dcev3kiev+qYibgUKRQTZU4m-zKfH0Oe1jFWoHCHQi0VLg@mail.gmail.com>
+
+For years, I have run slony (currently version 2.1.3) with one origin and
+one replica. Every night at midnight, I run vacuum analyze on the whole DB.
+ I still run autovacuum with its default settings. The midnight vacuum
+takes approximately 4.5 hours to run.
+
+All was well until I upgraded the DB from 8.4 to 9.2.x. (at the same time I
+upgraded slony from 2.0).  Now, every night, the replication basically
+stalls mid-way through the vacuum.
+
+Here is what I observe:
+
+midnight - vacuum starts on origin and replica
+3:12am - replication delay reaches > 7 minutes
+3:15am - replication delay = 624 seconds
+3:30am - replication delay = 1524 seconds
+3:45am - replication delay = 2423 seconds
+... basically replication has stopped
+4:30am - replication delay = 5124 seconds
+4:40am - vacuum ends on replica
+4:41am - vacuum ends on origind
+4:45am - replication delay = 1018 seconds
+4:49am - replication lag drops to under 5 minutes (I consider this
+recovered)
+
+
+At no other time during the day, even when the DB is very very busy doing
+lots of writes and a fair number of reads, does the replication lag more
+than 5 or 10 seconds.
+
+I have another DB on another pair of machines that is reasonably large as
+well, that does nightly vacuum similarly. It is running slony 2.1 also, but
+the DB version it replicates from is 8.3 to a 9.1. I never see any massive
+delay in replication on there.
+
+So my instinct is that there is some change in 9.2 that slony is tripping
+over that is causing it to lock something for way too long. I would
+appreciate any guidance on figuring out what that is, so I can avoid having
+long delays in my replication while vacuum is running.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20130416/9ce315bd/attachment.htm 
+
+From vivek at khera.org  Tue Apr 16 08:18:16 2013
+From: vivek at khera.org (Vick Khera)
+Date: Tue, 16 Apr 2013 11:18:16 -0400
+Subject: [Slony1-general] replication stalls with long-running vacuum
+In-Reply-To: <CALd+dcev3kiev+qYibgUKRQTZU4m-zKfH0Oe1jFWoHCHQi0VLg@mail.gmail.com>
+References: <CALd+dcev3kiev+qYibgUKRQTZU4m-zKfH0Oe1jFWoHCHQi0VLg@mail.gmail.com>
+Message-ID: <CALd+dcd_m8VUU4b2YMNNQMvOaFSmVnm4zmB+d2rVugdVdxRgWQ@mail.gmail.com>
+
+On Tue, Apr 16, 2013 at 9:10 AM, Vick Khera <vivek at khera.org> wrote:
+
+> So my instinct is that there is some change in 9.2 that slony is tripping
+> over that is causing it to lock something for way too long. I would
+> appreciate any guidance on figuring out what that is, so I can avoid having
+> long delays in my replication while vacuum is running.
+
+
+Hmmm... I just realized that there is a pg_dump that starts at about 3am. I
+wonder of that's the cause, and not slony/vacuum interaction after all. I
+will experiment by changing the time of the vacuum tonight.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20130416/6545b956/attachment.htm 
+
+From ssinger at ca.afilias.info  Tue Apr 16 08:35:55 2013
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Tue, 16 Apr 2013 11:35:55 -0400
+Subject: [Slony1-general] replication stalls with long-running vacuum
+In-Reply-To: <CALd+dcd_m8VUU4b2YMNNQMvOaFSmVnm4zmB+d2rVugdVdxRgWQ@mail.gmail.com>
+References: <CALd+dcev3kiev+qYibgUKRQTZU4m-zKfH0Oe1jFWoHCHQi0VLg@mail.gmail.com>
+	<CALd+dcd_m8VUU4b2YMNNQMvOaFSmVnm4zmB+d2rVugdVdxRgWQ@mail.gmail.com>
+Message-ID: <516D6FDB.1070808@ca.afilias.info>
+
+On 13-04-16 11:18 AM, Vick Khera wrote:
+>
+> On Tue, Apr 16, 2013 at 9:10 AM, Vick Khera <vivek at khera.org
+> <mailto:vivek at khera.org>> wrote:
+>
+>     So my instinct is that there is some change in 9.2 that slony is
+>     tripping over that is causing it to lock something for way too long.
+>     I would appreciate any guidance on figuring out what that is, so I
+>     can avoid having long delays in my replication while vacuum is running.
+>
+>
+> Hmmm... I just realized that there is a pg_dump that starts at about
+> 3am. I wonder of that's the cause, and not slony/vacuum interaction
+> after all. I will experiment by changing the time of the vacuum tonight.
+>
+
+Slony takes needs an exclusive lock on sl_event to create SYNC events. 
+If your pg_dump includes the slony schema then you should expect 
+replication to pause.  A lot of people exclude the slony schema from 
+their pg_dumps for this reason.
+
+
+
+
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+>
+
+
+From vivek at khera.org  Tue Apr 16 09:06:20 2013
+From: vivek at khera.org (Vick Khera)
+Date: Tue, 16 Apr 2013 12:06:20 -0400
+Subject: [Slony1-general] replication stalls with long-running vacuum
+In-Reply-To: <516D6FDB.1070808@ca.afilias.info>
+References: <CALd+dcev3kiev+qYibgUKRQTZU4m-zKfH0Oe1jFWoHCHQi0VLg@mail.gmail.com>
+	<CALd+dcd_m8VUU4b2YMNNQMvOaFSmVnm4zmB+d2rVugdVdxRgWQ@mail.gmail.com>
+	<516D6FDB.1070808@ca.afilias.info>
+Message-ID: <CALd+dccjaZYMZyn5gHihBvfj-hM5VK5_4DkXvA+jsr_CWTOJQw@mail.gmail.com>
+
+On Tue, Apr 16, 2013 at 11:35 AM, Steve Singer <ssinger at ca.afilias.info>wrote:
+
+> Slony takes needs an exclusive lock on sl_event to create SYNC events. If
+> your pg_dump includes the slony schema then you should expect replication
+> to pause.  A lot of people exclude the slony schema from their pg_dumps for
+> this reason.
+>
+
+Good idea. Seems contrary to the purpose of these particular backups to
+even need the slony schema. Thanks for the tip!
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20130416/f3c83439/attachment.htm 
+
