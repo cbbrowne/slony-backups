@@ -431,3 +431,76 @@ How do I go about converting those?  My preference would be to modify the proces
 An HTML attachment was scrubbed...
 URL: http://lists.slony.info/pipermail/slony1-general/attachments/20130422/552dcf1a/attachment.htm 
 
+From mtsahakis at gmail.com  Wed Apr 24 01:01:16 2013
+From: mtsahakis at gmail.com (Manos Tsahakis)
+Date: Wed, 24 Apr 2013 11:01:16 +0300
+Subject: [Slony1-general] session_replication_role 'replica' behavior and
+	referential integrity constraints
+Message-ID: <CABuvXqoC7op4y3E_Bf+m_MPu2bLn=3NbzS-OkNb-FOQdH0GZWA@mail.gmail.com>
+
+Hello all,
+
+In our application we are enabling session_replication_role TO 'replica' in
+certain situations so that triggers will not fire in a table during DML
+operations. However, we observed that when setting session_replication_role
+TO 'replica' referential integrity constraints will not fire on a table
+either.
+
+A simple example is given bellow:
+
+dynacom=# create table parent (id serial primary key, name text not null);
+
+dynacom=# create table child (id serial primary key, name text not null,pid
+int NOT NULL REFERENCES parent(id) ON DELETE CASCADE);
+
+dynacom=# insert into parent (name) values ('test 1');
+INSERT 0 1
+
+dynacom=# insert into parent (name) values ('test 2');
+INSERT 0 1
+
+dynacom=# insert into child (name,pid) values ('test kid2',2);
+INSERT 0 1
+dynacom=# begin ;
+BEGIN
+dynacom=# set session_replication_role TO 'replica';
+SET
+dynacom=# delete from parent where id=2;
+DELETE 1
+dynacom=# commit ;
+COMMIT
+
+dynacom=# select * from child;
+ id |   name    | pid
+----+-----------+-----
+  2 | test kid2 |   2
+(1 row)
+
+dynacom=# select * from parent;
+ id | name
+----+------
+(0 rows)
+
+So we are a left, basically, with an inconsistent database.
+
+1. 9.2 documentation (
+http://www.postgresql.org/docs/9.2/static/sql-altertable.html) in the "
+DISABLE/ENABLE [ REPLICA | ALWAYS ] TRIGGER" section, makes a distinction
+between USER (non system-constraint related) and ALL triggers, but does not
+state that simply(??) enabled system (non-user) constraint triggers will
+not fire in case of session_replication_role = replica. Shouldn't non-user
+triggers *not* be affected by session_replication_role ?
+
+2. Is there any way to just find the name of the FK constraint trigger and
+convert it to
+ENABLE ALWAYS?
+
+For the above test we used postgresql 9.2, currently we are running
+postgresql 9.0 in production.
+
+Kind Regards,
+manos
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20130424/14e23c95/attachment.htm 
+
