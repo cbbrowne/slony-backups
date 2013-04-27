@@ -504,3 +504,141 @@ manos
 An HTML attachment was scrubbed...
 URL: http://lists.slony.info/pipermail/slony1-general/attachments/20130424/14e23c95/attachment.htm 
 
+From tmblue at gmail.com  Thu Apr 25 11:29:10 2013
+From: tmblue at gmail.com (Tory M Blue)
+Date: Thu, 25 Apr 2013 11:29:10 -0700
+Subject: [Slony1-general] Long slon replication times, 3 hours for 87, 873,
+	597 rows
+Message-ID: <CAEaSS0ZQqH94Jyqd7=_Rmz=HacLSDfN-0EaKY6LV99gqyOCfmw@mail.gmail.com>
+
+Postgres 9.2.4, slony 2.1.2 (ya will be pushing to 2.1.3), but with my
+postgres upgrade had to keep slony version the same for the first go
+through.
+
+But for  87,873,597 rows it took 3 hours to replicate over a gig link.
+There were no signs of system health issues, iostat showed hardly anything,
+no CPU/memory issues, so I'm wondering if there is some tuning that needs
+to happen?
+
+These are my master/slave so do have fsync on, maybe during a rebuild a
+fsync off is in order, but not sure if that will truly help.
+
+slon config is pretty basic
+
+everything is default except for these values:
+
+log_level=2
+sync_interval=1000
+remote_listen_timeout=10000
+
+spotlightimpressions has  87,873,597 rows, took  12845.025 seconds
+adimpressions has 1,542,169 rows, took  2098.679 seconds
+listings has 4,080,091 rows . took 1491.740 seconds
+
+2013-04-24 23:10:19 PDT CONFIG remoteWorkerThread_1: copy table
+"db"."listings"
+
+2013-04-24 23:10:19 PDT CONFIG remoteWorkerThread_1: Begin COPY of table
+"db"."listings"
+
+2013-04-24 23:35:10 PDT CONFIG remoteWorkerThread_1: 1491.740 seconds to
+copy table "db"."listings"
+
+2013-04-24 23:35:23 PDT CONFIG remoteWorkerThread_1: copy table
+"db"."spotlightimpressions"
+
+2013-04-24 23:35:23 PDT CONFIG remoteWorkerThread_1: Begin COPY of table
+"db"."spotlightimpressions"
+
+2013-04-25 03:09:28 PDT CONFIG remoteWorkerThread_1: 12845.025 seconds to
+copy table "db"."spotlightimpressions"
+
+2013-04-25 03:09:28 PDT CONFIG remoteWorkerThread_1: copy table
+"db"."adimpressions"
+
+2013-04-25 03:09:28 PDT CONFIG remoteWorkerThread_1: Begin COPY of table
+"db"."adimpressions"
+
+2013-04-25 03:44:26 PDT CONFIG remoteWorkerThread_1: 2098.679 seconds to
+copy table "db"."adimpressions"
+
+Where do I start looking? These tables will only grow and since upgrades
+require full rebuilds etc, This is already painful, but will only get worse.
+
+Thanks
+Tory
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20130425/1bc2ab80/attachment.htm 
+
+From cbbrowne at afilias.info  Thu Apr 25 12:40:37 2013
+From: cbbrowne at afilias.info (Christopher Browne)
+Date: Thu, 25 Apr 2013 15:40:37 -0400
+Subject: [Slony1-general] Long slon replication times, 3 hours for 87,
+ 873, 597 rows
+In-Reply-To: <CAEaSS0ZQqH94Jyqd7=_Rmz=HacLSDfN-0EaKY6LV99gqyOCfmw@mail.gmail.com>
+References: <CAEaSS0ZQqH94Jyqd7=_Rmz=HacLSDfN-0EaKY6LV99gqyOCfmw@mail.gmail.com>
+Message-ID: <CANfbgbYm9idvLYK7=LYxw3DC6RhwN6x4r5=mOth-_aRsexx72Q@mail.gmail.com>
+
+I wonder what the amount of data is; that's not exactly the same as the
+number of tuples...
+
+At any rate, for it to take several hours to copy these pretty big tables
+is not super-surprising.
+
+A thing to compare with is to compare this with how long it takes to dump
+"db.spotlightimpressions" using pg_dump and load it into another database;
+the combination of COPY TO and COPY FROM would be expected to take somewhat
+less than 12845s; add in generating indexes on the table and I'd expect
+dump/restore to take very nearly the same amount of time.
+
+Slony doesn't do "magic"; it's using the same features, albeit wrapped a
+little differently.
+
+If you can dump/restore that table in an hour, and it takes Slony 3-4
+hours, then I'd be concerned, but if dump/restore takes ~3.5hr, then I'd
+say Slony, running in similar time, is working as expected.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20130425/3a4c8cc3/attachment.htm 
+
+From tmblue at gmail.com  Thu Apr 25 13:25:21 2013
+From: tmblue at gmail.com (Tory M Blue)
+Date: Thu, 25 Apr 2013 13:25:21 -0700
+Subject: [Slony1-general] Long slon replication times, 3 hours for 87,
+ 873, 597 rows
+In-Reply-To: <CANfbgbYm9idvLYK7=LYxw3DC6RhwN6x4r5=mOth-_aRsexx72Q@mail.gmail.com>
+References: <CAEaSS0ZQqH94Jyqd7=_Rmz=HacLSDfN-0EaKY6LV99gqyOCfmw@mail.gmail.com>
+	<CANfbgbYm9idvLYK7=LYxw3DC6RhwN6x4r5=mOth-_aRsexx72Q@mail.gmail.com>
+Message-ID: <CAEaSS0aLGb30dRmYu-daWAHRJSibZpVr7kxW5o=czZY7gjCogQ@mail.gmail.com>
+
+On Thu, Apr 25, 2013 at 12:40 PM, Christopher Browne
+<cbbrowne at afilias.info>wrote:
+
+> I wonder what the amount of data is; that's not exactly the same as the
+> number of tuples...
+>
+> At any rate, for it to take several hours to copy these pretty big tables
+> is not super-surprising.
+>
+> A thing to compare with is to compare this with how long it takes to dump
+> "db.spotlightimpressions" using pg_dump and load it into another database;
+> the combination of COPY TO and COPY FROM would be expected to take somewhat
+> less than 12845s; add in generating indexes on the table and I'd expect
+> dump/restore to take very nearly the same amount of time.
+>
+> Slony doesn't do "magic"; it's using the same features, albeit wrapped a
+> little differently.
+>
+> If you can dump/restore that table in an hour, and it takes Slony 3-4
+> hours, then I'd be concerned, but if dump/restore takes ~3.5hr, then I'd
+> say Slony, running in similar time, is working as expected.
+>
+
+Thanks Christopher, makes sense and I'll give it a try.
+
+Tory
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20130425/a606cd46/attachment.htm 
+
