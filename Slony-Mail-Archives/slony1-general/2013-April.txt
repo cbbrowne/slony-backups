@@ -642,3 +642,95 @@ Tory
 An HTML attachment was scrubbed...
 URL: http://lists.slony.info/pipermail/slony1-general/attachments/20130425/a606cd46/attachment.htm 
 
+From JanWieck at Yahoo.com  Fri Apr 26 07:22:50 2013
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Fri, 26 Apr 2013 10:22:50 -0400
+Subject: [Slony1-general] session_replication_role 'replica' behavior
+ and referential integrity constraints
+In-Reply-To: <CABuvXqoC7op4y3E_Bf+m_MPu2bLn=3NbzS-OkNb-FOQdH0GZWA@mail.gmail.com>
+References: <CABuvXqoC7op4y3E_Bf+m_MPu2bLn=3NbzS-OkNb-FOQdH0GZWA@mail.gmail.com>
+Message-ID: <517A8DBA.5080208@Yahoo.com>
+
+On 4/24/2013 4:01 AM, Manos Tsahakis wrote:
+> Hello all,
+>
+> In our application we are enabling session_replication_role TO 'replica'
+> in certain situations so that triggers will not fire in a table during
+> DML operations. However, we observed that when setting
+> session_replication_role TO 'replica' referential integrity constraints
+> will not fire on a table either.
+>
+> A simple example is given bellow:
+>
+> dynacom=# create table parent (id serial primary key, name text not null);
+>
+> dynacom=# create table child (id serial primary key, name text not
+> null,pid int NOT NULL REFERENCES parent(id) ON DELETE CASCADE);
+>
+> dynacom=# insert into parent (name) values ('test 1');
+> INSERT 0 1
+>
+> dynacom=# insert into parent (name) values ('test 2');
+> INSERT 0 1
+>
+> dynacom=# insert into child (name,pid) values ('test kid2',2);
+> INSERT 0 1
+> dynacom=# begin ;
+> BEGIN
+> dynacom=# set session_replication_role TO 'replica';
+> SET
+> dynacom=# delete from parent where id=2;
+> DELETE 1
+> dynacom=# commit ;
+> COMMIT
+>
+> dynacom=# select * from child;
+>   id |   name    | pid
+> ----+-----------+-----
+>    2 | test kid2 |   2
+> (1 row)
+>
+> dynacom=# select * from parent;
+>   id | name
+> ----+------
+> (0 rows)
+>
+> So we are a left, basically, with an inconsistent database.
+>
+> 1. 9.2 documentation
+> (http://www.postgresql.org/docs/9.2/static/sql-altertable.html) in
+> the"DISABLE/ENABLE [ REPLICA | ALWAYS ] TRIGGER" section, makes a
+> distinction between USER (non system-constraint related) and ALL
+> triggers, but does not state that simply(??) enabled system (non-user)
+> constraint triggers will not fire in case of session_replication_role =
+> replica. Shouldn't non-user triggers *not* be affected by
+> session_replication_role ?
+>
+> 2. Is there any way to just find the name of the FK constraint trigger
+> and convert it to
+> ENABLE ALWAYS?
+>
+> For the above test we used postgresql 9.2, currently we are running
+> postgresql 9.0 in production.
+
+You want to set the session_replication_role to LOCAL.
+
+Eventually the docs should be a little clearer and eventually something 
+is missing in the docs entirely.
+
+The missing piece is probably that the Slony-I triggers explicitly check 
+the session_replication_role. The log trigger does nothing if the 
+setting isn't ORIGIN. The deny-access trigger only errors out if the 
+setting is ORIGIN.
+
+The poorly documented side effect of that is that if you set the role to 
+LOCAL, all Slony triggers are effectively disabled while all user 
+defined and integrity triggers will work like on a stand-alone database.
+
+
+Jan
+
+-- 
+Anyone who trades liberty for security deserves neither
+liberty nor security. -- Benjamin Franklin
+
