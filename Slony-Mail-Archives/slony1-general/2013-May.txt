@@ -60,3 +60,148 @@ will these schema changes get reflected on slave machine?
 An HTML attachment was scrubbed...
 URL: http://lists.slony.info/pipermail/slony1-general/attachments/20130507/c8de212b/attachment.htm 
 
+From vivek at khera.org  Thu May  9 17:31:24 2013
+From: vivek at khera.org (Vick Khera)
+Date: Thu, 9 May 2013 20:31:24 -0400
+Subject: [Slony1-general] pgsql replication with database schema changes
+ using slonik execute script
+In-Reply-To: <CAAvPandy92VNFPPax7_44N5WnKuJUhob+eW-DdsRAde_VPQ=gA@mail.gmail.com>
+References: <CAAvPandy92VNFPPax7_44N5WnKuJUhob+eW-DdsRAde_VPQ=gA@mail.gmail.com>
+Message-ID: <CALd+dcejzQtVf=Mw0PxGuOZeDkfnDQyn8KWGXuGtK1hczLm=2Q@mail.gmail.com>
+
+I'm pretty sure slonik will just block until it is reachable. Try not to do
+that. This may be different in slony 2.0+, but I haven't tested.
+
+
+
+On Tue, May 7, 2013 at 6:54 AM, kapil bhadke <kapilbhadke at gmail.com> wrote:
+
+> I am using slony for replicating my pgsql database. I want to propagate
+> the database schema changes(DDL) from master to the slave machine with the
+> help of slonik execute script. I am curious to know what happens when I run
+> slonik execute script(on master) and slave machine is not reachable. How
+> will these schema changes get reflected on slave machine?
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+>
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20130509/651dc117/attachment.html 
+
+From JanWieck at Yahoo.com  Thu May  9 19:14:59 2013
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Thu, 09 May 2013 22:14:59 -0400
+Subject: [Slony1-general] pgsql replication with database schema changes
+ using slonik execute script
+In-Reply-To: <CALd+dcejzQtVf=Mw0PxGuOZeDkfnDQyn8KWGXuGtK1hczLm=2Q@mail.gmail.com>
+References: <CAAvPandy92VNFPPax7_44N5WnKuJUhob+eW-DdsRAde_VPQ=gA@mail.gmail.com>
+	<CALd+dcejzQtVf=Mw0PxGuOZeDkfnDQyn8KWGXuGtK1hczLm=2Q@mail.gmail.com>
+Message-ID: <518C5823.8060706@Yahoo.com>
+
+On 05/09/13 20:31, Vick Khera wrote:
+> I'm pretty sure slonik will just block until it is reachable. Try not to
+> do that. This may be different in slony 2.0+, but I haven't tested.
+
+Unless there is an implicit or explicit WAIT FOR EVENT done my slonik,
+nothing should block. EXECUTE SCRIPT in all versions prior to 2.2
+creates an event, containing the SQL. In 2.2 the SQL is injected into
+the data stream processed during SYNC application to make it work
+reliable with concurrent table access.
+
+
+Jan
+
+> 
+> 
+> 
+> On Tue, May 7, 2013 at 6:54 AM, kapil bhadke <kapilbhadke at gmail.com
+> <mailto:kapilbhadke at gmail.com>> wrote:
+> 
+>     I am using slony for replicating my pgsql database. I want to
+>     propagate the database schema changes(DDL) from master to the slave
+>     machine with the help of slonik execute script. I am curious to know
+>     what happens when I run slonik execute script(on master) and slave
+>     machine is not reachable. How will these schema changes get
+>     reflected on slave machine?
+> 
+>     _______________________________________________
+>     Slony1-general mailing list
+>     Slony1-general at lists.slony.info <mailto:Slony1-general at lists.slony.info>
+>     http://lists.slony.info/mailman/listinfo/slony1-general
+> 
+> 
+> 
+> 
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+> 
+
+
+-- 
+Anyone who trades liberty for security deserves neither
+liberty nor security. -- Benjamin Franklin
+
+From JanWieck at Yahoo.com  Thu May  9 19:48:18 2013
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Thu, 09 May 2013 22:48:18 -0400
+Subject: [Slony1-general] Slony multiple connections with database
+In-Reply-To: <CABb3jG_hB=hhANh071GVVtVBCzivm8DTWaoHTbTbpyJvsZSouQ@mail.gmail.com>
+References: <CABb3jG_hB=hhANh071GVVtVBCzivm8DTWaoHTbTbpyJvsZSouQ@mail.gmail.com>
+Message-ID: <518C5FF2.9030002@Yahoo.com>
+
+On 05/01/13 02:41, Neha Sharma wrote:
+> Hi,
+> 
+> We are using slony to synchronise two postgres databases of two machines. 
+> 
+> Generally slony creates 6 connections with the database - 4 with local
+> db and 2 with remote db.
+> 
+> But some problem is being observed on the machine having master db.
+> Various slony remote connections are seen with the database.
+> The limit of postgres connections is 100 and slony is consuming maximum
+> connections due to which the db fails to respond after sometime. It was
+> observed that connection reached to 104 out of which slony connections
+> (which remote has created with db) were 74.
+> We have to restart slony to clean all the connections.
+> 
+> Ideally there should only be 2 connections from the remote - one created
+> by listener and another by worker thread.
+> 
+> There is no connectivity issue between the two machines.
+
+This sounds very much like lost TCP connections that never get the FIN
+or RST packts. Have you tried to enable keepalive with settings, that
+let connections time out within 5 minutes or faster in both, the
+PostgreSQL and the Slony configurations?
+
+
+Jan
+
+> 
+> Could anyone please suggest what could be the reason for this weired
+> behaviour of slony?
+> Also, please tell if slony creates new connections without removing the
+> older ones?
+> 
+> -- 
+> */Neha Sharma/*
+> 
+> 
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+> 
+
+
+-- 
+Anyone who trades liberty for security deserves neither
+liberty nor security. -- Benjamin Franklin
+
