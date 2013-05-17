@@ -265,3 +265,171 @@ GB
 An HTML attachment was scrubbed...
 URL: http://lists.slony.info/pipermail/slony1-general/attachments/20130514/0ff2cde0/attachment.htm 
 
+From granthana.biswas at gmail.com  Wed May 15 08:30:04 2013
+From: granthana.biswas at gmail.com (GB)
+Date: Wed, 15 May 2013 15:30:04 +0000 (UTC)
+Subject: [Slony1-general] =?utf-8?q?Error_while_adding_new_set_through_alt?=
+	=?utf-8?q?perl_slonik=09script?=
+References: <CAAPsc-SyR+WtBpxN_8RLT1-Hp53-KicX6S_4dsENEbN1tUJEgg@mail.gmail.com>
+Message-ID: <loom.20130515T172405-326@post.gmane.org>
+
+
+Granthana Biswas <granthana.biswas at ...> writes:
+
+> 
+> 
+> 
+> 
+> 
+> 
+> 
+> Hi, 
+> I have configured Slony-II using altperl tools. I am trying to add a new
+table to a running replication using following
+steps:1.?./slonik_execute_script --config slon_tools.conf 1
+/usr/pgsql-9.2/bin/test.sql | ./slonik???????????? (sql file has only create
+table command)
+> 
+> <stdin>:4: NOTICE:? CREATE TABLE / PRIMARY KEY will create implicit index
+"ddl_slony_pkey" for table "ddl_slony"2.
+> Adding the table in the slon_tools.conf file as set2 below set1:?"set2" =>
+{?????? "set_id"?????? => 2,?????? "table_id"???? => 2,?????? "sequence_id"?
+=> 2,?????? "pkeyedtables" => ["public.ddl_slony"],
+> 
+> ?????? "keyedtables"? => {},?????? "sequences"??? => [],??? },3. While
+executing create set, I am getting the following error:?./slonik_create_set
+-c slon_tools.conf 2 | ./slonik<stdin>:11: Subscription set 2
+created<stdin>:12: Adding tables to the subscription set<stdin>:13:
+PGRES_FATAL_ERROR lock table "_ms_prod_slony".sl_config_lock;select
+"_ms_prod_slony".setAddTable(2, 2, 'public.ddl_slony', 'ddl_slony_pkey',
+'Table public.ddl_slony with primary key');? - ERROR:? Slony-I:
+setAddTable_int: table id 2 has already been assigned!
+> 
+> CONTEXT:? SQL statement "SELECT "_ms_prod_slony".setAddTable_int(p_set_id,
+p_tab_id, p_fqname,??????????????????????? p_tab_idxname,
+p_tab_comment)"PL/pgSQL function
+_ms_prod_slony.setaddtable(integer,integer,text,name,text) line 28 at PERFORM
+> I tried the above by manually creating another table on both nodes and
+adding and creating set as set3. Still facing the same issue.
+> Can anybody point out where I am going wrong and how it should be fixed?
+> Thanks,
+> GB
+> 
+> 
+> 
+> 
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at ...
+> http://lists.slony.info/mailman/listinfo/slony1-general
+> 
+
+
+Hi Stephane,
+
+Thank you for your response.
+
+There are 61 tables in set1. I had added table id as 2 in set 2. Now I
+changed it 62 and ran the slonik_create_set successfully.
+
+Warm regards,
+GB
+
+
+
+
+
+From brianf at consistentstate.com  Wed May 15 10:51:32 2013
+From: brianf at consistentstate.com (Brian Fehrle)
+Date: Wed, 15 May 2013 11:51:32 -0600
+Subject: [Slony1-general] Truncate trigger in slony 2.1.x+ requires
+	superuser?
+Message-ID: <5193CB24.20404@consistentstate.com>
+
+Hi All,
+
+I have a slony cluster running on slony 2.1.0 (Have tested this 
+situation on 2.1.3 also). This cluster is replicating a drupal database, 
+which preforms truncates on some of the cache tables periodically. When 
+the truncates execute, they fire the log_truncate trigger in slony, 
+which immediatly errors due to no select permissions on the sl_table 
+relation in the slony cluster.
+
+In normal events (inserts, updates, deletes), the user doesn't need any 
+permissions granted in the slony schema in order for the event trigger 
+to log the event into sl_log_1, etc.
+
+So is this a design decision, making truncates on slony tables only be 
+able to be executed by superusers in the database?
+
+I've got it working in a testing environment by granting the following:
+grant select on _slony.sl_table to user;
+grant insert on _slony.sl_log_status to user;
+grant insert on _slony.sl_log_1 to user;
+grant insert on _slony.sl_log_2 to user;
+grant usage on _slony.sl_action_seq to user;
+
+However I don't like the idea of either A. granting these permissions to 
+slony tables or B. making my drupal user a 'superuser' to get around it. 
+Are those my only two options here to allow truncates to work?
+
+Thanks,
+- Brian F
+
+From JanWieck at Yahoo.com  Wed May 15 11:50:53 2013
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Wed, 15 May 2013 14:50:53 -0400
+Subject: [Slony1-general] Truncate trigger in slony 2.1.x+ requires
+	superuser?
+In-Reply-To: <5193CB24.20404@consistentstate.com>
+References: <5193CB24.20404@consistentstate.com>
+Message-ID: <5193D90D.2070905@Yahoo.com>
+
+On 05/15/2013 01:51 PM, Brian Fehrle wrote:
+> Hi All,
+>
+> I have a slony cluster running on slony 2.1.0 (Have tested this
+> situation on 2.1.3 also). This cluster is replicating a drupal database,
+> which preforms truncates on some of the cache tables periodically. When
+> the truncates execute, they fire the log_truncate trigger in slony,
+> which immediatly errors due to no select permissions on the sl_table
+> relation in the slony cluster.
+>
+> In normal events (inserts, updates, deletes), the user doesn't need any
+> permissions granted in the slony schema in order for the event trigger
+> to log the event into sl_log_1, etc.
+>
+> So is this a design decision, making truncates on slony tables only be
+> able to be executed by superusers in the database?
+
+I would call it a bug. The truncate trigger should be "security 
+definer", like the log trigger and several other functions are.
+
+
+Jan
+
+>
+> I've got it working in a testing environment by granting the following:
+> grant select on _slony.sl_table to user;
+> grant insert on _slony.sl_log_status to user;
+> grant insert on _slony.sl_log_1 to user;
+> grant insert on _slony.sl_log_2 to user;
+> grant usage on _slony.sl_action_seq to user;
+>
+> However I don't like the idea of either A. granting these permissions to
+> slony tables or B. making my drupal user a 'superuser' to get around it.
+> Are those my only two options here to allow truncates to work?
+>
+> Thanks,
+> - Brian F
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+>
+
+
+-- 
+Anyone who trades liberty for security deserves neither
+liberty nor security. -- Benjamin Franklin
+
