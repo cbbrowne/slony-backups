@@ -207,3 +207,506 @@ Jan
 Anyone who trades liberty for security deserves neither
 liberty nor security. -- Benjamin Franklin
 
+From write2sridevi at gmail.com  Wed Jun 12 04:14:59 2013
+From: write2sridevi at gmail.com (Sridevi R)
+Date: Wed, 12 Jun 2013 16:44:59 +0530
+Subject: [Slony1-general] Slony cleanupEvent erroring out with "server
+ closed the connection unexpectedly" - Soln version: 2.1.2
+Message-ID: <CAGFfjeeTqnyaP_6bqZyo0xYeRzmoKKFcGbxjyBbSfycGXqphJA@mail.gmail.com>
+
+Hello,
+
+The slony logs are consistently posting this error:
+
+2013-06-12 10:01:05 GMT FATAL  cleanupThread: "begin;lock table
+"_xx_cluster".sl_config_lock;select "_xx_cluster".cleanupEvent('10
+minutes'::interval);commit;" - server closed the connection unexpectedly
+2013-06-12 10:12:24 GMT FATAL  cleanupThread: "begin;lock table
+"_xx_cluster".sl_config_lock;select "_xx_cluster".cleanupEvent('10
+minutes'::interval);commit;" - server closed the connection unexpectedly
+
+checked and found that sl_confirm table is not cleaned up. cleanup event
+never succeeds.
+Additionally, the child processes terminates and restarts after each such
+cleanup failure.
+
+2013-06-11 11:20:04 GMT CONFIG slon: child terminated signal: 9; pid:
+20172, current worker pid: 20172
+2013-06-11 11:20:04 GMT CONFIG slon: restart of worker in 10 seconds
+
+When cleanup is run manually, on the psql prompt it runs to completion
+without any issues and cleans up sl_event and sl_confirm tables
+"begin;lock table "_xx_cluster".sl_config_lock;select
+"_xx_cluster".cleanupEvent('10 minutes'::interval);commit;"
+
+Soln version: 2.1.2
+
+Any help/insight would be greatly appreciated.
+
+Thanks,
+Sridevi
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20130612/aedc192b/attachment.htm 
+
+From JanWieck at Yahoo.com  Wed Jun 12 07:03:29 2013
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Wed, 12 Jun 2013 10:03:29 -0400
+Subject: [Slony1-general] Slony cleanupEvent erroring out with "server
+ closed the connection unexpectedly" - Soln version: 2.1.2
+In-Reply-To: <CAGFfjeeTqnyaP_6bqZyo0xYeRzmoKKFcGbxjyBbSfycGXqphJA@mail.gmail.com>
+References: <CAGFfjeeTqnyaP_6bqZyo0xYeRzmoKKFcGbxjyBbSfycGXqphJA@mail.gmail.com>
+Message-ID: <51B87FB1.4000700@Yahoo.com>
+
+On 06/12/13 07:14, Sridevi R wrote:
+> Hello,
+> 
+> The slony logs are consistently posting this error:
+> 
+> 2013-06-12 10:01:05 GMT FATAL  cleanupThread: "begin;lock table
+> "_xx_cluster".sl_config_lock;select "_xx_cluster".cleanupEvent('10
+> minutes'::interval);commit;" - server closed the connection unexpectedly
+> 2013-06-12 10:12:24 GMT FATAL  cleanupThread: "begin;lock table
+> "_xx_cluster".sl_config_lock;select "_xx_cluster".cleanupEvent('10
+> minutes'::interval);commit;" - server closed the connection unexpectedly
+> 
+> checked and found that sl_confirm table is not cleaned up. cleanup event
+> never succeeds.
+> Additionally, the child processes terminates and restarts after each
+> such cleanup failure.
+> 
+> 2013-06-11 11:20:04 GMT CONFIG slon: child terminated signal: 9; pid:
+> 20172, current worker pid: 20172
+> 2013-06-11 11:20:04 GMT CONFIG slon: restart of worker in 10 seconds
+> 
+> When cleanup is run manually, on the psql prompt it runs to completion
+> without any issues and cleans up sl_event and sl_confirm tables
+> "begin;lock table "_xx_cluster".sl_config_lock;select
+> "_xx_cluster".cleanupEvent('10 minutes'::interval);commit;"
+> 
+> Soln version: 2.1.2
+> 
+> Any help/insight would be greatly appreciated.
+
+Slon kills its worker(s) with signal 9 (SIGKILL) when it needs to
+restart, like when there are errors in event processing or if it
+receives certain signals. Are there any other errors in the slon log or
+is something on the machine sending signals to slon?
+
+
+Jan
+
+> 
+> Thanks,
+> Sridevi
+> 
+> 
+> 
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+> 
+
+
+-- 
+Anyone who trades liberty for security deserves neither
+liberty nor security. -- Benjamin Franklin
+
+From write2sridevi at gmail.com  Wed Jun 12 07:17:23 2013
+From: write2sridevi at gmail.com (Sridevi R)
+Date: Wed, 12 Jun 2013 19:47:23 +0530
+Subject: [Slony1-general] Slony cleanupEvent erroring out with "server
+ closed the connection unexpectedly" - Soln version: 2.1.2
+In-Reply-To: <51B87FB1.4000700@Yahoo.com>
+References: <CAGFfjeeTqnyaP_6bqZyo0xYeRzmoKKFcGbxjyBbSfycGXqphJA@mail.gmail.com>
+	<51B87FB1.4000700@Yahoo.com>
+Message-ID: <CAGFfjedhpi0r0E0Kat20X2rU5bNoDUJ0prHJwQCJuKGop-7Y2w@mail.gmail.com>
+
+Jan,
+
+Thanks for the reply.
+
+The only errors in the slon log are failure of cleanupThread.
+child process is restarting right after the cleanupThread Failure.
+This occurs approximately every 10 minutes since cleanup_interval is set to
+10 minutes.
+
+Here is a sample from the log again:
+
+2013-06-06 14:23:27 GMT FATAL  cleanupThread: "begin;lock table
+"_xx_cluster".sl_config_lock;select "_xx_cluster".cleanupEvent('10
+minutes'::interval);commit;" - server closed the connection unexpectedly
+    This probably means the server terminated abnormally
+    before or while processing the request.
+2013-06-06 14:23:27 GMT CONFIG slon: child terminated signal: 9; pid:
+16135, current worker pid: 16135
+2013-06-06 14:23:27 GMT CONFIG slon: restart of worker in 10 seconds
+
+Thanks ,
+Sridevi
+
+
+On Wed, Jun 12, 2013 at 7:33 PM, Jan Wieck <JanWieck at yahoo.com> wrote:
+
+> On 06/12/13 07:14, Sridevi R wrote:
+> > Hello,
+> >
+> > The slony logs are consistently posting this error:
+> >
+> > 2013-06-12 10:01:05 GMT FATAL  cleanupThread: "begin;lock table
+> > "_xx_cluster".sl_config_lock;select "_xx_cluster".cleanupEvent('10
+> > minutes'::interval);commit;" - server closed the connection unexpectedly
+> > 2013-06-12 10:12:24 GMT FATAL  cleanupThread: "begin;lock table
+> > "_xx_cluster".sl_config_lock;select "_xx_cluster".cleanupEvent('10
+> > minutes'::interval);commit;" - server closed the connection unexpectedly
+> >
+> > checked and found that sl_confirm table is not cleaned up. cleanup event
+> > never succeeds.
+> > Additionally, the child processes terminates and restarts after each
+> > such cleanup failure.
+> >
+> > 2013-06-11 11:20:04 GMT CONFIG slon: child terminated signal: 9; pid:
+> > 20172, current worker pid: 20172
+> > 2013-06-11 11:20:04 GMT CONFIG slon: restart of worker in 10 seconds
+> >
+> > When cleanup is run manually, on the psql prompt it runs to completion
+> > without any issues and cleans up sl_event and sl_confirm tables
+> > "begin;lock table "_xx_cluster".sl_config_lock;select
+> > "_xx_cluster".cleanupEvent('10 minutes'::interval);commit;"
+> >
+> > Soln version: 2.1.2
+> >
+> > Any help/insight would be greatly appreciated.
+>
+> Slon kills its worker(s) with signal 9 (SIGKILL) when it needs to
+> restart, like when there are errors in event processing or if it
+> receives certain signals. Are there any other errors in the slon log or
+> is something on the machine sending signals to slon?
+>
+>
+> Jan
+>
+> >
+> > Thanks,
+> > Sridevi
+> >
+> >
+> >
+> > _______________________________________________
+> > Slony1-general mailing list
+> > Slony1-general at lists.slony.info
+> > http://lists.slony.info/mailman/listinfo/slony1-general
+> >
+>
+>
+> --
+> Anyone who trades liberty for security deserves neither
+> liberty nor security. -- Benjamin Franklin
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20130612/cb0dedc5/attachment.htm 
+
+From JanWieck at Yahoo.com  Wed Jun 12 11:32:24 2013
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Wed, 12 Jun 2013 14:32:24 -0400
+Subject: [Slony1-general] Slony cleanupEvent erroring out with "server
+ closed the connection unexpectedly" - Soln version: 2.1.2
+In-Reply-To: <CAGFfjedhpi0r0E0Kat20X2rU5bNoDUJ0prHJwQCJuKGop-7Y2w@mail.gmail.com>
+References: <CAGFfjeeTqnyaP_6bqZyo0xYeRzmoKKFcGbxjyBbSfycGXqphJA@mail.gmail.com>
+	<51B87FB1.4000700@Yahoo.com>
+	<CAGFfjedhpi0r0E0Kat20X2rU5bNoDUJ0prHJwQCJuKGop-7Y2w@mail.gmail.com>
+Message-ID: <51B8BEB8.8070301@Yahoo.com>
+
+On 06/12/13 10:17, Sridevi R wrote:
+> Jan,
+> 
+> Thanks for the reply.
+> 
+> The only errors in the slon log are failure of cleanupThread.
+> child process is restarting right after the cleanupThread Failure.
+> This occurs approximately every 10 minutes since cleanup_interval is set
+> to 10 minutes.
+> 
+> Here is a sample from the log again:
+> 
+> 2013-06-06 14:23:27 GMT FATAL  cleanupThread: "begin;lock table
+> "_xx_cluster".sl_config_lock;select "_xx_cluster".cleanupEvent('10
+> minutes'::interval);commit;" - server closed the connection unexpectedly
+>     This probably means the server terminated abnormally
+>     before or while processing the request.
+> 2013-06-06 14:23:27 GMT CONFIG slon: child terminated signal: 9; pid:
+> 16135, current worker pid: 16135
+> 2013-06-06 14:23:27 GMT CONFIG slon: restart of worker in 10 seconds
+
+"server closed the connection unexpectedly" ...
+
+Is this connection by any chance through some firewall or NAT gateway
+that will drop idle connections?
+
+What are the corresponding postmaster server log entries? Since slony
+reports an unexpected connection drop from the server, the server must
+have some message in its log too, because the client never sent the 'X'
+libpq protocol message.
+
+
+Jan
+
+
+> 
+> Thanks ,
+> Sridevi
+> 
+> 
+> On Wed, Jun 12, 2013 at 7:33 PM, Jan Wieck <JanWieck at yahoo.com
+> <mailto:JanWieck at yahoo.com>> wrote:
+> 
+>     On 06/12/13 07:14, Sridevi R wrote:
+>     > Hello,
+>     >
+>     > The slony logs are consistently posting this error:
+>     >
+>     > 2013-06-12 10:01:05 GMT FATAL  cleanupThread: "begin;lock table
+>     > "_xx_cluster".sl_config_lock;select "_xx_cluster".cleanupEvent('10
+>     > minutes'::interval);commit;" - server closed the connection
+>     unexpectedly
+>     > 2013-06-12 10:12:24 GMT FATAL  cleanupThread: "begin;lock table
+>     > "_xx_cluster".sl_config_lock;select "_xx_cluster".cleanupEvent('10
+>     > minutes'::interval);commit;" - server closed the connection
+>     unexpectedly
+>     >
+>     > checked and found that sl_confirm table is not cleaned up. cleanup
+>     event
+>     > never succeeds.
+>     > Additionally, the child processes terminates and restarts after each
+>     > such cleanup failure.
+>     >
+>     > 2013-06-11 11:20:04 GMT CONFIG slon: child terminated signal: 9; pid:
+>     > 20172, current worker pid: 20172
+>     > 2013-06-11 11:20:04 GMT CONFIG slon: restart of worker in 10 seconds
+>     >
+>     > When cleanup is run manually, on the psql prompt it runs to completion
+>     > without any issues and cleans up sl_event and sl_confirm tables
+>     > "begin;lock table "_xx_cluster".sl_config_lock;select
+>     > "_xx_cluster".cleanupEvent('10 minutes'::interval);commit;"
+>     >
+>     > Soln version: 2.1.2
+>     >
+>     > Any help/insight would be greatly appreciated.
+> 
+>     Slon kills its worker(s) with signal 9 (SIGKILL) when it needs to
+>     restart, like when there are errors in event processing or if it
+>     receives certain signals. Are there any other errors in the slon log or
+>     is something on the machine sending signals to slon?
+> 
+> 
+>     Jan
+> 
+>     >
+>     > Thanks,
+>     > Sridevi
+>     >
+>     >
+>     >
+>     > _______________________________________________
+>     > Slony1-general mailing list
+>     > Slony1-general at lists.slony.info
+>     <mailto:Slony1-general at lists.slony.info>
+>     > http://lists.slony.info/mailman/listinfo/slony1-general
+>     >
+> 
+> 
+>     --
+>     Anyone who trades liberty for security deserves neither
+>     liberty nor security. -- Benjamin Franklin
+> 
+> 
+
+
+-- 
+Anyone who trades liberty for security deserves neither
+liberty nor security. -- Benjamin Franklin
+
+From write2sridevi at gmail.com  Thu Jun 13 03:25:48 2013
+From: write2sridevi at gmail.com (Sridevi R)
+Date: Thu, 13 Jun 2013 15:55:48 +0530
+Subject: [Slony1-general] Slony cleanupEvent erroring out with "server
+ closed the connection unexpectedly" - Soln version: 2.1.2
+In-Reply-To: <51B8BEB8.8070301@Yahoo.com>
+References: <CAGFfjeeTqnyaP_6bqZyo0xYeRzmoKKFcGbxjyBbSfycGXqphJA@mail.gmail.com>
+	<51B87FB1.4000700@Yahoo.com>
+	<CAGFfjedhpi0r0E0Kat20X2rU5bNoDUJ0prHJwQCJuKGop-7Y2w@mail.gmail.com>
+	<51B8BEB8.8070301@Yahoo.com>
+Message-ID: <CAGFfjec4xNCToJaRfWEmz91Qe+Z+WqOwX0fBFRWuo+P8MgaZsg@mail.gmail.com>
+
+Hello Jan,
+
+The Master and Slave DBs talk through a firewall.
+VIP IPs and SNAT IPs are used in pg_hba.conf.
+
+The corresponding messages in the postgres server log:
+
+2013-06-13 09:46:21.224
+GMT,,,6630,"10.4.2.2:42031",51b994ed.19e6,1,"",2013-06-13
+09:46:21 GMT,,0,LOG,08P01,"incomplete startup packet",,,,,,,,,""
+2013-06-13 09:57:38.596 GMT,"postgres","db01",6634,"<ip address printed
+here>:53924",51b994f7.19ea,1,"idle",2013-06-13 09:46:31
+GMT,28/0,0,LOG,08006,"could not receive data from client: Connection reset
+by peer",,,,,,,,,"slon.node_1_listen"
+2013-06-13 09:57:38.596 GMT,"postgres","db01",6634,"<ip address printed
+here>:53924",51b994f7.19ea,2,"idle",2013-06-13 09:46:31
+GMT,28/0,0,LOG,08P01,"unexpected EOF on client
+connection",,,,,,,,,"slon.node_1_listen"
+2013-06-13 09:57:38.607 GMT,"postgres","db01",6637,"<ip address printed
+here>:53926",51b994f9.19ed,1,"idle",2013-06-13 09:46:33
+GMT,32/0,0,LOG,08006,"could not receive data from client: Connection reset
+by peer",,,,,,,,,"slon.subscriber_1_provider_1"
+2013-06-13 09:57:38.607 GMT,"postgres","db01",6637,"<ip address printed
+here>:53926",51b994f9.19ed,2,"idle",2013-06-13 09:46:33
+GMT,32/0,0,LOG,08P01,"unexpected EOF on client
+connection",,,,,,,,,"slon.subscriber_1_provider_1"
+2013-06-13 09:57:38.608 GMT,"postgres","db01",6635,"<ip address printed
+here>:53925",51b994f7.19eb,1,"idle",2013-06-13 09:46:31
+GMT,31/0,0,LOG,08006,"could not receive data from client: Connection reset
+by peer",,,,,,,,,"slon.node_1_listen"
+2013-06-13 09:57:38.608 GMT,"postgres","db01",6635,"<ip address printed
+here>:53925",51b994f7.19eb,2,"idle",2013-06-13 09:46:31
+GMT,31/0,0,LOG,08P01,"unexpected EOF on client
+connection",,,,,,,,,"slon.node_1_listen"
+
+The client slon log contains:
+2013-06-13 09:57:38 GMT FATAL  cleanupThread: "begin;lock table
+"_xx_cluster".sl_config_lock;select "_xx_cluster".cleanupEvent('10
+minutes'::interval);commit;" - server closed the connection unexpectedly
+        This probably means the server terminated abnormally
+        before or while processing the request.
+
+
+Thanks,
+Sridevi
+
+
+
+
+
+On Thu, Jun 13, 2013 at 12:02 AM, Jan Wieck <JanWieck at yahoo.com> wrote:
+
+> On 06/12/13 10:17, Sridevi R wrote:
+> > Jan,
+> >
+> > Thanks for the reply.
+> >
+> > The only errors in the slon log are failure of cleanupThread.
+> > child process is restarting right after the cleanupThread Failure.
+> > This occurs approximately every 10 minutes since cleanup_interval is set
+> > to 10 minutes.
+> >
+> > Here is a sample from the log again:
+> >
+> > 2013-06-06 14:23:27 GMT FATAL  cleanupThread: "begin;lock table
+> > "_xx_cluster".sl_config_lock;select "_xx_cluster".cleanupEvent('10
+> > minutes'::interval);commit;" - server closed the connection unexpectedly
+> >     This probably means the server terminated abnormally
+> >     before or while processing the request.
+> > 2013-06-06 14:23:27 GMT CONFIG slon: child terminated signal: 9; pid:
+> > 16135, current worker pid: 16135
+> > 2013-06-06 14:23:27 GMT CONFIG slon: restart of worker in 10 seconds
+>
+> "server closed the connection unexpectedly" ...
+>
+> Is this connection by any chance through some firewall or NAT gateway
+> that will drop idle connections?
+>
+> What are the corresponding postmaster server log entries? Since slony
+> reports an unexpected connection drop from the server, the server must
+> have some message in its log too, because the client never sent the 'X'
+> libpq protocol message.
+>
+>
+> Jan
+>
+>
+> >
+> > Thanks ,
+> > Sridevi
+> >
+> >
+> > On Wed, Jun 12, 2013 at 7:33 PM, Jan Wieck <JanWieck at yahoo.com
+> > <mailto:JanWieck at yahoo.com>> wrote:
+> >
+> >     On 06/12/13 07:14, Sridevi R wrote:
+> >     > Hello,
+> >     >
+> >     > The slony logs are consistently posting this error:
+> >     >
+> >     > 2013-06-12 10:01:05 GMT FATAL  cleanupThread: "begin;lock table
+> >     > "_xx_cluster".sl_config_lock;select "_xx_cluster".cleanupEvent('10
+> >     > minutes'::interval);commit;" - server closed the connection
+> >     unexpectedly
+> >     > 2013-06-12 10:12:24 GMT FATAL  cleanupThread: "begin;lock table
+> >     > "_xx_cluster".sl_config_lock;select "_xx_cluster".cleanupEvent('10
+> >     > minutes'::interval);commit;" - server closed the connection
+> >     unexpectedly
+> >     >
+> >     > checked and found that sl_confirm table is not cleaned up. cleanup
+> >     event
+> >     > never succeeds.
+> >     > Additionally, the child processes terminates and restarts after
+> each
+> >     > such cleanup failure.
+> >     >
+> >     > 2013-06-11 11:20:04 GMT CONFIG slon: child terminated signal: 9;
+> pid:
+> >     > 20172, current worker pid: 20172
+> >     > 2013-06-11 11:20:04 GMT CONFIG slon: restart of worker in 10
+> seconds
+> >     >
+> >     > When cleanup is run manually, on the psql prompt it runs to
+> completion
+> >     > without any issues and cleans up sl_event and sl_confirm tables
+> >     > "begin;lock table "_xx_cluster".sl_config_lock;select
+> >     > "_xx_cluster".cleanupEvent('10 minutes'::interval);commit;"
+> >     >
+> >     > Soln version: 2.1.2
+> >     >
+> >     > Any help/insight would be greatly appreciated.
+> >
+> >     Slon kills its worker(s) with signal 9 (SIGKILL) when it needs to
+> >     restart, like when there are errors in event processing or if it
+> >     receives certain signals. Are there any other errors in the slon log
+> or
+> >     is something on the machine sending signals to slon?
+> >
+> >
+> >     Jan
+> >
+> >     >
+> >     > Thanks,
+> >     > Sridevi
+> >     >
+> >     >
+> >     >
+> >     > _______________________________________________
+> >     > Slony1-general mailing list
+> >     > Slony1-general at lists.slony.info
+> >     <mailto:Slony1-general at lists.slony.info>
+> >     > http://lists.slony.info/mailman/listinfo/slony1-general
+> >     >
+> >
+> >
+> >     --
+> >     Anyone who trades liberty for security deserves neither
+> >     liberty nor security. -- Benjamin Franklin
+> >
+> >
+>
+>
+> --
+> Anyone who trades liberty for security deserves neither
+> liberty nor security. -- Benjamin Franklin
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20130613/0932e707/attachment.htm 
+
