@@ -100,3 +100,298 @@ This sounds like a bug/oversight.
 > http://lists.slony.info/mailman/listinfo/slony1-general
 
 
+From ragavendra.dba at gmail.com  Tue Jul  2 09:11:06 2013
+From: ragavendra.dba at gmail.com (Raghav)
+Date: Tue, 2 Jul 2013 21:41:06 +0530
+Subject: [Slony1-general] SlonyBeta 2.2 Question ?
+In-Reply-To: <51D1B05B.8010609@ca.afilias.info>
+References: <CANwAqWhuqH=rOdBqUf9rsrrJxcsunJ_pR=GkJP+-iV2yUMF-2Q@mail.gmail.com>
+	<51D1B05B.8010609@ca.afilias.info>
+Message-ID: <CANwAqWhcHqPf=YX3U_X3iEy5+F00mV61HxX8PG-BDrkoBBn2+Q@mail.gmail.com>
+
+> What does your table stest look like on the replica?  Does it have a
+> column "name" ?
+>
+> What DDL did you execute and in what order?  If you are adding or dropping
+> the "name" column then this sounds like a bug, but more details so we can
+> reproduce this would be helpful.
+>
+
+Sure. I have created a test case and implemented on both slony versions,
+stabled(2.1.2) & BETA(2.2.0).
+
+Steps:
+1. Create a table with one column and few rows:
+    create table stest(id int primary key);
+    insert into stest values(generate_series(1,5));
+2. Configure slony (initialization, create & subscribe) in SLON ARCHIVE
+mode(slon -a).
+3. Once sync catch up, execute DDL command without using EXECUTE SCRIPT
+(like user error)
+ALTER TABLE STEST ADD COLUMN NAME TEXT;
+INSERT INTO STEST VALUES (10,'TEST);
+
+Observations in Slony 2.1.2 on above scenario:
+
+1. DDL caused replication to crash if its executed without using EXECUTE
+SCRIPT(expected behavior) . Below log message is example of crash when I
+executed a DDL.
+
+2013-06-15 16:36:26 IST ERROR  remoteWorkerThread_1: "insert into
+"public"."stest" ("id","name") values (10,'TEST');
+" ERROR:  column "name" of relation "stest" does not exist
+LINE 1: insert into "public"."stest" ("id","name") values ('1','...
+....
+2013-06-15 16:36:26 IST ERROR  remoteWorkerThread_1: SYNC aborted
+
+2. Archives didn't captured the ALTER TABLE command, however an INSERT
+immediate after ALTER has been captured in archives.
+-bash-4.1$ fgrep -i alter *
+-bash-4.1$ fgrep -i insert *
+slony1_log_2_00000000000000000021.sql.tmp:insert into "public"."stest"
+("id","name") values ('10','TEST');
+
+Observation in 2.2.0B on above scenario:
+
+1.  Executing DDL, didn't impact the replication whatsoever, in the sense
+it didn't crashed. It just paused the replication. (I waited for almost 15
+minuts and tried few DMLs on the table).
+2.  Interesting, neither DDL nor DML's captured by archives in this version.
+-bash-4.1$ fgrep -i alter *
+-bash-4.1$ fgrep -i insert *
+-bash-4.1$
+
+Please let me know if any further information required from my end.
+
+--Raghav
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20130702/82be2358/attachment.htm 
+
+From ssinger at ca.afilias.info  Tue Jul  2 10:46:28 2013
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Tue, 02 Jul 2013 13:46:28 -0400
+Subject: [Slony1-general] SlonyBeta 2.2 Question ?
+In-Reply-To: <CANwAqWhcHqPf=YX3U_X3iEy5+F00mV61HxX8PG-BDrkoBBn2+Q@mail.gmail.com>
+References: <CANwAqWhuqH=rOdBqUf9rsrrJxcsunJ_pR=GkJP+-iV2yUMF-2Q@mail.gmail.com>
+	<51D1B05B.8010609@ca.afilias.info>
+	<CANwAqWhcHqPf=YX3U_X3iEy5+F00mV61HxX8PG-BDrkoBBn2+Q@mail.gmail.com>
+Message-ID: <51D311F4.9000507@ca.afilias.info>
+
+On 07/02/2013 12:11 PM, Raghav wrote:
+>
+>     What does your table stest look like on the replica?  Does it have a
+>     column "name" ?
+>
+>     What DDL did you execute and in what order?  If you are adding or
+>     dropping the "name" column then this sounds like a bug, but more
+>     details so we can reproduce this would be helpful.
+>
+>
+> Sure. I have created a test case and implemented on both slony versions,
+> stabled(2.1.2) & BETA(2.2.0).
+>
+> Steps:
+> 1. Create a table with one column and few rows:
+>      create table stest(id int primary key);
+>      insert into stest values(generate_series(1,5));
+> 2. Configure slony (initialization, create & subscribe) in SLON ARCHIVE
+> mode(slon -a).
+> 3. Once sync catch up, execute DDL command without using EXECUTE SCRIPT
+> (like user error)
+> ALTER TABLE STEST ADD COLUMN NAME TEXT;
+> INSERT INTO STEST VALUES (10,'TEST);
+>
+> Observations in Slony 2.1.2 on above scenario:
+>
+> 1. DDL caused replication to crash if its executed without using EXECUTE
+> SCRIPT(expected behavior) . Below log message is example of crash when I
+> executed a DDL.
+>
+> 2013-06-15 16:36:26 IST ERROR  remoteWorkerThread_1: "insert into
+> "public"."stest" ("id","name") values (10,'TEST');
+> " ERROR:  column "name" of relation "stest" does not exist
+> LINE 1: insert into "public"."stest" ("id","name") values ('1','...
+> ....
+> 2013-06-15 16:36:26 IST ERROR  remoteWorkerThread_1: SYNC aborted
+>
+> 2. Archives didn't captured the ALTER TABLE command, however an INSERT
+> immediate after ALTER has been captured in archives.
+> -bash-4.1$ fgrep -i alter *
+> -bash-4.1$ fgrep -i insert *
+> slony1_log_2_00000000000000000021.sql.tmp:insert into "public"."stest"
+> ("id","name") values ('10','TEST');
+>
+> Observation in 2.2.0B on above scenario:
+>
+> 1.  Executing DDL, didn't impact the replication whatsoever, in the
+> sense it didn't crashed. It just paused the replication. (I waited for
+> almost 15 minuts and tried few DMLs on the table).
+
+I can reproduce this.  Replication stops and I see things in the slon 
+log like:
+
+
+2013-07-02 13:39:03 EDT INFO   remoteWorkerThread_1: syncing set 1 with 
+1 table(s) from provider 1
+2013-07-02 13:39:03 EDT ERROR  remoteWorkerThread_1_1: error at end of 
+COPY IN: ERROR:  Slony-I: type lookup for column name failed in logApply()
+CONTEXT:  COPY sl_log_1, line 1: "1	1068182	1	1	public	stest	I	0 
+{id,10,name,TEST}"
+
+
+
+This is the new error that you get with slony 2.2.  That is the 
+behaviour I would expect, very similar to 2.1 except the message is 
+different
+
+
+> 2.  Interesting, neither DDL nor DML's captured by archives in this version.
+> -bash-4.1$ fgrep -i alter *
+> -bash-4.1$ fgrep -i insert *
+> -bash-4.1$
+>
+
+The DML actually is captured (at least for me) but the .sql files in 2.2 
+use COPY not insert.
+
+Try
+fgrep -i stest *
+
+Mine looks like:
+
+COPY "_test"."sl_log_archive" ( log_origin, 
+log_txid,log_tableid,log_actionseq,log_tablenspname, log_tablerelname, 
+log_cmdtype, log_cmdupdncols,log_cmdargs) FROM STDIN;
+1       1068182 1       1       public  stest   I       0 
+{id,10,name,TEST}
+
+
+The DDL isn't captured though, this is an omission that we probably 
+should fix.
+
+Also, are there places in the documentation where we need to be more 
+clear on the changes in 2.2, particularly saying that the log shipping 
+format has changed ? ( I am open to ideas on where)
+
+
+
+
+> Please let me know if any further information required from my end.
+>
+> --Raghav
+
+
+From ragavendra.dba at gmail.com  Wed Jul  3 01:53:45 2013
+From: ragavendra.dba at gmail.com (Raghav)
+Date: Wed, 3 Jul 2013 14:23:45 +0530
+Subject: [Slony1-general] SlonyBeta 2.2 Question ?
+In-Reply-To: <51D311F4.9000507@ca.afilias.info>
+References: <CANwAqWhuqH=rOdBqUf9rsrrJxcsunJ_pR=GkJP+-iV2yUMF-2Q@mail.gmail.com>
+	<51D1B05B.8010609@ca.afilias.info>
+	<CANwAqWhcHqPf=YX3U_X3iEy5+F00mV61HxX8PG-BDrkoBBn2+Q@mail.gmail.com>
+	<51D311F4.9000507@ca.afilias.info>
+Message-ID: <CANwAqWjG3EW9bfF5ycohy6Jqc7fHZcih8RFPcCFKaPucdzVHqg@mail.gmail.com>
+
+> I can reproduce this.  Replication stops and I see things in the slon log
+> like:
+>
+>
+> 2013-07-02 13:39:03 EDT INFO   remoteWorkerThread_1: syncing set 1 with 1
+> table(s) from provider 1
+> 2013-07-02 13:39:03 EDT ERROR  remoteWorkerThread_1_1: error at end of
+> COPY IN: ERROR:  Slony-I: type lookup for column name failed in logApply()
+> CONTEXT:  COPY sl_log_1, line 1: "1     1068182 1       1       public
+>  stest   I       0 {id,10,name,TEST}"
+>
+>
+I couldn't able to generate this error within my setup, beyond any doubt I
+may be doing something not right.
+Its been a while am monitoring the logs after executing manual DDL on
+replication table, replication doesn't crashes. But st_lag_time &
+st_lag_num_events of sl_status keep increasing.
+
+postgres=# select * from _newbuild.sl_status ;
+-[ RECORD 1 ]-------------+---------------------------------
+st_origin                 | 1
+st_received               | 2
+st_last_event             | 5000000041
+st_last_event_ts          | 2013-06-15 19:52:38.989129+05:30
+st_last_received          | 5000000021
+st_last_received_ts       | 2013-06-15 23:17:10.608269+05:30
+st_last_received_event_ts | 2013-06-15 19:49:18.801361+05:30
+st_lag_num_events         | 20
+st_lag_time               | 05:00:22.268792
+
+
+
+> 2.  Interesting, neither DDL nor DML's captured by archives in this
+>> version.
+>> -bash-4.1$ fgrep -i alter *
+>> -bash-4.1$ fgrep -i insert *
+>> -bash-4.1$
+>
+> The DML actually is captured (at least for me) but the .sql files in 2.2
+> use COPY not insert.
+>
+> Try
+> fgrep -i stest *
+>
+> Mine looks like:
+>
+> COPY "_test"."sl_log_archive" ( log_origin, log_txid,log_tableid,log_**actionseq,log_tablenspname,
+> log_tablerelname, log_cmdtype, log_cmdupdncols,log_cmdargs) FROM STDIN;
+> 1       1068182 1       1       public  stest   I       0 {id,10,name,TEST}
+>
+>
+Yeah, actually, I read in the BETA documentation about this section that
+now data storing/transferring in sl_log_1/sl_log_2 has changed its protocol
+to COPY  instead of DML events. I have watched this changes while testing
+but due to dual versions testing I executed fgrep command with INSERT
+instead of COPY. Thanks for correcting.
+
+Previous
+==> slony1_log_2_00000000000000000005.sql <==
+-- start of Slony-I data
+------------------------------------------------------------------
+insert into "public"."stest" ("id") values ('103');
+
+Latest:
+==> slony1_log_2_00000000000000000006.sql <==
+------------------------------------------------------------------
+COPY "_rep220"."sl_log_archive" ( log_origin,
+log_txid,log_tableid,log_actionseq,log_tablenspname, log_tablerelname,
+log_cmdtype, log_cmdupdnc
+ols,log_cmdargs) FROM STDIN;
+1       565688  1       2       public  stest   I       0       {id,1000}
+\.
+
+
+
+> The DDL isn't captured though, this is an omission that we probably should
+> fix.
+>
+
+Seems its not captured in earlier version too ? am i right. So it would be
+a feature request to include DDLs in .sql files.
+
+Also, are there places in the documentation where we need to be more clear
+> on the changes in 2.2, particularly saying that the log shipping format has
+> changed ? ( I am open to ideas on where)
+>
+
+Just two areas:
+http://slony.info/documentation/2.1/logshipping.html
+
+http://slony.info/documentation/slon.html
+-a option section.
+
+
+--
+Regards
+Raghav
+Blog: htt://raghavt.blogspot.com/
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20130703/3461b641/attachment.htm 
+
