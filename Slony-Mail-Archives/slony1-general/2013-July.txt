@@ -395,3 +395,205 @@ Blog: htt://raghavt.blogspot.com/
 An HTML attachment was scrubbed...
 URL: http://lists.slony.info/pipermail/slony1-general/attachments/20130703/3461b641/attachment.htm 
 
+From vivek at khera.org  Wed Jul  3 08:15:04 2013
+From: vivek at khera.org (Vick Khera)
+Date: Wed, 3 Jul 2013 11:15:04 -0400
+Subject: [Slony1-general] test_slony_state-dbi.pl
+In-Reply-To: <51CDD9C0.1000602@ca.afilias.info>
+References: <51CDD9C0.1000602@ca.afilias.info>
+Message-ID: <CALd+dcf9wU=tvU8BrqjN5bKbh3=_6WD8L4n-FQpCs+zNqqb8cQ@mail.gmail.com>
+
+On Fri, Jun 28, 2013 at 2:45 PM, Steve Singer <ssinger at ca.afilias.info>wrote:
+
+> I am wondering who else is actually using the test_slony_state script
+> that we include in slony1-engine/tools
+>
+
+I do not use it. I use a custom script I put together for nagios that
+simply returns the number of seconds behind that my replica is from the
+origin, and trigger based on that number any alerts I need.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20130703/ea57adf2/attachment.htm 
+
+From ragavendra.dba at gmail.com  Thu Jul  4 00:50:27 2013
+From: ragavendra.dba at gmail.com (Raghav)
+Date: Thu, 4 Jul 2013 13:20:27 +0530
+Subject: [Slony1-general] RESUBSCRIBE NODE in 2.2.0Beta
+Message-ID: <CANwAqWi8hfOe2O6GkbBU=vrLebHSr9=RH9pDNcKqN9xddOsybw@mail.gmail.com>
+
+Hi,
+
+I've three nodes configured using Slony 2.2.0B/PG 9.3beta with One master
+two slaves and one table.
+
+
+        Node1 (Master - 5555)
+                      |
+        --------------------------------
+        |                          |
+Slave1-5556          Slave2- 5557
+
+As per doc, RESUBSCRIBE NODE its says we could change the provider. So,
+planned to move Provider to Slave1-5556 (node 2).
+
+"The RESUBSCRIBE NODE command will change the provider used to receive data
+from for all of the replication sets originating on a given node. If a
+subscriber node is receiving a number of replication sets with a particular
+node as an origin then the RESUBSCRIBE NODE command will change the
+provider node used by that subscriber node for all of the replication sets
+originating on the given origin."
+
+Hence, I have created a script to perform RESUBSCRIBE NODE:
+
+Resub.sh script:
+
+cluster name = rep220;
+node 1 admin conninfo='host=localhost dbname=postgres user=postgres
+port=5555';
+node 2 admin conninfo='host=localhost dbname=postgres user=postgres
+port=5556';
+node 3 admin conninfo='host=localhost dbname=postgres user=postgres
+port=5557';
+resubscribe node ( origin = 1, provider = 2 , receiver = 3);
+
+While executing it gives me error as:
+
+-bash-4.1$ slonik resub_set.sh
+resub_set.sh:8: PGRES_FATAL_ERROR lock table "_rep220".sl_event_lock,
+"_rep220".sl_config_lock;select "_rep220".resubscribeNode(1, 2, 2);  -
+ERROR:  insert or update on table "sl_subscribe" violates foreign key
+constraint "sl_subscribe-sl_path-ref"
+DETAIL:  Key (sub_provider, sub_receiver)=(2, 2) is not present in table
+"sl_path".
+CONTEXT:  SQL statement "update "_rep220".sl_subscribe
+                        set sub_provider = p_sub_provider,
+                                sub_forward = p_sub_forward
+                        where sub_set = p_sub_set
+                        and sub_receiver = p_sub_receiver"
+PL/pgSQL function
+_rep220.subscribeset_int(integer,integer,integer,boolean,boolean) line 35
+at SQL statement
+SQL statement "SELECT "_rep220".subscribeSet_int(v_record.sub_set,
+                                p_provider,
+                                p_receiver, v_record.sub_forward, false)"
+PL/pgSQL function _rep220.resubscribenode(integer,integer,integer) line 75
+at PERFORM
+-bash-4.1$
+
+Here's sl_path output from three nodes:
+
+sl_path ouput from 5555 port
+
+postgres=# select * from _rep220.sl_path ;
+ pa_server | pa_client |                      pa_conninfo
+    | pa_connretry
+-----------+-----------+--------------------------------------------------------+--------------
+         2 |         1 | host=localhost dbname=postgres user=postgres
+port=5556 |           10
+         1 |         2 | host=localhost dbname=postgres user=postgres
+port=5555 |           10
+         3 |         1 | host=localhost dbname=postgres user=postgres
+port=5557 |           10
+         1 |         3 | host=localhost dbname=postgres user=postgres
+port=5555 |           10
+(4 rows)
+
+sl_path ouput from 5556 port
+
+-bash-4.1$ psql -p 5556
+psql (9.3beta1)
+Type "help" for help.
+
+postgres=# select * from _rep220.sl_path ;
+ pa_server | pa_client |                      pa_conninfo
+    | pa_connretry
+-----------+-----------+--------------------------------------------------------+--------------
+         1 |         2 | host=localhost dbname=postgres user=postgres
+port=5555 |           10
+         2 |         1 | host=localhost dbname=postgres user=postgres
+port=5556 |           10
+         3 |         1 | host=localhost dbname=postgres user=postgres
+port=5557 |           10
+         1 |         3 | host=localhost dbname=postgres user=postgres
+port=5555 |           10
+(4 rows)
+
+sl_path ouput from 5557 port
+
+-bash-4.1$ psql -p 5557
+psql (9.3beta1)
+Type "help" for help.
+
+postgres=# select * from _rep220.sl_path ;
+ pa_server | pa_client |                      pa_conninfo
+    | pa_connretry
+-----------+-----------+--------------------------------------------------------+--------------
+         2 |         1 | host=localhost dbname=postgres user=postgres
+port=5556 |           10
+         1 |         2 | host=localhost dbname=postgres user=postgres
+port=5555 |           10
+         1 |         3 | host=localhost dbname=postgres user=postgres
+port=5555 |           10
+         3 |         1 | host=localhost dbname=postgres user=postgres
+port=5557 |           10
+(4 rows)
+
+I may be doing something surely wrong here, would you please indicate me
+what mix-up am doing here.
+
+Thanks in advance.
+
+-- 
+Regards
+Raghav
+Blog: htt://raghavt.blogspot.com/
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20130704/aec9f605/attachment.htm 
+
+From ragavendra.dba at gmail.com  Thu Jul  4 01:00:13 2013
+From: ragavendra.dba at gmail.com (Raghav)
+Date: Thu, 4 Jul 2013 13:30:13 +0530
+Subject: [Slony1-general] RESUBSCRIBE NODE in 2.2.0Beta
+In-Reply-To: <CANwAqWi8hfOe2O6GkbBU=vrLebHSr9=RH9pDNcKqN9xddOsybw@mail.gmail.com>
+References: <CANwAqWi8hfOe2O6GkbBU=vrLebHSr9=RH9pDNcKqN9xddOsybw@mail.gmail.com>
+Message-ID: <CANwAqWgyHuriYhpYFLuXNChEWiS-oZ+B6_qsvVr+zSLrWdNmeQ@mail.gmail.com>
+
+>
+>
+> Hence, I have created a script to perform RESUBSCRIBE NODE:
+>
+> Resub.sh script:
+>
+> cluster name = rep220;
+> node 1 admin conninfo='host=localhost dbname=postgres user=postgres
+> port=5555';
+> node 2 admin conninfo='host=localhost dbname=postgres user=postgres
+> port=5556';
+> node 3 admin conninfo='host=localhost dbname=postgres user=postgres
+> port=5557';
+> resubscribe node ( origin = 1, provider = 2 , receiver = 3);
+>
+> While executing it gives me error as:
+>
+> -bash-4.1$ slonik resub_set.sh
+> resub_set.sh:8: PGRES_FATAL_ERROR lock table "_rep220".sl_event_lock,
+> "_rep220".sl_config_lock;select "_rep220".resubscribeNode(1, 2, 2);  -
+>
+
+
+> ERROR:  insert or update on table "sl_subscribe" violates foreign key
+> constraint "sl_subscribe-sl_path-ref"
+> DETAIL:  Key (sub_provider, sub_receiver)=(2, 2) is not present in table
+> "sl_path".
+>
+
+Merely a blind guess, any step  ( between 5556 to 5557) I missed before
+executing RESUBSCRIBE NODE.
+
+--Raghav
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20130704/c673f79d/attachment.htm 
+
