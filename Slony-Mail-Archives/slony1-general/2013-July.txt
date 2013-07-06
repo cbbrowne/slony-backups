@@ -597,3 +597,644 @@ executing RESUBSCRIBE NODE.
 An HTML attachment was scrubbed...
 URL: http://lists.slony.info/pipermail/slony1-general/attachments/20130704/c673f79d/attachment.htm 
 
+From ragavendra.dba at gmail.com  Thu Jul  4 04:24:51 2013
+From: ragavendra.dba at gmail.com (Raghav)
+Date: Thu, 4 Jul 2013 16:54:51 +0530
+Subject: [Slony1-general] Upgrading 2.1.2 to 2.2.0Beta
+Message-ID: <CANwAqWjBSX3OW477Pjnk0CBLy7_gtrb3+2KEpN5b38xBgrJxog@mail.gmail.com>
+
+Hi Again,
+
+Sorry for my too many posts on beta :), its all my curiosity to test Beta.
+
+Planned to upgrade 2.1.2 to 2.2.0Beta and steps followed as:
+
+1. Stop all running slon proces on all nodes.
+2. Install new Version of Slony 2.2.0B binaries.
+3. As per documentation, its said to optimize the cleanup_interval
+parameter to lower in seconds to trim data out of sl_log_1/sl_log_2 as
+these tables layout has changed in newer version.
+I have set cleanup_interval="10 seconds"
+
+4. Execute SLONIK upgradation script.
+5. Start slony with new binaries on all nodes.
+
+My primary.conf (slave.conf also similar just the node information changed)
+
+-bash-4.1$ more primary.conf
+## Master Slon Conf:
+vac_frequency=3
+cleanup_interval="10 seconds"
+log_level=4
+sync_interval=2000
+sync_interval_timeout=10000
+sync_group_maxsize=6
+slon_config_cleanup_interval="5 seconds"
+syslog=0
+log_pid=false
+log_timestamp=true
+pid_file='/tmp/master_slon.pid'
+syslog_ident=slon
+cluster_name='newbuild'
+conn_info='dbname=postgres host=localhost user=postgres port=5432
+password=postgres'
+desired_sync_time=60000
+sql_on_connection="SET log_min_duration_statement TO '1000';"
+
+One row still existed in sl_log_1 while upgrading, which was not cleaned up
+by SLON process:
+
+postgres=# select * from _newbuild.sl_log_1 ;
+ log_origin | log_txid | log_tableid | log_actionseq | log_cmdtype |
+log_cmddata
+------------+----------+-------------+---------------+-------------+---------------------
+          1 |   592401 |           1 |             1 | I           | ("id")
+values ('2')
+(1 row)
+
+Till, step 4 all went fine, and slony schema has been upgraded to latest:
+
+postgres=# select substr(version(),1,26) as
+"PostgreSQL-Version",_newbuild.slonyversion();
+     PostgreSQL-Version     | slonyversion
+----------------------------+--------------
+ PostgreSQL 9.2.3 on x86_64 | 2.2.0.b4
+(1 row)
+
+But, when I started slon process with new binaries, it has immediately
+crashed with below error:
+
+2013-06-16 10:04:23 IST ERROR  remoteWorkerThread_1_1: error executing COPY
+OUT: "COPY ( select log_origin, log_txid, NULL::integer, log_actionseq,
+NULL::text, NULL::text, log_cmdtype, NULL::integer, log_cmdargs from
+"_newbuild".sl_log_script where log_origin = 1 and log_txid >=
+"pg_catalog".txid_snapshot_xmax('592613:592613:') and log_txid < '592630'
+and "pg_catalog".txid_visible_in_snapshot(log_txid, '592630:592630:') union
+all select log_origin, log_txid, NULL::integer, log_actionseq, NULL::text,
+NULL::text, log_cmdtype, NULL::integer, log_cmdargs from
+"_newbuild".sl_log_script where log_origin = 1 and log_txid in (select *
+from "pg_catalog".txid_snapshot_xip('592613:592613:') except select * from
+"pg_catalog".txid_snapshot_xip('592630:592630:') ) union all select
+log_origin, log_txid, log_tableid, log_actionseq, log_tablenspname,
+log_tablerelname, log_cmdtype, log_cmdupdncols, log_cmdargs from
+"_newbuild".sl_log_1 where log_origin = 1 and log_tableid in (1) and
+log_txid >= '592613' and log_txid < '592630' and
+"pg_catalog".txid_visible_in_snapshot(log_txid, '592630:592630:') union all
+select log_origin, log_txid, log_tableid, log_actionseq, log_tablenspname,
+log_tablerelname, log_cmdtype, log_cmdupdncols, log_cmdargs from
+"_newbuild".sl_log_1 where log_origin = 1 and log_tableid in (1) and
+log_txid in (select * from "pg_catalog".txid_snapshot_xip('592613:592613:')
+except select * from "pg_catalog".txid_snapshot_xip('592630:592630:') )
+order by log_actionseq) TO STDOUT" ERROR:  column "log_cmdtype" does not
+exist
+LINE 1: ...::integer, log_actionseq, NULL::text, NULL::text, log_cmdtyp...
+                                                             ^
+2013-06-16 10:04:23 IST DEBUG2 remoteWorkerThread_1: cleanup
+2013-06-16 10:04:23 IST ERROR  remoteWorkerThread_1: SYNC aborted
+
+What might be the issue ? Please advice me.
+
+Thanks in advance
+
+-- 
+Regards
+Raghav
+Blog: htt://raghavt.blogspot.com/
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20130704/5760a5f6/attachment.htm 
+
+From ssinger at ca.afilias.info  Thu Jul  4 07:39:56 2013
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Thu, 04 Jul 2013 10:39:56 -0400
+Subject: [Slony1-general] RESUBSCRIBE NODE in 2.2.0Beta
+In-Reply-To: <CANwAqWi8hfOe2O6GkbBU=vrLebHSr9=RH9pDNcKqN9xddOsybw@mail.gmail.com>
+References: <CANwAqWi8hfOe2O6GkbBU=vrLebHSr9=RH9pDNcKqN9xddOsybw@mail.gmail.com>
+Message-ID: <51D5893C.9050100@ca.afilias.info>
+
+On 07/04/2013 03:50 AM, Raghav wrote:
+> Hi,
+>
+> I've three nodes configured using Slony 2.2.0B/PG 9.3beta with One
+> master two slaves and one table.
+>
+>
+>          Node1 (Master - 5555)
+>                        |
+>          --------------------------------
+>          |                          |
+> Slave1-5556          Slave2- 5557
+>
+> As per doc, RESUBSCRIBE NODE its says we could change the provider. So,
+> planned to move Provider to Slave1-5556 (node 2).
+
+If you want node 3 to receive subscriptions from node 2 then there must 
+be a direct path between node 2 and 3.  Your sl_path entries don't show 
+a path between   2->3 and 3->2.
+
+Having said that,
+
+   select "_rep220".resubscribeNode(1, 2, 2);
+
+and
+
+ > DETAIL:  Key (sub_provider, sub_receiver)=(2, 2) is not present in table
+ > "sl_path".
+
+Is concerning,  I would have expected it to say  (2,3) not (2,2).    If 
+you somehow did call resubscribeNode with the provider and receiver the 
+same I would have expected you to see the error message : 'Slony-I: 
+subscribeSet(): set origin and receiver cannot be identical'
+
+Are you didn't do a search/replace on node id's when pasting that message?
+
+
+
+
+
+>
+> "The RESUBSCRIBE NODE command will change the provider used to receive
+> data from for all of the replication sets originating on a given node.
+> If a subscriber node is receiving a number of replication sets with a
+> particular node as an origin then the RESUBSCRIBE NODE command will
+> change the provider node used by that subscriber node for all of the
+> replication sets originating on the given origin."
+>
+> Hence, I have created a script to perform RESUBSCRIBE NODE:
+>
+> Resub.sh script:
+>
+> cluster name = rep220;
+> node 1 admin conninfo='host=localhost dbname=postgres user=postgres
+> port=5555';
+> node 2 admin conninfo='host=localhost dbname=postgres user=postgres
+> port=5556';
+> node 3 admin conninfo='host=localhost dbname=postgres user=postgres
+> port=5557';
+> resubscribe node ( origin = 1, provider = 2 , receiver = 3);
+>
+> While executing it gives me error as:
+>
+> -bash-4.1$ slonik resub_set.sh
+> resub_set.sh:8: PGRES_FATAL_ERROR lock table "_rep220".sl_event_lock,
+> "_rep220".sl_config_lock;select "_rep220".resubscribeNode(1, 2, 2);  -
+> ERROR:  insert or update on table "sl_subscribe" violates foreign key
+> constraint "sl_subscribe-sl_path-ref"
+> DETAIL:  Key (sub_provider, sub_receiver)=(2, 2) is not present in table
+> "sl_path".
+> CONTEXT:  SQL statement "update "_rep220".sl_subscribe
+>                          set sub_provider = p_sub_provider,
+>                                  sub_forward = p_sub_forward
+>                          where sub_set = p_sub_set
+>                          and sub_receiver = p_sub_receiver"
+> PL/pgSQL function
+> _rep220.subscribeset_int(integer,integer,integer,boolean,boolean) line
+> 35 at SQL statement
+> SQL statement "SELECT "_rep220".subscribeSet_int(v_record.sub_set,
+>                                  p_provider,
+>                                  p_receiver, v_record.sub_forward, false)"
+> PL/pgSQL function _rep220.resubscribenode(integer,integer,integer) line
+> 75 at PERFORM
+> -bash-4.1$
+>
+> Here's sl_path output from three nodes:
+>
+> sl_path ouput from 5555 port
+>
+> postgres=# select * from _rep220.sl_path ;
+>   pa_server | pa_client |                      pa_conninfo
+>          | pa_connretry
+> -----------+-----------+--------------------------------------------------------+--------------
+>           2 |         1 | host=localhost dbname=postgres user=postgres
+> port=5556 |           10
+>           1 |         2 | host=localhost dbname=postgres user=postgres
+> port=5555 |           10
+>           3 |         1 | host=localhost dbname=postgres user=postgres
+> port=5557 |           10
+>           1 |         3 | host=localhost dbname=postgres user=postgres
+> port=5555 |           10
+> (4 rows)
+>
+> sl_path ouput from 5556 port
+>
+> -bash-4.1$ psql -p 5556
+> psql (9.3beta1)
+> Type "help" for help.
+>
+> postgres=# select * from _rep220.sl_path ;
+>   pa_server | pa_client |                      pa_conninfo
+>          | pa_connretry
+> -----------+-----------+--------------------------------------------------------+--------------
+>           1 |         2 | host=localhost dbname=postgres user=postgres
+> port=5555 |           10
+>           2 |         1 | host=localhost dbname=postgres user=postgres
+> port=5556 |           10
+>           3 |         1 | host=localhost dbname=postgres user=postgres
+> port=5557 |           10
+>           1 |         3 | host=localhost dbname=postgres user=postgres
+> port=5555 |           10
+> (4 rows)
+>
+> sl_path ouput from 5557 port
+>
+> -bash-4.1$ psql -p 5557
+> psql (9.3beta1)
+> Type "help" for help.
+>
+> postgres=# select * from _rep220.sl_path ;
+>   pa_server | pa_client |                      pa_conninfo
+>          | pa_connretry
+> -----------+-----------+--------------------------------------------------------+--------------
+>           2 |         1 | host=localhost dbname=postgres user=postgres
+> port=5556 |           10
+>           1 |         2 | host=localhost dbname=postgres user=postgres
+> port=5555 |           10
+>           1 |         3 | host=localhost dbname=postgres user=postgres
+> port=5555 |           10
+>           3 |         1 | host=localhost dbname=postgres user=postgres
+> port=5557 |           10
+> (4 rows)
+>
+> I may be doing something surely wrong here, would you please indicate me
+> what mix-up am doing here.
+>
+> Thanks in advance.
+>
+> --
+> Regards
+> Raghav
+> Blog: htt://raghavt.blogspot.com/ <http://raghavt.blogspot.com/>
+>
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+
+
+From ssinger at ca.afilias.info  Thu Jul  4 08:07:22 2013
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Thu, 04 Jul 2013 11:07:22 -0400
+Subject: [Slony1-general] Upgrading 2.1.2 to 2.2.0Beta
+In-Reply-To: <CANwAqWjBSX3OW477Pjnk0CBLy7_gtrb3+2KEpN5b38xBgrJxog@mail.gmail.com>
+References: <CANwAqWjBSX3OW477Pjnk0CBLy7_gtrb3+2KEpN5b38xBgrJxog@mail.gmail.com>
+Message-ID: <51D58FAA.9030202@ca.afilias.info>
+
+On 07/04/2013 07:24 AM, Raghav wrote:
+> Hi Again,
+>
+> Sorry for my too many posts on beta :), its all my curiosity to test Beta.
+
+You don't need to apologize, thanks for testing the beta.  I wish more 
+people were testing the beta and letting us know that they are doing so 
+(yes that is a hint).
+
+
+
+>
+> Planned to upgrade 2.1.2 to 2.2.0Beta and steps followed as:
+>
+> 1. Stop all running slon proces on all nodes.
+> 2. Install new Version of Slony 2.2.0B binaries.
+> 3. As per documentation, its said to optimize the cleanup_interval
+> parameter to lower in seconds to trim data out of sl_log_1/sl_log_2 as
+> these tables layout has changed in newer version.
+> I have set cleanup_interval="10 seconds"
+>
+> 4. Execute SLONIK upgradation script.
+
+Do you have the output of slonik from this step?
+
+This step appears to have failed, or at least not work as expected 
+because your table is still in the old format.
+
+This sounds like a bug in the upgrade processing function, (where it 
+allows the transaction to be committed so the version # gets updated but 
+it doesn't actually update the tables)
+
+
+
+
+
+
+> 5. Start slony with new binaries on all nodes.
+>
+> My primary.conf (slave.conf also similar just the node information changed)
+>
+> -bash-4.1$ more primary.conf
+> ## Master Slon Conf:
+> vac_frequency=3
+> cleanup_interval="10 seconds"
+> log_level=4
+> sync_interval=2000
+> sync_interval_timeout=10000
+> sync_group_maxsize=6
+> slon_config_cleanup_interval="5 seconds"
+> syslog=0
+> log_pid=false
+> log_timestamp=true
+> pid_file='/tmp/master_slon.pid'
+> syslog_ident=slon
+> cluster_name='newbuild'
+> conn_info='dbname=postgres host=localhost user=postgres port=5432
+> password=postgres'
+> desired_sync_time=60000
+> sql_on_connection="SET log_min_duration_statement TO '1000';"
+>
+> One row still existed in sl_log_1 while upgrading, which was not cleaned
+> up by SLON process:
+>
+> postgres=# select * from _newbuild.sl_log_1 ;
+>   log_origin | log_txid | log_tableid | log_actionseq | log_cmdtype |
+>    log_cmddata
+> ------------+----------+-------------+---------------+-------------+---------------------
+>            1 |   592401 |           1 |             1 | I           |
+> ("id") values ('2')
+> (1 row)
+>
+> Till, step 4 all went fine, and slony schema has been upgraded to latest:
+>
+> postgres=# select substr(version(),1,26) as
+> "PostgreSQL-Version",_newbuild.slonyversion();
+>       PostgreSQL-Version     | slonyversion
+> ----------------------------+--------------
+>   PostgreSQL 9.2.3 on x86_64 | 2.2.0.b4
+> (1 row)
+>
+> But, when I started slon process with new binaries, it has immediately
+> crashed with below error:
+>
+> 2013-06-16 10:04:23 IST ERROR  remoteWorkerThread_1_1: error executing
+> COPY OUT: "COPY ( select log_origin, log_txid, NULL::integer,
+> log_actionseq, NULL::text, NULL::text, log_cmdtype, NULL::integer,
+> log_cmdargs from "_newbuild".sl_log_script where log_origin = 1 and
+> log_txid >= "pg_catalog".txid_snapshot_xmax('592613:592613:') and
+> log_txid < '592630' and "pg_catalog".txid_visible_in_snapshot(log_txid,
+> '592630:592630:') union all select log_origin, log_txid, NULL::integer,
+> log_actionseq, NULL::text, NULL::text, log_cmdtype, NULL::integer,
+> log_cmdargs from "_newbuild".sl_log_script where log_origin = 1 and
+> log_txid in (select * from
+> "pg_catalog".txid_snapshot_xip('592613:592613:') except select * from
+> "pg_catalog".txid_snapshot_xip('592630:592630:') ) union all select
+> log_origin, log_txid, log_tableid, log_actionseq, log_tablenspname,
+> log_tablerelname, log_cmdtype, log_cmdupdncols, log_cmdargs from
+> "_newbuild".sl_log_1 where log_origin = 1 and log_tableid in (1) and
+> log_txid >= '592613' and log_txid < '592630' and
+> "pg_catalog".txid_visible_in_snapshot(log_txid, '592630:592630:') union
+> all select log_origin, log_txid, log_tableid, log_actionseq,
+> log_tablenspname, log_tablerelname, log_cmdtype, log_cmdupdncols,
+> log_cmdargs from "_newbuild".sl_log_1 where log_origin = 1 and
+> log_tableid in (1) and log_txid in (select * from
+> "pg_catalog".txid_snapshot_xip('592613:592613:') except select * from
+> "pg_catalog".txid_snapshot_xip('592630:592630:') ) order by
+> log_actionseq) TO STDOUT" ERROR:  column "log_cmdtype" does not exist
+> LINE 1: ...::integer, log_actionseq, NULL::text, NULL::text, log_cmdtyp...
+>                                                               ^
+> 2013-06-16 10:04:23 IST DEBUG2 remoteWorkerThread_1: cleanup
+> 2013-06-16 10:04:23 IST ERROR  remoteWorkerThread_1: SYNC aborted
+>
+> What might be the issue ? Please advice me.
+>
+> Thanks in advance
+>
+> --
+> Regards
+> Raghav
+> Blog: htt://raghavt.blogspot.com/ <http://raghavt.blogspot.com/>
+>
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+
+
+From ssinger at ca.afilias.info  Thu Jul  4 08:53:53 2013
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Thu, 04 Jul 2013 11:53:53 -0400
+Subject: [Slony1-general] SlonyBeta 2.2 Question ?
+In-Reply-To: <CANwAqWjG3EW9bfF5ycohy6Jqc7fHZcih8RFPcCFKaPucdzVHqg@mail.gmail.com>
+References: <CANwAqWhuqH=rOdBqUf9rsrrJxcsunJ_pR=GkJP+-iV2yUMF-2Q@mail.gmail.com>
+	<51D1B05B.8010609@ca.afilias.info>
+	<CANwAqWhcHqPf=YX3U_X3iEy5+F00mV61HxX8PG-BDrkoBBn2+Q@mail.gmail.com>
+	<51D311F4.9000507@ca.afilias.info>
+	<CANwAqWjG3EW9bfF5ycohy6Jqc7fHZcih8RFPcCFKaPucdzVHqg@mail.gmail.com>
+Message-ID: <51D59A91.1020700@ca.afilias.info>
+
+On 07/03/2013 04:53 AM, Raghav wrote:
+
+I have created
+http://bugs.slony.info/bugzilla/show_bug.cgi?id=298 for this.
+
+The patch to slony1_dump.sh to fix this issue is small.
+
+https://github.com/ssinger/slony1-engine/commit/eada16d3790b3e92cd17cdc6fde5737dd0364987
+
+
+
+>
+>     I can reproduce this.  Replication stops and I see things in the
+>     slon log like:
+>
+>
+>     2013-07-02 13:39:03 EDT INFO   remoteWorkerThread_1: syncing set 1
+>     with 1 table(s) from provider 1
+>     2013-07-02 13:39:03 EDT ERROR  remoteWorkerThread_1_1: error at end
+>     of COPY IN: ERROR:  Slony-I: type lookup for column name failed in
+>     logApply()
+>     CONTEXT:  COPY sl_log_1, line 1: "1     1068182 1       1
+>     public  stest   I       0 {id,10,name,TEST}"
+>
+>
+> I couldn't able to generate this error within my setup, beyond any doubt
+> I may be doing something not right.
+> Its been a while am monitoring the logs after executing manual DDL on
+> replication table, replication doesn't crashes. But st_lag_time &
+> st_lag_num_events of sl_status keep increasing.
+>
+> postgres=# select * from _newbuild.sl_status ;
+> -[ RECORD 1 ]-------------+---------------------------------
+> st_origin                 | 1
+> st_received               | 2
+> st_last_event             | 5000000041
+> st_last_event_ts          | 2013-06-15 19:52:38.989129+05:30
+> st_last_received          | 5000000021
+> st_last_received_ts       | 2013-06-15 23:17:10.608269+05:30
+> st_last_received_event_ts | 2013-06-15 19:49:18.801361+05:30
+> st_lag_num_events         | 20
+> st_lag_time               | 05:00:22.268792
+>
+>         2.  Interesting, neither DDL nor DML's captured by archives in
+>         this version.
+>         -bash-4.1$ fgrep -i alter *
+>         -bash-4.1$ fgrep -i insert *
+>         -bash-4.1$
+>
+>     The DML actually is captured (at least for me) but the .sql files in
+>     2.2 use COPY not insert.
+>
+>     Try
+>     fgrep -i stest *
+>
+>     Mine looks like:
+>
+>     COPY "_test"."sl_log_archive" ( log_origin,
+>     log_txid,log_tableid,log___actionseq,log_tablenspname,
+>     log_tablerelname, log_cmdtype, log_cmdupdncols,log_cmdargs) FROM STDIN;
+>     1       1068182 1       1       public  stest   I       0
+>     {id,10,name,TEST}
+>
+>
+> Yeah, actually, I read in the BETA documentation about this section that
+> now data storing/transferring in sl_log_1/sl_log_2 has changed its
+> protocol to COPY  instead of DML events. I have watched this changes
+> while testing but due to dual versions testing I executed fgrep command
+> with INSERT instead of COPY. Thanks for correcting.
+>
+> Previous
+> ==> slony1_log_2_00000000000000000005.sql <==
+> -- start of Slony-I data
+> ------------------------------------------------------------------
+> insert into "public"."stest" ("id") values ('103');
+>
+> Latest:
+> ==> slony1_log_2_00000000000000000006.sql <==
+> ------------------------------------------------------------------
+> COPY "_rep220"."sl_log_archive" ( log_origin,
+> log_txid,log_tableid,log_actionseq,log_tablenspname, log_tablerelname,
+> log_cmdtype, log_cmdupdnc
+> ols,log_cmdargs) FROM STDIN;
+> 1       565688  1       2       public  stest   I       0       {id,1000}
+> \.
+>
+>     The DDL isn't captured though, this is an omission that we probably
+>     should fix.
+>
+> Seems its not captured in earlier version too ? am i right. So it would
+> be a feature request to include DDLs in .sql files.
+>
+>     Also, are there places in the documentation where we need to be more
+>     clear on the changes in 2.2, particularly saying that the log
+>     shipping format has changed ? ( I am open to ideas on where)
+>
+>
+> Just two areas:
+> http://slony.info/documentation/2.1/logshipping.html
+>
+> http://slony.info/documentation/slon.html
+> -a option section.
+>
+>
+> --
+> Regards
+> Raghav
+> Blog: htt://raghavt.blogspot.com/ <http://raghavt.blogspot.com/>
+
+
+From ragavendra.dba at gmail.com  Fri Jul  5 00:59:39 2013
+From: ragavendra.dba at gmail.com (Raghav)
+Date: Fri, 5 Jul 2013 13:29:39 +0530
+Subject: [Slony1-general] Slonik shows unsupported PostgreSQL version 9.3
+Message-ID: <CANwAqWiUZvSDtcY8Wt+O=8umPEfpObF+0Y9oeRX5_OW2T92J-A@mail.gmail.com>
+
+Hi,
+
+I see unsupported errors while executing INIT script:
+
+-bash-4.1$ slonik -v
+slonik version 2.2.0.b4
+
+-bash-4.1$ slonik init_cluster.sh
+init_cluster.sh:7: Possible unsupported PostgreSQL version (90300) 9.3,
+defaulting to 8.4 support
+init_cluster.sh:11: Possible unsupported PostgreSQL version (90300) 9.3,
+defaulting to 8.4 support
+init_cluster.sh:14: Stored all nodes in the slony catalogs
+
+Is it expected?
+On the grounds that it doesn't break the INIT script, yet it just shows the
+above message while executing.
+
+Thanks.
+
+-- 
+Regards
+Raghav
+Blog: htt://raghavt.blogspot.com/
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20130705/9a7da34f/attachment.htm 
+
+From ragavendra.dba at gmail.com  Fri Jul  5 01:26:45 2013
+From: ragavendra.dba at gmail.com (Raghav)
+Date: Fri, 5 Jul 2013 13:56:45 +0530
+Subject: [Slony1-general] RESUBSCRIBE NODE in 2.2.0Beta
+In-Reply-To: <51D5893C.9050100@ca.afilias.info>
+References: <CANwAqWi8hfOe2O6GkbBU=vrLebHSr9=RH9pDNcKqN9xddOsybw@mail.gmail.com>
+	<51D5893C.9050100@ca.afilias.info>
+Message-ID: <CANwAqWjTRkBz36yadYx8d7v5U=+C0yFHtz_zeiMG2t+F62P_YQ@mail.gmail.com>
+
+>
+> As per doc, RESUBSCRIBE NODE its says we could change the provider. So,
+>> planned to move Provider to Slave1-5556 (node 2).
+>>
+>
+> If you want node 3 to receive subscriptions from node 2 then there must be
+> a direct path between node 2 and 3.  Your sl_path entries don't show a path
+> between   2->3 and 3->2.
+>
+> Got it. I should fix this before RESUBSCRIBE NODE. Thank You.
+
+
+
+> > DETAIL:  Key (sub_provider, sub_receiver)=(2, 2) is not present in table
+> > "sl_path".
+>
+> Is concerning,  I would have expected it to say  (2,3) not (2,2).    If
+> you somehow did call resubscribeNode with the provider and receiver the
+> same I would have expected you to see the error message : 'Slony-I:
+> subscribeSet(): set origin and receiver cannot be identical'
+>
+> Are you didn't do a search/replace on node id's when pasting that message?
+>
+>
+Its my bad, wrong paste of error message actually, because I've duplicate
+scripts one I pasted above error message was from the script which includes
+wrong ID numbers.
+
+resubscribe node ( origin = 1, provider = 2 , receiver = 2);
+
+Here's the correct one.
+
+resubscribe node ( origin = 1, provider = 2 , receiver = 3);
+
+-bash-4.1$ slonik resub_set.sh
+resub_set.sh:8: PGRES_FATAL_ERROR lock table "_rep220".sl_event_lock,
+"_rep220".sl_config_lock;select "_rep220".resubscribeNode(1, 2, 3);  -
+ERROR:  insert or update on table "sl_subscribe" violates foreign key
+constraint "sl_subscribe-sl_path-ref"
+DETAIL:  Key (sub_provider, sub_receiver)=(2, 3) is not present in table
+"sl_path".
+CONTEXT:  SQL statement "update "_rep220".sl_subscribe
+                        set sub_provider = p_sub_provider,
+                                sub_forward = p_sub_forward
+                        where sub_set = p_sub_set
+                        and sub_receiver = p_sub_receiver"
+PL/pgSQL function
+_rep220.subscribeset_int(integer,integer,integer,boolean,boolean) line 35
+at SQL statement
+SQL statement "SELECT "_rep220".subscribeSet_int(v_record.sub_set,
+                                p_provider,
+                                p_receiver, v_record.sub_forward, false)"
+PL/pgSQL function _rep220.resubscribenode(integer,integer,integer) line 75
+at PERFORM
+-bash-4.1$
+-bash-4.1$
+
+I will fix this as mentioned. Thank you.
+
+--Raghav
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20130705/b5d9e3b3/attachment.htm 
+
