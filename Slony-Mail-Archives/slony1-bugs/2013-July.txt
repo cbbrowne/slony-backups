@@ -148,3 +148,363 @@ Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
 You are on the CC list for the bug.
 You are the assignee for the bug.
 
+From bugzilla-daemon at main.slony.info  Tue Jul  9 20:08:02 2013
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Tue,  9 Jul 2013 20:08:02 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 299] New: moveset can cause a subscriber to pull
+ data it has already seen
+Message-ID: <bug-299-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=299
+
+           Summary: moveset can cause a subscriber to pull data it has
+                    already seen
+           Product: Slony-I
+           Version: devel
+          Platform: PC
+        OS/Version: Linux
+            Status: NEW
+          Severity: enhancement
+          Priority: low
+         Component: slon
+        AssignedTo: slony1-bugs at lists.slony.info
+        ReportedBy: ssinger at ca.afilias.info
+                CC: slony1-bugs at lists.slony.info
+   Estimated Hours: 0.0
+
+
+This bug has been observed with a recent 2.2.0 development branch.
+
+following a MOVE SET a subscriber that is neither the old or new origin can try
+to replicate data from it's provider that it has already seen.
+
+
+subscribe set(id=1, provider=1, receiver=3,forward=yes);
+subscribe set(id=1,provider=1,receiver=2,forward=yes);
+subscribe set(id=1,provider=3,receiver=4,forward=yes);
+
+-- add a row on node=1, let it replicate to node=3 (but maybe not node=2).
+Then
+
+lock set(id=1,origin=1);
+move set(id=1,old origin=1,new origin=2);
+
+This doesn't happen everytime but I have reproduced it a number of times when
+starting/stopping the various slons at different points.
+
+This output is from the slon for node=3
+
+
+2013-07-09 22:41:39 EDT CONFIG moveSet: set_id=1 old_origin=1 new_origin=2
+2013-07-09 22:41:39 EDT CONFIG remoteWorkerThread_2: update provider
+configuration
+2013-07-09 22:41:39 EDT CONFIG remoteWorkerThread_2: added active set 1 to
+provider 1
+2013-07-09 22:41:39 EDT CONFIG storeListen: li_origin=1 li_receiver=3
+li_provider=1
+2013-07-09 22:41:39 EDT CONFIG storeListen: li_origin=4 li_receiver=3
+li_provider=4
+2013-07-09 22:41:39 EDT CONFIG storeListen: li_origin=1 li_receiver=3
+li_provider=2
+2013-07-09 22:41:39 EDT CONFIG storeListen: li_origin=4 li_receiver=3
+li_provider=1
+2013-07-09 22:41:39 EDT CONFIG storeListen: li_origin=1 li_receiver=3
+li_provider=4
+2013-07-09 22:41:39 EDT CONFIG remoteWorkerThread_2: update provider
+configuration
+2013-07-09 22:41:39 EDT CONFIG remoteWorkerThread_2: added active set 1 to
+provider 1
+2013-07-09 22:41:39 EDT CONFIG remoteWorkerThread_4: update provider
+configuration
+2013-07-09 22:41:39 EDT CONFIG remoteWorkerThread_4: helper thread for provider
+4 terminated
+2013-07-09 22:41:39 EDT CONFIG remoteWorkerThread_4: disconnecting from data
+provider 4
+2013-07-09 22:41:39 EDT CONFIG storeListen: li_origin=4 li_receiver=3
+li_provider=2
+2013-07-09 22:41:39 EDT CONFIG storeListen: li_origin=2 li_receiver=3
+li_provider=1
+2013-07-09 22:41:39 EDT CONFIG remoteWorkerThread_2: update provider
+configuration
+2013-07-09 22:41:39 EDT CONFIG remoteWorkerThread_2: added active set 1 to
+provider 1
+2013-07-09 22:41:39 EDT CONFIG remoteWorkerThread_4: update provider
+configuration
+2013-07-09 22:41:39 EDT INFO   remoteWorkerThread_1: syncing set 1 with 1
+table(s) from provider 1
+2013-07-09 22:41:39 EDT ERROR  remoteWorkerThread_1_1: error at end of COPY IN:
+ERROR:  duplicate key value violates unique constraint "stest_pkey"
+
+
+Notice that there is no
+remoteWorkerThread_1 with update provider configuration
+
+I think that means that adjust_provider_info has not yet run for the node 1
+providers, remoteWorkerThread_1 still thinks node 1 is the origin for set 1,
+but sl_setsync has been updated to show otherwise.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Jul 10 10:28:39 2013
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed, 10 Jul 2013 10:28:39 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 298] Log shipping in 2.2.0 b4 does not ship
+	EXECUTE SCRIPT data
+In-Reply-To: <bug-298-4@http.www.slony.info/bugzilla/>
+References: <bug-298-4@http.www.slony.info/bugzilla/>
+Message-ID: <20130710172839.BB4E5291297@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=298
+
+Steve Singer <ssinger at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         Resolution|                            |FIXED
+             Status|NEW                         |RESOLVED
+            Summary|Log shipping in 2.2.0 b4    |Log shipping in 2.2.0 b4
+                   |does not ship EXCUTE SCRIPT |does not ship EXECUTE
+                   |data                        |SCRIPT data
+
+--- Comment #2 from Steve Singer <ssinger at ca.afilias.info> 2013-07-10 10:28:39 PDT ---
+Fixed for 2.2.0 b5
+
+http://git.postgresql.org/gitweb/?p=slony1-engine.git;a=commit;h=ecf0dc5642563199ae5c79d6ab9919f4b7a23eb9
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Jul 10 10:29:17 2013
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed, 10 Jul 2013 10:29:17 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 297] test_slony_state-dbi.pl doesn't work on PG
+	9.2+
+In-Reply-To: <bug-297-4@http.www.slony.info/bugzilla/>
+References: <bug-297-4@http.www.slony.info/bugzilla/>
+Message-ID: <20130710172917.908DD291297@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=297
+
+Steve Singer <ssinger at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         Resolution|                            |FIXED
+             Status|ASSIGNED                    |RESOLVED
+
+--- Comment #6 from Steve Singer <ssinger at ca.afilias.info> 2013-07-10 10:29:17 PDT ---
+Fixed for 2.2.0 b5
+
+http://git.postgresql.org/gitweb/?p=slony1-engine.git;a=commit;h=952aa1ee00b90429c08d0ad681cd45999e1b289b
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Jul 10 10:30:58 2013
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed, 10 Jul 2013 10:30:58 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 296] FAILOVER doesn't work when non-origin nodes
+ fail at the same time
+In-Reply-To: <bug-296-4@http.www.slony.info/bugzilla/>
+References: <bug-296-4@http.www.slony.info/bugzilla/>
+Message-ID: <20130710173058.F1ABB29128E@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=296
+
+Steve Singer <ssinger at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         Resolution|                            |FIXED
+             Status|NEW                         |RESOLVED
+
+--- Comment #4 from Steve Singer <ssinger at ca.afilias.info> 2013-07-10 10:30:59 PDT ---
+A version of this patch along with additional failover fixes has been pushed to
+master for 2.2.0 b5
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Jul 10 12:44:27 2013
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed, 10 Jul 2013 12:44:27 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 300] New: Would like to have some activity
+	captured
+Message-ID: <bug-300-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=300
+
+           Summary: Would like to have some activity captured
+           Product: Slony-I
+           Version: devel
+          Platform: All
+        OS/Version: All
+            Status: NEW
+          Severity: enhancement
+          Priority: low
+         Component: slon
+        AssignedTo: slony1-bugs at lists.slony.info
+        ReportedBy: cbbrowne at ca.afilias.info
+                CC: slony1-bugs at lists.slony.info
+   Estimated Hours: 0.0
+
+
+This parallels the sl_components table, except being a capture of interesting
+events, not interesting state
+
+Add some statistics capture to a new log table
+
+- When did the node start up - uptime
+- When were some log switches
+- Last SYNC per remote node ID
+- Last timestamp of a new seen event from a node
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Jul 10 12:45:09 2013
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed, 10 Jul 2013 12:45:09 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 300] Would like to have some activity captured
+In-Reply-To: <bug-300-4@http.www.slony.info/bugzilla/>
+References: <bug-300-4@http.www.slony.info/bugzilla/>
+Message-ID: <20130710194509.043E6291277@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=300
+
+Christopher Browne <cbbrowne at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         AssignedTo|slony1-bugs at lists.slony.inf |cbbrowne at ca.afilias.info
+                   |o                           |
+             Status|NEW                         |ASSIGNED
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Thu Jul 11 08:28:58 2013
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu, 11 Jul 2013 08:28:58 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 299] moveset can cause a subscriber to pull data
+ it has already seen
+In-Reply-To: <bug-299-4@http.www.slony.info/bugzilla/>
+References: <bug-299-4@http.www.slony.info/bugzilla/>
+Message-ID: <20130711152858.2DB4D290BD4@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=299
+
+--- Comment #1 from Steve Singer <ssinger at ca.afilias.info> 2013-07-11 08:28:58 PDT ---
+I have been able to reproduce this in 2.1.3 as well
+
+
+What I think is happening is:
+
+A remote_worker only calls adjust_provider_info if the check_config variable is
+true.
+
+The if event_type == MOVE_SET  block in remote worker doesn't set this. This
+gets set in response to a WAKEUP message that gets put in the queue by
+remoteworker_wakeup which calls DLLIST_ADD_TAIL
+
+Should this really be DLLIST_ADD_HEAD ? So the WAKEUP message will be processed
+by the remoteWorker on the NEXT iteration of the main loop.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Thu Jul 11 13:47:39 2013
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu, 11 Jul 2013 13:47:39 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 300] Would like to have some activity captured
+In-Reply-To: <bug-300-4@http.www.slony.info/bugzilla/>
+References: <bug-300-4@http.www.slony.info/bugzilla/>
+Message-ID: <20130711204739.BE514291290@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=300
+
+--- Comment #1 from Christopher Browne <cbbrowne at ca.afilias.info> 2013-07-11 13:47:40 PDT ---
+A "first blush" idea is to add a log table that looks a lot like sl_components,
+but augmented to provide a log rather than a per-component state, and change
+the function component_state() to add a log entry in addition to capturing the
+present state.
+
+The cleanup thread would be augmented to delete old entries from the log.  In
+effect, for each actor/event, delete all but the last N entries (say, all but
+the last 10 entries, 10 being a configurable value).
+
+That would cover uptime, SYNC stats, and the last timestamp, as suggested.
+
+It would NOT capture when log switches actually take place; at present, that
+logic takes place inside the function CleanupEvent(), so isn't directly
+captured by the monitoring thread.  It should be easy enough to add logic to
+CleanupEvent() which adds an extra log entry when a log switch actually does
+take place, in effect, capturing the information inside the DB layer.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Thu Jul 11 15:06:19 2013
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu, 11 Jul 2013 15:06:19 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 300] Would like to have some activity captured
+In-Reply-To: <bug-300-4@http.www.slony.info/bugzilla/>
+References: <bug-300-4@http.www.slony.info/bugzilla/>
+Message-ID: <20130711220619.E726729126E@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=300
+
+--- Comment #2 from Christopher Browne <cbbrowne at ca.afilias.info> 2013-07-11 15:06:20 PDT ---
+An initial swing at this...
+
+https://github.com/cbbrowne/slony1-engine/tree/bug300
+
+Things added:
+
+a) A new table, sl_eventlog
+
+b) A function that adds to it, logEvent()
+
+c) Injected logEvent() into existing function component_state(), so that the
+existing monitoring of state pushes that data into sl_eventlog
+
+d) Injected some calls into logswitch_finish() so that log switches get
+captured
+
+e) Add a cleanup function, trimOldLoggedEvents()
+
+For each actor/eventtype, it trims out all entries older than the last N, where
+N is currently set to 10.
+
+f) Add a call to that function to cleanupEvents(), so that the log gets
+trimmed.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
