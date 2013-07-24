@@ -1483,3 +1483,268 @@ ul. Conrada 55B, 31-357 Krak?w | ul. Z?ota 59, 00-120 Warszawa
 
 
 
+From ssinger at ca.afilias.info  Mon Jul 22 13:27:25 2013
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Mon, 22 Jul 2013 16:27:25 -0400
+Subject: [Slony1-general] EXECUTE SCRIPT and DML
+In-Reply-To: <1374484552.4545.77.camel@s-rwysocki>
+References: <1374484552.4545.77.camel@s-rwysocki>
+Message-ID: <51ED95AD.2070901@ca.afilias.info>
+
+On 07/22/2013 05:15 AM, Robert Wysocki wrote:
+> Hi,
+>
+> After upgrading test environment to slony 2.1.2 from slony 2.0.7 I
+> noticed, that previously flawless procedure done many times with EXECUTE
+> SCRIPT like:
+>
+> CREATE TABLE ....;
+> INSERT INTO audit VALUES ('new table');
+>
+> now fails with "duplicated primary key" error on slave nodes.
+>
+> How should this be done with slony>  2.1.2? I would like to avoid
+> splitting it into DDL done with EXECUTE SCRIPT and DML done with psql.
+>
+> Regards,
+
+It might help if you told us exactly what slonik EXECUTE SCRIPT command 
+you were running and what your cluster looks like.
+
+The slony log triggers should not fire if the set id in your execute 
+script has an origin node equal to your event node.
+
+
+
+
+From cbbrowne at afilias.info  Mon Jul 22 14:37:05 2013
+From: cbbrowne at afilias.info (Christopher Browne)
+Date: Mon, 22 Jul 2013 17:37:05 -0400
+Subject: [Slony1-general] EXECUTE SCRIPT and DML
+In-Reply-To: <51ED95AD.2070901@ca.afilias.info>
+References: <1374484552.4545.77.camel@s-rwysocki>
+	<51ED95AD.2070901@ca.afilias.info>
+Message-ID: <CANfbgbaiQq-0eEHObrEkVSDxUprMQx--dE1y9b_A=owijvOjTw@mail.gmail.com>
+
+The behaviour should be a bit further different...
+
+The log triggers are supposed to be suppressed on *all* nodes when DDL/DML
+is being run via EXECUTE SCRIPT by virtue of having the GUC set to "local".
+
+In effect, what's to happen is...
+
+- Start of EXECUTE SCRIPT processing:
+   set session_replication_role to local;
+
+ - Process DDL/DML statements
+
+- set session_replication_role to replica;
+
+That's the code in both 2.0 and 2.1 branches. (See
+src/backend/remote_worker.c, look for the case statement processing
+"DDL_SCRIPT".)
+
+In master (pre-2.2), we're not explicitly setting the role for DDL; that
+*should* be OK as the reference in dbutil.c is, I think, invoked when
+running a connection to a subscriber.
+
+cbbrowne at cbbrowne ~/P/slony1-engine.master> ack-grep
+session_replication_role
+src/slonik/dbutil.c
+166:                             "SET session_replication_role TO local; ");
+
+src/slon/remote_worker.c
+353:                                            "set
+session_replication_role = replica; ");
+4958:                            "set session_replication_role to
+replica;\n"
+
+src/slony_logshipper/parser.y
+327:                                                    "set
+session_replication_role to replica;") < 0)
+
+src/slony_logshipper/scan.l
+135:session_replication_role { return K_SESSION_ROLE;   }
+
+tools/slony1_dump.sh
+301:set session_replication_role='replica';
+
+doc/adminguide/triggers.sgml
+23:<para> A new GUC variable, <envar>session_replication_role</envar>
+
+doc/adminguide/security.sgml
+51:<para> set the session_replication_role to replica</para>
+
+The equivalent against 2.1 provides something rather more like 2.0, and
+sets the role to "local" appropriately.
+
+Here's what's in 2.1:
+
+cbbrowne at cbbrowne ~/P/s/src> ack-grep session_replication_role
+slonik/dbutil.c
+166:                                            "SET
+session_replication_role TO local; ");
+
+slon/remote_worker.c
+386:                                            "set
+session_replication_role = replica; ",
+1474:
+ "set session_replication_role to local; "
+1543:                                                            "set
+session_replication_role to replica; ",
+1566:                                                   if
+(archive_append_str(node, "set session_replication_role to local;\n") < 0)
+1570:                                                   if
+(archive_append_str(node, "set session_replication_role to replica;\n") < 0)
+5589:                            "set session_replication_role to
+replica;\n"
+
+backend/slony1_funcs.sql
+3360:           execute 'create temp table
+_slony1_saved_session_replication_role (
+3362:           execute 'insert into _slony1_saved_session_replication_role
+3364:                                   where name =
+''session_replication_role'';';
+3366:                   execute 'set session_replication_role to local;';
+3400:                   'select setting from
+_slony1_saved_session_replication_role' loop
+3401:                   v_query := 'set session_replication_role to ' ||
+v_row.setting;
+3404:           execute 'drop table _slony1_saved_session_replication_role';
+
+slony_logshipper/parser.y
+327:                                                    "set
+session_replication_role to replica;") < 0)
+
+slony_logshipper/scan.l
+135:session_replication_role { return K_SESSION_ROLE;   }
+
+The relevant bits in 2.0 seem identical to 2.1.  (My ack-grep run finds the
+very same code.)
+
+It seems to me that we should ensure we have a regression test that does
+both DDL and DML, to make sure that we process both properly, as that
+should work OK.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20130722/ded7711b/attachment.htm 
+
+From robert.wysocki at unity.pl  Tue Jul 23 00:27:47 2013
+From: robert.wysocki at unity.pl (Robert Wysocki)
+Date: Tue, 23 Jul 2013 09:27:47 +0200
+Subject: [Slony1-general] EXECUTE SCRIPT and DML
+In-Reply-To: <CANfbgbaiQq-0eEHObrEkVSDxUprMQx--dE1y9b_A=owijvOjTw@mail.gmail.com>
+References: <1374484552.4545.77.camel@s-rwysocki>
+	<51ED95AD.2070901@ca.afilias.info>
+	<CANfbgbaiQq-0eEHObrEkVSDxUprMQx--dE1y9b_A=owijvOjTw@mail.gmail.com>
+Message-ID: <1374564467.4545.95.camel@s-rwysocki>
+
+Dnia 2013-07-22, pon o godzinie 17:37 -0400, Christopher Browne pisze:
+> The behaviour should be a bit further different...
+> 
+> 
+> The log triggers are supposed to be suppressed on *all* nodes when
+> DDL/DML is being run via EXECUTE SCRIPT by virtue of having the GUC
+> set to "local".
+> 
+> 
+> In effect, what's to happen is...
+> 
+> 
+> - Start of EXECUTE SCRIPT processing:
+>    set session_replication_role to local; 
+> 
+> 
+>  - Process DDL/DML statements
+> 
+> 
+> - set session_replication_role to replica;
+> 
+Thanks for answers. I've managed to narrow it down to one case:
+SELECT from one table run with slonik_execute_script calls a function
+which in turn INSERTs into another table. Both tables are in the same
+replication set.
+
+In the node log I have:
+2013-05-23 12:01:58 CEST CONFIG remoteWorkerThread_1: DDL Statement 17:
+[
+
+INSERT INTO euro_audit.b24_messages_aud(
+                    id, rev, revtype, 
+                    page_label, "content", wysiwygable,
+                    content_for_mobile_active, content_for_mobile, 
+                    note, message_type_id)
+        SELECT id,  getRevId('Inicjalizacja wersjonowania','MESSAGE'),
+0, 
+                                page_label, "content", wysiwygable, 
+                                content_for_mobile_active,
+content_for_mobile,
+                                note, message_type_id
+          FROM euro.b24_messages 
+          WHERE page_label =
+'not-added-services-shop-delivery-encouragement-message';]
+2013-05-23 12:01:58 CEST ERROR  DDL Statement failed - PGRES_FATAL_ERROR
+
+In postgres log at the receiver end I have:
+[2013-05-23 12:01:58 CEST] slony1 at 10.1.12.21(39802):si_euro [21146]
+519de916.529a/11:3799790 ERROR:  duplicate key value violates unique
+constraint "revisions_pkey"
+[2013-05-23 12:01:58 CEST] slony1 at 10.1.12.21(39802):si_euro [21146]
+519de916.529a/12:3799790 DETAIL:  Key (id)=(1) already exists.
+[2013-05-23 12:01:58 CEST] slony1 at 10.1.12.21(39802):si_euro [21146]
+519de916.529a/13:3799790 CONTEXT:  SQL statement "INSERT INTO
+euro_audit.revisions(
+
+The function in question:
+si_euro=# \sf getrevid (text,text)
+CREATE OR REPLACE FUNCTION public.getrevid(rev_comment text,
+audit_class_name text)
+ RETURNS bigint
+ LANGUAGE plpgsql
+AS $function$
+                DECLARE
+                    rev_id bigint := 0;
+
+BEGIN
+                    
+                            IF audit_class_name IS NULL OR 
+                                    audit_class_name NOT SIMILAR TO
+'(ARTICLE|CMS_PAGE|DEFINITION|EMAIL|IP_RULE
+                                     |MESSAGE|PRODUCT_PROMOTION_PRICE|
+SHOP_IN_SHOP_BANNER|SHOP_IN_SHOP
+                                     |STATUS_CODE|SYSTEM_PARAMETER|
+XSL_DEFINITION|BANNER|SHOP)'
+                           THEN RAISE EXCEPTION 'Wywo?anie getRevId(%,%)
+przerwane. Taki audit_class_name nie istnieje - patrz
+AuditableEntityClasses',rev_comment, audit_class_name;
+
+END IF;
+
+INSERT INTO euro_audit.revisions(
+                            "comment", "timestamp", user_name,
+class_name)
+                    VALUES (rev_comment,  extract('epoch' from
+CURRENT_TIMESTAMP) * 1000, 'System', audit_class_name);
+
+rev_id = currval('euro_audit.revisions_id_seq');
+
+return rev_id;
+
+END;
+
+$function$
+
+
+Other DML statements done with slonik_execute_script do _not_ produce
+such errors. Is it possible that function execution does not obey
+session_replication_role settings?
+
+Regards,
+-- 
+Robert Wysocki
+administrator system?w linuksowych
+administrator baz danych
+Grupa Unity | ul. Przedmiejska 6-10, 54-201 Wroc?aw
+ul. Conrada 55B, 31-357 Krak?w | ul. Z?ota 59, 00-120 Warszawa
+
+
