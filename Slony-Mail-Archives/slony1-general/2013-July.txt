@@ -1748,3 +1748,279 @@ Grupa Unity | ul. Przedmiejska 6-10, 54-201 Wroc?aw
 ul. Conrada 55B, 31-357 Krak?w | ul. Z?ota 59, 00-120 Warszawa
 
 
+From rnancy at afilias.info  Tue Jul 23 11:13:03 2013
+From: rnancy at afilias.info (Rose Nancy)
+Date: Tue, 23 Jul 2013 14:13:03 -0400
+Subject: [Slony1-general] Slony Watchdog failed starting up the child process
+Message-ID: <51EEC7AF.1040409@afilias.info>
+
+Hi All,
+
+At the server startup,  my slony daemon crashed with the following error
+
+FATAL localListenThread: "select "_xxxx".cleanupNodelock(); insert into 
+"_xxxx".sl_nodelock values ( 9151, 0,
+"pg_catalog".pg_backend_pid()); " - ERROR: duplicate key value violates 
+unique constraint "sl_nodelock-pkey"
+DETAIL: Key (nl_nodeid, nl_conncnt)=(9151, 0) already exists.
+2013-07-23 07:10:16 UTC FATAL Do you already have a slon running against 
+this node?
+2013-07-23 07:10:16 UTC FATAL Or perhaps a residual idle backend 
+connection from a dead slon?
+2013-07-23 07:10:16 UTC DEBUG2 slon_abort() from pid=1699
+2013-07-23 07:10:16 UTC FATAL main: localListenThread did not start
+2013-07-23 07:10:16 UTC CONFIG slon: child terminated signal: 9; pid: 
+1699, current worker pid: 1699
+2013-07-23 07:10:16 UTC INFO slon: done
+
+I know the origin of the duplicate key error, but I expected the 
+Watchdog to try every 10s to start the daemon again.
+In my case it seems like the watchdog process died with the child process.
+
+What is the expected behaviour of the Watchdog slony process in this case?
+
+
+Thanks.
+
+-- 
+Rose Nancy
+
+
+From cbbrowne at afilias.info  Tue Jul 23 12:08:32 2013
+From: cbbrowne at afilias.info (Christopher Browne)
+Date: Tue, 23 Jul 2013 15:08:32 -0400
+Subject: [Slony1-general] Slony Watchdog failed starting up the child
+	process
+In-Reply-To: <CANfbgbaFYAyRyYXNJ0H7fPTX89OGvBjsBQWhCFbRx-tAe4aqig@mail.gmail.com>
+References: <51EEC7AF.1040409@afilias.info>
+	<CANfbgbaFYAyRyYXNJ0H7fPTX89OGvBjsBQWhCFbRx-tAe4aqig@mail.gmail.com>
+Message-ID: <CANfbgbb+gXd2R-LdvbhWEoN3rt_FmNHuoq5mf8wvjrj1vaKcBg@mail.gmail.com>
+
+My intuition from seeing it say "FATAL" is that that's indicating "death of
+process," and that there's not much coming back from it.
+
+This behaviour is pretty consistent with what happens with a Postgres
+postmaster; if the attempt to start up fails due to seeming already to have
+a postmaster, it doesn't retry, pg_ctl immediately gives up.
+
+By the way, is this possibly because of a zombied old connection that got
+disconnected due to firewall glitch or such?  If so, you should probably
+see about lowering the TCP keepalive parameters both in the slon.conf file
+and in postgresql.conf
+
+(On postgresql.conf, see tcp_keepalives_(idle|interval|count), and on
+slon.conf, see tcp_keepalive, tcp_keepalive_(idle|interval|count).)
+
+
+On Tue, Jul 23, 2013 at 3:07 PM, Christopher Browne
+<cbbrowne at afilias.info>wrote:
+
+> My intuition from seeing it say "FATAL" is that that's indicating "death
+> of process," and that there's not much coming back from it.
+>
+> This behaviour is pretty consistent with what happens with a Postgres
+> postmaster; if the attempt to start up fails due to seeming already to have
+> a postmaster, it doesn't retry, pg_ctl immediately gives up.
+>
+> By the way, is this possibly because of a zombied old connection that got
+> disconnected due to firewall glitch or such?  If so, you should probably
+> see about lowering the TCP keepalive parameters both in the slon.conf file
+> and in postgresql.conf
+>
+> (On postgresql.conf, see tcp_keepalives_(idle|interval|count), and on
+> slon.conf, see tcp_keepalive, tcp_keepalive_(idle|interval|count).)
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20130723/eeffe7d5/attachment.htm 
+
+From ssinger at ca.afilias.info  Tue Jul 23 12:22:39 2013
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Tue, 23 Jul 2013 15:22:39 -0400
+Subject: [Slony1-general] Slony Watchdog failed starting up the child
+ process
+In-Reply-To: <CANfbgbb+gXd2R-LdvbhWEoN3rt_FmNHuoq5mf8wvjrj1vaKcBg@mail.gmail.com>
+References: <51EEC7AF.1040409@afilias.info>
+	<CANfbgbaFYAyRyYXNJ0H7fPTX89OGvBjsBQWhCFbRx-tAe4aqig@mail.gmail.com>
+	<CANfbgbb+gXd2R-LdvbhWEoN3rt_FmNHuoq5mf8wvjrj1vaKcBg@mail.gmail.com>
+Message-ID: <51EED7FF.20404@ca.afilias.info>
+
+On 07/23/2013 03:08 PM, Christopher Browne wrote:
+> My intuition from seeing it say "FATAL" is that that's indicating "death
+> of process," and that there's not much coming back from it.
+>
+> This behaviour is pretty consistent with what happens with a Postgres
+> postmaster; if the attempt to start up fails due to seeming already to
+> have a postmaster, it doesn't retry, pg_ctl immediately gives up.
+>
+
+This came up a few years ago with bug #132.
+
+http://git.postgresql.org/gitweb/?p=slony1-engine.git;a=commit;h=acd46819bad1613764708b138ebcfa895467ac51
+
+Changed slon to behave as Rose expected, retry to get the node lock 
+every few seconds.
+
+A few weeks later we modified this to only retry getting the node lock 
+in response to a slon requested restart and not retry if the initial 
+start fails. 
+http://git.postgresql.org/gitweb/?p=slony1-engine.git;a=commit;h=7d3e6659542ad337feb2fbe39f05b780c37afe97
+
+I don't really remember the discussion around this change and exactly 
+why we didn't like my original patch, possibly for reasons like you 
+argue above, if slon keeps looping it never really 'starts' and it is 
+hard to detect that.
+
+
+
+
+> By the way, is this possibly because of a zombied old connection that
+> got disconnected due to firewall glitch or such?  If so, you should
+> probably see about lowering the TCP keepalive parameters both in the
+> slon.conf file and in postgresql.conf
+>
+> (On postgresql.conf, see tcp_keepalives_(idle|interval|count), and on
+> slon.conf, see tcp_keepalive, tcp_keepalive_(idle|interval|count).)
+>
+>
+
+No matter how low you make the postgresql.conf settings it is always 
+possible for the replacement slon to start before the postgresql detects 
+the timeout. I don't know how low you can make the tcp timeout settings 
+before it has other side-effects.
+
+One option is to push the issue to whatever is starting the slon and let 
+it retry (which is what we do now).  Another option is to let slon loop 
+x times trying to get the node-lock before giving up, but we didn't seem 
+to like that 3 years ago.
+
+
+
+
+> On Tue, Jul 23, 2013 at 3:07 PM, Christopher Browne
+> <cbbrowne at afilias.info <mailto:cbbrowne at afilias.info>> wrote:
+>
+>     My intuition from seeing it say "FATAL" is that that's indicating
+>     "death of process," and that there's not much coming back from it.
+>
+>     This behaviour is pretty consistent with what happens with a
+>     Postgres postmaster; if the attempt to start up fails due to seeming
+>     already to have a postmaster, it doesn't retry, pg_ctl immediately
+>     gives up.
+>
+>     By the way, is this possibly because of a zombied old connection
+>     that got disconnected due to firewall glitch or such?  If so, you
+>     should probably see about lowering the TCP keepalive parameters both
+>     in the slon.conf file and in postgresql.conf
+>
+>     (On postgresql.conf, see tcp_keepalives_(idle|interval|count), and
+>     on slon.conf, see tcp_keepalive, tcp_keepalive_(idle|interval|count).)
+>
+>
+>
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+
+
+From rnancy at afilias.info  Tue Jul 23 12:21:14 2013
+From: rnancy at afilias.info (Rose Nancy)
+Date: Tue, 23 Jul 2013 15:21:14 -0400
+Subject: [Slony1-general] Slony Watchdog failed starting up the child
+ process
+In-Reply-To: <CANfbgbaFYAyRyYXNJ0H7fPTX89OGvBjsBQWhCFbRx-tAe4aqig@mail.gmail.com>
+References: <51EEC7AF.1040409@afilias.info>
+	<CANfbgbaFYAyRyYXNJ0H7fPTX89OGvBjsBQWhCFbRx-tAe4aqig@mail.gmail.com>
+Message-ID: <51EED7AA.1070900@afilias.info>
+
+Hi Chris,
+
+On 13-07-23 03:07 PM, Christopher Browne wrote:
+> My intuition from seeing it say "FATAL" is that that's indicating 
+> "death of process," and that there's not much coming back from it.
+>
+> This behaviour is pretty consistent with what happens with a Postgres 
+> postmaster; if the attempt to start up fails due to seeming already to 
+> have a postmaster, it doesn't retry, pg_ctl immediately gives up.
+
+In my case the slons are running in a separate server which I rebooted.
+>
+> By the way, is this possibly because of a zombied old connection that 
+> got disconnected due to firewall glitch or such?  If so, you should 
+> probably see about lowering the TCP keepalive parameters both in the 
+> slon.conf file and in postgresql.conf
+You're right, the duplicated key error was caused by a zombie old 
+connection that got disconnected due to the slony server reboot.
+
+Thanks.
+
+-- 
+Rose Nancy
+DBA - Afilias Canada Corp.
+Office: 416-673-4082
+Mobile: 647-669-3295.
+
+
+From JanWieck at Yahoo.com  Tue Jul 23 12:34:30 2013
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Tue, 23 Jul 2013 15:34:30 -0400
+Subject: [Slony1-general] Slony Watchdog failed starting up the child
+ process
+In-Reply-To: <51EED7AA.1070900@afilias.info>
+References: <51EEC7AF.1040409@afilias.info>
+	<CANfbgbaFYAyRyYXNJ0H7fPTX89OGvBjsBQWhCFbRx-tAe4aqig@mail.gmail.com>
+	<51EED7AA.1070900@afilias.info>
+Message-ID: <51EEDAC6.7080302@Yahoo.com>
+
+On 07/23/13 15:21, Rose Nancy wrote:
+> Hi Chris,
+> 
+> On 13-07-23 03:07 PM, Christopher Browne wrote:
+>> My intuition from seeing it say "FATAL" is that that's indicating 
+>> "death of process," and that there's not much coming back from it.
+>>
+>> This behaviour is pretty consistent with what happens with a Postgres 
+>> postmaster; if the attempt to start up fails due to seeming already to 
+>> have a postmaster, it doesn't retry, pg_ctl immediately gives up.
+> 
+> In my case the slons are running in a separate server which I rebooted.
+>>
+>> By the way, is this possibly because of a zombied old connection that 
+>> got disconnected due to firewall glitch or such?  If so, you should 
+>> probably see about lowering the TCP keepalive parameters both in the 
+>> slon.conf file and in postgresql.conf
+> You're right, the duplicated key error was caused by a zombie old 
+> connection that got disconnected due to the slony server reboot.
+
+Which is something that TCP keepalives should clean out after a while.
+
+My recollection of the discussion, that led to the current behavior, is
+that we had several options.
+
+A) have it retry no matter what. In the case of a zombie that doesn't
+time out, that doesn't help, but at least it creates a constant stream
+of error messages.
+
+B) Treat the first connection attempt different, so that the system
+startup script or a later manual invocation will signal a problem.
+
+C) Kick the existing (assumed to be dead) slon out (by killing its
+backend). But if you really have two slons, that are alive and possibly
+running on different systems, they will keep stabbing each other in the
+back and eventually never get anything accomplished.
+
+
+We chose B) at that time.
+
+
+I am open for new ideas.
+
+
+Jan
+
+-- 
+Anyone who trades liberty for security deserves neither
+liberty nor security. -- Benjamin Franklin
+
