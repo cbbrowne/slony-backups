@@ -2024,3 +2024,144 @@ Jan
 Anyone who trades liberty for security deserves neither
 liberty nor security. -- Benjamin Franklin
 
+From ssinger at ca.afilias.info  Wed Jul 24 15:21:47 2013
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Wed, 24 Jul 2013 18:21:47 -0400
+Subject: [Slony1-general] EXECUTE SCRIPT and DML
+In-Reply-To: <1374564467.4545.95.camel@s-rwysocki>
+References: <1374484552.4545.77.camel@s-rwysocki>
+	<51ED95AD.2070901@ca.afilias.info>
+	<CANfbgbaiQq-0eEHObrEkVSDxUprMQx--dE1y9b_A=owijvOjTw@mail.gmail.com>
+	<1374564467.4545.95.camel@s-rwysocki>
+Message-ID: <51F0537B.6040207@ca.afilias.info>
+
+On 07/23/2013 03:27 AM, Robert Wysocki wrote:
+
+Could the problem be with your sequences?
+
+I was able to reproduce a test case that looked something like this
+
+EXECUTE SCRIPT(SQL='insert into table5 (data) values ('9');', event node=1);
+
+This worked okay on my origin giving me a row:
+
+7 | seven
+8 | 9
+
+where the first row already existed.
+
+But when this SQL executed on the replica
+
+COPY IN: ERROR:  duplicate key value violates unique constraint 
+"table5_pkey"
+db3:java.lang.UNIXProcess at 6542bece - DETAIL:  Key (id)=(7) already exists.
+
+We don't update + replicate the sequence value updates at the start of a 
+EXECUTE_SCRIPT event (apparently).
+
+
+
+
+> Dnia 2013-07-22, pon o godzinie 17:37 -0400, Christopher Browne pisze:
+>> The behaviour should be a bit further different...
+>>
+>>
+>> The log triggers are supposed to be suppressed on *all* nodes when
+>> DDL/DML is being run via EXECUTE SCRIPT by virtue of having the GUC
+>> set to "local".
+>>
+>>
+>> In effect, what's to happen is...
+>>
+>>
+>> - Start of EXECUTE SCRIPT processing:
+>>     set session_replication_role to local;
+>>
+>>
+>>   - Process DDL/DML statements
+>>
+>>
+>> - set session_replication_role to replica;
+>>
+> Thanks for answers. I've managed to narrow it down to one case:
+> SELECT from one table run with slonik_execute_script calls a function
+> which in turn INSERTs into another table. Both tables are in the same
+> replication set.
+>
+> In the node log I have:
+> 2013-05-23 12:01:58 CEST CONFIG remoteWorkerThread_1: DDL Statement 17:
+> [
+>
+> INSERT INTO euro_audit.b24_messages_aud(
+>                      id, rev, revtype,
+>                      page_label, "content", wysiwygable,
+>                      content_for_mobile_active, content_for_mobile,
+>                      note, message_type_id)
+>          SELECT id,  getRevId('Inicjalizacja wersjonowania','MESSAGE'),
+> 0,
+>                                  page_label, "content", wysiwygable,
+>                                  content_for_mobile_active,
+> content_for_mobile,
+>                                  note, message_type_id
+>            FROM euro.b24_messages
+>            WHERE page_label =
+> 'not-added-services-shop-delivery-encouragement-message';]
+> 2013-05-23 12:01:58 CEST ERROR  DDL Statement failed - PGRES_FATAL_ERROR
+>
+> In postgres log at the receiver end I have:
+> [2013-05-23 12:01:58 CEST] slony1 at 10.1.12.21(39802):si_euro [21146]
+> 519de916.529a/11:3799790 ERROR:  duplicate key value violates unique
+> constraint "revisions_pkey"
+> [2013-05-23 12:01:58 CEST] slony1 at 10.1.12.21(39802):si_euro [21146]
+> 519de916.529a/12:3799790 DETAIL:  Key (id)=(1) already exists.
+> [2013-05-23 12:01:58 CEST] slony1 at 10.1.12.21(39802):si_euro [21146]
+> 519de916.529a/13:3799790 CONTEXT:  SQL statement "INSERT INTO
+> euro_audit.revisions(
+>
+> The function in question:
+> si_euro=# \sf getrevid (text,text)
+> CREATE OR REPLACE FUNCTION public.getrevid(rev_comment text,
+> audit_class_name text)
+>   RETURNS bigint
+>   LANGUAGE plpgsql
+> AS $function$
+>                  DECLARE
+>                      rev_id bigint := 0;
+>
+> BEGIN
+>
+>                              IF audit_class_name IS NULL OR
+>                                      audit_class_name NOT SIMILAR TO
+> '(ARTICLE|CMS_PAGE|DEFINITION|EMAIL|IP_RULE
+>                                       |MESSAGE|PRODUCT_PROMOTION_PRICE|
+> SHOP_IN_SHOP_BANNER|SHOP_IN_SHOP
+>                                       |STATUS_CODE|SYSTEM_PARAMETER|
+> XSL_DEFINITION|BANNER|SHOP)'
+>                             THEN RAISE EXCEPTION 'Wywo?anie getRevId(%,%)
+> przerwane. Taki audit_class_name nie istnieje - patrz
+> AuditableEntityClasses',rev_comment, audit_class_name;
+>
+> END IF;
+>
+> INSERT INTO euro_audit.revisions(
+>                              "comment", "timestamp", user_name,
+> class_name)
+>                      VALUES (rev_comment,  extract('epoch' from
+> CURRENT_TIMESTAMP) * 1000, 'System', audit_class_name);
+>
+> rev_id = currval('euro_audit.revisions_id_seq');
+>
+> return rev_id;
+>
+> END;
+>
+> $function$
+>
+>
+> Other DML statements done with slonik_execute_script do _not_ produce
+> such errors. Is it possible that function execution does not obey
+> session_replication_role settings?
+>
+> Regards,
+
+
