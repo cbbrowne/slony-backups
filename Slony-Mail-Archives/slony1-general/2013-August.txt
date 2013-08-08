@@ -1,0 +1,357 @@
+From glynastill at yahoo.co.uk  Tue Aug  6 08:33:58 2013
+From: glynastill at yahoo.co.uk (Glyn Astill)
+Date: Tue, 6 Aug 2013 16:33:58 +0100 (BST)
+Subject: [Slony1-general] Removing dead provider node gone wrong?
+Message-ID: <1375803238.9690.YahooMailNeo@web133201.mail.ir2.yahoo.com>
+
+Hi Guys,
+
+We're running slony 2.1.3, and one of my slaves has failed.? The issue is that the failed slave node is a provider to another downstream slave; am I right in thinking I have to drop both the failed node and the downstream subscriber slave?
+
+My setup basically looks like this, where subscriber2 has failed:
+
+
+origin ---> subscriber1
+
+?????? ---> subscriber2 ---> subscriber3
+
+??????? 
+
+
+First I tried to reshape the subscription on subscriber3, but this didn't work:
+
+SUBSCRIBE SET ( ID=@my_set, PROVIDER = @origin, RECEIVER = @subscriber3, FORWARD = YES);
+
+This failed with the following message:
+
+glyn at x:/usr/share/slonik$ slonik reshape_provider.scr
+reshape_provider.scr:3: could not connect to server: Connection refused
+??????? Is the server running on host "10.16.10.101" and accepting
+??????? TCP/IP connections on port 5432?
+
+Where 10.16.10.101 is the IP of subscriber2. So I tried to just drop the node:
+
+DROP NODE ( ID = @subscriber2, EVENT NODE = @origin );
+
+And the following happened:
+
+glyn at x:/usr/share/slonik$ slonik drop_node.scr
+drop_node.scr:3: could not connect to server: Connection refused
+??????? Is the server running on host "10.16.10.101" and accepting
+??????? TCP/IP connections on port 5432?
+waiting for events? (7,5014269532) only at (7,5014260307) to be confirmed on node 5
+waiting for events? (7,5014269532) only at (7,5014260307) to be confirmed on node 5
+waiting for events? (7,5014269532) only at (7,5014260307) to be confirmed on node 5
+waiting for events? (7,5014269532) only at (7,5014260307) to be confirmed on node 5
+waiting for events? (7,5014269532) only at (7,5014260307) to be confirmed on node 5
+
+
+Where "node 5"is subscriber3.
+
+So now slonik is waiting on subscriber3 to come in sync, but it's just trying to sync from subscriber2 which has gone.? Heres the log from subscriber3:
+
+2013-08-06_163034 BSTERROR? slon_connectdb: PQconnectdb("dbname=SEE host=10.16.10.101 user=slony") failed - could not connect to server: Connection refused
+??????? Is the server running on host "10.16.10.101" and accepting
+??????? TCP/IP connections on port 5432?
+2013-08-06_163034 BSTWARN?? remoteListenThread_4: DB connection failed - sleep 10 seconds
+2013-08-06_163034 BSTDEBUG2 remoteWorkerThread_7: SYNC 5014260308 processing
+2013-08-06_163034 BSTERROR? slon_connectdb: PQconnectdb("dbname=SEE host=10.16.10.101 user=slony") failed - could not connect to server: Connection refused
+??????? Is the server running on host "10.16.10.101" and accepting
+??????? TCP/IP connections on port 5432?
+2013-08-06_163034 BSTERROR? remoteWorkerThread_7: cannot connect to data provider 4 on 'dbname=SEE host=10.16.10.101 user=slony'
+2013-08-06_163034 BSTDEBUG2 remoteListenThread_7: queue event 7,5014270211 SYNC
+2013-08-06_163034 BSTDEBUG2 remoteWorkerThread_8: forward confirm 7,5014270210 received by 8
+2013-08-06_163036 BSTDEBUG2 syncThread: new sl_action_seq 1 - SYNC 5005139878
+2013-08-06_163036 BSTDEBUG2 remoteListenThread_7: queue event 7,5014270212 SYNC
+2013-08-06_163036 BSTDEBUG2 remoteListenThread_8: queue event 8,5013135166 SYNC
+2013-08-06_163036 BSTDEBUG2 remoteWorkerThread_8: Received event #8 from 5013135166 type:SYNC
+2013-08-06_163036 BSTDEBUG1 calc sync size - last time: 1 last length: 10069 ideal: 5 proposed size: 3
+2013-08-06_163036 BSTDEBUG2 remoteWorkerThread_8: SYNC 5013135166 processing
+2013-08-06_163036 BSTDEBUG1 remoteWorkerThread_8: no sets need syncing for this event
+2013-08-06_163036 BSTDEBUG2 remoteWorkerThread_8: forward confirm 7,5014270211 received by 8
+2013-08-06_163042 BSTDEBUG2 localListenThread: Received event 5,5005139878 SYNC
+2013-08-06_163042 BSTDEBUG2 remoteListenThread_7: queue event 7,5014270213 SYNC
+2013-08-06_163042 BSTDEBUG2 remoteListenThread_7: queue event 7,5014270214 SYNC
+2013-08-06_163042 BSTDEBUG2 remoteListenThread_7: queue event 7,5014270215 SYNC
+2013-08-06_163042 BSTDEBUG2 remoteWorkerThread_8: forward confirm 5,5005139878 received by 8
+2013-08-06_163042 BSTDEBUG2 remoteWorkerThread_8: forward confirm 7,5014270214 received by 8
+
+
+
+So what do I do?? I presume I'll be waiting forever, so do I kill slonik and drop subscriber3 too?
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20130806/1bf78aae/attachment.htm 
+
+From ssinger at ca.afilias.info  Tue Aug  6 08:47:16 2013
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Tue, 06 Aug 2013 11:47:16 -0400
+Subject: [Slony1-general] Removing dead provider node gone wrong?
+In-Reply-To: <1375803238.9690.YahooMailNeo@web133201.mail.ir2.yahoo.com>
+References: <1375803238.9690.YahooMailNeo@web133201.mail.ir2.yahoo.com>
+Message-ID: <52011A84.7060402@ca.afilias.info>
+
+On 08/06/2013 11:33 AM, Glyn Astill wrote:
+
+
+> Hi Guys,
+>
+> We're running slony 2.1.3, and one of my slaves has failed. The issue is
+> that the failed slave node is a provider to another downstream slave; am
+> I right in thinking I have to drop both the failed node and the
+> downstream subscriber slave?
+>
+> My setup basically looks like this, where subscriber2 has failed:
+>
+> origin ---> subscriber1
+> ---> subscriber2 ---> subscriber3
+>
+>
+> First I tried to reshape the subscription on subscriber3, but this
+> didn't work:
+>
+> SUBSCRIBE SET ( ID=@my_set, PROVIDER = @origin, RECEIVER = @subscriber3,
+> FORWARD = YES);
+>
+> This failed with the following message:
+>
+> glyn at x:/usr/share/slonik$ slonik reshape_provider.scr
+> reshape_provider.scr:3: could not connect to server: Connection refused
+> Is the server running on host "10.16.10.101" and accepting
+> TCP/IP connections on port 5432?
+
+You need to make the resubscribe set work before doing the DROP NODE, 
+you can't drop a provider node.
+
+It isn't obvious to me why why slonik is trying to connect to node 2. 
+Which command is line 3 of that script?  What is on lines 1 and 2?  Are 
+the conninfo lines correct for nodes 1 and 3?
+
+
+
+
+>
+> Where 10.16.10.101 is the IP of subscriber2. So I tried to just drop the
+> node:
+>
+> DROP NODE ( ID = @subscriber2, EVENT NODE = @origin );
+>
+> And the following happened:
+>
+> glyn at x:/usr/share/slonik$ slonik drop_node.scr
+> drop_node.scr:3: could not connect to server: Connection refused
+> Is the server running on host "10.16.10.101" and accepting
+> TCP/IP connections on port 5432?
+> waiting for events (7,5014269532) only at (7,5014260307) to be confirmed
+> on node 5
+> waiting for events (7,5014269532) only at (7,5014260307) to be confirmed
+> on node 5
+> waiting for events (7,5014269532) only at (7,5014260307) to be confirmed
+> on node 5
+> waiting for events (7,5014269532) only at (7,5014260307) to be confirmed
+> on node 5
+> waiting for events (7,5014269532) only at (7,5014260307) to be confirmed
+> on node 5
+>
+> Where "node 5" is subscriber3.
+>
+> So now slonik is waiting on subscriber3 to come in sync, but it's just
+> trying to sync from subscriber2 which has gone. Heres the log from
+> subscriber3:
+>
+> 2013-08-06_163034 BSTERROR slon_connectdb: PQconnectdb("dbname=SEE
+> host=10.16.10.101 user=slony") failed - could not connect to server:
+> Connection refused
+> Is the server running on host "10.16.10.101" and accepting
+> TCP/IP connections on port 5432?
+> 2013-08-06_163034 BSTWARN remoteListenThread_4: DB connection failed -
+> sleep 10 seconds
+> 2013-08-06_163034 BSTDEBUG2 remoteWorkerThread_7: SYNC 5014260308 processing
+> 2013-08-06_163034 BSTERROR slon_connectdb: PQconnectdb("dbname=SEE
+> host=10.16.10.101 user=slony") failed - could not connect to server:
+> Connection refused
+> Is the server running on host "10.16.10.101" and accepting
+> TCP/IP connections on port 5432?
+> 2013-08-06_163034 BSTERROR remoteWorkerThread_7: cannot connect to data
+> provider 4 on 'dbname=SEE host=10.16.10.101 user=slony'
+> 2013-08-06_163034 BSTDEBUG2 remoteListenThread_7: queue event
+> 7,5014270211 SYNC
+> 2013-08-06_163034 BSTDEBUG2 remoteWorkerThread_8: forward confirm
+> 7,5014270210 received by 8
+> 2013-08-06_163036 BSTDEBUG2 syncThread: new sl_action_seq 1 - SYNC
+> 5005139878
+> 2013-08-06_163036 BSTDEBUG2 remoteListenThread_7: queue event
+> 7,5014270212 SYNC
+> 2013-08-06_163036 BSTDEBUG2 remoteListenThread_8: queue event
+> 8,5013135166 SYNC
+> 2013-08-06_163036 BSTDEBUG2 remoteWorkerThread_8: Received event #8 from
+> 5013135166 type:SYNC
+> 2013-08-06_163036 BSTDEBUG1 calc sync size - last time: 1 last length:
+> 10069 ideal: 5 proposed size: 3
+> 2013-08-06_163036 BSTDEBUG2 remoteWorkerThread_8: SYNC 5013135166 processing
+> 2013-08-06_163036 BSTDEBUG1 remoteWorkerThread_8: no sets need syncing
+> for this event
+> 2013-08-06_163036 BSTDEBUG2 remoteWorkerThread_8: forward confirm
+> 7,5014270211 received by 8
+> 2013-08-06_163042 BSTDEBUG2 localListenThread: Received event
+> 5,5005139878 SYNC
+> 2013-08-06_163042 BSTDEBUG2 remoteListenThread_7: queue event
+> 7,5014270213 SYNC
+> 2013-08-06_163042 BSTDEBUG2 remoteListenThread_7: queue event
+> 7,5014270214 SYNC
+> 2013-08-06_163042 BSTDEBUG2 remoteListenThread_7: queue event
+> 7,5014270215 SYNC
+> 2013-08-06_163042 BSTDEBUG2 remoteWorkerThread_8: forward confirm
+> 5,5005139878 received by 8
+> 2013-08-06_163042 BSTDEBUG2 remoteWorkerThread_8: forward confirm
+> 7,5014270214 received by 8
+>
+>
+> So what do I do? I presume I'll be waiting forever, so do I kill slonik
+> and drop subscriber3 too?
+
+
+From glynastill at yahoo.co.uk  Tue Aug  6 09:09:44 2013
+From: glynastill at yahoo.co.uk (Glyn Astill)
+Date: Tue, 6 Aug 2013 17:09:44 +0100 (BST)
+Subject: [Slony1-general] Removing dead provider node gone wrong?
+In-Reply-To: <52011A84.7060402@ca.afilias.info>
+References: <1375803238.9690.YahooMailNeo@web133201.mail.ir2.yahoo.com>
+	<52011A84.7060402@ca.afilias.info>
+Message-ID: <1375805384.73143.YahooMailNeo@web133206.mail.ir2.yahoo.com>
+
+
+
+> From: Steve Singer <ssinger at ca.afilias.info>
+>To: Glyn Astill <glynastill at yahoo.co.uk> 
+>Cc: "slony1-general at lists.slony.info" <slony1-general at lists.slony.info> 
+>Sent: Tuesday, 6 August 2013, 16:47
+>Subject: Re: Removing dead provider node gone wrong?
+> 
+>
+>On 08/06/2013 11:33 AM, Glyn Astill wrote:
+>
+>
+>> Hi Guys,
+>>
+>> We're running slony 2.1.3, and one of my slaves has failed. The issue is
+>> that the failed slave node is a provider to another downstream slave; am
+>> I right in thinking I have to drop both the failed node and the
+>> downstream subscriber slave?
+>>
+>> My setup basically looks like this, where subscriber2 has failed:
+>>
+>> origin ---> subscriber1
+>> ---> subscriber2 ---> subscriber3
+>>
+>>
+>> First I tried to reshape the subscription on subscriber3, but this
+>> didn't work:
+>>
+>> SUBSCRIBE SET ( ID=@my_set, PROVIDER = @origin, RECEIVER = @subscriber3,
+>> FORWARD = YES);
+>>
+>> This failed with the following message:
+>>
+>> glyn at x:/usr/share/slonik$ slonik reshape_provider.scr
+>> reshape_provider.scr:3: could not connect to server: Connection refused
+>> Is the server running on host "10.16.10.101" and accepting
+>> TCP/IP connections on port 5432?
+>
+>You need to make the resubscribe set work before doing the DROP NODE, 
+>you can't drop a provider node.
+>
+>It isn't obvious to me why why slonik is trying to connect to node 2. 
+>Which command is line 3 of that script?? What is on lines 1 and 2?? Are 
+>the conninfo lines correct for nodes 1 and 3?
+>
+
+I presume it's trying to update the subscriptions on subscriber2 (which is node 4 btw), when re-subscribing subscriber3?? Line 1 is an include with the preamble (which I've sent to you off list) , line2 is a blank line.
+
+Conninfo is as follows:
+
+subscriber2 'dbname=mydb host=10.16.10.101 user=slony';
+subscriber3 'dbname=mydb host=10.16.10.102 user=slony';
+origin 'dbname=mydb host=10.10.10.92 user=slony';
+subscriber1 'dbname=mydb host=10.10.10.93 user=slony';
+
+From glynastill at yahoo.co.uk  Tue Aug  6 09:25:45 2013
+From: glynastill at yahoo.co.uk (Glyn Astill)
+Date: Tue, 6 Aug 2013 17:25:45 +0100 (BST)
+Subject: [Slony1-general] Removing dead provider node gone wrong?
+In-Reply-To: <1375805384.73143.YahooMailNeo@web133206.mail.ir2.yahoo.com>
+References: <1375803238.9690.YahooMailNeo@web133201.mail.ir2.yahoo.com>	<52011A84.7060402@ca.afilias.info>
+	<1375805384.73143.YahooMailNeo@web133206.mail.ir2.yahoo.com>
+Message-ID: <1375806345.7815.YahooMailNeo@web133204.mail.ir2.yahoo.com>
+
+----- Original Message -----
+
+> From: Glyn Astill <glynastill at yahoo.co.uk>
+> To: Steve Singer <ssinger at ca.afilias.info>
+> Cc: "slony1-general at lists.slony.info" <slony1-general at lists.slony.info>
+> Sent: Tuesday, 6 August 2013, 17:09
+> Subject: Re: [Slony1-general] Removing dead provider node gone wrong?
+>
+>>  From: Steve Singer <ssinger at ca.afilias.info>
+>> To: Glyn Astill <glynastill at yahoo.co.uk> 
+>> Cc: "slony1-general at lists.slony.info" 
+> <slony1-general at lists.slony.info> 
+>> Sent: Tuesday, 6 August 2013, 16:47
+>> Subject: Re: Removing dead provider node gone wrong?
+>> 
+>> 
+>> On 08/06/2013 11:33 AM, Glyn Astill wrote:
+>> 
+>> 
+>>>  Hi Guys,
+>>> 
+>>>  We're running slony 2.1.3, and one of my slaves has failed. The 
+> issue is
+>>>  that the failed slave node is a provider to another downstream slave; 
+> am
+>>>  I right in thinking I have to drop both the failed node and the
+>>>  downstream subscriber slave?
+>>> 
+>>>  My setup basically looks like this, where subscriber2 has failed:
+>>> 
+>>>  origin ---> subscriber1
+>>>  ---> subscriber2 ---> subscriber3
+>>> 
+>>> 
+>>>  First I tried to reshape the subscription on subscriber3, but this
+>>>  didn't work:
+>>> 
+>>>  SUBSCRIBE SET ( ID=@my_set, PROVIDER = @origin, RECEIVER = 
+> @subscriber3,
+>>>  FORWARD = YES);
+>>> 
+>>>  This failed with the following message:
+>>> 
+>>>  glyn at x:/usr/share/slonik$ slonik reshape_provider.scr
+>>>  reshape_provider.scr:3: could not connect to server: Connection refused
+>>>  Is the server running on host "10.16.10.101" and accepting
+>>>  TCP/IP connections on port 5432?
+>> 
+>> You need to make the resubscribe set work before doing the DROP NODE, 
+>> you can't drop a provider node.
+>> 
+>> It isn't obvious to me why why slonik is trying to connect to node 2. 
+>> Which command is line 3 of that script?? What is on lines 1 and 2?? Are 
+>> the conninfo lines correct for nodes 1 and 3?
+>> 
+> 
+> I presume it's trying to update the subscriptions on subscriber2 (which is 
+> node 4 btw), when re-subscribing subscriber3?? Line 1 is an include with the 
+> preamble (which I've sent to you off list) , line2 is a blank line.
+> 
+> Conninfo is as follows:
+> 
+> subscriber2 'dbname=mydb host=10.16.10.101 user=slony';
+> subscriber3 'dbname=mydb host=10.16.10.102 user=slony';
+> origin 'dbname=mydb host=10.10.10.92 user=slony';
+> subscriber1 'dbname=mydb host=10.10.10.93 user=slony';
+
+
+Looks like the issue was that I'd mentioned subscriber2 in the preamble section.? I removed all references to it and the resubscribe succeeded.
+
+
