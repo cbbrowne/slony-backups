@@ -378,3 +378,204 @@ Slony 2.1.4 can be obtained from the slony website at
 http://www.slony.info/downloads/2.1/source/slony1-2.1.4.tar.bz2
 http://www.slony.info/downloads/2.1/source/slony1-2.1.4-docs.tar.bz2
 
+From Ger.Timmens at adyen.com  Tue Aug 20 05:19:48 2013
+From: Ger.Timmens at adyen.com (Ger Timmens)
+Date: Tue, 20 Aug 2013 14:19:48 +0200
+Subject: [Slony1-general] Slony WARN monitorThread: stack reallocation
+In-Reply-To: <mailman.1.1376679601.13522.slony1-general@lists.slony.info>
+References: <mailman.1.1376679601.13522.slony1-general@lists.slony.info>
+Message-ID: <52135EE4.1090608@adyen.com>
+
+All,
+
+First time I've seen those warnings:
+
+2013-08-20 14:06:24 CEST WARN   monitorThread: stack reallocation - size
+192 > warning threshold of 100.  Stack perhaps isn't getting processed
+properly by monitoring thread
+2013-08-20 14:06:25 CEST WARN   monitorThread: stack reallocation - size
+384 > warning threshold of 100.  Stack perhaps isn't getting processed
+properly by monitoring thread
+
+We are running slony 2.1.3 to upgrade a postgresql 9.0.13 database to 9.2.4.
+
+Anybody knows what they mean ? Otherwise we'll dive into the code ;-)
+
+Thanks,
+
+Ger Timmens
+
+> Send Slony1-general mailing list submissions to
+> 	slony1-general at lists.slony.info
+>
+> To subscribe or unsubscribe via the World Wide Web, visit
+> 	http://lists.slony.info/mailman/listinfo/slony1-general
+> or, via email, send a message with subject or body 'help' to
+> 	slony1-general-request at lists.slony.info
+>
+> You can reach the person managing the list at
+> 	slony1-general-owner at lists.slony.info
+>
+> When replying, please edit your Subject line so it is more specific
+> than "Re: Contents of Slony1-general digest..."
+>
+>
+> Today's Topics:
+>
+>    1. Slony 2.1.4 released (Steve Singer)
+>
+>
+> ----------------------------------------------------------------------
+>
+> Message: 1
+> Date: Fri, 16 Aug 2013 10:37:17 -0400
+> From: Steve Singer <ssinger at ca.afilias.info>
+> Subject: [Slony1-general] Slony 2.1.4 released
+> To: slony general <Slony1-general at lists.slony.info>
+> Message-ID: <520E391D.4070504 at ca.afilias.info>
+> Content-Type: text/plain; charset=ISO-8859-1; format=flowed
+>
+> The Slony team has released a bug fix release for Slony 2.1.  Slony 
+> 2.1.4 is the next release in the 2.1 series. This release includes the 
+> following changes from 2.1.3
+>
+>
+> - Bug #299 :: Fix race condition in MOVE SET where a third node could 
+> pull data from the old origin using SYNC/snapshot values from the new origin
+> - Make log_truncate() SECURITY DEFINER.
+> - Support for PostgreSQL 9.3
+> - Changes to the WIN32 makefiles
+>
+>
+> Slony 2.1.4 can be obtained from the slony website at
+>
+> http://www.slony.info/downloads/2.1/source/slony1-2.1.4.tar.bz2
+> http://www.slony.info/downloads/2.1/source/slony1-2.1.4-docs.tar.bz2
+>
+>
+> ------------------------------
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+>
+>
+> End of Slony1-general Digest, Vol 78, Issue 2
+> *********************************************
+
+
+-- 
+Ger Timmens
+Adyen - Payments Made Easy
+http://www.adyen.com
+
+Visiting Address: Kantoorgebouw Nijenburg  Mail Address:
+Simon Carmiggeltstraat 6-50, 5th floor     P.O. Box 10095
+1011 DJ Amsterdam                          1001 EB Amsterdam
+The Netherlands                            The Netherlands
+
+Direct +31.20.240.1248
+Office +31.20.240.1240
+Mobile +31.62.483.8468
+Email ger.timmens at adyen.com
+
+
+
+From cbbrowne at afilias.info  Tue Aug 20 12:59:07 2013
+From: cbbrowne at afilias.info (Christopher Browne)
+Date: Tue, 20 Aug 2013 15:59:07 -0400
+Subject: [Slony1-general] Slony WARN monitorThread: stack reallocation
+In-Reply-To: <52135EE4.1090608@adyen.com>
+References: <mailman.1.1376679601.13522.slony1-general@lists.slony.info>
+	<52135EE4.1090608@adyen.com>
+Message-ID: <CANfbgbbCofFR=07Ym56NqqPYMCCvHR-BgQ+dGfkeRdLOfFOr4w@mail.gmail.com>
+
+If this happens just once or twice, then I wouldn't worry.
+
+We start by allocating 100 elements to track the monitoring activities, and
+basically two things tend to happen:
+
+a) Each thread is pushing elements on the stack indicating what the thread
+is up to;
+
+b) Periodically, the monitoring thread pulls everything off the stack and
+updates the table sl_components to stow in the database what the thread is
+up to.
+
+If, for some reason, threads are throwing things onto the stack much faster
+than the monitoring thread pulls them off, then the stack will need to get
+resized.  That's a bit unusual, hence the warning message that you are
+seeing.
+
+Note that each time the stack runs out, the function monitor_state()
+doubles its size, which should very quickly make it implausible that you'd
+need more space unless the monitoring code has gone pretty crazy.
+
+When we were testing the facility, we set the initial stack size to
+something small (~10), so as to be sure that the "need to double the size"
+logic worked OK.  It's a wee bit surprising that you'd have >>100
+monitoring events stacked up for processing.
+
+Have you got a cluster with a lot of nodes?
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20130820/00a05de9/attachment.htm 
+
+From ssinger at ca.afilias.info  Tue Aug 20 13:07:09 2013
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Tue, 20 Aug 2013 16:07:09 -0400
+Subject: [Slony1-general] Slony 2.2.0 Release Candidate 1
+Message-ID: <5213CC6D.5070607@ca.afilias.info>
+
+The Slony team is pleased to announce the release a release candidate 
+for Slony 2.2.0.
+
+Slony 2.2.0 will be the next major release of the Slony-I replication 
+system for PostgreSQL.
+
+Key features of the 2.2.0 release include:
+
+* The storage and transport and application of the slony log 
+(sl_log_1/sl_log_2) has changed providing performance improvements. Data 
+is now stored in a different format and the postgresql COPY protocol and 
+triggers are used to replicate and apply changes to replicas.
+
+* DDL handling with the EXECUTE SCRIPT command has changed.  The DDL is 
+no longer stored as a special event in sl_event but is instead stored in 
+sl_log_script and is processed as part of a SYNC event inline with data 
+changes. DDL can also be specified inline
+
+* FAILOVER has been reworked to be more reliable but not all nodes can 
+be used as failover targets.
+
+* A RESUBSCRIBE NODE command was added because the provider of a 
+subscribed set can no longer be changed with the SUBSCRIBE SET command 
+in some cases.  All sets from a particular origin must send data to 
+receivers through the same path/forwarder nodes. This must remain  true 
+during cluster reshaping.
+
+
+Fixes from Slony 2.2.0 beta 5 included;
+
+*  Set session_replication_role to local when applying EXECUTE SCRIPT 
+commands on a replica(Bug 305)
+
+* Record the sequence values as part of EXECUTE SCRIPT (Bug 304)
+
+* Fixes to failover (Bug 310) and UPDATE FUNCTIONS (Bug 309)
+
+
+
+See the complete release notes at
+http://git.postgresql.org/gitweb/?p=slony1-engine.git;a=blob_plain;f=RELEASE;h=adb7c4c9096010189c5d8c91222ad040393093eb
+
+
+
+You can download slony 2.2.0 release candidate 1 with the links below
+
+http://www.slony.info/downloads/2.2/source/slony1-2.2.0.rc1.tar.bz2
+http://www.slony.info/downloads/2.2/source/slony1-2.2.0.rc1-docs.tar.bz2
+
+
+
