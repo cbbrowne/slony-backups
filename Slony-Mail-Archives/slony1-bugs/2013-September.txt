@@ -1,0 +1,159 @@
+From bugzilla-daemon at main.slony.info  Wed Sep  4 09:01:22 2013
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed,  4 Sep 2013 09:01:22 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 313] New: EXECUTE SCRIPT error with sequences
+ not replicated everywhere
+Message-ID: <bug-313-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=313
+
+           Summary: EXECUTE SCRIPT error with sequences not replicated
+                    everywhere
+           Product: Slony-I
+           Version: devel
+          Platform: PC
+        OS/Version: Linux
+            Status: NEW
+          Severity: enhancement
+          Priority: low
+         Component: stored procedures
+        AssignedTo: slony1-bugs at lists.slony.info
+        ReportedBy: ssinger at ca.afilias.info
+                CC: slony1-bugs at lists.slony.info
+   Estimated Hours: 0.0
+
+
+This bug is present in 2.2.0 rc1 and appears to be a caused by the fix for
+bug304
+
+The LogShipping disorder test is failing, for reasons unrelated to logshipping.
+
+The EXECUTE SCRIPT command now captures the current value of each replicated
+sequence and stores it along with each row of sl_log_script
+
+The problem is that a particular sequence might not be replicated to all nodes
+since it might be part of a set that doesn't get replicated to some nodes.
+
+The current execute script apply logic tries to make all sequence updates for
+all sequences to  a node that the DDL/SCRIPT gets executed on.  This fails when
+a sequence is missing.
+
+ error at end of COPY IN: ERROR:  Slony-I: sequenceSetValue(): sequence 1 not
+found
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Sep  4 12:27:10 2013
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed,  4 Sep 2013 12:27:10 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 313] EXECUTE SCRIPT error with sequences not
+ replicated everywhere
+In-Reply-To: <bug-313-4@http.www.slony.info/bugzilla/>
+References: <bug-313-4@http.www.slony.info/bugzilla/>
+Message-ID: <20130904192710.5E877291290@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=313
+
+Christopher Browne <cbbrowne at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         AssignedTo|slony1-bugs at lists.slony.inf |ssinger at ca.afilias.info
+                   |o                           |
+             Status|NEW                         |ASSIGNED
+
+--- Comment #1 from Christopher Browne <cbbrowne at ca.afilias.info> 2013-09-04 12:27:10 PDT ---
+Points about this...
+
+1.  It seems pretty reasonable to not bother griping too loudly about sequences
+that are not being replicated onto a particular node.
+
+It could be an error that they *aren't* being replicated, but that's "driver
+error," rather than a bug in Slony itself.
+
+2.  It would be nice if we could report some kind of DEBUG level message on
+this, however, since this is being processed inside pl/pgsql, that may not be
+particularly easy to do.
+
+That makes me wonder if we shouldn't be exposing the list of sequences at the
+slon process layer, but that's "wonder", not "wow, that sure is broken."
+
+3.  When shall we fix this?
+
+i.  Immediately, if not before...   Assuming that turning the ERROR into a
+NO-OP is OK.
+
+ii.  Defer 2.2.0 until it is fixed, that is, create another 2.2.0 beta
+candidate. 
+
+iii.  Fix in 2.2.1, which leaves exposure to this issue for a little while.
+
+4.  How to repair it...
+
+i.  Simply turn the ERROR in FUNCTION sequenceSetValue() into a NOOP
+
+ii.  Add the set ID into the array structure that gets passed into
+sl_log_script, and check against that.
+
+Thus, sequenceSetValue() would:
+  a) NOOP if the set isn't being subscribed to on the current node, or
+  b) ERROR if it is, because clearly something is mussed up.
+
+Note that changing to ii is somewhat messy, as it changes the structure of the
+data being passed around.  Do we make sure that slon can cope with both old and
+new form?
+
+Recommending that we go with "just a NOOP", and do not delay 2.2.0.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Sep  4 12:59:37 2013
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed,  4 Sep 2013 12:59:37 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 313] EXECUTE SCRIPT error with sequences not
+ replicated everywhere
+In-Reply-To: <bug-313-4@http.www.slony.info/bugzilla/>
+References: <bug-313-4@http.www.slony.info/bugzilla/>
+Message-ID: <20130904195937.7DE0A2912D8@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=313
+
+--- Comment #2 from Steve Singer <ssinger at ca.afilias.info> 2013-09-04 12:59:37 PDT ---
+Created an attachment (id=182)
+ --> (http://www.slony.info/bugzilla/attachment.cgi?id=182)
+Proposed fix
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Sep  4 13:55:54 2013
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed,  4 Sep 2013 13:55:54 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 313] EXECUTE SCRIPT error with sequences not
+ replicated everywhere
+In-Reply-To: <bug-313-4@http.www.slony.info/bugzilla/>
+References: <bug-313-4@http.www.slony.info/bugzilla/>
+Message-ID: <20130904205554.802632912D8@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=313
+
+--- Comment #3 from Christopher Browne <cbbrowne at ca.afilias.info> 2013-09-04 13:55:54 PDT ---
+The patch defines a v_found variable which is not subsequently used.
+
+Aside from that, looks fine.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
