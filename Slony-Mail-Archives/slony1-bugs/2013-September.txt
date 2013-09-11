@@ -157,3 +157,526 @@ Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
 ------- You are receiving this mail because: -------
 You are on the CC list for the bug.
 
+From bugzilla-daemon at main.slony.info  Thu Sep  5 06:38:59 2013
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu,  5 Sep 2013 06:38:59 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 314] New: slony1 don't transmit data via second
+	"set"
+Message-ID: <bug-314-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=314
+
+           Summary: slony1 don't transmit data via second "set"
+           Product: Slony-I
+           Version: 2.0
+          Platform: PC
+        OS/Version: Linux
+            Status: NEW
+          Severity: enhancement
+          Priority: low
+         Component: slon
+        AssignedTo: slony1-bugs at lists.slony.info
+        ReportedBy: sanya-spb at list.ru
+                CC: slony1-bugs at lists.slony.info
+   Estimated Hours: 0.0
+
+
+I try to make master-master replication via next schema:
+DB1->DB2->[my trigger]->DB2*->DB1*, 
+where DB1->DB2 is master-slave replication via "set1" of slony1
+and DB2*->DB1* is master-slave replication via "set2" of slony1
+
+but last step (slave*->master*) work only if I do insert in DB2 database and
+don't work if datas received from DB1 via slony1.
+
+slonik version 2.1.3
+postgres (PostgreSQL) 9.2.4
+
+
+Please help me find where I have mistaken
+
+
+--------------------------- BEGIN in POSTGRESQL
+--------------------------- on MASTER node
+CREATE SCHEMA test_slony;
+CREATE TABLE test_slony.master
+(
+  id int4 NOT NULL,
+  some_data integer,
+  idslave int4,
+  slave_id int4,
+  CONSTRAINT master_pkey PRIMARY KEY (id)
+);
+CREATE TABLE test_slony.slave_a
+(
+  id int4 NOT NULL,
+  some_data integer,
+  CONSTRAINT slave_a_pkey PRIMARY KEY (id)
+);
+CREATE TABLE test_slony.slave_b
+(
+  id int4 NOT NULL,
+  some_data integer,
+  CONSTRAINT slave_b_pkey PRIMARY KEY (id)
+);
+CREATE SEQUENCE test_slony.master_id_seq
+  INCREMENT 1
+  MINVALUE 1
+  MAXVALUE 9223372036854775807
+  START 1
+  CACHE 1;
+CREATE OR REPLACE FUNCTION test_slony.slave_a_trigger()
+  RETURNS trigger AS
+$BODY$
+DECLARE
+    f_id    int4;
+BEGIN
+    IF (TG_OP = 'DELETE') THEN
+        delete from test_slony.master where idslave=101 and slave_id=OLD.id;
+    ELSIF (TG_OP = 'UPDATE') THEN
+        update test_slony.master set
+            some_data=NEW.some_data,
+            slave_id=NEW.id
+        where idslave=101 and slave_id=OLD.id;
+    ELSIF (TG_OP = 'INSERT') THEN
+        select nextval('test_slony.master_id_seq'::regclass) into f_id;
+        insert into test_slony.master (id, some_data, idslave, slave_id)
+            VALUES (f_id, NEW.some_data, 101::int4, NEW.id);
+        RETURN NEW;
+    END IF;
+    RETURN NULL; -- result is ignored since this is an AFTER trigger
+END;
+$BODY$
+  LANGUAGE plpgsql VOLATILE
+  COST 100;
+CREATE OR REPLACE FUNCTION test_slony.slave_b_trigger()
+  RETURNS trigger AS
+$BODY$
+DECLARE
+    f_id    int4;
+BEGIN
+    IF (TG_OP = 'DELETE') THEN
+        delete from test_slony.master where idslave=102 and slave_id=OLD.id;
+    ELSIF (TG_OP = 'UPDATE') THEN
+        update test_slony.master set
+            some_data=NEW.some_data,
+            slave_id=NEW.id
+        where idslave=102 and slave_id=OLD.id;
+    ELSIF (TG_OP = 'INSERT') THEN
+        select nextval('test_slony.master_id_seq'::regclass) into f_id;
+        insert into test_slony.master (id, some_data, idslave, slave_id)
+            VALUES (f_id, NEW.some_data, 102::int4, NEW.id);
+        RETURN NEW;
+    END IF;
+    RETURN NULL; -- result is ignored since this is an AFTER trigger
+END;
+$BODY$
+  LANGUAGE plpgsql VOLATILE
+  COST 100;
+CREATE TRIGGER slave_a_trigger_after
+  AFTER INSERT OR UPDATE OR DELETE
+  ON test_slony.slave_a
+  FOR EACH ROW
+  EXECUTE PROCEDURE test_slony.slave_a_trigger();
+ALTER TABLE test_slony.slave_a ENABLE REPLICA TRIGGER slave_a_trigger_after;
+CREATE TRIGGER slave_b_trigger_after
+  AFTER INSERT OR UPDATE OR DELETE
+  ON test_slony.slave_b
+  FOR EACH ROW
+  EXECUTE PROCEDURE test_slony.slave_b_trigger();
+ALTER TABLE test_slony.slave_b ENABLE TRIGGER slave_b_trigger_after;
+
+--------------------------- on SLAVE node
+CREATE SCHEMA test_slony;
+
+CREATE TABLE test_slony.master
+(
+  id int4 NOT NULL,
+  some_data integer,
+  idslave int4,
+  slave_id int4,
+  CONSTRAINT master_pkey PRIMARY KEY (id)
+);
+
+CREATE TABLE test_slony.slave_a
+(
+  id int4 NOT NULL,
+  some_data integer,
+  CONSTRAINT slave_a_pkey PRIMARY KEY (id)
+);
+
+CREATE TABLE test_slony.slave_b
+(
+  id int4 NOT NULL,
+  some_data integer,
+  CONSTRAINT slave_b_pkey PRIMARY KEY (id)
+);
+--------------------------- END 
+
+$ cat slon_tools.conf 
+if ($ENV{"SLONYNODES"}) {
+    require $ENV{"SLONYNODES"};
+} else {
+    $CLUSTER_NAME = 'ARIS';
+    $LOGDIR = '/var/log/slony1';
+    $MASTERNODE = 100;
+    add_node(node     => 100,
+             host     => '192.168.1.200',
+             dbname   => 'MASTER',
+             port     => 5432,
+             user     => 'postgres',
+             password => '*');
+    add_node(node     => 101,
+             host     => '192.168.1.247',
+             dbname   => 'SLAVE',
+             port     => 5432,
+             user     => 'postgres',
+             password => '*');
+}
+$SLONY_SETS = {
+    "set1" => {
+        "set_id"       => 100,
+        "table_id"     => 1000,
+        "sequence_id"  => 1,
+        "pkeyedtables" => [
+                'test_slony.master',
+        ],
+        "keyedtables"  => {},
+        "serialtables" => [],
+        "sequences"    => [],
+    },
+    "set2" => {
+        "set_id"       => 101,
+        "origin"       => 101,
+        "table_id"     => 1010,
+        "sequence_id"  => 1,
+        "pkeyedtables" => [
+                'test_slony.slave_a',
+        ],
+        "keyedtables"  => {},
+        "serialtables" => [],
+        "sequences"    => [],
+    },
+};
+if ($ENV{"SLONYSET"}) {
+    require $ENV{"SLONYSET"};
+}
+1;
+
+--------------------------- START TEST
+$ slonik_init_cluster | slonik
+$ <starting slony daemon for node 100>
+$ <starting slony daemon for node 101>
+$ slonik_create_set 100 | slonik
+$ slonik_create_set 101 | slonik
+$ slonik_subscribe_set 100 101 | slonik
+$ slonik_subscribe_set 101 100 | slonik
+$ echo 'insert into test_slony.slave_a values (1,1);' | psql -h 192.168.1.247
+-d SLAVE
+INSERT 0 1
+
+$ echo 'insert into test_slony.slave_b values (1,1);' | psql -h 192.168.1.200
+-d MASTER
+INSERT 0 1
+
+$ echo 'select * from test_slony.slave_a;' | psql -h 192.168.1.247 -d SLAVE
+ id | some_data 
+----+-----------
+  1 |         1
+
+$ echo 'select * from test_slony.slave_b;' | psql -h 192.168.1.200 -d MASTER
+ id | some_data 
+----+-----------
+  1 |         1
+
+# check slony1 "forward" replication
+$ echo 'select * from test_slony.slave_a;' | psql -h 192.168.1.200 -d MASTER
+ id | some_data 
+----+-----------
+  1 |         1
+
+# check triggers are fired
+$ echo 'select * from test_slony.master;' | psql -h 192.168.1.200 -d MASTER
+ id | some_data | idslave | slave_id 
+----+-----------+---------+----------
+  1 |         1 |     101 |        1
+  2 |         1 |     102 |        1
+(2 rows)
+
+# check slony1 "backward" replication
+$ echo 'select * from test_slony.master;' | psql -h 192.168.1.247 -d SLAVE
+ id | some_data | idslave | slave_id 
+----+-----------+---------+----------
+  2 |         1 |     102 |        1
+(1 row) WHY??
+
+--------------------------- END TEST
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Thu Sep  5 07:18:58 2013
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu,  5 Sep 2013 07:18:58 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 314] slony1 don't transmit data via second "set"
+In-Reply-To: <bug-314-4@http.www.slony.info/bugzilla/>
+References: <bug-314-4@http.www.slony.info/bugzilla/>
+Message-ID: <20130905141859.0352A2912AB@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=314
+
+sanya <sanya-spb at list.ru> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+           Priority|low                         |high
+                 CC|                            |sanya-spb at list.ru
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Sun Sep  8 18:04:49 2013
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Sun,  8 Sep 2013 18:04:49 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 314] slony1 don't transmit data via second "set"
+In-Reply-To: <bug-314-4@http.www.slony.info/bugzilla/>
+References: <bug-314-4@http.www.slony.info/bugzilla/>
+Message-ID: <20130909010450.030F12912B1@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=314
+
+Steve Singer <ssinger at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         Resolution|                            |INVALID
+             Status|NEW                         |RESOLVED
+
+--- Comment #1 from Steve Singer <ssinger at ca.afilias.info> 2013-09-08 18:04:49 PDT ---
+It doesn't look like your trigger is configured to run on a replica
+
+You should read
+http://www.slony.info/documentation/2.1/triggers.html
+
+Re-open the bug if the behaviour your seeing is different than what that page
+describes
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Sun Sep  8 23:08:44 2013
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Sun,  8 Sep 2013 23:08:44 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 314] slony1 don't transmit data via second "set"
+In-Reply-To: <bug-314-4@http.www.slony.info/bugzilla/>
+References: <bug-314-4@http.www.slony.info/bugzilla/>
+Message-ID: <20130909060844.69A2A2912EB@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=314
+
+sanya <sanya-spb at list.ru> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         Resolution|INVALID                     |
+             Status|RESOLVED                    |REOPENED
+
+--- Comment #2 from sanya <sanya-spb at list.ru> 2013-09-08 23:08:44 PDT ---
+(In reply to comment #1)
+> It doesn't look like your trigger is configured to run on a replica
+> 
+> You should read
+> http://www.slony.info/documentation/2.1/triggers.html
+> 
+> Re-open the bug if the behaviour your seeing is different than what that page
+> describes
+
+ALTER TABLE test_slony.slave_a ENABLE REPLICA TRIGGER slave_a_trigger_after;
+
+this is working, and puts all datas to table "test_slony.master" on MASTER
+node, but then must work "set2" and send datas for SLAVE node, however, this
+does not fired
+
+
+Thanks
+
+P.S.
+I also tryed:
+ALTER TABLE test_slony.slave_a ENABLE ALWAYS TRIGGER slave_a_trigger_after;
+ALTER TABLE test_slony.master ENABLE ALWAYS TRIGGER "_ARIS_logtrigger";
+, but this did not help me (results are the same)
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Mon Sep  9 08:44:59 2013
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Mon,  9 Sep 2013 08:44:59 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 314] slony1 don't transmit data via second "set"
+In-Reply-To: <bug-314-4@http.www.slony.info/bugzilla/>
+References: <bug-314-4@http.www.slony.info/bugzilla/>
+Message-ID: <20130909154459.8D13C291274@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=314
+
+--- Comment #3 from Steve Singer <ssinger at ca.afilias.info> 2013-09-09 08:44:59 PDT ---
+I still don't understand why you think slony isn't behaving as it should.
+
+You have triggers installed on the node '.200' but not the node '.247'.
+
+
+
+echo 'insert into test_slony.slave_a values (1,1);' | psql -h 192.168.1.247
+-d SLAVE
+INSERT 0 1
+
+Inserts a row into slave_a in .247 directly.  None of your user triggers fire
+on .247.
+This row then replicates to .200.  When the row is inserted into slave_a on
+.200 the slave_a_trigger will run on .200 inserting a row into the 'master'
+table.
+The slony log trigger will *NOT* run on this node because the default state of
+the logTrigger is 'ENABLED' and session_replication_role is replica.
+
+The second insert then runs 'insert into test_slony.slave_b values (1,1);' |
+psql -h 192.168.1.200
+
+This inserts a row into slave_b and the slave_b_trigger runs which inserts a
+row into the 'master' table on .200.   The logTrigger does fire.  The table
+'slave_b' is NOT replicated but the table 'master' is.   This results in a row
+being added to the table 'master' on the .247 machine via slony.  No triggers
+will run on .247
+
+This means that
+.247 should have 1 row in slave_a from the first insert and 1 row in 'master'
+from the second insert
+
+.200 will have 1 row in slave_a from the first insert,  2 rows in 'master' ,
+one from each insert, and 1 row in slave_b from the second insert.
+
+This matches your output doesn't it?
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Mon Sep  9 23:46:44 2013
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Mon,  9 Sep 2013 23:46:44 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 314] slony1 don't transmit data via second "set"
+In-Reply-To: <bug-314-4@http.www.slony.info/bugzilla/>
+References: <bug-314-4@http.www.slony.info/bugzilla/>
+Message-ID: <20130910064644.66BC92912F1@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=314
+
+--- Comment #4 from sanya <sanya-spb at list.ru> 2013-09-09 23:46:44 PDT ---
+(In reply to comment #3)
+
+> I still don't understand why you think slony isn't behaving as it should.
+> 
+> You have triggers installed on the node '.200' but not the node '.247'.
+> 
+> 
+> 
+> echo 'insert into test_slony.slave_a values (1,1);' | psql -h 192.168.1.247
+> -d SLAVE
+> INSERT 0 1
+> 
+> Inserts a row into slave_a in .247 directly.  None of your user triggers fire
+> on .247.
+> This row then replicates to .200.  When the row is inserted into slave_a on
+> .200 the slave_a_trigger will run on .200 inserting a row into the 'master'
+> table.
+> The slony log trigger will *NOT* run on this node because the default state of
+> the logTrigger is 'ENABLED' and session_replication_role is replica.
+> 
+> The second insert then runs 'insert into test_slony.slave_b values (1,1);' |
+> psql -h 192.168.1.200
+> 
+> This inserts a row into slave_b and the slave_b_trigger runs which inserts a
+> row into the 'master' table on .200.   The logTrigger does fire.  The table
+> 'slave_b' is NOT replicated but the table 'master' is.   This results in a row
+> being added to the table 'master' on the .247 machine via slony.  No triggers
+> will run on .247
+> 
+> This means that
+> .247 should have 1 row in slave_a from the first insert and 1 row in 'master'
+> from the second insert
+> 
+> .200 will have 1 row in slave_a from the first insert,  2 rows in 'master' ,
+> one from each insert, and 1 row in slave_b from the second insert.
+> 
+> This matches your output doesn't it?
+
+
+All right, but I need to get all rows from MASTER node "master" table on SLAVE
+node "master" table
+I tried to change logTrigger to 'ENABLE ALWAYS', but unsuccessful
+
+at now I have:
+MASTER=# select pg_class.relname, pg_trigger.tgname, pg_trigger.tgenabled
+from pg_trigger
+left join pg_class on tgrelid=pg_class.oid
+where pg_class.relname in ('slave_a','slave_b','master')
+order by 1,2;
+ relname |        tgname         | tgenabled 
+---------+-----------------------+-----------
+ master  | _ARIS_denyaccess      | D
+ master  | _ARIS_logtrigger      | A
+ master  | _ARIS_truncatedeny    | D
+ master  | _ARIS_truncatetrigger | O
+ slave_a | _ARIS_denyaccess      | O
+ slave_a | _ARIS_logtrigger      | D
+ slave_a | _ARIS_truncatedeny    | O
+ slave_a | _ARIS_truncatetrigger | D
+ slave_a | slave_a_trigger_after | A
+ slave_b | slave_b_trigger_after | A
+(10 rows)
+
+after inserts results are the same
+
+$ echo 'select * from test_slony.master;' | psql -h 192.168.1.200 -d MASTER
+ id | some_data | idslave | slave_id 
+----+-----------+---------+----------
+  7 |         1 |     101 |        1
+  8 |         1 |     102 |        1
+(2 rows)
+
+$ echo 'select * from test_slony.master;' | psql -h 192.168.1.247 -d SLAVE
+ id | some_data | idslave | slave_id 
+----+-----------+---------+----------
+  8 |         1 |     102 |        1
+(1 row)
+
+
+As I see: trigger "_ARIS_logtrigger" not fired after trigger
+"slave_a_trigger_after" when row replicates to .200 (MASTER node).
+Changing the name of trigger, that it will alphabetically less then
+"_ARIS_logtrigger" is not given result.
+
+Is any possibility to cause slony1 to replicate all the rows?
+
+
+Many thanks..
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
