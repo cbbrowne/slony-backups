@@ -707,3 +707,127 @@ Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
 You are on the CC list for the bug.
 You are the assignee for the bug.
 
+From bugzilla-daemon at main.slony.info  Thu Sep 12 06:18:49 2013
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu, 12 Sep 2013 06:18:49 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 315] New: Slony 2.1.1 will not build on Debian
+	Wheezy
+Message-ID: <bug-315-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=315
+
+           Summary: Slony 2.1.1 will not build on Debian Wheezy
+           Product: Slony-I
+           Version: 1.2
+          Platform: PC
+        OS/Version: Linux
+            Status: NEW
+          Severity: critical
+          Priority: low
+         Component: core scripts
+        AssignedTo: slony1-bugs at lists.slony.info
+        ReportedBy: athanasios.kostopoulos at classmarkets.com
+                CC: slony1-bugs at lists.slony.info
+   Estimated Hours: 0.0
+
+
+Created an attachment (id=183)
+ --> (http://www.slony.info/bugzilla/attachment.cgi?id=183)
+config.log
+
+Debian 7.1 Wheezy
+gcc (Debian 4.7.2-5) 4.7.2 
+Slony 2.1.1
+
+The configure test for SETCONFIGOPTION_6 is failing leaving the option
+undefined. During compile time this generates the following error:
+
+gcc -g -O2 -Wall -Wmissing-prototypes -Wmissing-declarations -I../.. -fpic
+-I/usr/include/postgresql/8.4/server/ -I/usr/include/postgresql/  -c -o
+slony1_funcs.o slony1_funcs.c
+slony1_funcs.c: In function ?_Slony_I_createEvent?:
+slony1_funcs.c:146:10: warning: variable ?buf_size? set but not used
+[-Wunused-but-set-variable]
+slony1_funcs.c: In function ?_Slony_I_logTrigger?:
+slony1_funcs.c:464:7: error: too many arguments to function ?set_config_option?
+In file included from slony1_funcs.c:36:0:
+/usr/include/postgresql/8.4/server/utils/guc.h:265:13: note: declared here
+slony1_funcs.c:509:13: error: too many arguments to function
+?set_config_option?
+In file included from slony1_funcs.c:36:0:
+/usr/include/postgresql/8.4/server/utils/guc.h:265:13: note: declared here
+slony1_funcs.c:592:5: warning: implicit declaration of function
+?compatible_oper_funcid? [-Wimplicit-function-declaration]
+slony1_funcs.c:592:5: warning: implicit declaration of function ?makeList1?
+[-Wimplicit-function-declaration]
+slony1_funcs.c:638:10: error: too many arguments to function
+?set_config_option?
+In file included from slony1_funcs.c:36:0:
+/usr/include/postgresql/8.4/server/utils/guc.h:265:13: note: declared here
+slony1_funcs.c:645:10: error: too many arguments to function
+?set_config_option?
+In file included from slony1_funcs.c:36:0:
+/usr/include/postgresql/8.4/server/utils/guc.h:265:13: note: declared here
+make[2]: *** [slony1_funcs.o] Error 1
+make[2]: Leaving directory `/root/slony1-2.1.1/src/backend'
+make[1]: *** [all] Error 2
+make[1]: Leaving directory `/root/slony1-2.1.1/src'
+make: *** [all] Error 2
+
+setting manually the value leads to a successful compile. Config.log attached
+
+Feel free to contact for any further information.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Thu Sep 12 08:43:47 2013
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Thu, 12 Sep 2013 08:43:47 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 315] Slony 2.1.1 will not build on Debian Wheezy
+In-Reply-To: <bug-315-4@http.www.slony.info/bugzilla/>
+References: <bug-315-4@http.www.slony.info/bugzilla/>
+Message-ID: <20130912154347.B3F2129129A@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=315
+
+--- Comment #1 from Steve Singer <ssinger at ca.afilias.info> 2013-09-12 08:43:47 PDT ---
+Created an attachment (id=184)
+ --> (http://www.slony.info/bugzilla/attachment.cgi?id=184)
+be more careful about how we set CPPFLAGS
+
+I worked through this with athanasios on  IRC.
+
+He had libpq-dev and libpq5 versions 9.3 from the PGDG apt repository
+installed.
+He also had postgresql-server-dev-8.4 installed since he was going to be using
+PG 8.4
+
+The libpq-dev package puts files in /usr/include/postgresql   while the header
+files for the server live in /usr/include/postgresql/8.4/server
+
+Our configure checks were including both -I/usr/include/postgresql and
+-I/usr/include/postgresql/8.4/server and with a 9.3 libpq HEADERS this causes
+compile errors because some header files are from one version and some from the
+other.  Having  libpq-dev 9.1 and PG-server-dev-8.4 happens to work fine.
+
+We really should be more careful about if we want server headers or libpq
+headers.  The slony code doesn't seem to mix these but we aren't careful enough
+about the CPPFLAGS we use.
+
+This patch tries to be more careful.  I have only tested it on Debian wheezy
+with the 8.4  / libpq-dev 9.3 combination identified here.
+
+I think we will need to address this issue in 2.1 , 2.2 I think we will start
+to see more complaints about this as people upgrade there libpq to 9.3 while
+they still have a older server.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
