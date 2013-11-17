@@ -1,0 +1,209 @@
+From bugzilla-daemon at main.slony.info  Wed Nov 13 09:42:11 2013
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed, 13 Nov 2013 09:42:11 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 324] New: slony 2.1.4 slon creating extremely
+	long query
+Message-ID: <bug-324-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=324
+
+           Summary: slony 2.1.4 slon creating extremely long query
+           Product: Slony-I
+           Version: devel
+          Platform: PC
+        OS/Version: Linux
+            Status: NEW
+          Severity: critical
+          Priority: low
+         Component: slon
+        AssignedTo: slony1-bugs at lists.slony.info
+        ReportedBy: jeff at pgexperts.com
+                CC: slony1-bugs at lists.slony.info
+   Estimated Hours: 0.0
+
+
+Seems as though this is a duplicate of bug #264, and that patch appears to be
+in 2.1.4, so I'm not sure why I'm still seeing this behavior.
+
+After an initial sync that takes about 8hrs, slon generates this extremely long
+query (that log line by itself is 107MB in size) that looks like:
+
+2013-11-13 10:44:26 EST ERROR  remoteWorkerThread_2: "declare LOG cursor for
+select log_origin, log_txid, log_tableid, log_actionseq, log_cmdtype,
+octet_length(log_cmddata), case when octet_length(log_cmddata) <= 8192 then
+log_cmddata else null end from "_migration".sl_log_1 where log_origin = 2 and
+log_tableid in
+(7,9,23,24,38,39,42,47,48,53,57,74,75,86,97,116,120,128,129,130,136,137,143)
+and log_txid >= '6236982' and log_txid < '6236996' and
+"pg_catalog".txid_visible_in_snapshot(log_txid, '6236996:6236996:')  and ( 
+log_actionseq <> '5342437751'  and  log_actionseq <> '5342362294'  and 
+log_actionseq <> '5341832481'  and  log_actionseq <> '5342413870'  and 
+log_actionseq <> '5342418592'  and  log_actionseq <> '5342202064'  and 
+log_actionseq <> '5341939025'  and  log_actionseq <> '5341887545'  and 
+log_actionseq <> '5342114362'  and  log_actionseq <> '5342300971'  and 
+log_actionseq <> '5341759946'  and  log_actionseq <> '5342195755'  and 
+log_actionseq <> '5342198736'  and  log_actionseq <> '5342218415'  and 
+log_actionseq <> '5342188807'  and  log_actionseq <> '5342225657'  and 
+log_actionseq <> '5342434567'  and  log_actionseq <> '5342088216'  and 
+log_actionseq <> '5342293611'  and  log_actionseq <> '5341866011'  and  
+
+.....
+
+and  log_actionseq <> '5342342863' ) order by log_actionseq" PGRES_FATAL_ERROR
+ERROR:  stack depth limit exceeded
+
+max_stack_depth is 4MB on these systems, but even setting it to the max doesn't
+do the job.
+
+BTW, the versions in bugzilla only go up to 2.0, which is why this is filed
+under devel.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From jeff at pgexperts.com  Wed Nov 13 10:00:10 2013
+From: jeff at pgexperts.com (Jeff Frost)
+Date: Wed, 13 Nov 2013 10:00:10 -0800
+Subject: [Slony1-bugs] [Bug 324] New: slony 2.1.4 slon creating
+ extremely long query
+In-Reply-To: <WM!2f58ad92ee194e252079d9f20723238852237152fe29c6e3b91a033bb434172868de07b10344f7e9b44b3323a258ebae!@asav-1.01.com>
+References: <bug-324-4@http.www.slony.info/bugzilla/>
+	<WM!2f58ad92ee194e252079d9f20723238852237152fe29c6e3b91a033bb434172868de07b10344f7e9b44b3323a258ebae!@asav-1.01.com>
+Message-ID: <5283BE2A.4020406@pgexperts.com>
+
+On 11/13/13 09:42, bugzilla-daemon at main.slony.info wrote:
+> http://www.slony.info/bugzilla/show_bug.cgi?id=324
+>
+>            Summary: slony 2.1.4 slon creating extremely long query
+>            Product: Slony-I
+>            Version: devel
+>           Platform: PC
+>         OS/Version: Linux
+>             Status: NEW
+>           Severity: critical
+>           Priority: low
+>          Component: slon
+>         AssignedTo: slony1-bugs at lists.slony.info
+>         ReportedBy: jeff at pgexperts.com
+>                 CC: slony1-bugs at lists.slony.info
+>    Estimated Hours: 0.0
+>
+>
+> Seems as though this is a duplicate of bug #264, and that patch appears to be
+> in 2.1.4, so I'm not sure why I'm still seeing this behavior.
+>
+> After an initial sync that takes about 8hrs, slon generates this extremely long
+> query (that log line by itself is 107MB in size) that looks like:
+>
+> 2013-11-13 10:44:26 EST ERROR  remoteWorkerThread_2: "declare LOG cursor for
+> select log_origin, log_txid, log_tableid, log_actionseq, log_cmdtype,
+> octet_length(log_cmddata), case when octet_length(log_cmddata) <= 8192 then
+> log_cmddata else null end from "_migration".sl_log_1 where log_origin = 2 and
+> log_tableid in
+> (7,9,23,24,38,39,42,47,48,53,57,74,75,86,97,116,120,128,129,130,136,137,143)
+> and log_txid >= '6236982' and log_txid < '6236996' and
+> "pg_catalog".txid_visible_in_snapshot(log_txid, '6236996:6236996:')  and ( 
+> log_actionseq <> '5342437751'  and  log_actionseq <> '5342362294'  and 
+> log_actionseq <> '5341832481'  and  log_actionseq <> '5342413870'  and 
+> log_actionseq <> '5342418592'  and  log_actionseq <> '5342202064'  and 
+> log_actionseq <> '5341939025'  and  log_actionseq <> '5341887545'  and 
+> log_actionseq <> '5342114362'  and  log_actionseq <> '5342300971'  and 
+> log_actionseq <> '5341759946'  and  log_actionseq <> '5342195755'  and 
+> log_actionseq <> '5342198736'  and  log_actionseq <> '5342218415'  and 
+> log_actionseq <> '5342188807'  and  log_actionseq <> '5342225657'  and 
+> log_actionseq <> '5342434567'  and  log_actionseq <> '5342088216'  and 
+> log_actionseq <> '5342293611'  and  log_actionseq <> '5341866011'  and  
+>
+> .....
+>
+> and  log_actionseq <> '5342342863' ) order by log_actionseq" PGRES_FATAL_ERROR
+> ERROR:  stack depth limit exceeded
+>
+> max_stack_depth is 4MB on these systems, but even setting it to the max doesn't
+> do the job.
+>
+> BTW, the versions in bugzilla only go up to 2.0, which is why this is filed
+> under devel.
+>
+
+I think the issue was there were 22 million rows in sl_log_2 which were
+actually older than the initial sync kickoff.  Not really sure why they hadn't
+been cleaned up, but I'm going to try another initial sync after truncating
+those tables.
+
+
+
+From bugzilla-daemon at main.slony.info  Wed Nov 13 13:48:42 2013
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed, 13 Nov 2013 13:48:42 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 324] slony 2.1.4 slon creating extremely long
+	query
+In-Reply-To: <bug-324-4@http.www.slony.info/bugzilla/>
+References: <bug-324-4@http.www.slony.info/bugzilla/>
+Message-ID: <20131113214842.E81FF291326@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=324
+
+--- Comment #1 from Jan Wieck <janwieck at yahoo.com> 2013-11-13 13:48:43 PST ---
+I do see the order by clause on the log_actionseq select in the REL_2_1_STABLE
+branch, but the log snippet you pasted clearly shows those numbers out of
+order. Can you try to reindex the sl_log_* tables?
+
+Note that in 2.2 the problem is gone entirely because we no longer use the
+log_actionseq for that. Instead the log selection for the first SYNC after
+subscribe is based on the snapshot of the copy_set() operation. At the time we
+did not feel comfortable to backpatch that into 2.1. That might be a reasonable
+thing to do now.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From jeff at pgexperts.com  Wed Nov 13 15:04:19 2013
+From: jeff at pgexperts.com (Jeff Frost)
+Date: Wed, 13 Nov 2013 15:04:19 -0800
+Subject: [Slony1-bugs] [Bug 324] slony 2.1.4 slon creating extremely
+ long query
+In-Reply-To: <WM!35e70ef11b8b89ef6ffc40eee24a4b0cc17b35c6c907f2ab75377f2569a3f4e5b685e550222a0f5c9f8c09608f7eb800!@asav-3.01.com>
+References: <bug-324-4@http.www.slony.info/bugzilla/>
+	<20131113214842.E81FF291326@main.slony.info>
+	<WM!35e70ef11b8b89ef6ffc40eee24a4b0cc17b35c6c907f2ab75377f2569a3f4e5b685e550222a0f5c9f8c09608f7eb800!@asav-3.01.com>
+Message-ID: <52840573.9060509@pgexperts.com>
+
+On 11/13/13 13:48, bugzilla-daemon at main.slony.info wrote:
+> http://www.slony.info/bugzilla/show_bug.cgi?id=324
+>
+> --- Comment #1 from Jan Wieck <janwieck at yahoo.com> 2013-11-13 13:48:43 PST ---
+> I do see the order by clause on the log_actionseq select in the REL_2_1_STABLE
+> branch, but the log snippet you pasted clearly shows those numbers out of
+> order. Can you try to reindex the sl_log_* tables?
+>
+> Note that in 2.2 the problem is gone entirely because we no longer use the
+> log_actionseq for that. Instead the log selection for the first SYNC after
+> subscribe is based on the snapshot of the copy_set() operation. At the time we
+> did not feel comfortable to backpatch that into 2.1. That might be a reasonable
+> thing to do now.
+>
+
+I actually went and downloaded the source for 2.1.4 and 2.1.3 and both of them
+appear to have the ORDER BY, so I'm not sure what's going on here.
+
+Unfortunately, I truncated the sl_log_* tables so we could get this sync
+completed as it's holding up a migration.
+
+How stable is 2.2.1 considered?
+
+
+-- 
+Jeff Frost <jeff at pgexperts.com>
+CTO, PostgreSQL Experts, Inc.
+Phone: 1-888-PG-EXPRT x506
+FAX: 415-762-5122
+http://www.pgexperts.com/ 
+
+
