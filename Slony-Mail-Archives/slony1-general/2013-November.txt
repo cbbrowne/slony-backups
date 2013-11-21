@@ -122,3 +122,142 @@ http://lists.slony.info/mailman/listinfo/slony1-general
 An HTML attachment was scrubbed...
 URL: http://lists.slony.info/pipermail/slony1-general/attachments/20131112/117942c6/attachment.htm 
 
+From mjames at profitpoint.com  Tue Nov 19 06:13:32 2013
+From: mjames at profitpoint.com (Mike James)
+Date: Tue, 19 Nov 2013 14:13:32 +0000
+Subject: [Slony1-general] measuring latency for log shipping
+Message-ID: <CEB0DC3A.7F01%mjames@profitpoint.com>
+
+I am using slony1 log-shipping to replicate some data to a remote location thru a VPN tunnel. A cron job running every minute applies the logs to the remote slave. So the latency is at least one minute. Is there a way to more precisely measure the latency between the origin and slave?
+
+Thanks,
+Mike
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20131119/1029aa16/attachment.htm 
+
+From mjames at profitpoint.com  Tue Nov 19 06:28:52 2013
+From: mjames at profitpoint.com (Mike James)
+Date: Tue, 19 Nov 2013 14:28:52 +0000
+Subject: [Slony1-general] Combining multi-master PG 9.3 with slony1
+	replication
+Message-ID: <CEB0DFD2.7F0F%mjames@profitpoint.com>
+
+Hi, a general question to the list - has anyone tried to combine the postgresql multi-master replication with slony1 in any fashion? Specifically, I am thinking of having a small cluster of 3 cloud instances using multi-master, then using a slony1 log shipping solution to another location. The remote location will have tables needed for reporting that are not present in the clustered master instances.
+
+All suggestions, observations are welcome. Thanks, Mike
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20131119/bec835ab/attachment.htm 
+
+From cbbrowne at afilias.info  Tue Nov 19 08:05:46 2013
+From: cbbrowne at afilias.info (Christopher Browne)
+Date: Tue, 19 Nov 2013 11:05:46 -0500
+Subject: [Slony1-general] measuring latency for log shipping
+In-Reply-To: <CEB0DC3A.7F01%mjames@profitpoint.com>
+References: <CEB0DC3A.7F01%mjames@profitpoint.com>
+Message-ID: <CANfbgbY2UFAH1DzRc6RTrHdSKOoXWHaasOf6VXxcSzPFB9KQhw@mail.gmail.com>
+
+On Tue, Nov 19, 2013 at 9:13 AM, Mike James <mjames at profitpoint.com> wrote:
+
+>  I am using slony1 log-shipping to replicate some data to a remote
+> location thru a VPN tunnel. A cron job running every minute applies the
+> logs to the remote slave. So the latency is at least one minute. Is there a
+> way to more precisely measure the latency between the origin and slave?
+>
+
+I'd say that things are less deterministic than that, unfortunately.
+
+The expected latency is actually more like 30 seconds, though there are
+cases that could induce arbitrarily more.
+
+"Why 30s?" is interesting...
+
+Consider the scenario where there are generally small sets of changes being
+applied, and replication is keeping up to date nicely.  Suppose, further,
+there is one SYNC generated every second.
+
+With your "apply once per minute" approach, consider when logs are being
+applied at the top of the minute.  There are 60 logs there, one from a
+minute ago, one from 59 seconds ago, and so forth.  There will be one log
+that is just 1s old, so that the "latency" for that log will be just 1s,
+considerably better than 1m.  On average, the latency, across the 60 logs,
+will be 30s.
+
+This indicates that the number you're measuring as "1 minute latency" isn't
+an minimum (some logs will get applied almost instantly after generation,
+if you're lucky), or a mean (the mean is likely around 30s, probably a
+little more), but rather you are describing a "worst case latency."  At
+worst, usually, you expect latency to be 1 minute.
+
+Unfortunately, that's not nearly the end of the story.  By a suitable
+pattern of updates, one may induce arbitrary increases to that "worst case
+latency."
+
+It's pretty easy to do: I just have to set up a transaction on the origin
+that does a large amount of replicable work.
+    BEGIN; UPDATE some_replicated_table SET [some change] WHERE [lots and
+lots of tuples are affected]. COMMIT;
+
+That set of work will go into the next SYNC that is generated immediately
+after the COMMIT.  Supposing the set of updates takes 5 minutes to query
+from sl_log_{1,2} and assemble into a log, and it takes 10 minutes to load
+that on the remote slave, then we have just induced a latency of 15
+minutes.  (That it's 5 minutes and 10 minutes for those activities is
+purely made up on my part; it should nonetheless be easy to believe that if
+you COMMIT a transaction that touched a million tuples in replicated
+tables, it will take a while to process that.  Increase the number of
+tuples as needed to get whatever result worries you most!)
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20131119/e9ff8789/attachment.htm 
+
+From JanWieck at Yahoo.com  Tue Nov 19 13:20:45 2013
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Tue, 19 Nov 2013 16:20:45 -0500
+Subject: [Slony1-general] measuring latency for log shipping
+In-Reply-To: <CEB0DC3A.7F01%mjames@profitpoint.com>
+References: <CEB0DC3A.7F01%mjames@profitpoint.com>
+Message-ID: <528BD62D.305@Yahoo.com>
+
+On 11/19/13 09:13, Mike James wrote:
+> I am using slony1 log-shipping to replicate some data to a remote
+> location thru a VPN tunnel. A cron job running every minute applies the
+> logs to the remote slave. So the latency is at least one minute. Is
+> there a way to more precisely measure the latency between the origin and
+> slave?
+
+Log shipping replicas are not known to the origin of a set. There are no
+sl_confirm records for them. Only the slon deamon, writing the log
+shipping files, knows that it is doing so. That node is by design a
+replica itself and even it has no knowledge about who is possibly
+consuming those log shipping files. To determine the lag between the
+"origin" and a replica you need to know the current time on the origin
+and the timestamp of the last SYNC event from that origin replicated to
+the replica. Since log shipping replicas have no sl_confirm records,
+there is nothing inside the Slony system that could answer that question.
+
+
+Jan
+
+
+
+
+> 
+> Thanks, 
+> Mike
+> 
+> 
+> 
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+> 
+
+
+-- 
+Anyone who trades liberty for security deserves neither
+liberty nor security. -- Benjamin Franklin
+
