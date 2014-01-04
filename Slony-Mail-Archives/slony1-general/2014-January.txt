@@ -1,0 +1,558 @@
+From matthias at aic.at  Thu Jan  2 08:36:32 2014
+From: matthias at aic.at (Matthias Leopold)
+Date: Thu, 02 Jan 2014 17:36:32 +0100
+Subject: [Slony1-general] testing slony state in slony 2.0.4
+Message-ID: <52C59590.6010905@aic.at>
+
+hi,
+
+i successfully used test_slony_state-dbi.pl with slony 1.2.
+
+after our cluster got rebuilt with slony 2.0 (which wasn't done by 
+me...) replication seems to work but the test script keeps complaining 
+about events and confirmations not propagating for all of the nodes. as 
+i said replication seems to work, logs are fine, dropping and readding a 
+node doesn't make a difference, sl_log_1/sl_log_2 look unsuspicious. 
+slony 2.0.4 is from debian 6.
+
+can you tell me where to look next?
+
+thx
+matthias
+
+
+From scott.marlowe at gmail.com  Thu Jan  2 08:49:43 2014
+From: scott.marlowe at gmail.com (Scott Marlowe)
+Date: Thu, 2 Jan 2014 09:49:43 -0700
+Subject: [Slony1-general] testing slony state in slony 2.0.4
+In-Reply-To: <52C59590.6010905@aic.at>
+References: <52C59590.6010905@aic.at>
+Message-ID: <CAOR=d=1fO3=9GPZ-PEvRX4KtwbfqPmBiwzqX-HoqLcyq2sBD5Q@mail.gmail.com>
+
+On Thu, Jan 2, 2014 at 9:36 AM, Matthias Leopold <matthias at aic.at> wrote:
+> hi,
+>
+> i successfully used test_slony_state-dbi.pl with slony 1.2.
+>
+> after our cluster got rebuilt with slony 2.0 (which wasn't done by
+> me...) replication seems to work but the test script keeps complaining
+> about events and confirmations not propagating for all of the nodes. as
+> i said replication seems to work, logs are fine, dropping and readding a
+> node doesn't make a difference, sl_log_1/sl_log_2 look unsuspicious.
+> slony 2.0.4 is from debian 6.
+>
+> can you tell me where to look next?
+
+Into updating? 2.0.4 had a fair few bugs, and 2.0.7 is the latest 2.0
+release. I tried 2.0.4 a ways back and had some issues with it much
+like what you're experiencing that 2.0.5 fixed.
+
+From tmblue at gmail.com  Thu Jan  2 11:35:15 2014
+From: tmblue at gmail.com (Tory M Blue)
+Date: Thu, 2 Jan 2014 11:35:15 -0800
+Subject: [Slony1-general] 6 hours to replicate single table,
+	12 hours to replicate DB
+Message-ID: <CAEaSS0a=GVoNJjre3_tpEEknzyk-2qzh6dYM1x+UQRr7ufTwmg@mail.gmail.com>
+
+Wondering what settings I need to speed this up. To do a rebuild of a db it
+takes a long time, 6 hours for a singe  table. No I/O issues, no load, just
+slon postgres taking their sweet old time. I would like to use the
+resources available to speed this up.
+
+The table is
+
+2013-12-21 19:17:58 PST CONFIG remoteWorkerThread_1: Begin COPY of table
+"impressions"
+2013-12-21 19:37:03 PST CONFIG remoteWorkerThread_1: 12657163552 bytes
+copied for table ?impressions?
+2013-12-22 01:40:22 PST CONFIG remoteWorkerThread_1: 22944.144 seconds to
+copy table ?impressions? <? 6 hours
+
+Postgres 9.2.4 slony 2.1.3
+
+This is a larger table, but because of bloat etc, we need to do ground ups
+to clean it out every so often (Vacuums don't do it).
+
+
+Slony config , pretty much at default  other than sync interval.
+
+# Check for updates at least this often in milliseconds.
+# Range: [10-60000], default 2000
+sync_interval=1000
+#sync_interval_timeout=10000
+# apply every single SYNC by itself.
+# Range:  [0,100], default: 6
+#sync_group_maxsize=6
+#sync_max_rowsize=8192
+#sync_max_largemem=5242880
+
+I either need some advanced settings for when we are doing a rebuild, to
+speed up the process, or I need to do some configurations that stay during
+normal workloads as well. But normal workloads things are replicated and
+keep in sync, it's just the rebuild portion. I would like to see it
+actually stressing my boxen :)
+
+Thanks
+Tory
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20140102/4b4c7697/attachment.htm 
+
+From cbbrowne at afilias.info  Thu Jan  2 12:33:41 2014
+From: cbbrowne at afilias.info (Christopher Browne)
+Date: Thu, 2 Jan 2014 15:33:41 -0500
+Subject: [Slony1-general] 6 hours to replicate single table,
+ 12 hours to replicate DB
+In-Reply-To: <CAEaSS0a=GVoNJjre3_tpEEknzyk-2qzh6dYM1x+UQRr7ufTwmg@mail.gmail.com>
+References: <CAEaSS0a=GVoNJjre3_tpEEknzyk-2qzh6dYM1x+UQRr7ufTwmg@mail.gmail.com>
+Message-ID: <CANfbgbYp7VGL9=jYMxdmfC3PRwx=q3dnU8e0sdgHURcdhy+RAA@mail.gmail.com>
+
+On Thu, Jan 2, 2014 at 2:35 PM, Tory M Blue <tmblue at gmail.com> wrote:
+
+>
+> Wondering what settings I need to speed this up. To do a rebuild of a db
+> it takes a long time, 6 hours for a singe  table. No I/O issues, no load,
+> just slon postgres taking their sweet old time. I would like to use the
+> resources available to speed this up.
+>
+> The table is
+>
+> 2013-12-21 19:17:58 PST CONFIG remoteWorkerThread_1: Begin COPY of table
+> "impressions"
+> 2013-12-21 19:37:03 PST CONFIG remoteWorkerThread_1: 12657163552 bytes
+> copied for table ?impressions?
+> 2013-12-22 01:40:22 PST CONFIG remoteWorkerThread_1: 22944.144 seconds to
+> copy table ?impressions? <? 6 hours
+>
+> Postgres 9.2.4 slony 2.1.3
+>
+> This is a larger table, but because of bloat etc, we need to do ground ups
+> to clean it out every so often (Vacuums don't do it).
+>
+>
+> Slony config , pretty much at default  other than sync interval.
+>
+> # Check for updates at least this often in milliseconds.
+> # Range: [10-60000], default 2000
+> sync_interval=1000
+> #sync_interval_timeout=10000
+> # apply every single SYNC by itself.
+> # Range:  [0,100], default: 6
+> #sync_group_maxsize=6
+> #sync_max_rowsize=8192
+> #sync_max_largemem=5242880
+>
+> I either need some advanced settings for when we are doing a rebuild, to
+> speed up the process, or I need to do some configurations that stay during
+> normal workloads as well. But normal workloads things are replicated and
+> keep in sync, it's just the rebuild portion. I would like to see it
+> actually stressing my boxen :)
+>
+>
+The one place where it might be worth modifying configuration is to change
+the amount of memory being used for sorts, as the step *after* the COPY of
+table "impressions" (which likely takes most of the remaining 6h of the
+subscription process) is to reindex that table.  If the reindex takes 4h,
+changing the GUC might reduce that 4h significantly.
+
+http://www.postgresql.org/docs/9.2/static/runtime-config-resource.html#GUC-MAINTENANCE-WORK-MEM
+
+
+Aside from that, there's not too much else to improve in practice, and not
+too terribly much even in theory.
+
+We've had discussions (not too lately; I don't think anything relevant has
+changed too terribly much) about the idea of doing some multi-threading of
+the SUBSCRIBE/COPY process.  The notable idea was to split off the REINDEX
+process to a series of extra threads so that it could be done in parallel.
+ In that you have one Very Very Large Table, only a limited amount of
+benefit could be gotten from that; if the biggest table involves 6h of COPY
+and 4h of REINDEX, then the fastest, in theory, that the subscription could
+get done is 10h, which probably isn't enough improvement to be worth the
+added code + fragility that would result.
+
+The last time the concept was discussed, the conclusion was made to not
+implement parallel processing of REINDEX, on the basis that:
+a) It would be a fair bit of code, adding potential for new bugs;
+b) It would add more potential for lock and deadlock conditions;
+c) In the common case where one table's data dominates the database (which
+sure seems to be the case for you), there's little benefit as the
+theoretical minimum subscription time is *at minimum*
+    time-to-COPY biggest table + time to reindex biggest table
+which makes the optimization pretty futile.
+
+Your case doesn't seem to invalidate the reasoning.
+
+You could get *some* benefit from splitting things into two sets, one
+consisting of the table "impressions" and the other consisting of the rest.
+  I'd hazard the guess that there's not too much need to clean up the
+tables other than "impressions"; you could drop the 'outage' to the
+theoretical minimum if you don't bother re-subscribing the other tables.
+
+I wonder if there's merit to trying to split "impressions" into several
+tables, one which would contain the "hot, heavily updated" data, and others
+containing "cooked/complete" data that doesn't need to be reorganized.  It
+may not be easy to distinguish between data that is "complete" and data
+that is still changing a lot.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20140102/7266606e/attachment.htm 
+
+From tmblue at gmail.com  Thu Jan  2 12:59:33 2014
+From: tmblue at gmail.com (Tory M Blue)
+Date: Thu, 2 Jan 2014 12:59:33 -0800
+Subject: [Slony1-general] 6 hours to replicate single table,
+ 12 hours to replicate DB
+In-Reply-To: <CANfbgbYp7VGL9=jYMxdmfC3PRwx=q3dnU8e0sdgHURcdhy+RAA@mail.gmail.com>
+References: <CAEaSS0a=GVoNJjre3_tpEEknzyk-2qzh6dYM1x+UQRr7ufTwmg@mail.gmail.com>
+	<CANfbgbYp7VGL9=jYMxdmfC3PRwx=q3dnU8e0sdgHURcdhy+RAA@mail.gmail.com>
+Message-ID: <CAEaSS0ZW8wwr558T7__7Dbeh19KKd-SGGxTcqu0xekyBvTB6yw@mail.gmail.com>
+
+On Thu, Jan 2, 2014 at 12:33 PM, Christopher Browne
+<cbbrowne at afilias.info>wrote:
+
+> On Thu, Jan 2, 2014 at 2:35 PM, Tory M Blue <tmblue at gmail.com> wrote:
+>
+>>
+>> Wondering what settings I need to speed this up. To do a rebuild of a db
+>> it takes a long time, 6 hours for a singe  table. No I/O issues, no load,
+>> just slon postgres taking their sweet old time. I would like to use the
+>> resources available to speed this up.
+>>
+>> The table is
+>>
+>> 2013-12-21 19:17:58 PST CONFIG remoteWorkerThread_1: Begin COPY of table
+>> "impressions"
+>> 2013-12-21 19:37:03 PST CONFIG remoteWorkerThread_1: 12657163552 bytes
+>> copied for table ?impressions?
+>> 2013-12-22 01:40:22 PST CONFIG remoteWorkerThread_1: 22944.144 seconds to
+>> copy table ?impressions? <? 6 hours
+>>
+>> Postgres 9.2.4 slony 2.1.3
+>>
+>> This is a larger table, but because of bloat etc, we need to do ground
+>> ups to clean it out every so often (Vacuums don't do it).
+>>
+>>
+>> Slony config , pretty much at default  other than sync interval.
+>>
+>> # Check for updates at least this often in milliseconds.
+>> # Range: [10-60000], default 2000
+>> sync_interval=1000
+>> #sync_interval_timeout=10000
+>> # apply every single SYNC by itself.
+>> # Range:  [0,100], default: 6
+>> #sync_group_maxsize=6
+>> #sync_max_rowsize=8192
+>> #sync_max_largemem=5242880
+>>
+>> I either need some advanced settings for when we are doing a rebuild, to
+>> speed up the process, or I need to do some configurations that stay during
+>> normal workloads as well. But normal workloads things are replicated and
+>> keep in sync, it's just the rebuild portion. I would like to see it
+>> actually stressing my boxen :)
+>>
+>>
+> The one place where it might be worth modifying configuration is to change
+> the amount of memory being used for sorts, as the step *after* the COPY of
+> table "impressions" (which likely takes most of the remaining 6h of the
+> subscription process) is to reindex that table.  If the reindex takes 4h,
+> changing the GUC might reduce that 4h significantly.
+>
+>
+> http://www.postgresql.org/docs/9.2/static/runtime-config-resource.html#GUC-MAINTENANCE-WORK-MEM
+>
+>
+> Aside from that, there's not too much else to improve in practice, and not
+> too terribly much even in theory.
+>
+> We've had discussions (not too lately; I don't think anything relevant has
+> changed too terribly much) about the idea of doing some multi-threading of
+> the SUBSCRIBE/COPY process.  The notable idea was to split off the REINDEX
+> process to a series of extra threads so that it could be done in parallel.
+>  In that you have one Very Very Large Table, only a limited amount of
+> benefit could be gotten from that; if the biggest table involves 6h of COPY
+> and 4h of REINDEX, then the fastest, in theory, that the subscription could
+> get done is 10h, which probably isn't enough improvement to be worth the
+> added code + fragility that would result.
+>
+> The last time the concept was discussed, the conclusion was made to not
+> implement parallel processing of REINDEX, on the basis that:
+> a) It would be a fair bit of code, adding potential for new bugs;
+> b) It would add more potential for lock and deadlock conditions;
+> c) In the common case where one table's data dominates the database (which
+> sure seems to be the case for you), there's little benefit as the
+> theoretical minimum subscription time is *at minimum*
+>     time-to-COPY biggest table + time to reindex biggest table
+> which makes the optimization pretty futile.
+>
+> Your case doesn't seem to invalidate the reasoning.
+>
+> You could get *some* benefit from splitting things into two sets, one
+> consisting of the table "impressions" and the other consisting of the rest.
+>   I'd hazard the guess that there's not too much need to clean up the
+> tables other than "impressions"; you could drop the 'outage' to the
+> theoretical minimum if you don't bother re-subscribing the other tables.
+>
+> I wonder if there's merit to trying to split "impressions" into several
+> tables, one which would contain the "hot, heavily updated" data, and others
+> containing "cooked/complete" data that doesn't need to be reorganized.  It
+> may not be easy to distinguish between data that is "complete" and data
+> that is still changing a lot.
+>
+
+Thanks Chris
+
+There are actually 3 tables that are significant but this one shows to take
+the longest, the others are a couple to 4 hours each. but if it's the
+reindex portion, i will look to see what my memory settings are currently
+as that could be a win. We note it on most of our DB's the index creation
+always takes significant time with no apparent flexing of the iron's
+muscle, so if it's just memory, we will do some tuning.
+
+I've asked engineering about splitting the table, but the answers is
+usually the same, no :) hahaha
+
+Thanks again!
+
+Tory
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20140102/88c620a6/attachment.htm 
+
+From shurale9811 at gmail.com  Thu Jan  2 13:08:40 2014
+From: shurale9811 at gmail.com (Shamshinur)
+Date: Thu, 2 Jan 2014 16:08:40 -0500
+Subject: [Slony1-general] 6 hours to replicate single table,
+	12 hours to replicate DB
+In-Reply-To: <CAEaSS0a=GVoNJjre3_tpEEknzyk-2qzh6dYM1x+UQRr7ufTwmg@mail.gmail.com>
+References: <CAEaSS0a=GVoNJjre3_tpEEknzyk-2qzh6dYM1x+UQRr7ufTwmg@mail.gmail.com>
+Message-ID: <00ea01cf07fe$d0272e30$70758a90$@com>
+
+Very strange, shouldn't take that long, you may try increase  the value of
+maintenance_work_mem  in postgres.conf, to speed up COPY
+
+For instance:
+
+ maintenance_work_mem = 1024MB
+
+ 
+
+ 
+
+From: slony1-general-bounces at lists.slony.info
+[mailto:slony1-general-bounces at lists.slony.info] On Behalf Of Tory M Blue
+Sent: Thursday, January 02, 2014 2:35 PM
+To: slony1-general
+Subject: [Slony1-general] 6 hours to replicate single table, 12 hours to
+replicate DB
+
+ 
+
+ 
+
+Wondering what settings I need to speed this up. To do a rebuild of a db it
+takes a long time, 6 hours for a singe  table. No I/O issues, no load, just
+slon postgres taking their sweet old time. I would like to use the resources
+available to speed this up.
+
+ 
+
+The table is
+
+ 
+
+2013-12-21 19:17:58 PST CONFIG remoteWorkerThread_1: Begin COPY of table
+"impressions"
+
+2013-12-21 19:37:03 PST CONFIG remoteWorkerThread_1: 12657163552 bytes
+copied for table "impressions"  
+
+2013-12-22 01:40:22 PST CONFIG remoteWorkerThread_1: 22944.144 seconds to
+copy table "impressions" <- 6 hours
+
+ 
+
+Postgres 9.2.4 slony 2.1.3
+
+ 
+
+This is a larger table, but because of bloat etc, we need to do ground ups
+to clean it out every so often (Vacuums don't do it).
+
+ 
+
+ 
+
+Slony config , pretty much at default  other than sync interval.
+
+ 
+
+# Check for updates at least this often in milliseconds.
+
+# Range: [10-60000], default 2000
+
+sync_interval=1000
+
+#sync_interval_timeout=10000
+
+# apply every single SYNC by itself.
+
+# Range:  [0,100], default: 6
+
+#sync_group_maxsize=6
+
+#sync_max_rowsize=8192
+
+#sync_max_largemem=5242880
+
+ 
+
+I either need some advanced settings for when we are doing a rebuild, to
+speed up the process, or I need to do some configurations that stay during
+normal workloads as well. But normal workloads things are replicated and
+keep in sync, it's just the rebuild portion. I would like to see it actually
+stressing my boxen :)
+
+ 
+
+Thanks
+
+Tory
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20140102/84b763b5/attachment-0001.htm 
+
+From tmblue at gmail.com  Thu Jan  2 13:12:13 2014
+From: tmblue at gmail.com (Tory M Blue)
+Date: Thu, 2 Jan 2014 13:12:13 -0800
+Subject: [Slony1-general] 6 hours to replicate single table,
+ 12 hours to replicate DB
+In-Reply-To: <00ea01cf07fe$d0272e30$70758a90$@com>
+References: <CAEaSS0a=GVoNJjre3_tpEEknzyk-2qzh6dYM1x+UQRr7ufTwmg@mail.gmail.com>
+	<00ea01cf07fe$d0272e30$70758a90$@com>
+Message-ID: <CAEaSS0bZ50ntoeNcgkx=fpjHwZpPZm8X5NBJTCu5v8jiztG1Gg@mail.gmail.com>
+
+On Thu, Jan 2, 2014 at 1:08 PM, Shamshinur <shurale9811 at gmail.com> wrote:
+
+> Very strange, shouldn?t take that long, you may try increase  the value of
+>  maintenance_work_mem  in postgres.conf, to speed up COPY
+>
+> For instance:
+>
+>  maintenance_work_mem = 1024MB
+>
+>
+>
+>
+>
+> *From:* slony1-general-bounces at lists.slony.info [mailto:
+> slony1-general-bounces at lists.slony.info] *On Behalf Of *Tory M Blue
+> *Sent:* Thursday, January 02, 2014 2:35 PM
+> *To:* slony1-general
+> *Subject:* [Slony1-general] 6 hours to replicate single table, 12 hours
+> to replicate DB
+>
+>
+>
+>
+>
+> Wondering what settings I need to speed this up. To do a rebuild of a db
+> it takes a long time, 6 hours for a singe  table. No I/O issues, no load,
+> just slon postgres taking their sweet old time. I would like to use the
+> resources available to speed this up.
+>
+>
+>
+> The table is
+>
+>
+>
+> 2013-12-21 19:17:58 PST CONFIG remoteWorkerThread_1: Begin COPY of table
+> "impressions"
+>
+> 2013-12-21 19:37:03 PST CONFIG remoteWorkerThread_1: 12657163552 bytes
+> copied for table ?impressions?
+>
+> 2013-12-22 01:40:22 PST CONFIG remoteWorkerThread_1: 22944.144 seconds to
+> copy table ?impressions? <? 6 hours
+>
+>
+>
+> Postgres 9.2.4 slony 2.1.3
+>
+>
+>
+> This is a larger table, but because of bloat etc, we need to do ground ups
+> to clean it out every so often (Vacuums don't do it).
+>
+>
+>
+>
+>
+> Slony config , pretty much at default  other than sync interval.
+>
+>
+>
+> # Check for updates at least this often in milliseconds.
+>
+> # Range: [10-60000], default 2000
+>
+> sync_interval=1000
+>
+> #sync_interval_timeout=10000
+>
+> # apply every single SYNC by itself.
+>
+> # Range:  [0,100], default: 6
+>
+> #sync_group_maxsize=6
+>
+> #sync_max_rowsize=8192
+>
+> #sync_max_largemem=5242880
+>
+>
+>
+> I either need some advanced settings for when we are doing a rebuild, to
+> speed up the process, or I need to do some configurations that stay during
+> normal workloads as well. But normal workloads things are replicated and
+> keep in sync, it's just the rebuild portion. I would like to see it
+> actually stressing my boxen :)
+>
+>
+>
+> Thanks
+>
+> Tory
+>
+
+
+We are getting outside of slon and into postgres and i'll try to keep this
+light, here are my postgresql custom config aspects
+
+shared_buffers = 2000MB
+max_prepared_transactions = 0
+work_mem = 100MB
+maintenance_work_mem = 128MB
+
+
+checkpoint_segments = 75                # in logfile segments, min 1, 16MB
+each
+checkpoint_timeout = 10min              # range 30s-1h
+#checkpoint_completion_target = 0.5     # checkpoint target duration, 0.0 -
+1.0
+checkpoint_warning = 3600s
+
+The hardware is being refreshed but right now it's an 8 core, 32GB CentOS
+system, being replaced with some pretty big hardware 256GB/32cores many
+SSD's. But tuning this now and knowing where I need to tweak when I add the
+added capacity would be great.
+
+thanks again
+Tory
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20140102/f34ae09a/attachment.htm 
+
