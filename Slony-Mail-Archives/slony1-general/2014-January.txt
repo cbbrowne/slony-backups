@@ -1082,3 +1082,266 @@ Jan
 Anyone who trades liberty for security deserves neither
 liberty nor security. -- Benjamin Franklin
 
+From cbbrowne at afilias.info  Sun Jan  5 09:14:01 2014
+From: cbbrowne at afilias.info (Christopher Browne)
+Date: Sun, 5 Jan 2014 12:14:01 -0500
+Subject: [Slony1-general] 6 hours to replicate single table,
+ 12 hours to replicate DB
+In-Reply-To: <CAEaSS0aCk_K6wjpEg8w0+4g7q3pu_2qHTs9hbM1yWtWBNhVRMw@mail.gmail.com>
+References: <CAEaSS0a=GVoNJjre3_tpEEknzyk-2qzh6dYM1x+UQRr7ufTwmg@mail.gmail.com>
+	<CAOR=d=2zEEm+wUBCiMEzWBqDkmkcRwuQr2ua8mZ1kiWrGKgXJQ@mail.gmail.com>
+	<CAEaSS0aCk_K6wjpEg8w0+4g7q3pu_2qHTs9hbM1yWtWBNhVRMw@mail.gmail.com>
+Message-ID: <CANfbgbYoORvRcPx48fdGbB7fWkf+u0U_oYKrsKUOUzCuHX2VRQ@mail.gmail.com>
+
+On Jan 3, 2014 8:26 PM, "Tory M Blue" <tmblue at gmail.com> wrote:
+>
+>
+>
+>
+> On Fri, Jan 3, 2014 at 5:03 PM, Scott Marlowe <scott.marlowe at gmail.com>
+wrote:
+>>
+>> On Thu, Jan 2, 2014 at 12:35 PM, Tory M Blue <tmblue at gmail.com> wrote:
+>> >
+>> > Wondering what settings I need to speed this up. To do a rebuild of a
+db it
+>> > takes a long time, 6 hours for a singe  table. No I/O issues, no load,
+just
+>> > slon postgres taking their sweet old time. I would like to use the
+resources
+>> > available to speed this up.
+>>
+>> 1: How fast can you scp a file between these two boxes?
+>> 2: How far apart are they / is there a lot of latency between them?
+>> 3: How fast can you create a good sized file on the slave? (dd
+>> if=/etc/zero of=bigfile bs=1000000 count=1000)
+>>
+>> If they are far apart then make sure your slon daemon is running on
+>> the slave not the master. This can make a huge difference.
+>>
+>> > #sync_max_rowsize=8192
+>>
+>> Try turning this up to 32768 as well.
+
+Hmm.  Probably only matters if you have big tuples.  E.g. where some rows
+can get large, such as where some columns sometimes contain big blobs of
+data.  (We have replicated the RT ticket system; if someone attaches a huge
+80MB spreadsheet to a ticket, that leads to a ~80MB tuple to replicate.)
+
+If this matters, bumping the max improves streaming, but at the cost of
+potentially increasing memory consumption a lot.  If it's an issue, then
+WAY better to upgrade to Slony 2.2 where it uses COPY to stream in updates,
+and the issue (and the parameter) goes away.
+
+>
+> 1) Very quick , Accessing an iscsi volume I can scp  the bigfile across
+at roughly 45MB/s, so plenty.
+> 2) Again same segment, nothing in the way
+> 3) ISCSI volume (ISCSI device is running at roughly 6GB network speed)
+>  [user at idb02 tmp]# time dd if=/dev/zero of=bigfile bs=1000000 count=1000
+> 1000+0 records in
+> 1000+0 records out
+> 1000000000 bytes (1.0 GB) copied, 1.52658 s, 655 MB/s
+>
+> real 0m1.529s
+> user 0m0.002s
+> sys 0m1.526s
+>
+> "Slon daemon is running on the slave not the master", ummm I'm running
+the slon daemon on all of my DB's (master/Slave, QuerySlave1, QuerySlave2)
+>
+>  slon $CLS_CLUSTER -f /data/pgsql/slon.conf  "dbname=$ADMCLSDB
+user=$SUPERUSER host=$SLAVEHOST" 2>&1 > /data/logs/slon.log &
+
+The point is that the slon that manages each node talks to its oo;;f[; a
+lot, so keep the slon near its "own" database.
+
+Best is for slon processes to do their initial connections to localhost, so
+they are located on The Very Same Host.
+
+Nearby is probably ok; we've had DB 'app servers,' one at each data centre,
+and all the slons for the data centre run on one host.  Arguably slower,
+but it means processes and logs are centralized to one place, which is
+pretty convenient when managing the cluster.  (No need to ssh to a bunch of
+places to start/stop the cluster.)
+
+Bad is if there's a data centre in New York and one in San Francisco, and
+the slons are all in NY, so that the ones managing SF nodes have
+cross-the-country latency.
+
+Less a big deal in Slony 2.2, where replication uses COPY streaming on
+subscribers, but for 2.1 and lower, bad latency is Real Bad; keep slons
+close to the nodes they manage :-).
+
+> I'll give the sync_max_rowsize a check as well
+>
+> Thanks again
+>
+> Tory(((((((((((8((
+>
+> _________________________________((_____________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinf((((o/slony1-general
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20140105/4bedfd8c/attachment.htm 
+
+From ssinger at ca.afilias.info  Sun Jan  5 11:49:57 2014
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Sun, 05 Jan 2014 14:49:57 -0500
+Subject: [Slony1-general] 6 hours to replicate single table,
+ 12 hours to replicate DB
+In-Reply-To: <CAEaSS0Y4Y42G-coghAooFwNvBuQ1UKX9Z+BTJ4LE2ZG1QCm5FQ@mail.gmail.com>
+References: <CAEaSS0a=GVoNJjre3_tpEEknzyk-2qzh6dYM1x+UQRr7ufTwmg@mail.gmail.com>
+	<00ea01cf07fe$d0272e30$70758a90$@com>
+	<CAEaSS0bZ50ntoeNcgkx=fpjHwZpPZm8X5NBJTCu5v8jiztG1Gg@mail.gmail.com>
+	<52C7107D.70709@Yahoo.com>
+	<CAEaSS0Y4Y42G-coghAooFwNvBuQ1UKX9Z+BTJ4LE2ZG1QCm5FQ@mail.gmail.com>
+Message-ID: <52C9B765.2040505@ca.afilias.info>
+
+On 01/03/2014 02:42 PM, Tory M Blue wrote:
+
+
+> And since it appears that my index creation is the big time hole, I'm
+> going to be testing work mem, by going from 100M to 2GB+ and i'll reduce
+> my vacuum processes from 7 to maybe 2 or 3, so I don't blow anything out
+> . But you have intrigued me :)
+>
+
+Have you actually confirmed that the index rebuild is what is taking 
+most of the time?
+
+The other thing you might want to consider is dropping the indexes on 
+the replica before you start the subscribe set.  Then you can create new 
+indexes outside of slon after the subscription is done.  If you do it 
+this way you can create multiple indexes on the table in parallel and 
+use multiple cores.
+
+
+
+
+> Thanks
+> Tory
+>
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+>
+
+
+From tmblue at gmail.com  Sun Jan  5 12:05:27 2014
+From: tmblue at gmail.com (Tory M Blue)
+Date: Sun, 5 Jan 2014 12:05:27 -0800
+Subject: [Slony1-general] 6 hours to replicate single table,
+ 12 hours to replicate DB
+In-Reply-To: <52C9B765.2040505@ca.afilias.info>
+References: <CAEaSS0a=GVoNJjre3_tpEEknzyk-2qzh6dYM1x+UQRr7ufTwmg@mail.gmail.com>
+	<00ea01cf07fe$d0272e30$70758a90$@com>
+	<CAEaSS0bZ50ntoeNcgkx=fpjHwZpPZm8X5NBJTCu5v8jiztG1Gg@mail.gmail.com>
+	<52C7107D.70709@Yahoo.com>
+	<CAEaSS0Y4Y42G-coghAooFwNvBuQ1UKX9Z+BTJ4LE2ZG1QCm5FQ@mail.gmail.com>
+	<52C9B765.2040505@ca.afilias.info>
+Message-ID: <CAEaSS0b195KZuCtR_TUio8kyGPcCc1ESKx8zEB_ZHSuUgKEZYw@mail.gmail.com>
+
+On Sun, Jan 5, 2014 at 11:49 AM, Steve Singer <ssinger at ca.afilias.info>wrote:
+
+> On 01/03/2014 02:42 PM, Tory M Blue wrote:
+>
+>
+>  And since it appears that my index creation is the big time hole, I'm
+>> going to be testing work mem, by going from 100M to 2GB+ and i'll reduce
+>> my vacuum processes from 7 to maybe 2 or 3, so I don't blow anything out
+>> . But you have intrigued me :)
+>>
+>>
+> Have you actually confirmed that the index rebuild is what is taking most
+> of the time?
+>
+> The other thing you might want to consider is dropping the indexes on the
+> replica before you start the subscribe set.  Then you can create new
+> indexes outside of slon after the subscription is done.  If you do it this
+> way you can create multiple indexes on the table in parallel and use
+> multiple cores.
+>
+>
+> I believe so, based on how fast I get the copy statement, meaning that it
+copied the table over and the 5+hours has to be the index creation.
+
+I did some tests today with my query DB's, which used to take 2-4 hours to
+replicate (from a ground up (drop/add)). Took 25 minutes today. So I think
+giving slony resources to create the indexes is vital, I had it set to
+100MB, set it to 2000MB today and reduced the vacuum processes from 5 to 3
+(just to be sure) and this really seems to help. I won't be able to test
+this on my insert db's for a bit (have to wait for a scheduled maintenance).
+
+Droppping indexes on a production node before replicating, that seems like
+a really bad idea, it would cause my production system to drop to it's
+knees or fall over while trying to replicate to the secondary. The indexes
+are required and I really can't remove them. Now maybe you are meaning that
+I move the index creation to the end of the addnode, vs doing it
+immediately upon a table creation?
+
+thanks again I appreciate the assistance this group has given!
+
+Tory
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20140105/c5b7d102/attachment.htm 
+
+From ssinger at ca.afilias.info  Sun Jan  5 13:03:31 2014
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Sun, 05 Jan 2014 16:03:31 -0500
+Subject: [Slony1-general] 6 hours to replicate single table,
+ 12 hours to replicate DB
+In-Reply-To: <CAEaSS0b195KZuCtR_TUio8kyGPcCc1ESKx8zEB_ZHSuUgKEZYw@mail.gmail.com>
+References: <CAEaSS0a=GVoNJjre3_tpEEknzyk-2qzh6dYM1x+UQRr7ufTwmg@mail.gmail.com>
+	<00ea01cf07fe$d0272e30$70758a90$@com>
+	<CAEaSS0bZ50ntoeNcgkx=fpjHwZpPZm8X5NBJTCu5v8jiztG1Gg@mail.gmail.com>
+	<52C7107D.70709@Yahoo.com>
+	<CAEaSS0Y4Y42G-coghAooFwNvBuQ1UKX9Z+BTJ4LE2ZG1QCm5FQ@mail.gmail.com>
+	<52C9B765.2040505@ca.afilias.info>
+	<CAEaSS0b195KZuCtR_TUio8kyGPcCc1ESKx8zEB_ZHSuUgKEZYw@mail.gmail.com>
+Message-ID: <52C9C8A3.8060103@ca.afilias.info>
+
+On 01/05/2014 03:05 PM, Tory M Blue wrote:
+>
+>
+> I believe so, based on how fast I get the copy statement, meaning that
+> it copied the table over and the 5+hours has to be the index creation.
+>
+> I did some tests today with my query DB's, which used to take 2-4 hours
+> to replicate (from a ground up (drop/add)). Took 25 minutes today. So I
+> think giving slony resources to create the indexes is vital, I had it
+> set to 100MB, set it to 2000MB today and reduced the vacuum processes
+> from 5 to 3 (just to be sure) and this really seems to help. I won't be
+> able to test this on my insert db's for a bit (have to wait for a
+> scheduled maintenance).
+>
+> Droppping indexes on a production node before replicating, that seems
+> like a really bad idea, it would cause my production system to drop to
+> it's knees or fall over while trying to replicate to the secondary. The
+> indexes are required and I really can't remove them. Now maybe you are
+> meaning that I move the index creation to the end of the addnode, vs
+> doing it immediately upon a table creation?
+>
+
+I am not saying you should drop the indexes from your master, just this 
+replica.  Slony disables those indexes during the COPY anyway.  If you 
+have any applications querying this table on the replica being rebuilt 
+then I'd expect those queries to be blocked behind the copy anyway. 
+Moving index-creation for this table to the end of the addnode would 
+have the same effect, you could then create multiple indexes on the 
+table in parallel (I'm assuming that the table has multiple indexes).
+
+But it sounds like tuning the memory settings are enough for you.
+
+
+> thanks again I appreciate the assistance this group has given!
+>
+> Tory
+
+
