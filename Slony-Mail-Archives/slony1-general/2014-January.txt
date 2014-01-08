@@ -1345,3 +1345,204 @@ But it sounds like tuning the memory settings are enough for you.
 > Tory
 
 
+From brianf at consistentstate.com  Mon Jan  6 10:51:28 2014
+From: brianf at consistentstate.com (Brian Fehrle)
+Date: Mon, 06 Jan 2014 11:51:28 -0700
+Subject: [Slony1-general] Slony getting 'hung up' on an event?
+Message-ID: <52CAFB30.6080508@consistentstate.com>
+
+Hi all,
+
+PostgreSQL 8.4.18
+slon version 2.1.4
+
+We have a slony cluster that is having issues keeping caught up. It has 
+been fine for a lone time, but suddenly is having issue (so my thoughts 
+are traffic change after the first of the year).
+
+The thing is, we keep getting events queued on the slave, but it just 
+seems to sit there while processing a single event.
+
+Here is a bit of slave daemon logs (with debug level 2).
+
+
+2014-01-06 11:41:29 MST INFO   remoteWorkerThread_1: SYNC 5013515526 
+done in 0.190 seconds
+2014-01-06 11:41:29 MST DEBUG1 remoteWorkerThread_1: SYNC 5013515526 
+sync_event timing:  pqexec (s/count)- provider 0.033/2 - subscriber 
+0.009/2 - IUD 0.013/5
+2014-01-06 11:41:29 MST DEBUG2 remoteWorkerThread_1: Received event #1 
+from 5013515527 type:SYNC
+2014-01-06 11:41:29 MST DEBUG1 calc sync size - last time: 5 last 
+length: 191 ideal: 1570 proposed size: 5
+2014-01-06 11:41:29 MST DEBUG2 remoteWorkerThread_1: SYNC 5013515531 
+processing
+2014-01-06 11:41:29 MST DEBUG2 remoteWorkerThread_1_1: current remote 
+log_status = 2
+2014-01-06 11:41:29 MST DEBUG1 about to monitor_subscriber_query - 
+pulling big actionid list for 1
+2014-01-06 11:41:29 MST INFO   remoteWorkerThread_1: syncing set 1 with 
+521 table(s) from provider 1
+2014-01-06 11:41:29 MST DEBUG2 remoteWorkerThread_1_1: ssy_action_list 
+length: 0
+2014-01-06 11:41:29 MST DEBUG2 remoteWorkerThread_1_1: ssy_action_list 
+length: 0
+2014-01-06 11:41:29 MST DEBUG2 remoteWorkerThread_1: current local 
+log_status is 3
+2014-01-06 11:41:29 MST DEBUG3 remoteWorkerThread_1: activate helper 1
+2014-01-06 11:41:29 MST DEBUG2 remoteWorkerThread_1_1: current remote 
+log_status = 2
+2014-01-06 11:41:32 MST DEBUG2 localListenThread: Received event 
+2,5004228615 SYNC
+2014-01-06 11:41:38 MST DEBUG2 syncThread: new sl_action_seq 1 - SYNC 
+5004228616
+2014-01-06 11:41:44 MST DEBUG2 localListenThread: Received event 
+2,5004228616 SYNC
+2014-01-06 11:41:48 MST DEBUG2 syncThread: new sl_action_seq 1 - SYNC 
+5004228617
+2014-01-06 11:41:50 MST DEBUG2 localListenThread: Received event 
+2,5004228617 SYNC
+2014-01-06 11:41:58 MST DEBUG2 syncThread: new sl_action_seq 1 - SYNC 
+5004228618
+2014-01-06 11:42:02 MST DEBUG2 localListenThread: Received event 
+2,5004228618 SYNC
+2014-01-06 11:42:08 MST DEBUG2 syncThread: new sl_action_seq 1 - SYNC 
+5004228619
+2014-01-06 11:42:11 MST DEBUG2 remoteListenThread_1: queue event 
+1,5013518263 SYNC
+2014-01-06 11:42:11 MST DEBUG2 remoteListenThread_1: queue event 
+1,5013518264 SYNC
+2014-01-06 11:42:11 MST DEBUG2 remoteListenThread_1: queue event 
+1,5013518265 SYNC
+2014-01-06 11:42:11 MST DEBUG2 remoteListenThread_1: queue event 
+1,5013518266 SYNC
+2014-01-06 11:42:11 MST DEBUG2 remoteListenThread_1: queue event 
+1,5013518267 SYNC
+2014-01-06 11:42:13 MST DEBUG2 remoteListenThread_1: queue event 
+1,5013518268 SYNC
+2014-01-06 11:42:14 MST DEBUG2 localListenThread: Received event 
+2,5004228619 SYNC
+2014-01-06 11:42:15 MST DEBUG2 remoteListenThread_1: queue event 
+1,5013518269 SYNC
+
+....... snip!
+
+2014-01-06 11:43:15 MST DEBUG2 localListenThread: Received event 
+2,5004228625 SYNC
+2014-01-06 11:43:16 MST DEBUG2 remoteListenThread_1: queue event 
+1,5013518299 SYNC
+2014-01-06 11:43:19 MST DEBUG2 remoteListenThread_1: queue event 
+1,5013518300 SYNC
+2014-01-06 11:43:19 MST DEBUG2 syncThread: new sl_action_seq 1 - SYNC 
+5004228626
+2014-01-06 11:43:21 MST DEBUG2 localListenThread: Received event 
+2,5004228626 SYNC
+2014-01-06 11:43:21 MST DEBUG2 remoteListenThread_1: queue event 
+1,5013518301 SYNC
+2014-01-06 11:43:22 MST DEBUG1 remoteHelperThread_1_1: 112.859 seconds 
+delay for first row
+2014-01-06 11:43:22 MST DEBUG1 remoteHelperThread_1_1: 112.906 seconds 
+until close cursor
+2014-01-06 11:43:22 MST DEBUG1 remoteHelperThread_1_1: inserts=61 
+updates=300 deletes=55 truncates=0
+2014-01-06 11:43:22 MST DEBUG1 remoteWorkerThread_1: sync_helper 
+timing:  pqexec (s/count)- provider 112.887/4 - subscriber 0.013/4
+2014-01-06 11:43:22 MST DEBUG1 remoteWorkerThread_1: sync_helper 
+timing:  large tuples 0.000/0
+2014-01-06 11:43:22 MST DEBUG3 remoteHelperThread_1_1: waiting for 
+workgroup to finish
+2014-01-06 11:43:23 MST DEBUG2 remoteListenThread_1: queue event 
+1,5013518302 SYNC
+2014-01-06 11:43:23 MST DEBUG3 remoteWorkerThread_1: helper 1 finished
+2014-01-06 11:43:23 MST DEBUG3 remoteWorkerThread_1: all helpers done.
+2014-01-06 11:43:23 MST DEBUG2 remoteWorkerThread_1: cleanup
+2014-01-06 11:43:23 MST INFO   remoteWorkerThread_1: SYNC 5013515531 
+done in 113.998 seconds
+2014-01-06 11:43:23 MST DEBUG1 remoteWorkerThread_1: SYNC 5013515531 
+sync_event timing:  pqexec (s/count)- provider 0.032/2 - subscriber 
+0.009/2 - IUD 1.069/85
+
+so for it to process between event 5013515526 and event 5013515531 (5 
+events, I currently have group size set to 5 as the previous value of 40 
+was causing slowdown it seemed), took as it says, 113.998 seconds.
+
+What's weird is at times we get 'held up', where I don't see anything 
+being finished, so I kill the daemons, restart them and then we get a 
+few hundred events processed decently quickly, then it slows down again, 
+so this makes me think it may not be event specific?
+
+So just now, we've reached about 1 hour 30 minutes behind in 
+replication. After restarting the daemons, we're starting to catch up, 
+and are currently at 01:04:01.459005 behind. Previous times this has 
+happened and we restarted the daemons, we ended up catching up, then 
+occasionally slowly fall back behind (which was fixed by a daemon restart).
+
+
+So what we'd like is, thoughts on what may be causing this. The fact 
+that restarting the daemons seems to temporarily speed us up is weird. 
+But I'd also like to see if there is just different activity than we are 
+used to (perhaps a TON of items all commited at once by the users).
+
+Thanks in advance,
+- Brian F
+
+
+From JanWieck at Yahoo.com  Mon Jan  6 11:15:50 2014
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Mon, 06 Jan 2014 14:15:50 -0500
+Subject: [Slony1-general] Slony getting 'hung up' on an event?
+In-Reply-To: <52CAFB30.6080508@consistentstate.com>
+References: <52CAFB30.6080508@consistentstate.com>
+Message-ID: <52CB00E6.4090800@Yahoo.com>
+
+On 01/06/14 13:51, Brian Fehrle wrote:
+> ...
+> 
+> 2014-01-06 11:43:22 MST DEBUG1 remoteHelperThread_1_1: 112.859 seconds 
+> delay for first row
+> 2014-01-06 11:43:22 MST DEBUG1 remoteHelperThread_1_1: 112.906 seconds 
+> until close cursor
+> 2014-01-06 11:43:22 MST DEBUG1 remoteHelperThread_1_1: inserts=61 
+> updates=300 deletes=55 truncates=0
+
+Almost 2 minutes to select 416 log rows? That looks wrong.
+
+Can you change the slon configuration to have an explain_interval? With
+that slon will emit EXPLAIN output for the log selection query in that
+interval. Maybe something is screwing up the optimizer.
+
+
+Jan
+
+-- 
+Anyone who trades liberty for security deserves neither
+liberty nor security. -- Benjamin Franklin
+
+From scott.marlowe at gmail.com  Mon Jan  6 11:43:47 2014
+From: scott.marlowe at gmail.com (Scott Marlowe)
+Date: Mon, 6 Jan 2014 12:43:47 -0700
+Subject: [Slony1-general] Slony getting 'hung up' on an event?
+In-Reply-To: <52CB00E6.4090800@Yahoo.com>
+References: <52CAFB30.6080508@consistentstate.com> <52CB00E6.4090800@Yahoo.com>
+Message-ID: <CAOR=d=2=eVu5SDk5oYFkUKPK8UJ1oykpcF-7Er5ji2PRuG1AUw@mail.gmail.com>
+
+On Mon, Jan 6, 2014 at 12:15 PM, Jan Wieck <JanWieck at yahoo.com> wrote:
+> On 01/06/14 13:51, Brian Fehrle wrote:
+>> ...
+>>
+>> 2014-01-06 11:43:22 MST DEBUG1 remoteHelperThread_1_1: 112.859 seconds
+>> delay for first row
+>> 2014-01-06 11:43:22 MST DEBUG1 remoteHelperThread_1_1: 112.906 seconds
+>> until close cursor
+>> 2014-01-06 11:43:22 MST DEBUG1 remoteHelperThread_1_1: inserts=61
+>> updates=300 deletes=55 truncates=0
+>
+> Almost 2 minutes to select 416 log rows? That looks wrong.
+>
+> Can you change the slon configuration to have an explain_interval? With
+> that slon will emit EXPLAIN output for the log selection query in that
+> interval. Maybe something is screwing up the optimizer.
+
+I always check log_1 and log_2 for bloat when these things start
+happening. Occasionally it's seqlog having a problem.
+
