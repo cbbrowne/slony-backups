@@ -2033,3 +2033,404 @@ Jan
 Anyone who trades liberty for security deserves neither
 liberty nor security. -- Benjamin Franklin
 
+From matthewh at telenav.com  Wed Jan 29 14:26:19 2014
+From: matthewh at telenav.com (Hanselman, Matthew)
+Date: Wed, 29 Jan 2014 14:26:19 -0800
+Subject: [Slony1-general] Sync stopped with slony-2.2.1 on data type
+ mismatch
+In-Reply-To: <52E29656.9030906@Yahoo.com>
+References: <8B240EE89411124ABB09CBB710FAAAFE5F1342D59D@MAILBOX2.telenav.com>
+	<52E17EC5.7010400@Yahoo.com> <52E27FCD.905@ca.afilias.info>
+	<8B240EE89411124ABB09CBB710FAAAFE5F1342D601@MAILBOX2.telenav.com>
+	<52E29656.9030906@Yahoo.com>
+Message-ID: <8B240EE89411124ABB09CBB710FAAAFE5F1342D9D3@MAILBOX2.telenav.com>
+
+One follow-up: Do you think 2.1.4 is stable in this regard?
+
+Thanks!
+
+- Matt
+
+
+-----Original Message-----
+From: Jan Wieck [mailto:JanWieck at Yahoo.com] 
+Sent: Friday, January 24, 2014 11:36 AM
+To: Hanselman, Matthew; Steve Singer
+Cc: slony1-general at lists.slony.info
+Subject: Re: [Slony1-general] Sync stopped with slony-2.2.1 on data type mismatch
+
+On 01/24/14 10:03, Hanselman, Matthew wrote:
+> This looks very similar. I'll leave a comment to this effect on the bug. Thanks!
+> 
+> For what it's worth, I tried restarting the slon daemon on both the master & slave. I got a very similar error, but this time it was complaining that "Lost Angeles" wasn't an integer.
+
+That does indeed look like memory corruption. I will take a very close look at the apply trigger code.
+
+In the meantime it may mask this error to increase the size of the apply query cache in the slon conf.
+
+
+Thanks,
+Jan
+
+
+> 
+> - Matt
+> 
+> 
+> -----Original Message-----
+> From: Steve Singer [mailto:ssinger at ca.afilias.info]
+> Sent: Friday, January 24, 2014 9:59 AM
+> To: Jan Wieck
+> Cc: Hanselman, Matthew; slony1-general at lists.slony.info
+> Subject: Re: [Slony1-general] Sync stopped with slony-2.2.1 on data 
+> type mismatch
+> 
+> On 01/23/2014 03:42 PM, Jan Wieck wrote:
+>> On 01/23/14 15:31, Hanselman, Matthew wrote:
+>>> Running Slony 2.2.1 with Postgres 9.2.6. The slave is getting errors 
+>>> trying to apply a change with this error:
+>>>
+>>>
+>>>
+>>> 2014-01-23 14:55:58 EST ERROR  remoteWorkerThread_1_1: error at end 
+>>> of COPY IN: ERROR:  invalid input syntax for integer: "33.7726910000000018"
+>>>
+> 
+> 
+> Could this be the same thing as that is causing
+> http://bugs.slony.info/bugzilla/show_bug.cgi?id=327
+> 
+> (We suspect memory corruption in the apply trigger)
+> 
+> 
+> 
+> 
+>>>
+>>>
+>>> The column in question is a "double precision" on both master & slave.
+>>> No schema change has happened since Slony was deployed.
+>>
+>> What did happen between slony was deployed and this breakage?
+>>
+>>
+>> Jan
+>>
+>>
+>>
+>>>
+>>>
+>>>
+>>> Is this a bug in Slony, or is there something else I can do to troubleshoot?
+>>>
+>>>
+>>>
+>>> - Matt
+>>>
+>>>
+>>>
+>>>
+>>>
+>>> _______________________________________________
+>>> Slony1-general mailing list
+>>> Slony1-general at lists.slony.info
+>>> http://lists.slony.info/mailman/listinfo/slony1-general
+>>>
+>>
+>>
+> 
+
+
+--
+Anyone who trades liberty for security deserves neither liberty nor security. -- Benjamin Franklin
+
+From JanWieck at Yahoo.com  Wed Jan 29 15:39:17 2014
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Wed, 29 Jan 2014 18:39:17 -0500
+Subject: [Slony1-general] Sync stopped with slony-2.2.1 on data type
+	mismatch
+In-Reply-To: <8B240EE89411124ABB09CBB710FAAAFE5F1342D9D3@MAILBOX2.telenav.com>
+References: <8B240EE89411124ABB09CBB710FAAAFE5F1342D59D@MAILBOX2.telenav.com>
+	<52E17EC5.7010400@Yahoo.com> <52E27FCD.905@ca.afilias.info>
+	<8B240EE89411124ABB09CBB710FAAAFE5F1342D601@MAILBOX2.telenav.com>
+	<52E29656.9030906@Yahoo.com>
+	<8B240EE89411124ABB09CBB710FAAAFE5F1342D9D3@MAILBOX2.telenav.com>
+Message-ID: <52E99125.9070907@Yahoo.com>
+
+On 01/29/14 17:26, Hanselman, Matthew wrote:
+> One follow-up: Do you think 2.1.4 is stable in this regard?
+
+I have actually found the bug in 2.2.STABLE that causes this. As Steve
+assumed it is a memory corruption inside the log apply trigger.
+
+2.1.x does not have this bug since it doesn't have an apply trigger at
+all, but issues individual SQL statements against the updated tables
+directly.
+
+The bug can be avoided by setting the apply_cache_size in the slon
+config file higher than the number of possible individual apply query
+plans during a single SYNC event. This may bloat the memory size of the
+backend, used by slon to apply changes, but better that than anything
+else. Note that the apply cache size defaults to 50, which is a VERY low
+number. Using 1,000 or even 10,000 should not cause a modern DB server
+to run out of memory. There can only ever be one DB connection per node
+that creates these plans (the local slon's connection). You should be
+good bumping that number instead of downgrading to 2.1.
+
+We will have a Slony 2.2.2 release out really soon.
+
+Sorry for the inconvenience.
+
+
+Regards,
+Jan
+
+> 
+> Thanks!
+> 
+> - Matt
+> 
+> 
+> -----Original Message-----
+> From: Jan Wieck [mailto:JanWieck at Yahoo.com] 
+> Sent: Friday, January 24, 2014 11:36 AM
+> To: Hanselman, Matthew; Steve Singer
+> Cc: slony1-general at lists.slony.info
+> Subject: Re: [Slony1-general] Sync stopped with slony-2.2.1 on data type mismatch
+> 
+> On 01/24/14 10:03, Hanselman, Matthew wrote:
+>> This looks very similar. I'll leave a comment to this effect on the bug. Thanks!
+>> 
+>> For what it's worth, I tried restarting the slon daemon on both the master & slave. I got a very similar error, but this time it was complaining that "Lost Angeles" wasn't an integer.
+> 
+> That does indeed look like memory corruption. I will take a very close look at the apply trigger code.
+> 
+> In the meantime it may mask this error to increase the size of the apply query cache in the slon conf.
+> 
+> 
+> Thanks,
+> Jan
+> 
+> 
+>> 
+>> - Matt
+>> 
+>> 
+>> -----Original Message-----
+>> From: Steve Singer [mailto:ssinger at ca.afilias.info]
+>> Sent: Friday, January 24, 2014 9:59 AM
+>> To: Jan Wieck
+>> Cc: Hanselman, Matthew; slony1-general at lists.slony.info
+>> Subject: Re: [Slony1-general] Sync stopped with slony-2.2.1 on data 
+>> type mismatch
+>> 
+>> On 01/23/2014 03:42 PM, Jan Wieck wrote:
+>>> On 01/23/14 15:31, Hanselman, Matthew wrote:
+>>>> Running Slony 2.2.1 with Postgres 9.2.6. The slave is getting errors 
+>>>> trying to apply a change with this error:
+>>>>
+>>>>
+>>>>
+>>>> 2014-01-23 14:55:58 EST ERROR  remoteWorkerThread_1_1: error at end 
+>>>> of COPY IN: ERROR:  invalid input syntax for integer: "33.7726910000000018"
+>>>>
+>> 
+>> 
+>> Could this be the same thing as that is causing
+>> http://bugs.slony.info/bugzilla/show_bug.cgi?id=327
+>> 
+>> (We suspect memory corruption in the apply trigger)
+>> 
+>> 
+>> 
+>> 
+>>>>
+>>>>
+>>>> The column in question is a "double precision" on both master & slave.
+>>>> No schema change has happened since Slony was deployed.
+>>>
+>>> What did happen between slony was deployed and this breakage?
+>>>
+>>>
+>>> Jan
+>>>
+>>>
+>>>
+>>>>
+>>>>
+>>>>
+>>>> Is this a bug in Slony, or is there something else I can do to troubleshoot?
+>>>>
+>>>>
+>>>>
+>>>> - Matt
+>>>>
+>>>>
+>>>>
+>>>>
+>>>>
+>>>> _______________________________________________
+>>>> Slony1-general mailing list
+>>>> Slony1-general at lists.slony.info
+>>>> http://lists.slony.info/mailman/listinfo/slony1-general
+>>>>
+>>>
+>>>
+>> 
+> 
+> 
+> --
+> Anyone who trades liberty for security deserves neither liberty nor security. -- Benjamin Franklin
+> 
+
+
+-- 
+Anyone who trades liberty for security deserves neither
+liberty nor security. -- Benjamin Franklin
+
+From matthewh at telenav.com  Wed Jan 29 15:53:00 2014
+From: matthewh at telenav.com (Hanselman, Matthew)
+Date: Wed, 29 Jan 2014 15:53:00 -0800
+Subject: [Slony1-general] Sync stopped with slony-2.2.1 on data type
+ mismatch
+In-Reply-To: <52E99125.9070907@Yahoo.com>
+References: <8B240EE89411124ABB09CBB710FAAAFE5F1342D59D@MAILBOX2.telenav.com>
+	<52E17EC5.7010400@Yahoo.com> <52E27FCD.905@ca.afilias.info>
+	<8B240EE89411124ABB09CBB710FAAAFE5F1342D601@MAILBOX2.telenav.com>
+	<52E29656.9030906@Yahoo.com>
+	<8B240EE89411124ABB09CBB710FAAAFE5F1342D9D3@MAILBOX2.telenav.com>
+	<52E99125.9070907@Yahoo.com>
+Message-ID: <8B240EE89411124ABB09CBB710FAAAFE5F1342D9EB@MAILBOX2.telenav.com>
+
+No worries. Thanks for the prompt reply; very helpful.
+
+- Matt
+
+
+-----Original Message-----
+From: Jan Wieck [mailto:JanWieck at Yahoo.com] 
+Sent: Wednesday, January 29, 2014 6:39 PM
+To: Hanselman, Matthew; Steve Singer
+Cc: slony1-general at lists.slony.info
+Subject: Re: [Slony1-general] Sync stopped with slony-2.2.1 on data type mismatch
+
+On 01/29/14 17:26, Hanselman, Matthew wrote:
+> One follow-up: Do you think 2.1.4 is stable in this regard?
+
+I have actually found the bug in 2.2.STABLE that causes this. As Steve assumed it is a memory corruption inside the log apply trigger.
+
+2.1.x does not have this bug since it doesn't have an apply trigger at all, but issues individual SQL statements against the updated tables directly.
+
+The bug can be avoided by setting the apply_cache_size in the slon config file higher than the number of possible individual apply query plans during a single SYNC event. This may bloat the memory size of the backend, used by slon to apply changes, but better that than anything else. Note that the apply cache size defaults to 50, which is a VERY low number. Using 1,000 or even 10,000 should not cause a modern DB server to run out of memory. There can only ever be one DB connection per node that creates these plans (the local slon's connection). You should be good bumping that number instead of downgrading to 2.1.
+
+We will have a Slony 2.2.2 release out really soon.
+
+Sorry for the inconvenience.
+
+
+Regards,
+Jan
+
+> 
+> Thanks!
+> 
+> - Matt
+> 
+> 
+> -----Original Message-----
+> From: Jan Wieck [mailto:JanWieck at Yahoo.com]
+> Sent: Friday, January 24, 2014 11:36 AM
+> To: Hanselman, Matthew; Steve Singer
+> Cc: slony1-general at lists.slony.info
+> Subject: Re: [Slony1-general] Sync stopped with slony-2.2.1 on data 
+> type mismatch
+> 
+> On 01/24/14 10:03, Hanselman, Matthew wrote:
+>> This looks very similar. I'll leave a comment to this effect on the bug. Thanks!
+>> 
+>> For what it's worth, I tried restarting the slon daemon on both the master & slave. I got a very similar error, but this time it was complaining that "Lost Angeles" wasn't an integer.
+> 
+> That does indeed look like memory corruption. I will take a very close look at the apply trigger code.
+> 
+> In the meantime it may mask this error to increase the size of the apply query cache in the slon conf.
+> 
+> 
+> Thanks,
+> Jan
+> 
+> 
+>> 
+>> - Matt
+>> 
+>> 
+>> -----Original Message-----
+>> From: Steve Singer [mailto:ssinger at ca.afilias.info]
+>> Sent: Friday, January 24, 2014 9:59 AM
+>> To: Jan Wieck
+>> Cc: Hanselman, Matthew; slony1-general at lists.slony.info
+>> Subject: Re: [Slony1-general] Sync stopped with slony-2.2.1 on data 
+>> type mismatch
+>> 
+>> On 01/23/2014 03:42 PM, Jan Wieck wrote:
+>>> On 01/23/14 15:31, Hanselman, Matthew wrote:
+>>>> Running Slony 2.2.1 with Postgres 9.2.6. The slave is getting 
+>>>> errors trying to apply a change with this error:
+>>>>
+>>>>
+>>>>
+>>>> 2014-01-23 14:55:58 EST ERROR  remoteWorkerThread_1_1: error at end 
+>>>> of COPY IN: ERROR:  invalid input syntax for integer: "33.7726910000000018"
+>>>>
+>> 
+>> 
+>> Could this be the same thing as that is causing
+>> http://bugs.slony.info/bugzilla/show_bug.cgi?id=327
+>> 
+>> (We suspect memory corruption in the apply trigger)
+>> 
+>> 
+>> 
+>> 
+>>>>
+>>>>
+>>>> The column in question is a "double precision" on both master & slave.
+>>>> No schema change has happened since Slony was deployed.
+>>>
+>>> What did happen between slony was deployed and this breakage?
+>>>
+>>>
+>>> Jan
+>>>
+>>>
+>>>
+>>>>
+>>>>
+>>>>
+>>>> Is this a bug in Slony, or is there something else I can do to troubleshoot?
+>>>>
+>>>>
+>>>>
+>>>> - Matt
+>>>>
+>>>>
+>>>>
+>>>>
+>>>>
+>>>> _______________________________________________
+>>>> Slony1-general mailing list
+>>>> Slony1-general at lists.slony.info
+>>>> http://lists.slony.info/mailman/listinfo/slony1-general
+>>>>
+>>>
+>>>
+>> 
+> 
+> 
+> --
+> Anyone who trades liberty for security deserves neither liberty nor 
+> security. -- Benjamin Franklin
+> 
+
+
+--
+Anyone who trades liberty for security deserves neither liberty nor security. -- Benjamin Franklin
+
