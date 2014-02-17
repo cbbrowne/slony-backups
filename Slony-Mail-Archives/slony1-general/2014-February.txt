@@ -815,3 +815,234 @@ Tory
 An HTML attachment was scrubbed...
 URL: http://lists.slony.info/pipermail/slony1-general/attachments/20140214/e4371ffc/attachment.htm 
 
+From jeff at pgexperts.com  Sat Feb 15 18:22:57 2014
+From: jeff at pgexperts.com (Jeff Frost)
+Date: Sat, 15 Feb 2014 18:22:57 -0800
+Subject: [Slony1-general] subscriber node has wrong localnodeid after
+	initial sync
+Message-ID: <4781B32B-7A5E-4ACE-B7A4-9482498396AF@pgexperts.com>
+
+I'm using slony 2.2.2 to migrate from 8.4 to 9.3 and after the initial sync has completed, I'm seeing the following in the slon logs on the subscriber (node 2):
+
+2014-02-16 02:01:19 UTC ERROR  remoteListenThread_2: db_getLocalNodeId() returned 1 - wrong database?
+
+And indeed, if I run this query on the subscriber:
+
+select "_migration".getlocalnodeid('_migration');
+getlocalnodeid
+----------------
+             1
+(1 row)
+
+Except it should be node 2.
+
+Is there anyway to fix this without a full resync?
+
+Do I need to revert to 2.2.1 and resync?
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: signature.asc
+Type: application/pgp-signature
+Size: 208 bytes
+Desc: Message signed with OpenPGP using GPGMail
+Url : http://lists.slony.info/pipermail/slony1-general/attachments/20140215/4473747c/attachment.pgp 
+
+From tmblue at gmail.com  Sat Feb 15 22:09:21 2014
+From: tmblue at gmail.com (Tory M Blue)
+Date: Sat, 15 Feb 2014 22:09:21 -0800
+Subject: [Slony1-general] Still having issues with wide area replication.
+ large table , copy set 2 failed
+Message-ID: <CAEaSS0YVcwmCNGTjDgwAqh-XsXRuA4zP4_EqX9fozJyBHPDqSA@mail.gmail.com>
+
+So I've been fighting with this for a few months. I had someone on slony
+Dev attempt to lend a hand but others in the group, felt it was more of a
+ postgres issue. While this may be true, I'm still looking for some
+assistance. Everything points to a disconnect in slony.
+
+Wide area replication, fails on one of my largest tables. Now the table
+will copy over complete no issues (using standard pgsql commands), it's the
+post processing after the data is copied that seems to cause a sig term or
+something on the connection, since slony states that the set failed and
+tries again, fails at the same place ,
+
+2014-02-15 15:23:00 PST CONFIG remoteWorkerThread_1: Begin COPY of table
+"tracking"."spotlightimp"
+2014-02-15 16:46:45 PST CONFIG remoteWorkerThread_1: 5643041332 bytes
+copied for table "tracking"."spotlightimp"   <--- Completes transfer
+ 2014-02-15 17:34:10 PST CONFIG remoteWorkerThread_1: 7870.124 seconds to
+copy table "tracking"."spotlightimp"    <-- At this point it finishes the
+index creation and everything else
+2014-02-15 17:34:10 PST CONFIG remoteWorkerThread_1: copy table
+"tracking"."adimp"
+2014-02-15 17:34:10 PST CONFIG remoteWorkerThread_1: Begin COPY of table
+"tracking"."adimp"
+2014-02-15 17:34:10 PST ERROR  remoteWorkerThread_1: "select
+"_slonyschema".copyFields(19);"   <--- FAILS but adimp table is there, this
+is a red herring. the issue is above!
+2014-02-15 17:34:10 PST WARN   remoteWorkerThread_1: data copy for set 2
+failed 1 times - sleep 15 seconds
+NOTICE:  Slony-I: Logswitch to sl_log_1 initiated
+CONTEXT:  SQL statement "SELECT "_slonyschema".logswitch_start()"
+PL/pgSQL function _slonyschema.cleanupevent(interval) line 96 at PERFORM
+2014-02-15 17:34:14 PST INFO   cleanupThread: 7209.360 seconds for
+cleanupEvent()
+
+
+I've brought my work_mem to over 40GB and that's not helping the length of
+time for this large table. I have even removed the index statement still
+doesn't cut the time,  The copy is fine, all the data comes over. It's
+something in the processing of the table. There is s disconnect at some
+point between when slony finishes up the copy of the spotlightimp, and
+Postgres processes the rules in the table, and slony starts on the next
+table.
+
+
+2014-02-15 18:48:27 PST CONFIG remoteWorkerThread_1: copy table
+"tracking"."spotlightimp"
+2014-02-15 18:48:27 PST CONFIG remoteWorkerThread_1: Begin COPY of table
+"tracking"."spotlightimp"
+2014-02-15 20:11:07 PST CONFIG remoteWorkerThread_1: 5643067207 bytes
+copied for table "tracking"."spotlightimp"
+2014-02-15 20:59:46 PST CONFIG remoteWorkerThread_1: 7878.124 seconds to
+copy table "tracking"."spotlightimp"
+2014-02-15 20:59:46 PST CONFIG remoteWorkerThread_1: copy table
+"tracking"."adimp"
+2014-02-15 20:59:46 PST CONFIG remoteWorkerThread_1: Begin COPY of table
+"tracking"."adimp"
+2014-02-15 20:59:46 PST ERROR  remoteWorkerThread_1: "select
+"_slonyschema".copyFields(19);"
+2014-02-15 20:59:46 PST WARN   remoteWorkerThread_1: data copy for set 2
+failed 1 times - sleep 15 seconds
+NOTICE:  Slony-I: log switch to sl_log_2 complete - truncate sl_log_1
+CONTEXT:  PL/pgSQL function _slonyschema.cleanupevent(interval) line 94 at
+assignment
+2014-02-15 20:59:50 PST INFO   cleanupThread: 7203.435 seconds for
+cleanupEvent()
+
+I do feel incredibly strongly it's the size of the table and how long the
+process takes, the network / postgres is either reaping the connection or
+other causing slony to be in an unknown state and causes the error the
+minute we try to move forward from the spotlightimp table.. If I could cut
+down the preprocessing after the table was copied that may solve it, but
+removing the index part has not helped the situation as I hoped it would.
+ This is a complicated table, as well as it's size.
+
+I would love to get this sorted out, slony should allow for this remote
+replication, but something is going wrong and man would I love to get this
+resolved!
+
+CentOS6.2
+Postgres 9.2.4 slony 2.1.3
+
+Thanks
+Tory
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20140215/70527d91/attachment.htm 
+
+From jeff at pgexperts.com  Sat Feb 15 22:48:37 2014
+From: jeff at pgexperts.com (Jeff Frost)
+Date: Sun, 16 Feb 2014 00:48:37 -0600 (CST)
+Subject: [Slony1-general] Still having issues with wide area
+	replication. large table , copy set 2 failed
+In-Reply-To: <WM!41439fabdae24548d4063c276ab20ec51d8570acdc787f7ce94fd51664b5e2dd52314fc672b8ee6df6c2e4121d4da7b1!@asav-1.01.com>
+References: <CAEaSS0YVcwmCNGTjDgwAqh-XsXRuA4zP4_EqX9fozJyBHPDqSA@mail.gmail.com>
+	<WM!41439fabdae24548d4063c276ab20ec51d8570acdc787f7ce94fd51664b5e2dd52314fc672b8ee6df6c2e4121d4da7b1!@asav-1.01.com>
+Message-ID: <6994ACA7-C2A5-49BA-B25B-053A3640E937@pgexperts.com>
+
+It's probably a firewall timing out your PostgreSQL connection while the indexes are being built on the replica. 
+
+Look into tcp keep alive settings. 
+
+> On Feb 15, 2014, at 22:09, Tory M Blue <tmblue at gmail.com> wrote:
+> 
+> 
+> So I've been fighting with this for a few months. I had someone on slony Dev attempt to lend a hand but others in the group, felt it was more of a  postgres issue. While this may be true, I'm still looking for some assistance. Everything points to a disconnect in slony.
+> 
+> Wide area replication, fails on one of my largest tables. Now the table will copy over complete no issues (using standard pgsql commands), it's the post processing after the data is copied that seems to cause a sig term or something on the connection, since slony states that the set failed and tries again, fails at the same place ,
+> 
+> 2014-02-15 15:23:00 PST CONFIG remoteWorkerThread_1: Begin COPY of table "tracking"."spotlightimp"
+> 2014-02-15 16:46:45 PST CONFIG remoteWorkerThread_1: 5643041332 bytes copied for table "tracking"."spotlightimp"   <--- Completes transfer
+>  2014-02-15 17:34:10 PST CONFIG remoteWorkerThread_1: 7870.124 seconds to copy table "tracking"."spotlightimp"    <-- At this point it finishes the index creation and everything else
+> 2014-02-15 17:34:10 PST CONFIG remoteWorkerThread_1: copy table "tracking"."adimp"
+> 2014-02-15 17:34:10 PST CONFIG remoteWorkerThread_1: Begin COPY of table "tracking"."adimp"
+> 2014-02-15 17:34:10 PST ERROR  remoteWorkerThread_1: "select "_slonyschema".copyFields(19);"   <--- FAILS but adimp table is there, this is a red herring. the issue is above!
+> 2014-02-15 17:34:10 PST WARN   remoteWorkerThread_1: data copy for set 2 failed 1 times - sleep 15 seconds
+> NOTICE:  Slony-I: Logswitch to sl_log_1 initiated
+> CONTEXT:  SQL statement "SELECT "_slonyschema".logswitch_start()"
+> PL/pgSQL function _slonyschema.cleanupevent(interval) line 96 at PERFORM
+> 2014-02-15 17:34:14 PST INFO   cleanupThread: 7209.360 seconds for cleanupEvent()
+> 
+> 
+> I've brought my work_mem to over 40GB and that's not helping the length of time for this large table. I have even removed the index statement still doesn't cut the time,  The copy is fine, all the data comes over. It's something in the processing of the table. There is s disconnect at some point between when slony finishes up the copy of the spotlightimp, and Postgres processes the rules in the table, and slony starts on the next table.
+> 
+> 
+> 2014-02-15 18:48:27 PST CONFIG remoteWorkerThread_1: copy table "tracking"."spotlightimp"
+> 2014-02-15 18:48:27 PST CONFIG remoteWorkerThread_1: Begin COPY of table "tracking"."spotlightimp"
+> 2014-02-15 20:11:07 PST CONFIG remoteWorkerThread_1: 5643067207 bytes copied for table "tracking"."spotlightimp"
+> 2014-02-15 20:59:46 PST CONFIG remoteWorkerThread_1: 7878.124 seconds to copy table "tracking"."spotlightimp"
+> 2014-02-15 20:59:46 PST CONFIG remoteWorkerThread_1: copy table "tracking"."adimp"
+> 2014-02-15 20:59:46 PST CONFIG remoteWorkerThread_1: Begin COPY of table "tracking"."adimp"
+> 2014-02-15 20:59:46 PST ERROR  remoteWorkerThread_1: "select "_slonyschema".copyFields(19);" 
+> 2014-02-15 20:59:46 PST WARN   remoteWorkerThread_1: data copy for set 2 failed 1 times - sleep 15 seconds
+> NOTICE:  Slony-I: log switch to sl_log_2 complete - truncate sl_log_1
+> CONTEXT:  PL/pgSQL function _slonyschema.cleanupevent(interval) line 94 at assignment
+> 2014-02-15 20:59:50 PST INFO   cleanupThread: 7203.435 seconds for cleanupEvent()
+> 
+> I do feel incredibly strongly it's the size of the table and how long the process takes, the network / postgres is either reaping the connection or other causing slony to be in an unknown state and causes the error the minute we try to move forward from the spotlightimp table.. If I could cut down the preprocessing after the table was copied that may solve it, but removing the index part has not helped the situation as I hoped it would.  This is a complicated table, as well as it's size.
+> 
+> I would love to get this sorted out, slony should allow for this remote replication, but something is going wrong and man would I love to get this resolved!
+> 
+> CentOS6.2
+> Postgres 9.2.4 slony 2.1.3
+> 
+> Thanks
+> Tory
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+
+From tmblue at gmail.com  Sat Feb 15 23:25:23 2014
+From: tmblue at gmail.com (Tory M Blue)
+Date: Sat, 15 Feb 2014 23:25:23 -0800
+Subject: [Slony1-general] Still having issues with wide area
+ replication. large table , copy set 2 failed
+In-Reply-To: <6994ACA7-C2A5-49BA-B25B-053A3640E937@pgexperts.com>
+References: <CAEaSS0YVcwmCNGTjDgwAqh-XsXRuA4zP4_EqX9fozJyBHPDqSA@mail.gmail.com>
+	<WM!41439fabdae24548d4063c276ab20ec51d8570acdc787f7ce94fd51664b5e2dd52314fc672b8ee6df6c2e4121d4da7b1!@asav-1.01.com>
+	<6994ACA7-C2A5-49BA-B25B-053A3640E937@pgexperts.com>
+Message-ID: <CAEaSS0ZLOpUGtmHZ+teK85jyF1pwUDxVZ1463kV08-7QnbOWxQ@mail.gmail.com>
+
+On Sat, Feb 15, 2014 at 10:48 PM, Jeff Frost <jeff at pgexperts.com> wrote:
+
+> It's probably a firewall timing out your PostgreSQL connection while the
+> indexes are being built on the replica.
+>
+> Look into tcp keep alive settings.
+>
+>
+Yes this is what I thought it was when I first started with this, but
+didn't make any progress. Keepalives by default is set to 7200 seconds, so
+2 hours, this is failing in an hour, so  I'll have to look at the firewalls
+between us but since I'm connected to these boxes the entire time, from the
+same network that is originating the slon configuration, I'm doubting the
+firewalls are reaping the connections.
+
+Looking at the TCP keepalive settings, I don't think there is any tuning
+there that can help
+
+net.ipv4.tcp_keepalive_time = 7200
+net.ipv4.tcp_keepalive_probes = 9
+net.ipv4.tcp_keepalive_intvl = 75
+
+Well, maybe I can "reduce this" just to make some interesting traffic
+happen within that hour+ that the indexes are being created.
+
+Hmmm maybe.
+
+Tory
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20140215/7d93a594/attachment.htm 
+
