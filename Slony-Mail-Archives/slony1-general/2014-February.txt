@@ -1046,3 +1046,346 @@ Tory
 An HTML attachment was scrubbed...
 URL: http://lists.slony.info/pipermail/slony1-general/attachments/20140215/7d93a594/attachment.htm 
 
+From jeff at pgexperts.com  Sun Feb 16 09:46:51 2014
+From: jeff at pgexperts.com (Jeff Frost)
+Date: Sun, 16 Feb 2014 09:46:51 -0800
+Subject: [Slony1-general] Still having issues with wide area
+	replication. large table , copy set 2 failed
+In-Reply-To: <WM!7848071ee73af99e2b0faf320e8342c37c3c6176d6ad405bd09ead1e43d7d0fc45c517ab1681ec3d76cd92da7beecd9b!@asav-2.01.com>
+References: <CAEaSS0YVcwmCNGTjDgwAqh-XsXRuA4zP4_EqX9fozJyBHPDqSA@mail.gmail.com>
+	<WM!41439fabdae24548d4063c276ab20ec51d8570acdc787f7ce94fd51664b5e2dd52314fc672b8ee6df6c2e4121d4da7b1!@asav-1.01.com>
+	<6994ACA7-C2A5-49BA-B25B-053A3640E937@pgexperts.com>
+	<CAEaSS0ZLOpUGtmHZ+teK85jyF1pwUDxVZ1463kV08-7QnbOWxQ@mail.gmail.com>
+	<WM!7848071ee73af99e2b0faf320e8342c37c3c6176d6ad405bd09ead1e43d7d0fc45c517ab1681ec3d76cd92da7beecd9b!@asav-2.01.com>
+Message-ID: <F7FD1574-4254-4D16-AF96-6F1B0B9985A3@pgexperts.com>
+
+On Feb 15, 2014, at 11:25 PM, Tory M Blue <tmblue at gmail.com> wrote:
+
+> 
+> 
+> 
+> On Sat, Feb 15, 2014 at 10:48 PM, Jeff Frost <jeff at pgexperts.com> wrote:
+> It's probably a firewall timing out your PostgreSQL connection while the indexes are being built on the replica.
+> 
+> Look into tcp keep alive settings.
+> 
+> 
+> Yes this is what I thought it was when I first started with this, but didn't make any progress. Keepalives by default is set to 7200 seconds, so 2 hours, this is failing in an hour, so  I'll have to look at the firewalls between us but since I'm connected to these boxes the entire time, from the same network that is originating the slon configuration, I'm doubting the firewalls are reaping the connections.
+> 
+> Looking at the TCP keepalive settings, I don't think there is any tuning there that can help
+> 
+> net.ipv4.tcp_keepalive_time = 7200
+> net.ipv4.tcp_keepalive_probes = 9
+> net.ipv4.tcp_keepalive_intvl = 75
+> 
+> Well, maybe I can "reduce this" just to make some interesting traffic happen within that hour+ that the indexes are being created.
+
+
+Yah, so 2 hrs means that if your firewall times out in 10 minutes, it's going to kill that idle postgresql connection on you.
+
+This is common in AWS and here are the settings I use in slony 2.2 to fix this:
+
+# TCP keep alive configurations
+# Enable sending of TCP keep alive between slon and the PostgreSQL backends
+tcp_keepalive = true
+
+# The number of seconds after which a TCP keep alive is sent across an idle
+# connection. tcp_keepalive must be enabled for this to take effect. Default
+# value of 0 means use operating system default
+ tcp_keepalive_idle = 5
+
+# The number of keep alive requests to the server that can be lost before
+# the connection is declared dead. tcp_keepalive must be on.Default value
+# of 0 means use operating system default
+tcp_keepalive_count = 10
+
+# The number of seconds in between TCP keep alive requests. tcp_keepalive
+# must be enabled. Default value of 0 means use operating system defaut
+tcp_keepalive_interval = 30
+
+That's probably more aggressive than you need, but it should do the trick.
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20140216/54401ba2/attachment-0001.htm 
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: signature.asc
+Type: application/pgp-signature
+Size: 208 bytes
+Desc: Message signed with OpenPGP using GPGMail
+Url : http://lists.slony.info/pipermail/slony1-general/attachments/20140216/54401ba2/attachment-0001.pgp 
+
+From jeff at pgexperts.com  Sun Feb 16 09:43:10 2014
+From: jeff at pgexperts.com (Jeff Frost)
+Date: Sun, 16 Feb 2014 09:43:10 -0800
+Subject: [Slony1-general] subscriber node has wrong localnodeid after
+	initial sync
+In-Reply-To: <WM!b15d0c2a9eda29ce9c9d4674a4d777b51bc0c8f0ecdf16324f39dfa834f1228d3656fb81cb1fee3a9d30c5eb8750a34f!@asav-3.01.com>
+References: <4781B32B-7A5E-4ACE-B7A4-9482498396AF@pgexperts.com>
+	<WM!b15d0c2a9eda29ce9c9d4674a4d777b51bc0c8f0ecdf16324f39dfa834f1228d3656fb81cb1fee3a9d30c5eb8750a34f!@asav-3.01.com>
+Message-ID: <AB84FD71-42CC-45F4-98DB-1511F986CB00@pgexperts.com>
+
+I figured out what happened here.  Total user error.
+
+Got a little too excited by the new ability to add tables/sequences by regex and just used '.*' for the sequences.
+
+Guess what got added:
+
+      3 |  253138138 | sl_action_seq              | _migration  |       1 | replicated sequence
+      4 |  253138136 | sl_event_seq               | _migration  |       1 | replicated sequence
+      5 |  253138134 | sl_local_node_id           | _migration  |       1 | replicated sequence
+      6 |  253138140 | sl_log_status              | _migration  |       1 | replicated sequence
+      7 |  253137956 | sl_nodelock_nl_conncnt_seq | _migration  |       1 | replicated sequence
+
+So, setting sl_local_node_id to the correct value gets it going again, but of course I had a ton of pkey conflicts in sl_event.
+
+I guess I'd better resync this thing.
+
+On Feb 15, 2014, at 6:22 PM, Jeff Frost <jeff at pgexperts.com> wrote:
+
+> I'm using slony 2.2.2 to migrate from 8.4 to 9.3 and after the initial sync has completed, I'm seeing the following in the slon logs on the subscriber (node 2):
+> 
+> 2014-02-16 02:01:19 UTC ERROR  remoteListenThread_2: db_getLocalNodeId() returned 1 - wrong database?
+> 
+> And indeed, if I run this query on the subscriber:
+> 
+> select "_migration".getlocalnodeid('_migration');
+> getlocalnodeid
+> ----------------
+>             1
+> (1 row)
+> 
+> Except it should be node 2.
+> 
+> Is there anyway to fix this without a full resync?
+> 
+> Do I need to revert to 2.2.1 and resync?
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+
+---
+Jeff Frost <jeff at pgexperts.com>
+CTO, PostgreSQL Experts, Inc.
+Phone: 1-888-PG-EXPRT x506
+FAX: 415-762-5122
+http://www.pgexperts.com/ 
+
+
+
+
+
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: signature.asc
+Type: application/pgp-signature
+Size: 208 bytes
+Desc: Message signed with OpenPGP using GPGMail
+Url : http://lists.slony.info/pipermail/slony1-general/attachments/20140216/dccb4761/attachment.pgp 
+
+From tmblue at gmail.com  Sun Feb 16 17:00:09 2014
+From: tmblue at gmail.com (Tory M Blue)
+Date: Sun, 16 Feb 2014 17:00:09 -0800
+Subject: [Slony1-general] Still having issues with wide area
+ replication. large table , copy set 2 failed
+In-Reply-To: <F7FD1574-4254-4D16-AF96-6F1B0B9985A3@pgexperts.com>
+References: <CAEaSS0YVcwmCNGTjDgwAqh-XsXRuA4zP4_EqX9fozJyBHPDqSA@mail.gmail.com>
+	<WM!41439fabdae24548d4063c276ab20ec51d8570acdc787f7ce94fd51664b5e2dd52314fc672b8ee6df6c2e4121d4da7b1!@asav-1.01.com>
+	<6994ACA7-C2A5-49BA-B25B-053A3640E937@pgexperts.com>
+	<CAEaSS0ZLOpUGtmHZ+teK85jyF1pwUDxVZ1463kV08-7QnbOWxQ@mail.gmail.com>
+	<WM!7848071ee73af99e2b0faf320e8342c37c3c6176d6ad405bd09ead1e43d7d0fc45c517ab1681ec3d76cd92da7beecd9b!@asav-2.01.com>
+	<F7FD1574-4254-4D16-AF96-6F1B0B9985A3@pgexperts.com>
+Message-ID: <CAEaSS0aCtCMOz9Ypjkj3_DZtPqqP6A3EKQ59a_20EbU-W9TQVg@mail.gmail.com>
+
+On Sun, Feb 16, 2014 at 9:46 AM, Jeff Frost <jeff at pgexperts.com> wrote:
+
+> On Feb 15, 2014, at 11:25 PM, Tory M Blue <tmblue at gmail.com> wrote:
+>
+>
+>
+>
+> On Sat, Feb 15, 2014 at 10:48 PM, Jeff Frost <jeff at pgexperts.com> wrote:
+>
+>> It's probably a firewall timing out your PostgreSQL connection while the
+>> indexes are being built on the replica.
+>>
+>> Look into tcp keep alive settings.
+>>
+>>
+> Yes this is what I thought it was when I first started with this, but
+> didn't make any progress. Keepalives by default is set to 7200 seconds, so
+> 2 hours, this is failing in an hour, so  I'll have to look at the firewalls
+> between us but since I'm connected to these boxes the entire time, from the
+> same network that is originating the slon configuration, I'm doubting the
+> firewalls are reaping the connections.
+>
+> Looking at the TCP keepalive settings, I don't think there is any tuning
+> there that can help
+>
+> net.ipv4.tcp_keepalive_time = 7200
+> net.ipv4.tcp_keepalive_probes = 9
+> net.ipv4.tcp_keepalive_intvl = 75
+>
+> Well, maybe I can "reduce this" just to make some interesting traffic
+> happen within that hour+ that the indexes are being created.
+>
+>
+> Yah, so 2 hrs means that if your firewall times out in 10 minutes, it's
+> going to kill that idle postgresql connection on you.
+>
+> This is common in AWS and here are the settings I use in slony 2.2 to fix
+> this:
+>
+> # TCP keep alive configurations
+> # Enable sending of TCP keep alive between slon and the PostgreSQL backends
+> tcp_keepalive = true
+>
+> # The number of seconds after which a TCP keep alive is sent across an idle
+> # connection. tcp_keepalive must be enabled for this to take effect.
+> Default
+> # value of 0 means use operating system default
+>  tcp_keepalive_idle = 5
+>
+> # The number of keep alive requests to the server that can be lost before
+> # the connection is declared dead. tcp_keepalive must be on.Default value
+> # of 0 means use operating system default
+> tcp_keepalive_count = 10
+>
+> # The number of seconds in between TCP keep alive requests. tcp_keepalive
+> # must be enabled. Default value of 0 means use operating system defaut
+> tcp_keepalive_interval = 30
+>
+> That's probably more aggressive than you need, but it should do the trick.
+>
+>
+Okay So I mucked with the settings, maybe I'm not understanding them quite
+right, but still same result, this time I at least caught the disconnect in
+my source postgresql logs.
+
+2014-02-16 14:41:03 PST CONFIG remoteWorkerThread_1: Begin COPY of table
+"tracking"."spotlightimp"
+NOTICE:  truncate of "tracking"."spotlightimp" succeeded
+2014-02-16 15:54:40 PST CONFIG remoteWorkerThread_1: 5618691807 bytes
+copied for table "tracking"."spotlightimp"
+
+------------ ORIGIN----------
+2014-02-16 16:14:40 PST cls postgres 172.19.228.100(35508) 13796 2014-02-16
+16:14:40.430 PSTLOG:  could not receive data from client: Connection reset
+by peer
+2014-02-16 16:14:40 PST cls postgres 172.19.228.100(35508) 13796 2014-02-16
+16:14:40.430 PSTLOG:  unexpected EOF on client connection with an open
+transaction
+------------ORIGIN----------
+
+As can be seen the connection is reaped, slon/postgres continue on their
+way, it's not until the next data copy is required that it finds it's
+connection is no longer there. Why it can't recreate a conneciton as one
+would do if they stopped and started slon is kind of beyond me.  Just not
+100% sure where it's being killed.
+
+
+2014-02-16 16:40:46 PST CONFIG remoteWorkerThread_1: 7183.069 seconds to
+copy table "tracking"."spotlightimp"
+2014-02-16 16:40:46 PST CONFIG remoteWorkerThread_1: copy table
+"tracking"."adimp"
+2014-02-16 16:40:46 PST CONFIG remoteWorkerThread_1: Begin COPY of table
+"tracking"."adimp"
+2014-02-16 16:40:46 PST ERROR  remoteWorkerThread_1: "select
+"_cls".copyFields(19);"
+2014-02-16 16:40:46 PST WARN   remoteWorkerThread_1: data copy for set 2
+failed 1 times - sleep 15 seconds
+NOTICE:  Slony-I: Logswitch to sl_log_2 initiated
+CONTEXT:  SQL statement "SELECT "_cls".logswitch_start()"
+PL/pgSQL function _cls.cleanupevent(interval) line 96 at PERFORM
+2014-02-16 16:40:49 PST INFO   cleanupThread: 6541.365 seconds for
+cleanupEvent()
+
+
+Am I doing this wrong? figured that since I've seen connections at 15
+minutes of processing complete fine, I thought that 30 minutes is more then
+enough. So send the first hey are you still there at 15 minutes then
+continue with them every 5 minutes, for a count of 30.
+
+But the above seems to have been reaped in the 20 minute area..
+
+net.ipv4.tcp_keepalive_time = 600
+net.ipv4.tcp_keepalive_probes = 30
+net.ipv4.tcp_keepalive_intvl = 300
+
+thanks for the assistance
+Tory
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20140216/1cf7e2e5/attachment.htm 
+
+From jeff at pgexperts.com  Sun Feb 16 17:06:31 2014
+From: jeff at pgexperts.com (Jeff Frost)
+Date: Sun, 16 Feb 2014 17:06:31 -0800
+Subject: [Slony1-general] Still having issues with wide area
+	replication. large table , copy set 2 failed
+In-Reply-To: <WM!890ea2cf9de03d35ca89d8b92c06ed80b90cbb2f2c67b07b0640db360db50610179f72ab091ef59d50c5e04b8ef7fdff!@asav-2.01.com>
+References: <CAEaSS0YVcwmCNGTjDgwAqh-XsXRuA4zP4_EqX9fozJyBHPDqSA@mail.gmail.com>
+	<WM!41439fabdae24548d4063c276ab20ec51d8570acdc787f7ce94fd51664b5e2dd52314fc672b8ee6df6c2e4121d4da7b1!@asav-1.01.com>
+	<6994ACA7-C2A5-49BA-B25B-053A3640E937@pgexperts.com>
+	<CAEaSS0ZLOpUGtmHZ+teK85jyF1pwUDxVZ1463kV08-7QnbOWxQ@mail.gmail.com>
+	<WM!7848071ee73af99e2b0faf320e8342c37c3c6176d6ad405bd09ead1e43d7d0fc45c517ab1681ec3d76cd92da7beecd9b!@asav-2.01.com>
+	<F7FD1574-4254-4D16-AF96-6F1B0B9985A3@pgexperts.com>
+	<CAEaSS0aCtCMOz9Ypjkj3_DZtPqqP6A3EKQ59a_20EbU-W9TQVg@mail.gmail.com>
+	<WM!890ea2cf9de03d35ca89d8b92c06ed80b90cbb2f2c67b07b0640db360db50610179f72ab091ef59d50c5e04b8ef7fdff!@asav-2.01.com>
+Message-ID: <4C1F5D40-2ED1-429B-B6D2-C9F3BC00F95F@pgexperts.com>
+
+
+On Feb 16, 2014, at 5:00 PM, Tory M Blue <tmblue at gmail.com> wrote:
+
+> 
+> 
+> 
+> As can be seen the connection is reaped, slon/postgres continue on their way, it's not until the next data copy is required that it finds it's connection is no longer there. Why it can't recreate a conneciton as one would do if they stopped and started slon is kind of beyond me.  Just not 100% sure where it's being killed.
+> 
+
+Because the initial sync must be done as a single transaction.
+
+
+> 
+> 2014-02-16 16:40:46 PST CONFIG remoteWorkerThread_1: 7183.069 seconds to copy table "tracking"."spotlightimp"
+> 2014-02-16 16:40:46 PST CONFIG remoteWorkerThread_1: copy table "tracking"."adimp"
+> 2014-02-16 16:40:46 PST CONFIG remoteWorkerThread_1: Begin COPY of table "tracking"."adimp"
+> 2014-02-16 16:40:46 PST ERROR  remoteWorkerThread_1: "select "_cls".copyFields(19);" 
+> 2014-02-16 16:40:46 PST WARN   remoteWorkerThread_1: data copy for set 2 failed 1 times - sleep 15 seconds
+> NOTICE:  Slony-I: Logswitch to sl_log_2 initiated
+> CONTEXT:  SQL statement "SELECT "_cls".logswitch_start()"
+> PL/pgSQL function _cls.cleanupevent(interval) line 96 at PERFORM
+> 2014-02-16 16:40:49 PST INFO   cleanupThread: 6541.365 seconds for cleanupEvent()
+>  
+> 
+> Am I doing this wrong? figured that since I've seen connections at 15 minutes of processing complete fine, I thought that 30 minutes is more then enough. So send the first hey are you still there at 15 minutes then continue with them every 5 minutes, for a count of 30.
+> 
+> But the above seems to have been reaped in the 20 minute area..
+> 
+> net.ipv4.tcp_keepalive_time = 600
+> net.ipv4.tcp_keepalive_probes = 30
+> net.ipv4.tcp_keepalive_intvl = 300
+
+
+Set it so that it's sending keepalives every 30 seconds.
+
+Something like this:
+
+net.ipv4.tcp_keepalive_time = 30
+net.ipv4.tcp_keepalive_probes = 10
+net.ipv4.tcp_keepalive_intvl = 30
+
+What version of slony are you using?  You may need to specifically enabled keepalive.  
+
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: signature.asc
+Type: application/pgp-signature
+Size: 208 bytes
+Desc: Message signed with OpenPGP using GPGMail
+Url : http://lists.slony.info/pipermail/slony1-general/attachments/20140216/62d461a2/attachment.pgp 
+
