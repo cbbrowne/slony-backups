@@ -2150,3 +2150,135 @@ Thanks,
 Martin
 
 
+From cs_dba at consistentstate.com  Wed Feb 26 10:39:20 2014
+From: cs_dba at consistentstate.com (CS DBA)
+Date: Wed, 26 Feb 2014 11:39:20 -0700
+Subject: [Slony1-general] PostGIS and SLONY
+Message-ID: <530E34D8.8040003@consistentstate.com>
+
+HI All;
+
+We have a client running postGIS, we're preparing to deploy SLONY. 
+However the postGIS meta tables geometry_columns and spatial_ref_sys do 
+not seem to get deployed with primary keys (via the postGIS install & 
+enabling a db to be spatial).
+
+Anyone running replication across postGIS enabled databases?  Do we need 
+to add primary keys and replicate the above gis meta tables? Or are 
+these simply lookup / meta data that will be populated appropriately as 
+stand alone tables on both the master and the slave?
+
+
+Thanks in advance...
+
+
+
+From greg at endpoint.com  Wed Feb 26 12:32:01 2014
+From: greg at endpoint.com (Greg Sabino Mullane)
+Date: Wed, 26 Feb 2014 15:32:01 -0500
+Subject: [Slony1-general] PostGIS and SLONY
+In-Reply-To: <530E34D8.8040003@consistentstate.com>
+References: <530E34D8.8040003@consistentstate.com>
+Message-ID: <20140226203200.GH553@broken.home>
+
+On Wed, Feb 26, 2014 at 11:39:20AM -0700, CS DBA wrote:
+> We have a client running postGIS, we're preparing to deploy SLONY. 
+> However the postGIS meta tables geometry_columns and spatial_ref_sys do 
+> not seem to get deployed with primary keys (via the postGIS install & 
+> enabling a db to be spatial).
+
+In recent versions of PostGIS, geometry_columns is a view, so you 
+do not need to worry about that. The spatial_ref_sys table should 
+already have a primary key on srid. What version of PostGIS are you using? 
+
+If an older one, then yes, your best option is to add primary keys: 
+make srid a primary key for spatial_ref_sys, and the the geometry_columns 
+table will need one spanning the catalog, schema, table, and 'column' columns.
+
+-- 
+Greg Sabino Mullane greg at endpoint.com
+End Point Corporation
+PGP Key: 0x14964AC8
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: not available
+Type: application/pgp-signature
+Size: 163 bytes
+Desc: Digital signature
+Url : http://lists.slony.info/pipermail/slony1-general/attachments/20140226/c4905268/attachment.pgp 
+
+From cbbrowne at afilias.info  Wed Feb 26 14:50:36 2014
+From: cbbrowne at afilias.info (Christopher Browne)
+Date: Wed, 26 Feb 2014 17:50:36 -0500
+Subject: [Slony1-general] PostGIS and SLONY
+In-Reply-To: <20140226203200.GH553@broken.home>
+References: <530E34D8.8040003@consistentstate.com>
+	<20140226203200.GH553@broken.home>
+Message-ID: <CANfbgbYaxEj1GQH4G=X+xLE4JKtTdkNVE9ExaFXMcSqkJ=S8RQ@mail.gmail.com>
+
+The one observation that's worth something is that you should make sure
+that you're using an unambiguous data type for any primary key.
+
+Thus, an integer column makes a "good" primary key; there's no risk of
+ambiguity where two integers might be interpreted as the same value.
+
+In contrast, using a timestamp or float or (I suppose) some of the GIS
+types mightn't turn out so happily if it is possible for two distinct
+values to be considered equal, and for that to be the case for a column
+used as primary key.
+
+My other observation is that in order for data to get replicated, it's
+necessary for COPY to be able to serialize and deserialize the data.  I
+don't imagine that's going to be much of a problem; broadly speaking, if
+you can pg_dump the data, that means you can COPY it, and hence Slony will
+be able to replicate it.  Conversely, if there's not a good serialization
+function (e.g. - equivalent to "tostring()" which is common in lots of
+languages), then Slony will have a problem, and it'll be the same problem
+you'd have getting pg_dump to work.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20140226/490e3f7f/attachment.htm 
+
+From ssinger at ca.afilias.info  Wed Feb 26 15:59:53 2014
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Wed, 26 Feb 2014 18:59:53 -0500
+Subject: [Slony1-general] PostGIS and SLONY
+In-Reply-To: <530E34D8.8040003@consistentstate.com>
+References: <530E34D8.8040003@consistentstate.com>
+Message-ID: <530E7FF9.9000300@ca.afilias.info>
+
+On 02/26/2014 01:39 PM, CS DBA wrote:
+> HI All;
+>
+> We have a client running postGIS, we're preparing to deploy SLONY.
+> However the postGIS meta tables geometry_columns and spatial_ref_sys do
+> not seem to get deployed with primary keys (via the postGIS install &
+> enabling a db to be spatial).
+>
+> Anyone running replication across postGIS enabled databases?  Do we need
+> to add primary keys and replicate the above gis meta tables? Or are
+> these simply lookup / meta data that will be populated appropriately as
+> stand alone tables on both the master and the slave?
+>
+
+
+In addition to what other people have said on the primary keys, you 
+should be aware of 
+http://lists.slony.info/pipermail/slony1-general/2012-March/012138.html
+
+In any of the postgis stuff I've done I never update a geometry column 
+in a way so the before/after is spatially equal but some people might.
+
+
+
+>
+> Thanks in advance...
+>
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+>
+
+
