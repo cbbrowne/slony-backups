@@ -1,0 +1,144 @@
+From bugzilla-daemon at main.slony.info  Wed Mar  5 13:57:58 2014
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed,  5 Mar 2014 13:57:58 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 332] New: Exclude unreplicable objects from
+	replication
+Message-ID: <bug-332-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=332
+
+           Summary: Exclude unreplicable objects from replication
+           Product: Slony-I
+           Version: devel
+          Platform: PC
+        OS/Version: Linux
+            Status: NEW
+          Severity: enhancement
+          Priority: low
+         Component: stored procedures
+        AssignedTo: slony1-bugs at lists.slony.info
+        ReportedBy: cbbrowne at ca.afilias.info
+                CC: slony1-bugs at lists.slony.info
+   Estimated Hours: 0.0
+
+
+A user reported that they made the mistake of using over-broad wildcards to
+specify the sequences to replicate.
+
+This led to the sequence that captures the node ID being replicated, which then
+led to subscriber nodes all deciding they were the origin node.  This is the "I
+am Spartacus!" bug. 
+http://en.wikipedia.org/wiki/Spartacus_%28film%29#.22I.27m_Spartacus.21.22
+
+We should add some error checking to the functions that control adding tables
+and sequences to replication so that they will decline to add dangerous objects
+to replication, specifically:
+
+a) Slony sequences, which may be recognized by having namespace ~ '^_.*' and
+name like 'sl_%'
+
+b) Slony tables, which may be recognized by having namespace ~ '^_.*' and name
+like 'sl_%'
+
+c) Objects in schemas pg_catalog and information_schema
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Mar  5 13:58:10 2014
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed,  5 Mar 2014 13:58:10 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 332] Exclude unreplicable objects from
+	replication
+In-Reply-To: <bug-332-4@http.www.slony.info/bugzilla/>
+References: <bug-332-4@http.www.slony.info/bugzilla/>
+Message-ID: <20140305215810.AA69329144E@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=332
+
+Christopher Browne <cbbrowne at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         AssignedTo|slony1-bugs at lists.slony.inf |cbbrowne at ca.afilias.info
+                   |o                           |
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Mar  5 13:58:18 2014
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed,  5 Mar 2014 13:58:18 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 332] Exclude unreplicable objects from
+	replication
+In-Reply-To: <bug-332-4@http.www.slony.info/bugzilla/>
+References: <bug-332-4@http.www.slony.info/bugzilla/>
+Message-ID: <20140305215818.29BDE29146A@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=332
+
+Christopher Browne <cbbrowne at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+         OS/Version|Linux                       |All
+           Platform|PC                          |All
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Mar  5 14:15:55 2014
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed,  5 Mar 2014 14:15:55 -0800 (PST)
+Subject: [Slony1-bugs] [Bug 332] Exclude unreplicable objects from
+	replication
+In-Reply-To: <bug-332-4@http.www.slony.info/bugzilla/>
+References: <bug-332-4@http.www.slony.info/bugzilla/>
+Message-ID: <20140305221555.2CEC429147A@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=332
+
+Christopher Browne <cbbrowne at ca.afilias.info> changed:
+
+           What    |Removed                     |Added
+----------------------------------------------------------------------------
+             Status|NEW                         |ASSIGNED
+
+--- Comment #1 from Christopher Browne <cbbrowne at ca.afilias.info> 2014-03-05 14:15:55 PST ---
+Here is a preliminary proposal for implementation.
+
+https://github.com/cbbrowne/slony1-engine/commit/f988bc8db10b37160949b7ea5978317068fd5806
+
+I am proposing here to do a somewhat fuzzy matching of which tables are to be
+refused; I treat that if the namespace starts with "_" and the table name
+starts with "sl_", then the table is to be treated as a replication table.
+
+if v_tab_nspname ~ '^_.*' and v_tab_relname ~ '^sl_.*' then
+        raise exception 'Slony-I: setAddTable_int(): % appears to be a
+replication configuration table and cannot be replicated',
+                p_fqname;
+end if;
+
+That may be a bit too open-ended.  What I don't want to do is to be
+insufficiently open-ended; it would be broken for one slony installation to
+break another one.
+
+It would be a more precise test to check that the namespace in question has one
+or more well-known Slony tables within it.  (e.g. - I could check that, in
+addition, there's the table sl_log_1 in the same namespace).
+
+Does that approach seem agreeable?
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
