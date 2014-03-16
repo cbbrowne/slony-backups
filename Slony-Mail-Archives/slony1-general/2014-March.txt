@@ -197,3 +197,366 @@ However my concern is that I have many replication sets, and as I recall it's no
 
 There's definitely a need for some clarification on those upgrade steps.
 
+From vivek at khera.org  Fri Mar 14 07:07:52 2014
+From: vivek at khera.org (Vick Khera)
+Date: Fri, 14 Mar 2014 10:07:52 -0400
+Subject: [Slony1-general] slon process "stops" after 58 minutes
+Message-ID: <CALd+dcezuG192K2n6CVBRpFwbk5cWqSHOr_x2HvAsmoq=70mXg@mail.gmail.com>
+
+So in prep for upgrading from 2.1 to 2.2 this weekend, I upgraded my
+server's OS from FreeBSD 9.1 to 9.2 (a fairly minor update, as OS updates
+go).
+
+Since the upgrade, the slon connected to the replica DB on that upgraded
+server will stop after just about 58 to 59 minutes. Restarting the slon
+daemon allows the replication to continue and fairly quickly catch up.
+
+By "stop" I mean there is nothing visibly going on -- replication stalls
+and nothing is logged.
+
+Here is the tail end of my log file from a few minutes ago. The slon
+process was started at 8:48am.
+
+2014-03-14 09:46:43.744319500 DEBUG1 calc sync size - last time: 1 last
+length: 2002 ideal: 29 proposed size: 3
+2014-03-14 09:46:43.745342500 DEBUG1 about to monitor_subscriber_query -
+pulling big actionid list for 4
+2014-03-14 09:46:43.749657500 INFO   remoteWorkerThread_4: syncing set 1
+with 262 table(s) from provider 4
+2014-03-14 09:46:43.762199500 DEBUG1 remoteHelperThread_4_4: 0.012 seconds
+delay for first row
+2014-03-14 09:46:43.766863500 DEBUG1 remoteHelperThread_4_4: 0.016 seconds
+until close cursor
+2014-03-14 09:46:43.766867500 DEBUG1 remoteHelperThread_4_4: inserts=266
+updates=350 deletes=176 truncates=0
+2014-03-14 09:46:43.766869500 DEBUG1 remoteWorkerThread_4: sync_helper
+timing:  pqexec (s/count)- provider 0.014/5 - subscriber 0.000/5
+2014-03-14 09:46:43.766872500 DEBUG1 remoteWorkerThread_4: sync_helper
+timing:  large tuples 0.000/0
+2014-03-14 09:46:44.006795500 INFO   remoteWorkerThread_4: SYNC 5015580475
+done in 0.262 seconds
+2014-03-14 09:46:44.006853500 DEBUG1 remoteWorkerThread_4: SYNC 5015580475
+sync_event timing:  pqexec (s/count)- provider 0.001/2 - subscriber 0.005/2
+- IUD 0.242/164
+
+
+at this point nothing more gets logged.
+
+Looking at the activity in the DB, I see the 5 connections from this slon,
+with all but one having a query start time of 09:46:44. This is the query
+that was running for over 10 minutes:
+
+datid            | 16392
+datname          | vkmlm
+pid              | 7159
+usesysid         | 16389
+usename          | slony
+application_name | slon.local_cleanup
+client_addr      | 127.0.0.1
+client_hostname  |
+client_port      | 55142
+backend_start    | 2014-03-14 08:48:16.198806-04
+xact_start       |
+query_start      | 2014-03-14 09:34:32.735557-04
+state_change     | 2014-03-14 09:34:32.745553-04
+waiting          | f
+state            | idle
+query            | begin;lock table "_mailermailer".sl_config_lock;select
+"_mailermailer".cleanupEvent('10 minutes'::interval);commit;
+
+pg_cancel_backend() will not kill that query. I did a
+pg_terminate_backend() and it got rid of that process, but the rest are
+still seemingly stuck and nothing is logging from slon.
+
+Any ideas? This is so confusing because it is such an odd time interval
+before it locks up. What's magical about 58 minutes?
+
+
+OS: FreeBSD 9.2/amd64
+Slony1: 2.1.3
+Postgres: 9.2.7
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20140314/0ea38a39/attachment.htm 
+
+From trackid-ohcee4ve at grid.einherjar.de  Fri Mar 14 07:31:25 2014
+From: trackid-ohcee4ve at grid.einherjar.de (thorkill)
+Date: Fri, 14 Mar 2014 15:31:25 +0100
+Subject: [Slony1-general] slon process "stops" after 58 minutes
+In-Reply-To: <CALd+dcezuG192K2n6CVBRpFwbk5cWqSHOr_x2HvAsmoq=70mXg@mail.gmail.com>
+	(Vick Khera's message of "Fri, 14 Mar 2014 10:07:52 -0400")
+References: <CALd+dcezuG192K2n6CVBRpFwbk5cWqSHOr_x2HvAsmoq=70mXg@mail.gmail.com>
+Message-ID: <878uscua0y.fsf@drone.nat>
+
+
+Hi all,
+
+Vick Khera <vivek at khera.org> writes:
+
+> So in prep for upgrading from 2.1 to 2.2 this weekend, I upgraded my
+> server's OS from FreeBSD 9.1 to 9.2 (a fairly minor update, as OS updates
+> go).
+>
+> Since the upgrade, the slon connected to the replica DB on that upgraded
+> server will stop after just about 58 to 59 minutes. Restarting the slon
+> daemon allows the replication to continue and fairly quickly catch up.
+
+I have similar problems. It is 45 minutes +/- remote_listen_timeout for me.
+
+[...]
+
+I my case it's "master" on FreeBSD 9.2 and a "slave" on FreeBSD 9.1. It
+seems that in some time around net.inet.tcp.keepidle (sysctl -a to
+check) when keepalive from OS kicks in the transsmission will be droped
+depending on your keepalive configuration. You should also see error
+messages in postgresql logs like:
+
+getsockopt(TCP_KEEPCNT) failed: Protocol not available
+
+> Any ideas? This is so confusing because it is such an odd time interval
+> before it locks up. What's magical about 58 minutes?
+
+My wild guess is:
+
+http://lists.freebsd.org/pipermail/freebsd-stable/2013-November/075781.html
+
+
+The problem I have is, that slon on slave reconnects to database on
+master but the backend process on master stays forever taking
+resournces. From first connection I have like 1 hour "in
+production" - everything is just fine, then comes keepalive + 
+remote_listen_timeout, drops the connection and slon reconnects every
+remote_listen_timeout creating new backend processes.
+
+I have one simple workaround for this: crontab + slon restart every
+hour.
+
+Cheers,
+thorkill
+
+PS. Postgresql 9.3.2 used on both nodes.
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: not available
+Type: application/pgp-signature
+Size: 489 bytes
+Desc: not available
+Url : http://lists.slony.info/pipermail/slony1-general/attachments/20140314/42cc8943/attachment.pgp 
+
+From vivek at khera.org  Fri Mar 14 08:33:21 2014
+From: vivek at khera.org (Vick Khera)
+Date: Fri, 14 Mar 2014 11:33:21 -0400
+Subject: [Slony1-general] slon process "stops" after 58 minutes
+In-Reply-To: <878uscua0y.fsf@drone.nat>
+References: <CALd+dcezuG192K2n6CVBRpFwbk5cWqSHOr_x2HvAsmoq=70mXg@mail.gmail.com>
+	<878uscua0y.fsf@drone.nat>
+Message-ID: <CALd+dcfdn=z+sRxO2fgggOE_qbbv=cTNWn_APpU6EYGMmsMdwQ@mail.gmail.com>
+
+On Fri, Mar 14, 2014 at 10:31 AM, thorkill <
+trackid-ohcee4ve at grid.einherjar.de> wrote:
+
+> I my case it's "master" on FreeBSD 9.2 and a "slave" on FreeBSD 9.1. It
+> seems that in some time around net.inet.tcp.keepidle (sysctl -a to
+> check) when keepalive from OS kicks in the transsmission will be droped
+> depending on your keepalive configuration. You should also see error
+> messages in postgresql logs like:
+>
+> getsockopt(TCP_KEEPCNT) failed: Protocol not available
+>
+> > Any ideas? This is so confusing because it is such an odd time interval
+> > before it locks up. What's magical about 58 minutes?
+>
+> My wild guess is:
+>
+> http://lists.freebsd.org/pipermail/freebsd-stable/2013-November/075781.html
+>
+>
+>
+>
+>
+Wow. These symptoms line up *exactly*.
+
+I notice the getsockopt error is logged a handful of times when slon starts
+and connects.
+
+I applied the patch from the above message thread and rebooted the kernel.
+When slon started, no getsockopt errors were reported. I'll let you know in
+an hour what happens.
+
+By the way, my net.inet.tcp.keepidle is 7200000, which should be 2 hours.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20140314/ff4ca79b/attachment.htm 
+
+From vivek at khera.org  Fri Mar 14 09:21:02 2014
+From: vivek at khera.org (Vick Khera)
+Date: Fri, 14 Mar 2014 12:21:02 -0400
+Subject: [Slony1-general] slon process "stops" after 58 minutes
+In-Reply-To: <CALd+dcfdn=z+sRxO2fgggOE_qbbv=cTNWn_APpU6EYGMmsMdwQ@mail.gmail.com>
+References: <CALd+dcezuG192K2n6CVBRpFwbk5cWqSHOr_x2HvAsmoq=70mXg@mail.gmail.com>
+	<878uscua0y.fsf@drone.nat>
+	<CALd+dcfdn=z+sRxO2fgggOE_qbbv=cTNWn_APpU6EYGMmsMdwQ@mail.gmail.com>
+Message-ID: <CALd+dcekcMVXdcpNWGFvUN-=zeYH_Sisa_u=_x-Xz+U7eMfEMg@mail.gmail.com>
+
+On Fri, Mar 14, 2014 at 11:33 AM, Vick Khera <vivek at khera.org> wrote:
+
+> I applied the patch from the above message thread and rebooted the kernel.
+> When slon started, no getsockopt errors were reported. I'll let you know in
+> an hour what happens.
+>
+
+fail. that patch doesn't help.
+
+i will now try to get postgres to imagine these new TCP_KEEP* socket
+options do not exist, like it was in FreeBSD 9.1.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20140314/c576a79b/attachment.htm 
+
+From ssinger at ca.afilias.info  Fri Mar 14 10:29:24 2014
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Fri, 14 Mar 2014 13:29:24 -0400
+Subject: [Slony1-general] slon process "stops" after 58 minutes
+In-Reply-To: <CALd+dcfdn=z+sRxO2fgggOE_qbbv=cTNWn_APpU6EYGMmsMdwQ@mail.gmail.com>
+References: <CALd+dcezuG192K2n6CVBRpFwbk5cWqSHOr_x2HvAsmoq=70mXg@mail.gmail.com>
+	<878uscua0y.fsf@drone.nat>
+	<CALd+dcfdn=z+sRxO2fgggOE_qbbv=cTNWn_APpU6EYGMmsMdwQ@mail.gmail.com>
+Message-ID: <53233C74.5030703@ca.afilias.info>
+
+
+>
+> Wow. These symptoms line up *exactly*.
+>
+> I notice the getsockopt error is logged a handful of times when slon
+> starts and connects.
+>
+> I applied the patch from the above message thread and rebooted the
+> kernel. When slon started, no getsockopt errors were reported. I'll let
+> you know in an hour what happens.
+>
+> By the way, my net.inet.tcp.keepidle is 7200000, which should be 2 hours.
+>
+>
+
+You can turn keep alive's off on the slon end with
+tcp_keepalive
+
+http://www.slony.info/documentation/2.2/slon-config-connection.html
+
+
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+>
+
+
+From ssinger at ca.afilias.info  Fri Mar 14 10:30:53 2014
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Fri, 14 Mar 2014 13:30:53 -0400
+Subject: [Slony1-general] question about upgrading 2.1 to 2.2 steps from
+ manual
+In-Reply-To: <CALd+dce=d13Sfs=ggNMr0XHD1Obpmwr0UOBWkf5gJ-e13w74yA@mail.gmail.com>
+References: <CALd+dce=d13Sfs=ggNMr0XHD1Obpmwr0UOBWkf5gJ-e13w74yA@mail.gmail.com>
+Message-ID: <53233CCD.7060002@ca.afilias.info>
+
+On 03/13/2014 02:43 PM, Vick Khera wrote:
+> In the docs, a suggested method to upgrade 2.1 to to 2.2 is as follows:
+>
+>  1. Use SLONIK LOCK SET to lock all sets, so that no new changes are
+>     being injected into the log tables
+>  2. Set slon parameter slon_config_cleanup_interval to a very low value
+>     (a few seconds) so that the slon cleanup thread will trim data out
+>     of sl_log_1 and sl_log_2 immediately
+>  3. Restart slon for each node and let it run through a cleanup cycle to
+>     empty out sl_log_1 and sl_log_2 on all nodes.
+>  4. Verify that sl_log_1 and sl_log_2 are empty on all nodes in the cluster.
+>  5. Use SLONIK UPDATE FUNCTIONS against each node to upgrade to version 2.2
+>  6. Use SLONIK UNLOCK SET to unlock all sets
+>
+> Based on my experience and other reading, I think between steps 4 and 5
+> should be:
+>
+>  1. stop slon
+>  2. install new version of slony
+>
+> then after step 5, restart slon.
+>
+> Is that the correct place to perform the install? Or can/should that be
+> done between steps 2 and 3?
+
+You want to run step 3 with the OLD slon, thew new slon won't work yet.
+
+So yes, between steps 4 and 5 is when you would install the new slon
+
+
+>
+> Also, will the lock set survive restarting slon? I thought it took out
+> an exclusive lock on all tables, but if you stop the process, the locks
+> would then go away.
+>
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+>
+
+
+From vivek at khera.org  Fri Mar 14 11:01:36 2014
+From: vivek at khera.org (Vick Khera)
+Date: Fri, 14 Mar 2014 14:01:36 -0400
+Subject: [Slony1-general] slon process "stops" after 58 minutes
+In-Reply-To: <53233C74.5030703@ca.afilias.info>
+References: <CALd+dcezuG192K2n6CVBRpFwbk5cWqSHOr_x2HvAsmoq=70mXg@mail.gmail.com>
+	<878uscua0y.fsf@drone.nat>
+	<CALd+dcfdn=z+sRxO2fgggOE_qbbv=cTNWn_APpU6EYGMmsMdwQ@mail.gmail.com>
+	<53233C74.5030703@ca.afilias.info>
+Message-ID: <CALd+dcdOTja=yhZoR9OszMbg_63GwTohrQ+RtBqhXSakxNJM6Q@mail.gmail.com>
+
+On Fri, Mar 14, 2014 at 1:29 PM, Steve Singer <ssinger at ca.afilias.info>wrote:
+
+> You can turn keep alive's off on the slon end with
+> tcp_keepalive
+>
+> http://www.slony.info/documentation/2.2/slon-config-connection.html
+>
+>
+>
+I'm fairly sure this keep alive is a red herring here. In FreeBSD 9.1,
+postgres complains with the same getsockopt error, and all that does is
+cause postgres to not do the corresponding setsockopt.  It makes no
+difference if you patch FreeBSD to have the getsockopt succeed.
+
+Furthermore, setting the keeplalive timeout in freebsd down to 150 seconds
+doesn't cause the connection to fail sooner. In fact on my running systems,
+the timeout was 2 hours. So something else is funky going on here.
+
+FWIW, I did not recompile postgres or slony after upgrading to freebsd 9.2
+from 9.1. Also, my master is still running 9.1 and never locks up.
+Something freebsd-related for sure.
+
+But i will try to disable slony's keepalive just in the slim chance that it
+is related.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20140314/aa42c9ca/attachment.htm 
+
+From vivek at khera.org  Fri Mar 14 11:03:24 2014
+From: vivek at khera.org (Vick Khera)
+Date: Fri, 14 Mar 2014 14:03:24 -0400
+Subject: [Slony1-general] slon process "stops" after 58 minutes
+In-Reply-To: <CALd+dcdOTja=yhZoR9OszMbg_63GwTohrQ+RtBqhXSakxNJM6Q@mail.gmail.com>
+References: <CALd+dcezuG192K2n6CVBRpFwbk5cWqSHOr_x2HvAsmoq=70mXg@mail.gmail.com>
+	<878uscua0y.fsf@drone.nat>
+	<CALd+dcfdn=z+sRxO2fgggOE_qbbv=cTNWn_APpU6EYGMmsMdwQ@mail.gmail.com>
+	<53233C74.5030703@ca.afilias.info>
+	<CALd+dcdOTja=yhZoR9OszMbg_63GwTohrQ+RtBqhXSakxNJM6Q@mail.gmail.com>
+Message-ID: <CALd+dcf440eK2EV_BHTg5FF-woXnU8=patWVnqdS6umboCu67Q@mail.gmail.com>
+
+Also, my connections are never idle. There is constant write activity on
+this database, so nobody should ever be sending any keepalive packets.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20140314/ac425f94/attachment.htm 
+
