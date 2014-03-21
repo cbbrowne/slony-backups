@@ -373,3 +373,165 @@ Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
 You are on the CC list for the bug.
 You are the assignee for the bug.
 
+From bugzilla-daemon at main.slony.info  Wed Mar 19 13:19:35 2014
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed, 19 Mar 2014 13:19:35 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 335] New: Disable node on failed node event
+Message-ID: <bug-335-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=335
+
+           Summary: Disable node on failed node event
+           Product: Slony-I
+           Version: devel
+          Platform: All
+        OS/Version: All
+            Status: NEW
+          Severity: enhancement
+          Priority: low
+         Component: slon
+        AssignedTo: slony1-bugs at lists.slony.info
+        ReportedBy: janwieck at yahoo.com
+                CC: slony1-bugs at lists.slony.info
+   Estimated Hours: 0.0
+
+
+Currently there is a possibility that a failed node can process the FAILED_NODE
+event for itself and even make it to the DROP_NODE, in which case it will drop
+it's own Slony schema. This can contain vital information like missing sl_log
+data that hadn't replicated.
+
+The current proposal is to disable the node by setting no_active=False on
+FAILED_NODE processing, then terminate slon. slon checks that flag (or should
+do so) and refuses to start if it is set.
+
+We further should add a unique identifier like a UUID to sl_node. The remote
+listener will check on startup that the value in the for it's entry in the
+event provider is the same and refuse to work if it is not. This will prevent
+that a temporary failed node will process bogus data after a "DROP NODE, STORE
+NODE" sequence had happened while it was failed if it never received any of
+those or the FAILED_NODE event.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Mar 19 13:26:38 2014
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed, 19 Mar 2014 13:26:38 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 336] New: Review transaction isolation level
+ requirements for slon database connections.
+Message-ID: <bug-336-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=336
+
+           Summary: Review transaction isolation level requirements for
+                    slon database connections.
+           Product: Slony-I
+           Version: devel
+          Platform: All
+        OS/Version: All
+            Status: NEW
+          Severity: normal
+          Priority: low
+         Component: slon
+        AssignedTo: slony1-bugs at lists.slony.info
+        ReportedBy: janwieck at yahoo.com
+                CC: slony1-bugs at lists.slony.info
+   Estimated Hours: 0.0
+
+
+slon currently uses READ ONLY ISOLATION LEVEL SERIALIZABLE DEFERRABLE for some
+transactions, in particular the remote listener. This causes event propagation
+to stall during another long running, serializable transaction.
+
+I believe that only event creation and copy_set done against the origin require
+serializable. The copy_set can use serializable deferrable. All other slon
+transaction should work fine with isolation level repeatable read.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Mar 19 13:54:17 2014
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed, 19 Mar 2014 13:54:17 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 335] Disable node on failed node event
+In-Reply-To: <bug-335-4@http.www.slony.info/bugzilla/>
+References: <bug-335-4@http.www.slony.info/bugzilla/>
+Message-ID: <20140319205417.50B1A2913D2@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=335
+
+--- Comment #1 from Christopher Browne <cbbrowne at ca.afilias.info> 2014-03-19 13:54:17 PDT ---
+Here is a function that generates well-formed UUIDs of Type 1 form:
+
+create or replace function public.make_retroactive_uuid (p_trid integer, p_date
+timestamptz, p_suffix text)
+returns uuid as
+$$
+declare
+   c_uuid uuid;
+   c_epoch bigint;
+   c_tlow character(8);
+   c_tmid character(4);
+   c_version character(1);
+   c_thi character(4);
+   c_seq character(4);
+   c_node character(12);
+begin
+   if p_date is null then
+     c_epoch := 10000000*(extract(epoch from
+'1970-01-01'::timestamptz)+12219292800::bigint)::bigint;
+   else
+     c_epoch := (10000000*(extract(epoch from
+p_date)+12219292800::bigint))::bigint;
+   end if;
+   c_tlow := lpad(to_hex(mod(c_epoch, 4294967296::bigint) 
+                         # mod(p_trid/8192, 256)
+                    ), 8, '0');
+   c_tmid := lpad(to_hex(mod(c_epoch /4294967296::bigint, 65536)),4,'0');
+   c_version := '1';
+   c_thi := lpad(to_hex(c_epoch /281474976710656::bigint),3,'0');
+   c_seq := lpad(to_hex((B'10000000' | mod(p_trid/256,
+32)::bit(8))::integer),2,'0')
+              || lpad(to_hex(mod(p_trid, 256)), 2, '0');
+   c_node := p_suffix;
+   c_uuid := (c_tlow || '-' || c_tmid || '-' || c_version || c_thi || '-' ||
+c_seq || '-' || c_node)::uuid;
+   return c_uuid;
+end
+$$ language plpgsql;
+
+Usage example:
+
+select public.make_retroactive_uuid(1, now(), 'f6b3a3220461');
+        make_retroactive_uuid         
+--------------------------------------
+ b39dde40-afa7-11e3-8001-f6b3a3220461
+(1 row)
+
+
+That can then be decoded using OSSP UUID code:
+
+> uuid -d b39dde40-afa7-11e3-8001-f6b3a3220461
+encode: STR:     b39dde40-afa7-11e3-8001-f6b3a3220461
+        SIV:     238751509672186172578688542368744997985
+decode: variant: DCE 1.1, ISO/IEC 11578:1996
+        version: 1 (time and node based)
+        content: time:  2014-03-19 20:47:35.911379.2 UTC
+                 clock: 1 (usually random)
+                 node:  f6:b3:a3:22:04:61 (local unicast)
+
+Note that type 1 is the usual sort generated by default.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
