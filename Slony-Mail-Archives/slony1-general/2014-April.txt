@@ -1,0 +1,284 @@
+From jeff at pgexperts.com  Wed Apr  2 13:05:56 2014
+From: jeff at pgexperts.com (Jeff Frost)
+Date: Wed, 2 Apr 2014 13:05:56 -0700
+Subject: [Slony1-general] help tuning to reduce replication lag
+Message-ID: <3BDFDBF2-8876-4B62-866F-797550861706@pgexperts.com>
+
+First, I have a question.  The docs here: http://main.slony.info/documentation/2.1/deploymentconcerns.html#AEN2499
+
+indicate that 0.978 seconds until close cursor means that processing took 0.978 seconds against the provider.
+
+Does that mean this is how long it took to iterate over the entire cursor or that it took this long to iterate over the cursor and perform the actual inserts/updates/deletes on the local node?  I'm guessing it's the latter, but I want to make sure.
+
+Also, I'm not quite clear on how to interpret the two numbers in the large tuples log output.
+
+I ask because we have a 1.2TB database which is being replicated with slony 2.1 and while it usually cruises along just fine, occasionally we will see ever increasing lag on busy days, that takes forever to catch up.
+
+The servers in question are connected via gigabit and bandwidth utilization is quite low on the link. 
+
+The provider has 256G of RAM and the subscriber has 80G of RAM.
+
+sync_group_maxsize is the only non-default value in the slon config and is currently set at 500, though we have tried various higher and lower values with seemingly little effect, probably because once you get over 100 it doesn't make as much difference.
+
+Anyone have further tuning suggestions?
+
+If we look at our sync events in the logs, they look like this:
+
+2014-04-02 11:00:18 PDT DEBUG1 remoteHelperThread_2_2: 0.987 seconds delay for first row
+2014-04-02 11:16:59 PDT DEBUG1 remoteHelperThread_2_2: 1001.387 seconds until close cursor
+2014-04-02 11:16:59 PDT DEBUG1 remoteHelperThread_2_2: inserts=44690 updates=133632 deletes=23148 truncates=0
+2014-04-02 11:16:59 PDT DEBUG1 remoteWorkerThread_2: sync_helper timing:  pqexec (s/count)- provider 2.048/406 - subscriber 0.000/406
+2014-04-02 11:16:59 PDT DEBUG1 remoteWorkerThread_2: sync_helper timing:  large tuples 1.315/1787
+2014-04-02 11:17:07 PDT INFO   remoteWorkerThread_2: SYNC 5015991733 done in 1009.672 seconds
+2014-04-02 11:17:07 PDT DEBUG1 remoteWorkerThread_2: SYNC 5015991733 sync_event timing:  pqexec (s/count)- provider 0.002/2 - subscriber 0.004/2 - IUD 1008.625/40297
+
+2014-04-02 11:17:08 PDT DEBUG1 remoteHelperThread_2_2: 1.094 seconds delay for first row
+2014-04-02 11:56:01 PDT DEBUG1 remoteHelperThread_2_2: 2334.126 seconds until close cursor
+2014-04-02 11:56:01 PDT DEBUG1 remoteHelperThread_2_2: inserts=83628 updates=122325 deletes=25012 truncates=0
+2014-04-02 11:56:01 PDT DEBUG1 remoteWorkerThread_2: sync_helper timing:  pqexec (s/count)- provider 2.213/465 - subscriber 0.000/465
+2014-04-02 11:56:01 PDT DEBUG1 remoteWorkerThread_2: sync_helper timing:  large tuples 0.756/965
+2014-04-02 11:56:04 PDT INFO   remoteWorkerThread_2: SYNC 5015992233 done in 2337.211 seconds
+2014-04-02 11:56:04 PDT DEBUG1 remoteWorkerThread_2: SYNC 5015992233 sync_event timing:  pqexec (s/count)- provider 0.010/2 - subscriber 0.005/2 - IUD 2336.036/46197
+
+2014-04-02 11:56:06 PDT DEBUG1 remoteHelperThread_2_2: 1.520 seconds delay for first row
+2014-04-02 12:16:37 PDT DEBUG1 remoteHelperThread_2_2: 1232.814 seconds until close cursor
+2014-04-02 12:16:37 PDT DEBUG1 remoteHelperThread_2_2: inserts=109353 updates=124460 deletes=41581 truncates=0
+2014-04-02 12:16:37 PDT DEBUG1 remoteWorkerThread_2: sync_helper timing:  pqexec (s/count)- provider 2.663/554 - subscriber 0.000/554
+2014-04-02 12:16:37 PDT DEBUG1 remoteWorkerThread_2: sync_helper timing:  large tuples 3.342/4818
+2014-04-02 12:16:42 PDT INFO   remoteWorkerThread_2: SYNC 5015992733 done in 1237.954 seconds
+2014-04-02 12:16:42 PDT DEBUG1 remoteWorkerThread_2: SYNC 5015992733 sync_event timing:  pqexec (s/count)- provider 0.002/2 - subscriber 0.005/2 - IUD 1236.358/55084
+
+2014-04-02 12:16:44 PDT DEBUG1 remoteHelperThread_2_2: 1.339 seconds delay for first row
+2014-04-02 12:25:28 PDT DEBUG1 remoteHelperThread_2_2: 525.458 seconds until close cursor
+2014-04-02 12:25:28 PDT DEBUG1 remoteHelperThread_2_2: inserts=82400 updates=132333 deletes=61684 truncates=0
+2014-04-02 12:25:28 PDT DEBUG1 remoteWorkerThread_2: sync_helper timing:  pqexec (s/count)- provider 2.351/556 - subscriber 0.000/556
+2014-04-02 12:25:28 PDT DEBUG1 remoteWorkerThread_2: sync_helper timing:  large tuples 3.322/5009
+2014-04-02 12:25:31 PDT INFO   remoteWorkerThread_2: SYNC 5015993233 done in 528.010 seconds
+2014-04-02 12:25:31 PDT DEBUG1 remoteWorkerThread_2: SYNC 5015993233 sync_event timing:  pqexec (s/count)- provider 0.001/2 - subscriber 0.004/2 - IUD 526.604/55287
+
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: signature.asc
+Type: application/pgp-signature
+Size: 208 bytes
+Desc: Message signed with OpenPGP using GPGMail
+Url : http://lists.slony.info/pipermail/slony1-general/attachments/20140402/ed25c03f/attachment.pgp 
+
+From cbbrowne at afilias.info  Wed Apr  2 13:28:41 2014
+From: cbbrowne at afilias.info (Christopher Browne)
+Date: Wed, 2 Apr 2014 16:28:41 -0400
+Subject: [Slony1-general] Fwd:  help tuning to reduce replication lag
+In-Reply-To: <CANfbgbYt4gro=9JAYt-z1Vz=w55LG6eKCoOL4C+sKichvgNDow@mail.gmail.com>
+References: <3BDFDBF2-8876-4B62-866F-797550861706@pgexperts.com>
+	<CANfbgbYt4gro=9JAYt-z1Vz=w55LG6eKCoOL4C+sKichvgNDow@mail.gmail.com>
+Message-ID: <CANfbgbaNNdcdnKeHgUZi8idQ6tjWc56F+euRKWF-jMH5BeyQeQ@mail.gmail.com>
+
+I replied; should also forward to the list...
+
+---------- Forwarded message ----------
+From: Christopher Browne <cbbrowne at afilias.info>
+Date: Wed, Apr 2, 2014 at 4:28 PM
+Subject: Re: [Slony1-general] help tuning to reduce replication lag
+To: Jeff Frost <jeff at pgexperts.com>
+
+
+The 0.978 seconds is how long it took for the CURSOR to get to the point
+where it was able to provide the first row.
+
+Given that the SYNCs seem to be taking on the order of 1000 seconds, that's
+not much overhead.
+
+(In contrast, it would be distressing if it took 1219.35 seconds for the
+"delay for first row", and then the SYNC was completed in another 2
+seconds.)
+
+It's taking a thousand-ish seconds to process ~200K
+inserts/updates/deletes, which doesn't seem ludicrously out of line with
+what I'd expect.
+
+It doesn't seem likely to me that the amount of memory that you have is
+terribly relevant to performance; the processing of a stream of 200K-ish
+I/U/Ds won't be RAM-hungry, it's mostly hungry in:
+a) Chewing CPU for the parsing and planning of each statement;
+b) Chewing disk I/O for the processing of the I/U/Ds and logging updates in
+WAL.
+
+I would expect Slony version 2.2 to be a fair bit quicker, as it uses COPY
+protocol to copy the data in, which dramatically reduces the amount of
+effort that the subscriber server needs to do parsing and planning the SQL
+for the INSERT/UPDATE/DELETE statements.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20140402/4c336c77/attachment.htm 
+
+From jeff at pgexperts.com  Wed Apr  2 13:33:08 2014
+From: jeff at pgexperts.com (Jeff Frost)
+Date: Wed, 2 Apr 2014 13:33:08 -0700
+Subject: [Slony1-general] Fwd:  help tuning to reduce replication lag
+In-Reply-To: <CANfbgbaNNdcdnKeHgUZi8idQ6tjWc56F+euRKWF-jMH5BeyQeQ@mail.gmail.com>
+References: <3BDFDBF2-8876-4B62-866F-797550861706@pgexperts.com>
+	<CANfbgbYt4gro=9JAYt-z1Vz=w55LG6eKCoOL4C+sKichvgNDow@mail.gmail.com>
+	<CANfbgbaNNdcdnKeHgUZi8idQ6tjWc56F+euRKWF-jMH5BeyQeQ@mail.gmail.com>
+Message-ID: <18FD35B0-DB4C-4A34-87D6-032BA85C89B0@pgexperts.com>
+
+
+On Apr 2, 2014, at 1:28 PM, Christopher Browne <cbbrowne at afilias.info> wrote:
+
+> It's taking a thousand-ish seconds to process ~200K inserts/updates/deletes, which doesn't seem ludicrously out of line with what I'd expect.
+> 
+> It doesn't seem likely to me that the amount of memory that you have is terribly relevant to performance; the processing of a stream of 200K-ish I/U/Ds won't be RAM-hungry, it's mostly hungry in:
+> a) Chewing CPU for the parsing and planning of each statement;
+> b) Chewing disk I/O for the processing of the I/U/Ds and logging updates in WAL.
+> 
+
+The disk hardware is pretty zippy and showing no signs of iowait, but it's definitely burning up the CPU and there's no way to thread that up to use more cores in current versions, right?  Even if we split the tables across multiple sets, do they still process in serial?
+
+> I would expect Slony version 2.2 to be a fair bit quicker, as it uses COPY protocol to copy the data in, which dramatically reduces the amount of effort that the subscriber server needs to do parsing and planning the SQL for the INSERT/UPDATE/DELETE statements.
+
+
+
+That was going to be my next question!
+
+Does that help just for the inserts or with the updates/deletes as well?
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: signature.asc
+Type: application/pgp-signature
+Size: 208 bytes
+Desc: Message signed with OpenPGP using GPGMail
+Url : http://lists.slony.info/pipermail/slony1-general/attachments/20140402/4b3102f6/attachment.pgp 
+
+From cbbrowne at afilias.info  Wed Apr  2 14:14:55 2014
+From: cbbrowne at afilias.info (Christopher Browne)
+Date: Wed, 2 Apr 2014 17:14:55 -0400
+Subject: [Slony1-general] Fwd: help tuning to reduce replication lag
+In-Reply-To: <18FD35B0-DB4C-4A34-87D6-032BA85C89B0@pgexperts.com>
+References: <3BDFDBF2-8876-4B62-866F-797550861706@pgexperts.com>
+	<CANfbgbYt4gro=9JAYt-z1Vz=w55LG6eKCoOL4C+sKichvgNDow@mail.gmail.com>
+	<CANfbgbaNNdcdnKeHgUZi8idQ6tjWc56F+euRKWF-jMH5BeyQeQ@mail.gmail.com>
+	<18FD35B0-DB4C-4A34-87D6-032BA85C89B0@pgexperts.com>
+Message-ID: <CANfbgbYvLu3sWAkG2ddKOB_2zMr0bYL8cr--vuqSSdWUeRFHhQ@mail.gmail.com>
+
+On Wed, Apr 2, 2014 at 4:33 PM, Jeff Frost <jeff at pgexperts.com> wrote:
+
+>
+> On Apr 2, 2014, at 1:28 PM, Christopher Browne <cbbrowne at afilias.info>
+> wrote:
+>
+> > It's taking a thousand-ish seconds to process ~200K
+> inserts/updates/deletes, which doesn't seem ludicrously out of line with
+> what I'd expect.
+> >
+> > It doesn't seem likely to me that the amount of memory that you have is
+> terribly relevant to performance; the processing of a stream of 200K-ish
+> I/U/Ds won't be RAM-hungry, it's mostly hungry in:
+> > a) Chewing CPU for the parsing and planning of each statement;
+> > b) Chewing disk I/O for the processing of the I/U/Ds and logging updates
+> in WAL.
+> >
+>
+> The disk hardware is pretty zippy and showing no signs of iowait, but it's
+> definitely burning up the CPU and there's no way to thread that up to use
+> more cores in current versions, right?  Even if we split the tables across
+> multiple sets, do they still process in serial?
+>
+> Yep, they need to process in serial.  Not much way to "improve" on that.
+
+An attempt was made to parallelize processing in the eRServer replication
+system, a predecessor to Slony, and we had to shut that off in practice.
+
+
+> > I would expect Slony version 2.2 to be a fair bit quicker, as it uses
+> COPY protocol to copy the data in, which dramatically reduces the amount of
+> effort that the subscriber server needs to do parsing and planning the SQL
+> for the INSERT/UPDATE/DELETE statements.
+>
+> That was going to be my next question!
+>
+> Does that help just for the inserts or with the updates/deletes as well?
+>
+
+It'll help for all three, yep.  All going into one stream.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20140402/7cf16c49/attachment.htm 
+
+From jeff at pgexperts.com  Wed Apr  2 14:56:43 2014
+From: jeff at pgexperts.com (Jeff Frost)
+Date: Wed, 2 Apr 2014 14:56:43 -0700
+Subject: [Slony1-general] Fwd: help tuning to reduce replication lag
+In-Reply-To: <CANfbgbYvLu3sWAkG2ddKOB_2zMr0bYL8cr--vuqSSdWUeRFHhQ@mail.gmail.com>
+References: <3BDFDBF2-8876-4B62-866F-797550861706@pgexperts.com>
+	<CANfbgbYt4gro=9JAYt-z1Vz=w55LG6eKCoOL4C+sKichvgNDow@mail.gmail.com>
+	<CANfbgbaNNdcdnKeHgUZi8idQ6tjWc56F+euRKWF-jMH5BeyQeQ@mail.gmail.com>
+	<18FD35B0-DB4C-4A34-87D6-032BA85C89B0@pgexperts.com>
+	<CANfbgbYvLu3sWAkG2ddKOB_2zMr0bYL8cr--vuqSSdWUeRFHhQ@mail.gmail.com>
+Message-ID: <8F05166E-2C25-44B1-A9C0-02107C9308D8@pgexperts.com>
+
+
+On Apr 2, 2014, at 2:14 PM, Christopher Browne <cbbrowne at afilias.info> wrote:
+
+> The disk hardware is pretty zippy and showing no signs of iowait, but it's definitely burning up the CPU and there's no way to thread that up to use more cores in current versions, right?  Even if we split the tables across multiple sets, do they still process in serial?
+> 
+> Yep, they need to process in serial.  Not much way to "improve" on that.
+> 
+> An attempt was made to parallelize processing in the eRServer replication system, a predecessor to Slony, and we had to shut that off in practice.
+
+That's what I figured.
+
+>  
+> > I would expect Slony version 2.2 to be a fair bit quicker, as it uses COPY protocol to copy the data in, which dramatically reduces the amount of effort that the subscriber server needs to do parsing and planning the SQL for the INSERT/UPDATE/DELETE statements.
+> 
+> That was going to be my next question!
+> 
+> Does that help just for the inserts or with the updates/deletes as well?
+> 
+> It'll help for all three, yep.  All going into one stream.
+
+
+Excellent!  We'll see about moving forward with an upgrade.  It will probably be tricky since we need to quiesce the log tables and we are always fighting this lag.  Might have to just drop everything from replication, upgrade, resubscribe.
+
+Thanks for the answers!
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20140402/c76b61a1/attachment-0001.htm 
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: signature.asc
+Type: application/pgp-signature
+Size: 208 bytes
+Desc: Message signed with OpenPGP using GPGMail
+Url : http://lists.slony.info/pipermail/slony1-general/attachments/20140402/c76b61a1/attachment-0001.pgp 
+
+From ajs at crankycanuck.ca  Wed Apr  2 15:47:19 2014
+From: ajs at crankycanuck.ca (Andrew Sullivan)
+Date: Wed, 2 Apr 2014 18:47:19 -0400
+Subject: [Slony1-general] Fwd: help tuning to reduce replication lag
+In-Reply-To: <CANfbgbYvLu3sWAkG2ddKOB_2zMr0bYL8cr--vuqSSdWUeRFHhQ@mail.gmail.com>
+References: <3BDFDBF2-8876-4B62-866F-797550861706@pgexperts.com>
+	<CANfbgbYt4gro=9JAYt-z1Vz=w55LG6eKCoOL4C+sKichvgNDow@mail.gmail.com>
+	<CANfbgbaNNdcdnKeHgUZi8idQ6tjWc56F+euRKWF-jMH5BeyQeQ@mail.gmail.com>
+	<18FD35B0-DB4C-4A34-87D6-032BA85C89B0@pgexperts.com>
+	<CANfbgbYvLu3sWAkG2ddKOB_2zMr0bYL8cr--vuqSSdWUeRFHhQ@mail.gmail.com>
+Message-ID: <20140402224719.GZ56668@crankycanuck.ca>
+
+On Wed, Apr 02, 2014 at 05:14:55PM -0400, Christopher Browne wrote:
+> > Yep, they need to process in serial.  Not much way to "improve" on that.
+> 
+> An attempt was made to parallelize processing in the eRServer replication
+> system, a predecessor to Slony, and we had to shut that off in practice.
+
+Indeed, I have a dim memory of early discussion in Slony development
+of trying to figure out how to force two sets to work in parallel, for
+the case where you had tables that couldn't possibly have an
+interdependency.  We concluded that it was a foot-bazooka and that
+it'd be too much work to try to make this safe and fast.  So we gave
+up.
+
+A
+
+-- 
+Andrew Sullivan
+ajs at crankycanuck.ca
+
