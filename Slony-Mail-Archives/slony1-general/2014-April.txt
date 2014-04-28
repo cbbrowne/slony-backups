@@ -1,0 +1,1591 @@
+From jeff at pgexperts.com  Wed Apr  2 13:05:56 2014
+From: jeff at pgexperts.com (Jeff Frost)
+Date: Wed, 2 Apr 2014 13:05:56 -0700
+Subject: [Slony1-general] help tuning to reduce replication lag
+Message-ID: <3BDFDBF2-8876-4B62-866F-797550861706@pgexperts.com>
+
+First, I have a question.  The docs here: http://main.slony.info/documentation/2.1/deploymentconcerns.html#AEN2499
+
+indicate that 0.978 seconds until close cursor means that processing took 0.978 seconds against the provider.
+
+Does that mean this is how long it took to iterate over the entire cursor or that it took this long to iterate over the cursor and perform the actual inserts/updates/deletes on the local node?  I'm guessing it's the latter, but I want to make sure.
+
+Also, I'm not quite clear on how to interpret the two numbers in the large tuples log output.
+
+I ask because we have a 1.2TB database which is being replicated with slony 2.1 and while it usually cruises along just fine, occasionally we will see ever increasing lag on busy days, that takes forever to catch up.
+
+The servers in question are connected via gigabit and bandwidth utilization is quite low on the link. 
+
+The provider has 256G of RAM and the subscriber has 80G of RAM.
+
+sync_group_maxsize is the only non-default value in the slon config and is currently set at 500, though we have tried various higher and lower values with seemingly little effect, probably because once you get over 100 it doesn't make as much difference.
+
+Anyone have further tuning suggestions?
+
+If we look at our sync events in the logs, they look like this:
+
+2014-04-02 11:00:18 PDT DEBUG1 remoteHelperThread_2_2: 0.987 seconds delay for first row
+2014-04-02 11:16:59 PDT DEBUG1 remoteHelperThread_2_2: 1001.387 seconds until close cursor
+2014-04-02 11:16:59 PDT DEBUG1 remoteHelperThread_2_2: inserts=44690 updates=133632 deletes=23148 truncates=0
+2014-04-02 11:16:59 PDT DEBUG1 remoteWorkerThread_2: sync_helper timing:  pqexec (s/count)- provider 2.048/406 - subscriber 0.000/406
+2014-04-02 11:16:59 PDT DEBUG1 remoteWorkerThread_2: sync_helper timing:  large tuples 1.315/1787
+2014-04-02 11:17:07 PDT INFO   remoteWorkerThread_2: SYNC 5015991733 done in 1009.672 seconds
+2014-04-02 11:17:07 PDT DEBUG1 remoteWorkerThread_2: SYNC 5015991733 sync_event timing:  pqexec (s/count)- provider 0.002/2 - subscriber 0.004/2 - IUD 1008.625/40297
+
+2014-04-02 11:17:08 PDT DEBUG1 remoteHelperThread_2_2: 1.094 seconds delay for first row
+2014-04-02 11:56:01 PDT DEBUG1 remoteHelperThread_2_2: 2334.126 seconds until close cursor
+2014-04-02 11:56:01 PDT DEBUG1 remoteHelperThread_2_2: inserts=83628 updates=122325 deletes=25012 truncates=0
+2014-04-02 11:56:01 PDT DEBUG1 remoteWorkerThread_2: sync_helper timing:  pqexec (s/count)- provider 2.213/465 - subscriber 0.000/465
+2014-04-02 11:56:01 PDT DEBUG1 remoteWorkerThread_2: sync_helper timing:  large tuples 0.756/965
+2014-04-02 11:56:04 PDT INFO   remoteWorkerThread_2: SYNC 5015992233 done in 2337.211 seconds
+2014-04-02 11:56:04 PDT DEBUG1 remoteWorkerThread_2: SYNC 5015992233 sync_event timing:  pqexec (s/count)- provider 0.010/2 - subscriber 0.005/2 - IUD 2336.036/46197
+
+2014-04-02 11:56:06 PDT DEBUG1 remoteHelperThread_2_2: 1.520 seconds delay for first row
+2014-04-02 12:16:37 PDT DEBUG1 remoteHelperThread_2_2: 1232.814 seconds until close cursor
+2014-04-02 12:16:37 PDT DEBUG1 remoteHelperThread_2_2: inserts=109353 updates=124460 deletes=41581 truncates=0
+2014-04-02 12:16:37 PDT DEBUG1 remoteWorkerThread_2: sync_helper timing:  pqexec (s/count)- provider 2.663/554 - subscriber 0.000/554
+2014-04-02 12:16:37 PDT DEBUG1 remoteWorkerThread_2: sync_helper timing:  large tuples 3.342/4818
+2014-04-02 12:16:42 PDT INFO   remoteWorkerThread_2: SYNC 5015992733 done in 1237.954 seconds
+2014-04-02 12:16:42 PDT DEBUG1 remoteWorkerThread_2: SYNC 5015992733 sync_event timing:  pqexec (s/count)- provider 0.002/2 - subscriber 0.005/2 - IUD 1236.358/55084
+
+2014-04-02 12:16:44 PDT DEBUG1 remoteHelperThread_2_2: 1.339 seconds delay for first row
+2014-04-02 12:25:28 PDT DEBUG1 remoteHelperThread_2_2: 525.458 seconds until close cursor
+2014-04-02 12:25:28 PDT DEBUG1 remoteHelperThread_2_2: inserts=82400 updates=132333 deletes=61684 truncates=0
+2014-04-02 12:25:28 PDT DEBUG1 remoteWorkerThread_2: sync_helper timing:  pqexec (s/count)- provider 2.351/556 - subscriber 0.000/556
+2014-04-02 12:25:28 PDT DEBUG1 remoteWorkerThread_2: sync_helper timing:  large tuples 3.322/5009
+2014-04-02 12:25:31 PDT INFO   remoteWorkerThread_2: SYNC 5015993233 done in 528.010 seconds
+2014-04-02 12:25:31 PDT DEBUG1 remoteWorkerThread_2: SYNC 5015993233 sync_event timing:  pqexec (s/count)- provider 0.001/2 - subscriber 0.004/2 - IUD 526.604/55287
+
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: signature.asc
+Type: application/pgp-signature
+Size: 208 bytes
+Desc: Message signed with OpenPGP using GPGMail
+Url : http://lists.slony.info/pipermail/slony1-general/attachments/20140402/ed25c03f/attachment.pgp 
+
+From cbbrowne at afilias.info  Wed Apr  2 13:28:41 2014
+From: cbbrowne at afilias.info (Christopher Browne)
+Date: Wed, 2 Apr 2014 16:28:41 -0400
+Subject: [Slony1-general] Fwd:  help tuning to reduce replication lag
+In-Reply-To: <CANfbgbYt4gro=9JAYt-z1Vz=w55LG6eKCoOL4C+sKichvgNDow@mail.gmail.com>
+References: <3BDFDBF2-8876-4B62-866F-797550861706@pgexperts.com>
+	<CANfbgbYt4gro=9JAYt-z1Vz=w55LG6eKCoOL4C+sKichvgNDow@mail.gmail.com>
+Message-ID: <CANfbgbaNNdcdnKeHgUZi8idQ6tjWc56F+euRKWF-jMH5BeyQeQ@mail.gmail.com>
+
+I replied; should also forward to the list...
+
+---------- Forwarded message ----------
+From: Christopher Browne <cbbrowne at afilias.info>
+Date: Wed, Apr 2, 2014 at 4:28 PM
+Subject: Re: [Slony1-general] help tuning to reduce replication lag
+To: Jeff Frost <jeff at pgexperts.com>
+
+
+The 0.978 seconds is how long it took for the CURSOR to get to the point
+where it was able to provide the first row.
+
+Given that the SYNCs seem to be taking on the order of 1000 seconds, that's
+not much overhead.
+
+(In contrast, it would be distressing if it took 1219.35 seconds for the
+"delay for first row", and then the SYNC was completed in another 2
+seconds.)
+
+It's taking a thousand-ish seconds to process ~200K
+inserts/updates/deletes, which doesn't seem ludicrously out of line with
+what I'd expect.
+
+It doesn't seem likely to me that the amount of memory that you have is
+terribly relevant to performance; the processing of a stream of 200K-ish
+I/U/Ds won't be RAM-hungry, it's mostly hungry in:
+a) Chewing CPU for the parsing and planning of each statement;
+b) Chewing disk I/O for the processing of the I/U/Ds and logging updates in
+WAL.
+
+I would expect Slony version 2.2 to be a fair bit quicker, as it uses COPY
+protocol to copy the data in, which dramatically reduces the amount of
+effort that the subscriber server needs to do parsing and planning the SQL
+for the INSERT/UPDATE/DELETE statements.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20140402/4c336c77/attachment.htm 
+
+From jeff at pgexperts.com  Wed Apr  2 13:33:08 2014
+From: jeff at pgexperts.com (Jeff Frost)
+Date: Wed, 2 Apr 2014 13:33:08 -0700
+Subject: [Slony1-general] Fwd:  help tuning to reduce replication lag
+In-Reply-To: <CANfbgbaNNdcdnKeHgUZi8idQ6tjWc56F+euRKWF-jMH5BeyQeQ@mail.gmail.com>
+References: <3BDFDBF2-8876-4B62-866F-797550861706@pgexperts.com>
+	<CANfbgbYt4gro=9JAYt-z1Vz=w55LG6eKCoOL4C+sKichvgNDow@mail.gmail.com>
+	<CANfbgbaNNdcdnKeHgUZi8idQ6tjWc56F+euRKWF-jMH5BeyQeQ@mail.gmail.com>
+Message-ID: <18FD35B0-DB4C-4A34-87D6-032BA85C89B0@pgexperts.com>
+
+
+On Apr 2, 2014, at 1:28 PM, Christopher Browne <cbbrowne at afilias.info> wrote:
+
+> It's taking a thousand-ish seconds to process ~200K inserts/updates/deletes, which doesn't seem ludicrously out of line with what I'd expect.
+> 
+> It doesn't seem likely to me that the amount of memory that you have is terribly relevant to performance; the processing of a stream of 200K-ish I/U/Ds won't be RAM-hungry, it's mostly hungry in:
+> a) Chewing CPU for the parsing and planning of each statement;
+> b) Chewing disk I/O for the processing of the I/U/Ds and logging updates in WAL.
+> 
+
+The disk hardware is pretty zippy and showing no signs of iowait, but it's definitely burning up the CPU and there's no way to thread that up to use more cores in current versions, right?  Even if we split the tables across multiple sets, do they still process in serial?
+
+> I would expect Slony version 2.2 to be a fair bit quicker, as it uses COPY protocol to copy the data in, which dramatically reduces the amount of effort that the subscriber server needs to do parsing and planning the SQL for the INSERT/UPDATE/DELETE statements.
+
+
+
+That was going to be my next question!
+
+Does that help just for the inserts or with the updates/deletes as well?
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: signature.asc
+Type: application/pgp-signature
+Size: 208 bytes
+Desc: Message signed with OpenPGP using GPGMail
+Url : http://lists.slony.info/pipermail/slony1-general/attachments/20140402/4b3102f6/attachment.pgp 
+
+From cbbrowne at afilias.info  Wed Apr  2 14:14:55 2014
+From: cbbrowne at afilias.info (Christopher Browne)
+Date: Wed, 2 Apr 2014 17:14:55 -0400
+Subject: [Slony1-general] Fwd: help tuning to reduce replication lag
+In-Reply-To: <18FD35B0-DB4C-4A34-87D6-032BA85C89B0@pgexperts.com>
+References: <3BDFDBF2-8876-4B62-866F-797550861706@pgexperts.com>
+	<CANfbgbYt4gro=9JAYt-z1Vz=w55LG6eKCoOL4C+sKichvgNDow@mail.gmail.com>
+	<CANfbgbaNNdcdnKeHgUZi8idQ6tjWc56F+euRKWF-jMH5BeyQeQ@mail.gmail.com>
+	<18FD35B0-DB4C-4A34-87D6-032BA85C89B0@pgexperts.com>
+Message-ID: <CANfbgbYvLu3sWAkG2ddKOB_2zMr0bYL8cr--vuqSSdWUeRFHhQ@mail.gmail.com>
+
+On Wed, Apr 2, 2014 at 4:33 PM, Jeff Frost <jeff at pgexperts.com> wrote:
+
+>
+> On Apr 2, 2014, at 1:28 PM, Christopher Browne <cbbrowne at afilias.info>
+> wrote:
+>
+> > It's taking a thousand-ish seconds to process ~200K
+> inserts/updates/deletes, which doesn't seem ludicrously out of line with
+> what I'd expect.
+> >
+> > It doesn't seem likely to me that the amount of memory that you have is
+> terribly relevant to performance; the processing of a stream of 200K-ish
+> I/U/Ds won't be RAM-hungry, it's mostly hungry in:
+> > a) Chewing CPU for the parsing and planning of each statement;
+> > b) Chewing disk I/O for the processing of the I/U/Ds and logging updates
+> in WAL.
+> >
+>
+> The disk hardware is pretty zippy and showing no signs of iowait, but it's
+> definitely burning up the CPU and there's no way to thread that up to use
+> more cores in current versions, right?  Even if we split the tables across
+> multiple sets, do they still process in serial?
+>
+> Yep, they need to process in serial.  Not much way to "improve" on that.
+
+An attempt was made to parallelize processing in the eRServer replication
+system, a predecessor to Slony, and we had to shut that off in practice.
+
+
+> > I would expect Slony version 2.2 to be a fair bit quicker, as it uses
+> COPY protocol to copy the data in, which dramatically reduces the amount of
+> effort that the subscriber server needs to do parsing and planning the SQL
+> for the INSERT/UPDATE/DELETE statements.
+>
+> That was going to be my next question!
+>
+> Does that help just for the inserts or with the updates/deletes as well?
+>
+
+It'll help for all three, yep.  All going into one stream.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20140402/7cf16c49/attachment.htm 
+
+From jeff at pgexperts.com  Wed Apr  2 14:56:43 2014
+From: jeff at pgexperts.com (Jeff Frost)
+Date: Wed, 2 Apr 2014 14:56:43 -0700
+Subject: [Slony1-general] Fwd: help tuning to reduce replication lag
+In-Reply-To: <CANfbgbYvLu3sWAkG2ddKOB_2zMr0bYL8cr--vuqSSdWUeRFHhQ@mail.gmail.com>
+References: <3BDFDBF2-8876-4B62-866F-797550861706@pgexperts.com>
+	<CANfbgbYt4gro=9JAYt-z1Vz=w55LG6eKCoOL4C+sKichvgNDow@mail.gmail.com>
+	<CANfbgbaNNdcdnKeHgUZi8idQ6tjWc56F+euRKWF-jMH5BeyQeQ@mail.gmail.com>
+	<18FD35B0-DB4C-4A34-87D6-032BA85C89B0@pgexperts.com>
+	<CANfbgbYvLu3sWAkG2ddKOB_2zMr0bYL8cr--vuqSSdWUeRFHhQ@mail.gmail.com>
+Message-ID: <8F05166E-2C25-44B1-A9C0-02107C9308D8@pgexperts.com>
+
+
+On Apr 2, 2014, at 2:14 PM, Christopher Browne <cbbrowne at afilias.info> wrote:
+
+> The disk hardware is pretty zippy and showing no signs of iowait, but it's definitely burning up the CPU and there's no way to thread that up to use more cores in current versions, right?  Even if we split the tables across multiple sets, do they still process in serial?
+> 
+> Yep, they need to process in serial.  Not much way to "improve" on that.
+> 
+> An attempt was made to parallelize processing in the eRServer replication system, a predecessor to Slony, and we had to shut that off in practice.
+
+That's what I figured.
+
+>  
+> > I would expect Slony version 2.2 to be a fair bit quicker, as it uses COPY protocol to copy the data in, which dramatically reduces the amount of effort that the subscriber server needs to do parsing and planning the SQL for the INSERT/UPDATE/DELETE statements.
+> 
+> That was going to be my next question!
+> 
+> Does that help just for the inserts or with the updates/deletes as well?
+> 
+> It'll help for all three, yep.  All going into one stream.
+
+
+Excellent!  We'll see about moving forward with an upgrade.  It will probably be tricky since we need to quiesce the log tables and we are always fighting this lag.  Might have to just drop everything from replication, upgrade, resubscribe.
+
+Thanks for the answers!
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20140402/c76b61a1/attachment-0001.htm 
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: signature.asc
+Type: application/pgp-signature
+Size: 208 bytes
+Desc: Message signed with OpenPGP using GPGMail
+Url : http://lists.slony.info/pipermail/slony1-general/attachments/20140402/c76b61a1/attachment-0001.pgp 
+
+From ajs at crankycanuck.ca  Wed Apr  2 15:47:19 2014
+From: ajs at crankycanuck.ca (Andrew Sullivan)
+Date: Wed, 2 Apr 2014 18:47:19 -0400
+Subject: [Slony1-general] Fwd: help tuning to reduce replication lag
+In-Reply-To: <CANfbgbYvLu3sWAkG2ddKOB_2zMr0bYL8cr--vuqSSdWUeRFHhQ@mail.gmail.com>
+References: <3BDFDBF2-8876-4B62-866F-797550861706@pgexperts.com>
+	<CANfbgbYt4gro=9JAYt-z1Vz=w55LG6eKCoOL4C+sKichvgNDow@mail.gmail.com>
+	<CANfbgbaNNdcdnKeHgUZi8idQ6tjWc56F+euRKWF-jMH5BeyQeQ@mail.gmail.com>
+	<18FD35B0-DB4C-4A34-87D6-032BA85C89B0@pgexperts.com>
+	<CANfbgbYvLu3sWAkG2ddKOB_2zMr0bYL8cr--vuqSSdWUeRFHhQ@mail.gmail.com>
+Message-ID: <20140402224719.GZ56668@crankycanuck.ca>
+
+On Wed, Apr 02, 2014 at 05:14:55PM -0400, Christopher Browne wrote:
+> > Yep, they need to process in serial.  Not much way to "improve" on that.
+> 
+> An attempt was made to parallelize processing in the eRServer replication
+> system, a predecessor to Slony, and we had to shut that off in practice.
+
+Indeed, I have a dim memory of early discussion in Slony development
+of trying to figure out how to force two sets to work in parallel, for
+the case where you had tables that couldn't possibly have an
+interdependency.  We concluded that it was a foot-bazooka and that
+it'd be too much work to try to make this safe and fast.  So we gave
+up.
+
+A
+
+-- 
+Andrew Sullivan
+ajs at crankycanuck.ca
+
+From ssinger at ca.afilias.info  Tue Apr  8 17:27:30 2014
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Tue, 08 Apr 2014 20:27:30 -0400
+Subject: [Slony1-general] Slony 2.0.8 released
+Message-ID: <534493F2.4090607@ca.afilias.info>
+
+The slony team is announcing the release of Slony 2.0.8.
+
+Slony 2.0.8 includes the following changes from Slony 2.0.7
+
+
+- Bug 230 - log_timestamps was always treated as true on some platforms(AIX)
+
+- Include additional C headers required for Postgresql 9.2(master)
+
+- Bug 233 - Fix segfault when subscribing to a set that does not exist.
+
+- Bug 236 :: Fix default formatting of timestamp in logs
+
+- Bug 260 :: Fix issue with FAILOVER when failing over an origin with
+           multiple sets.
+- Bug 315 :: Fixes to the compile time include directories
+
+
+The Slony team does not plan any additional releases of Slony 2.0.x. 
+Users are encouraged to upgrade to the slony 2.2.x version of Slony. 
+Users are also reminded that Slony 2.0.x is not recommended for 
+PostgreSQL versions 9.1 or higher.
+
+You can download Slony 2.0.8 at the following links
+
+http://www.slony.info/downloads/2.0/source/slony1-2.0.8.tar.bz2 
+2a15277f915dd7a0276161275c09c25c
+
+http://www.slony.info/downloads/2.0/source/slony1-2.0.8-docs.tar.bz2
+2c1273b6d72bc6651701c863012b7319
+
+
+
+From JanWieck at Yahoo.com  Thu Apr 10 07:00:58 2014
+From: JanWieck at Yahoo.com (Jan Wieck)
+Date: Thu, 10 Apr 2014 10:00:58 -0400
+Subject: [Slony1-general] Yahoo DMARC test
+Message-ID: <5346A41A.6080104@Yahoo.com>
+
+Let's see
+
+-- 
+Anyone who trades liberty for security deserves neither
+liberty nor security. -- Benjamin Franklin
+
+From vivek at khera.org  Thu Apr 10 08:27:42 2014
+From: vivek at khera.org (Vick Khera)
+Date: Thu, 10 Apr 2014 11:27:42 -0400
+Subject: [Slony1-general] Yahoo DMARC test
+In-Reply-To: <5346A41A.6080104@Yahoo.com>
+References: <5346A41A.6080104@Yahoo.com>
+Message-ID: <CALd+dcfvxaQRS5t60n7mxBkXJ0t39yY37GpW0n8JG8LAGjqBZg@mail.gmail.com>
+
+your mail would have been rejected except for the fact I have a filter
+on gmail that bypasses spam filtering for this mailing list.
+
+Yahoo has broken their email. i think it finally may be time to change, Jan. :)
+
+For our customers using yahoo return addresses to send their
+newsletters, the bounce rates are pushing 40% compared with 1-2%
+normally.
+
+Here you can inspect the borkenness of Yahoo's DMARC policy. By
+broken, I mean stupid, not technically invalid.
+
+https://dmarcian.com/dmarc-inspector/yahoo.com
+
+
+On Thu, Apr 10, 2014 at 10:00 AM, Jan Wieck <JanWieck at yahoo.com> wrote:
+> Let's see
+>
+> --
+> Anyone who trades liberty for security deserves neither
+> liberty nor security. -- Benjamin Franklin
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+
+From sebpaa at gmail.com  Mon Apr 14 05:37:23 2014
+From: sebpaa at gmail.com (=?utf-8?Q?Sebastian_Paw=C5=82owski?=)
+Date: Mon, 14 Apr 2014 14:37:23 +0200
+Subject: [Slony1-general] slony 2.2.2 - execute script and SET ID
+Message-ID: <FF1A5128-5273-4F7C-BF85-9EAD7B6330A7@gmail.com>
+
+hi, 
+
+Slony 2.2.2 no longer accepts SET ID as a valid option, what if I?m replicating sets with different tables and some set is not being replicated to some nodes? What if I want to make some DDL changes to these tables? In the earlier version DDL changes was replicated only to proper nodes, and now to all nodes. 
+
+I know I may make DDL changes directly, but with execute script was easier, is there any better way for making ddl changes in such situations?
+
+-------
+sebpa
+
+
+
+
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20140414/e889ba20/attachment.htm 
+
+From ssinger at ca.afilias.info  Mon Apr 14 06:35:46 2014
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Mon, 14 Apr 2014 09:35:46 -0400
+Subject: [Slony1-general] slony 2.2.2 - execute script and SET ID
+In-Reply-To: <FF1A5128-5273-4F7C-BF85-9EAD7B6330A7@gmail.com>
+References: <FF1A5128-5273-4F7C-BF85-9EAD7B6330A7@gmail.com>
+Message-ID: <534BE432.3050402@ca.afilias.info>
+
+On 04/14/2014 08:37 AM, Sebastian Paw?owski wrote:
+> hi,
+>
+> Slony 2.2.2 no longer accepts SET ID as a valid option, what if I?m
+> replicating sets with different tables and some set is not being
+> replicated to some nodes? What if I want to make some DDL changes to
+> these tables? In the earlier version DDL changes was replicated only to
+> proper nodes, and now to all nodes.
+>
+> I know I may make DDL changes directly, but with execute script was
+> easier, is there any better way for making ddl changes in such situations?
+>
+> -------
+
+You can actually pass a list to EXECUTE SCRIPT in the ONLY ON option
+
+Ie
+
+execute script(event node=2, SQL='CREATE TABLE bar(a int4);', execute 
+only on='2,3,4');
+
+
+(Though this doesn't appear to be documented, I should fix that)
+
+
+
+> sebpa
+>
+>
+>
+>
+>
+>
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+>
+
+
+From cbbrowne at afilias.info  Tue Apr 15 07:57:37 2014
+From: cbbrowne at afilias.info (Christopher Browne)
+Date: Tue, 15 Apr 2014 10:57:37 -0400
+Subject: [Slony1-general] Administrivia: DMARC, Yahoo
+Message-ID: <CANfbgbai_Vf-rMq22TvRt7BPswCt9xjqhd+W+X2kYmx2gve2kg@mail.gmail.com>
+
+I understand that Yahoo has implemented a DMARC policy that makes
+third-party servers reject mailing list traffic using Yahoo-based addresses
+as forged.
+
+Here is an announcement of a "block Yahoo users" policy just implemented by
+another free software project (
+http://lists.roaringpenguin.com/pipermail/remind-fans/2014/003025.html)
+which seems to sum the issue up briefly but accurately.
+
+FYI, we do have a number of Yahoo users on the Slony lists, and their
+receiving mail from the lists is not a problem.  Unfortunately, posting to
+these lists will cause problems, so I imagine we'll need to do a similar
+blocking of Yahoo addresses.
+
+Yahoo users that have an opinion should send comments directly to me
+off-list, as, due to the DMARC policy, forwarding of their opinions via the
+lists probably won't work out :-(.
+
+Doubtless we'll have a more definitive declaration soon.  (I observe that
+Jan Wieck has moved his mail to a new domain over this :-) )
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20140415/bffbfbde/attachment.htm 
+
+From ajs at crankycanuck.ca  Tue Apr 15 08:58:59 2014
+From: ajs at crankycanuck.ca (Andrew Sullivan)
+Date: Tue, 15 Apr 2014 11:58:59 -0400
+Subject: [Slony1-general] Administrivia: DMARC, Yahoo
+In-Reply-To: <CANfbgbai_Vf-rMq22TvRt7BPswCt9xjqhd+W+X2kYmx2gve2kg@mail.gmail.com>
+References: <CANfbgbai_Vf-rMq22TvRt7BPswCt9xjqhd+W+X2kYmx2gve2kg@mail.gmail.com>
+Message-ID: <20140415155859.GE9028@crankycanuck.ca>
+
+On Tue, Apr 15, 2014 at 10:57:37AM -0400, Christopher Browne wrote:
+> Here is an announcement of a "block Yahoo users" policy just implemented by
+> another free software project (
+> http://lists.roaringpenguin.com/pipermail/remind-fans/2014/003025.html)
+> which seems to sum the issue up briefly but accurately.
+
+One alternative to this is to rewrite the From: address of Yahoo users
+when they enter the list, adding .invalid to the end of the mail
+address.  The resulting lookup for the DMARC record then looks in
+(say) yahoo.com.invalid.  You can't respond to such users, of course,
+and it may cause a lot of bounces, but fortunately .invalid is
+guaranteed not to work anywhere so at least the DNS lookups will be
+quick.
+
+I do encourage people who are using yahoo and who want to use mailing
+lists to ditch the yahoo account, however.  I also urge everyone to
+avoid yahoo as much as possible, because I think this behaviour was
+irresponsible and hostile to the Internet, and deserves to be shunned.
+
+A
+
+-- 
+Andrew Sullivan
+ajs at crankycanuck.ca
+
+From jan at wi3ck.info  Wed Apr 16 07:34:23 2014
+From: jan at wi3ck.info (Jan Wieck)
+Date: Wed, 16 Apr 2014 10:34:23 -0400
+Subject: [Slony1-general] Administrivia: DMARC, Yahoo
+In-Reply-To: <20140415155859.GE9028@crankycanuck.ca>
+References: <CANfbgbai_Vf-rMq22TvRt7BPswCt9xjqhd+W+X2kYmx2gve2kg@mail.gmail.com>
+	<20140415155859.GE9028@crankycanuck.ca>
+Message-ID: <534E94EF.1080402@wi3ck.info>
+
+On 04/15/14 11:58, Andrew Sullivan wrote:
+> On Tue, Apr 15, 2014 at 10:57:37AM -0400, Christopher Browne wrote:
+>> Here is an announcement of a "block Yahoo users" policy just implemented by
+>> another free software project (
+>> http://lists.roaringpenguin.com/pipermail/remind-fans/2014/003025.html)
+>> which seems to sum the issue up briefly but accurately.
+>
+> One alternative to this is to rewrite the From: address of Yahoo users
+> when they enter the list, adding .invalid to the end of the mail
+> address.  The resulting lookup for the DMARC record then looks in
+> (say) yahoo.com.invalid.  You can't respond to such users, of course,
+> and it may cause a lot of bounces, but fortunately .invalid is
+> guaranteed not to work anywhere so at least the DNS lookups will be
+> quick.
+
+I am not in favor of shifting bounces around by deliberately creating 
+invalid header content in order to make posting from Yahoo! addresses 
+possible again. I am in favor of following exactly the same route and 
+block all mail from @yahoo.com (and other DMARC participating ISPs) on 
+our lists.
+
+> I do encourage people who are using yahoo and who want to use mailing
+> lists to ditch the yahoo account, however.  I also urge everyone to
+> avoid yahoo as much as possible, because I think this behaviour was
+> irresponsible and hostile to the Internet, and deserves to be shunned.
+
+Ditto.
+
+One aspect of the whole thing is that the DMARC proposal is two years 
+old and it was well known that this (breaking mailing lists) would be a 
+side effect of it. The powers that be at Yahoo! went ahead with it 
+anyways. This can mean only one thing. That Yahoo! does not want users 
+with a @yahoo.com address to participate in third party mailing lists. 
+If that is what they want, then that is what they should get.
+
+
+Regards,
+Jan
+
+-- 
+Jan Wieck
+Senior Software Engineer
+http://slony.info
+
+From ajs at crankycanuck.ca  Wed Apr 16 12:07:22 2014
+From: ajs at crankycanuck.ca (Andrew Sullivan)
+Date: Wed, 16 Apr 2014 15:07:22 -0400
+Subject: [Slony1-general] Administrivia: DMARC, Yahoo
+In-Reply-To: <534E94EF.1080402@wi3ck.info>
+References: <CANfbgbai_Vf-rMq22TvRt7BPswCt9xjqhd+W+X2kYmx2gve2kg@mail.gmail.com>
+	<20140415155859.GE9028@crankycanuck.ca>
+	<534E94EF.1080402@wi3ck.info>
+Message-ID: <20140416190722.GI11273@crankycanuck.ca>
+
+On Wed, Apr 16, 2014 at 10:34:23AM -0400, Jan Wieck wrote:
+> addresses possible again. I am in favor of following exactly the
+> same route and block all mail from @yahoo.com (and other DMARC
+> participating ISPs) on our lists.
+
+Just to be clear, it's not "DMARC participating", but a particular
+profile of DMARC.  This particular DMARC setting is well-known to be
+inappropriate for this kind of mail use.  That doesn't mean that all
+uses of DMARC would have the same results.  Google, for instance, is a
+big proponent and user of DMARC, and yet they have managed not to
+break mailing lists.
+
+A
+-- 
+Andrew Sullivan
+ajs at crankycanuck.ca
+
+From SParikh at CarCharging.com  Wed Apr 16 18:06:00 2014
+From: SParikh at CarCharging.com (Samir Parikh)
+Date: Thu, 17 Apr 2014 01:06:00 +0000
+Subject: [Slony1-general] Slony setup error
+Message-ID: <E71FD72131AC2444B02505A22C0457B0022A4BD0@mbx023-e1-nj-2.exch023.domain.local>
+
+I am getting following error while trying to set up replication ? Can somebody help ?
+
+./slonik_subscribe_set 1 2 | ./slonik
+<stdin>:5: PGRES_FATAL_ERROR select max(ev_seqno) FROM "_replication".sl_event , "_replication".sl_node  where ev_origin="_replication".getLocalNodeId('_replication')  AND ev_type <> 'SYNC'  AND sl_node.no_id= ev_origin - ERROR:  function _replication.getlocalnodeid(unknown) does not exist
+LINE 1: ...l_event , "_replication".sl_node  where ev_origin="_replicat...
+                                                             ^
+HINT:  No function matches the given name and argument types. You might need to add explicit type casts.
+error: unable to query event history on node 2
+waiting for events  (2,221473472232) only at (2,0) to be confirmed on node 1
+
+Thanks in advance,
+Samir
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20140417/5e486354/attachment.htm 
+
+From glynastill at yahoo.co.uk  Thu Apr 17 02:20:23 2014
+From: glynastill at yahoo.co.uk (Glyn Astill)
+Date: Thu, 17 Apr 2014 10:20:23 +0100 (BST)
+Subject: [Slony1-general] Slony setup error
+In-Reply-To: <E71FD72131AC2444B02505A22C0457B0022A4BD0@mbx023-e1-nj-2.exch023.domain.local>
+References: <E71FD72131AC2444B02505A22C0457B0022A4BD0@mbx023-e1-nj-2.exch023.domain.local>
+Message-ID: <1397726423.93962.YahooMailNeo@web133201.mail.ir2.yahoo.com>
+
+> From: Samir Parikh <SParikh at CarCharging.com>
+
+>To: "slony1-general at lists.slony.info" <slony1-general at lists.slony.info> 
+>Sent: Thursday, 17 April 2014, 2:06
+>Subject: [Slony1-general] Slony setup error
+>
+> 
+>I am getting following error while trying to set up replication ? Can somebody help ?
+>?
+>./slonik_subscribe_set 1 2 | ./slonik
+><stdin>:5: PGRES_FATAL_ERROR select max(ev_seqno) FROM "_replication".sl_event , "_replication".sl_node? where ev_origin="_replication".getLocalNodeId('_replication')? AND ev_type <> 'SYNC'? AND sl_node.no_id= ev_origin - ERROR:? function _replication.getlocalnodeid(unknown) does not exist
+>LINE 1: ...l_event , "_replication".sl_node? where ev_origin="_replicat...
+>???????????????????????????????????????????????????????????? ^
+>HINT:? No function matches the given name and argument types. You might need to add explicit type casts.
+>error: unable to query event history on node 2
+
+
+Well have you checked to see if the "_replication" schema and getlocalnodeid function are present on your new subscriber?
+
+From the error message I can only assume you've not run "STORE NODE" against the node you're trying to subscribe,
+
+
+>waiting for events  (2,221473472232) only at (2,0) to be confirmed on node 1 
+
+
+This reinforces my thoughts, as well as running STORE NODE/PATH for your new subscriber you need to make sure you have a slon running against it too.
+
+Perhaps you could fill us in on the steps you've taken so far so we can see where you've gone off course.
+
+
+Glyn.
+
+p.s. I'll use this as a test to see if I can still post to the list from my yahoo.com address too; I've not much hope it will :-(
+
+
+From jan at wi3ck.info  Thu Apr 17 04:34:47 2014
+From: jan at wi3ck.info (Jan Wieck)
+Date: Thu, 17 Apr 2014 07:34:47 -0400
+Subject: [Slony1-general] Slony setup error
+In-Reply-To: <1397726423.93962.YahooMailNeo@web133201.mail.ir2.yahoo.com>
+References: <E71FD72131AC2444B02505A22C0457B0022A4BD0@mbx023-e1-nj-2.exch023.domain.local>
+	<1397726423.93962.YahooMailNeo@web133201.mail.ir2.yahoo.com>
+Message-ID: <534FBC57.5080107@wi3ck.info>
+
+On 04/17/14 05:20, Glyn Astill wrote:
+> Well have you checked to see if the "_replication" schema and getlocalnodeid function are present on your new subscriber?
+>
+>  From the error message I can only assume you've not run "STORE NODE" against the node you're trying to subscribe,
+
+That is what is most likely.
+
+> p.s. I'll use this as a test to see if I can still post to the list from my yahoo.com address too; I've not much hope it will :-(
+
+Did @yahoo.co.uk receive the same ill advised changes? Not sure because 
+so far I don't see any bounce messages.
+
+
+Jan
+
+-- 
+Jan Wieck
+Senior Software Engineer
+http://slony.info
+
+From SParikh at CarCharging.com  Thu Apr 17 09:50:31 2014
+From: SParikh at CarCharging.com (Samir Parikh)
+Date: Thu, 17 Apr 2014 16:50:31 +0000
+Subject: [Slony1-general] Slony setup error
+In-Reply-To: <1397726423.93962.YahooMailNeo@web133201.mail.ir2.yahoo.com>
+References: <E71FD72131AC2444B02505A22C0457B0022A4BD0@mbx023-e1-nj-2.exch023.domain.local>
+	<1397726423.93962.YahooMailNeo@web133201.mail.ir2.yahoo.com>
+Message-ID: <E71FD72131AC2444B02505A22C0457B0022A5F2E@mbx023-e1-nj-2.exch023.domain.local>
+
+Thanks for the quick response. Yes, you are right function getLocalNodeId does not exist on subscriber node but it does exists on primary node. On further check I could see on primary node under replication schema total 127 functions but in subscriber node I could see only 112. Not sure why there are missing functions which include getLocalNodeId.
+
+This is the very first time I am trying to set up slony replication. I am following documentation on slony.info.
+
+Thanks again.
+Samir
+
+-----Original Message-----
+From: Glyn Astill [mailto:glynastill at yahoo.co.uk] 
+Sent: Thursday, April 17, 2014 2:20 AM
+To: Samir Parikh; slony1-general at lists.slony.info
+Subject: Re: [Slony1-general] Slony setup error
+
+> From: Samir Parikh <SParikh at CarCharging.com>
+
+>To: "slony1-general at lists.slony.info" <slony1-general at lists.slony.info>
+>Sent: Thursday, 17 April 2014, 2:06
+>Subject: [Slony1-general] Slony setup error
+>
+> 
+>I am getting following error while trying to set up replication ? Can somebody help ?
+>?
+>./slonik_subscribe_set 1 2 | ./slonik
+><stdin>:5: PGRES_FATAL_ERROR select max(ev_seqno) FROM 
+>"_replication".sl_event , "_replication".sl_node? where ev_origin="_replication".getLocalNodeId('_replication')? AND ev_type <> 'SYNC'? AND sl_node.no_id= ev_origin - ERROR:? function _replication.getlocalnodeid(unknown) does not exist LINE 1: ...l_event , "_replication".sl_node? where ev_origin="_replicat...
+>???????????????????????????????????????????????????????????? ^
+>HINT:? No function matches the given name and argument types. You might need to add explicit type casts.
+>error: unable to query event history on node 2
+
+
+Well have you checked to see if the "_replication" schema and getlocalnodeid function are present on your new subscriber?
+
+
+From glynastill at yahoo.co.uk  Thu Apr 17 10:23:03 2014
+From: glynastill at yahoo.co.uk (Glyn Astill)
+Date: Thu, 17 Apr 2014 18:23:03 +0100 (BST)
+Subject: [Slony1-general] Slony setup error
+In-Reply-To: <534FBC57.5080107@wi3ck.info>
+References: <E71FD72131AC2444B02505A22C0457B0022A4BD0@mbx023-e1-nj-2.exch023.domain.local>
+	<1397726423.93962.YahooMailNeo@web133201.mail.ir2.yahoo.com>
+	<534FBC57.5080107@wi3ck.info>
+Message-ID: <1397755383.87916.YahooMailNeo@web133202.mail.ir2.yahoo.com>
+
+
+
+>>  p.s. I'll use this as a test to see if I can still post to the list 
+> from my yahoo.com address too; I've not much hope it will :-(
+> 
+> Did @yahoo.co.uk receive the same ill advised changes? Not sure because 
+> so far I don't see any bounce messages.
+> 
+
+Not as far as I'm aware; I just assumed anything affecting yahoo.com would also apply to yahoo.co.uk, especially as I've had issues on the NetBSD lists for years, but afaik that's down to some sort of plain text issue. 
+
+
+From jan at wi3ck.info  Thu Apr 17 10:30:07 2014
+From: jan at wi3ck.info (Jan Wieck)
+Date: Thu, 17 Apr 2014 13:30:07 -0400
+Subject: [Slony1-general] Slony setup error
+In-Reply-To: <E71FD72131AC2444B02505A22C0457B0022A5F2E@mbx023-e1-nj-2.exch023.domain.local>
+References: <E71FD72131AC2444B02505A22C0457B0022A4BD0@mbx023-e1-nj-2.exch023.domain.local>	<1397726423.93962.YahooMailNeo@web133201.mail.ir2.yahoo.com>
+	<E71FD72131AC2444B02505A22C0457B0022A5F2E@mbx023-e1-nj-2.exch023.domain.local>
+Message-ID: <53500F9F.1040802@wi3ck.info>
+
+On 04/17/14 12:50, Samir Parikh wrote:
+> Thanks for the quick response. Yes, you are right function getLocalNodeId does not exist on subscriber node but it does exists on primary node. On further check I could see on primary node under replication schema total 127 functions but in subscriber node I could see only 112. Not sure why there are missing functions which include getLocalNodeId.
+>
+> This is the very first time I am trying to set up slony replication. I am following documentation on slony.info.
+
+That sounds very odd.
+
+I would suggest doing an UNINSTALL NODE, DROP NODE (both for the 
+non-functioning one), waiting until all traces of the dropped node are 
+gone from the system (or using a different node ID to be sure) and then 
+start over from STORE NODE, STORE PATH all the way.
+
+And make sure you use 2.2 or at least 2.1. 2.0 is marked end of life and 
+earlier versions have not received any updates/fixes for quite a while now.
+
+
+Regards,
+Jan
+
+
+>
+> Thanks again.
+> Samir
+>
+> -----Original Message-----
+> From: Glyn Astill [mailto:glynastill at yahoo.co.uk]
+> Sent: Thursday, April 17, 2014 2:20 AM
+> To: Samir Parikh; slony1-general at lists.slony.info
+> Subject: Re: [Slony1-general] Slony setup error
+>
+>> From: Samir Parikh <SParikh at CarCharging.com>
+>
+>>To: "slony1-general at lists.slony.info" <slony1-general at lists.slony.info>
+>>Sent: Thursday, 17 April 2014, 2:06
+>>Subject: [Slony1-general] Slony setup error
+>>
+>>
+>>I am getting following error while trying to set up replication ? Can somebody help ?
+>>
+>>./slonik_subscribe_set 1 2 | ./slonik
+>><stdin>:5: PGRES_FATAL_ERROR select max(ev_seqno) FROM
+>>"_replication".sl_event , "_replication".sl_node  where ev_origin="_replication".getLocalNodeId('_replication')  AND ev_type <> 'SYNC'  AND sl_node.no_id= ev_origin - ERROR:  function _replication.getlocalnodeid(unknown) does not exist LINE 1: ...l_event , "_replication".sl_node  where ev_origin="_replicat...
+>>                                                             ^
+>>HINT:  No function matches the given name and argument types. You might need to add explicit type casts.
+>>error: unable to query event history on node 2
+>
+>
+> Well have you checked to see if the "_replication" schema and getlocalnodeid function are present on your new subscriber?
+>
+>  From the error message I can only assume you've not run "STORE NODE" against the node you're trying to subscribe,
+>
+>
+>>waiting for events  (2,221473472232) only at (2,0) to be confirmed on
+>>node 1
+>
+>
+> This reinforces my thoughts, as well as running STORE NODE/PATH for your new subscriber you need to make sure you have a slon running against it too.
+>
+> Perhaps you could fill us in on the steps you've taken so far so we can see where you've gone off course.
+>
+>
+> Glyn.
+>
+> p.s. I'll use this as a test to see if I can still post to the list from my yahoo.com address too; I've not much hope it will :-(
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+>
+
+
+-- 
+Jan Wieck
+Senior Software Engineer
+http://slony.info
+
+From SParikh at CarCharging.com  Thu Apr 17 11:51:03 2014
+From: SParikh at CarCharging.com (Samir Parikh)
+Date: Thu, 17 Apr 2014 18:51:03 +0000
+Subject: [Slony1-general] Slony setup error
+In-Reply-To: <53500F9F.1040802@wi3ck.info>
+References: <E71FD72131AC2444B02505A22C0457B0022A4BD0@mbx023-e1-nj-2.exch023.domain.local>
+	<1397726423.93962.YahooMailNeo@web133201.mail.ir2.yahoo.com>
+	<E71FD72131AC2444B02505A22C0457B0022A5F2E@mbx023-e1-nj-2.exch023.domain.local>
+	<53500F9F.1040802@wi3ck.info>
+Message-ID: <E71FD72131AC2444B02505A22C0457B0022A6050@mbx023-e1-nj-2.exch023.domain.local>
+
+Some success. I  could now set up the replication after dropping/recreating the replication schema on both nodes.
+Now I am trying to add tables to set using slonik script and stuck with this syntax error. I googled it and found many instances of this error but could not find any solution that work for me.
+
+<stdin>:1: ERROR: syntax error at or near replication
+[root at vmbndbdev01 ~]# slonik <<_EOF_
+> cluster name = 'replication'
+> _EOF_
+<stdin>:1: ERROR: syntax error at or near replication
+
+I tried with single,double and no quotes, but not luck with either of those.
+
+Thanks much.
+Samir
+
+
+
+
+-----Original Message-----
+From: Jan Wieck [mailto:jan at wi3ck.info] 
+Sent: Thursday, April 17, 2014 10:30 AM
+To: Samir Parikh; Glyn Astill; slony1-general at lists.slony.info
+Subject: Re: [Slony1-general] Slony setup error
+
+On 04/17/14 12:50, Samir Parikh wrote:
+> Thanks for the quick response. Yes, you are right function getLocalNodeId does not exist on subscriber node but it does exists on primary node. On further check I could see on primary node under replication schema total 127 functions but in subscriber node I could see only 112. Not sure why there are missing functions which include getLocalNodeId.
+>
+> This is the very first time I am trying to set up slony replication. I am following documentation on slony.info.
+
+That sounds very odd.
+
+I would suggest doing an UNINSTALL NODE, DROP NODE (both for the non-functioning one), waiting until all traces of the dropped node are gone from the system (or using a different node ID to be sure) and then start over from STORE NODE, STORE PATH all the way.
+
+And make sure you use 2.2 or at least 2.1. 2.0 is marked end of life and earlier versions have not received any updates/fixes for quite a while now.
+
+
+Regards,
+Jan
+
+
+>
+> Thanks again.
+> Samir
+>
+> -----Original Message-----
+> From: Glyn Astill [mailto:glynastill at yahoo.co.uk]
+> Sent: Thursday, April 17, 2014 2:20 AM
+> To: Samir Parikh; slony1-general at lists.slony.info
+> Subject: Re: [Slony1-general] Slony setup error
+>
+>> From: Samir Parikh <SParikh at CarCharging.com>
+>
+>>To: "slony1-general at lists.slony.info" <slony1-general at lists.slony.info>
+>>Sent: Thursday, 17 April 2014, 2:06
+>>Subject: [Slony1-general] Slony setup error
+>>
+>>
+>>I am getting following error while trying to set up replication ? Can somebody help ?
+>>
+>>./slonik_subscribe_set 1 2 | ./slonik
+>><stdin>:5: PGRES_FATAL_ERROR select max(ev_seqno) FROM
+>>"_replication".sl_event , "_replication".sl_node  where ev_origin="_replication".getLocalNodeId('_replication')  AND ev_type <> 'SYNC'  AND sl_node.no_id= ev_origin - ERROR:  function _replication.getlocalnodeid(unknown) does not exist LINE 1: ...l_event , "_replication".sl_node  where ev_origin="_replicat...
+>>                                                             ^
+>>HINT:  No function matches the given name and argument types. You might need to add explicit type casts.
+>>error: unable to query event history on node 2
+>
+>
+> Well have you checked to see if the "_replication" schema and getlocalnodeid function are present on your new subscriber?
+>
+>  From the error message I can only assume you've not run "STORE NODE" against the node you're trying to subscribe,
+>
+>
+>>waiting for events  (2,221473472232) only at (2,0) to be confirmed on
+>>node 1
+>
+>
+> This reinforces my thoughts, as well as running STORE NODE/PATH for your new subscriber you need to make sure you have a slon running against it too.
+>
+> Perhaps you could fill us in on the steps you've taken so far so we can see where you've gone off course.
+>
+>
+> Glyn.
+>
+> p.s. I'll use this as a test to see if I can still post to the list from my yahoo.com address too; I've not much hope it will :-(
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+>
+
+
+-- 
+Jan Wieck
+Senior Software Engineer
+http://slony.info
+
+From jan at wi3ck.info  Thu Apr 17 11:56:55 2014
+From: jan at wi3ck.info (Jan Wieck)
+Date: Thu, 17 Apr 2014 14:56:55 -0400
+Subject: [Slony1-general] Slony setup error
+In-Reply-To: <E71FD72131AC2444B02505A22C0457B0022A6050@mbx023-e1-nj-2.exch023.domain.local>
+References: <E71FD72131AC2444B02505A22C0457B0022A4BD0@mbx023-e1-nj-2.exch023.domain.local>	<1397726423.93962.YahooMailNeo@web133201.mail.ir2.yahoo.com>
+	<E71FD72131AC2444B02505A22C0457B0022A5F2E@mbx023-e1-nj-2.exch023.domain.local>
+	<53500F9F.1040802@wi3ck.info>
+	<E71FD72131AC2444B02505A22C0457B0022A6050@mbx023-e1-nj-2.exch023.domain.local>
+Message-ID: <535023F7.2060200@wi3ck.info>
+
+On 04/17/14 14:51, Samir Parikh wrote:
+> Some success. I  could now set up the replication after dropping/recreating the replication schema on both nodes.
+> Now I am trying to add tables to set using slonik script and stuck with this syntax error. I googled it and found many instances of this error but could not find any solution that work for me.
+>
+> <stdin>:1: ERROR: syntax error at or near replication
+> [root at vmbndbdev01 ~]# slonik <<_EOF_
+>> cluster name = 'replication'
+>> _EOF_
+> <stdin>:1: ERROR: syntax error at or near replication
+
+The bison parser for this isn't the best in the world.
+
+It expects at least one admin conninfo and one actual command too. 
+Otherwise it is not considered a complete script and in bison "syntax 
+error" is pretty much all you get.
+
+
+Jan
+
+
+>
+> I tried with single,double and no quotes, but not luck with either of those.
+>
+> Thanks much.
+> Samir
+>
+>
+>
+>
+> -----Original Message-----
+> From: Jan Wieck [mailto:jan at wi3ck.info]
+> Sent: Thursday, April 17, 2014 10:30 AM
+> To: Samir Parikh; Glyn Astill; slony1-general at lists.slony.info
+> Subject: Re: [Slony1-general] Slony setup error
+>
+> On 04/17/14 12:50, Samir Parikh wrote:
+>> Thanks for the quick response. Yes, you are right function getLocalNodeId does not exist on subscriber node but it does exists on primary node. On further check I could see on primary node under replication schema total 127 functions but in subscriber node I could see only 112. Not sure why there are missing functions which include getLocalNodeId.
+>>
+>> This is the very first time I am trying to set up slony replication. I am following documentation on slony.info.
+>
+> That sounds very odd.
+>
+> I would suggest doing an UNINSTALL NODE, DROP NODE (both for the non-functioning one), waiting until all traces of the dropped node are gone from the system (or using a different node ID to be sure) and then start over from STORE NODE, STORE PATH all the way.
+>
+> And make sure you use 2.2 or at least 2.1. 2.0 is marked end of life and earlier versions have not received any updates/fixes for quite a while now.
+>
+>
+> Regards,
+> Jan
+>
+>
+>>
+>> Thanks again.
+>> Samir
+>>
+>> -----Original Message-----
+>> From: Glyn Astill [mailto:glynastill at yahoo.co.uk]
+>> Sent: Thursday, April 17, 2014 2:20 AM
+>> To: Samir Parikh; slony1-general at lists.slony.info
+>> Subject: Re: [Slony1-general] Slony setup error
+>>
+>>> From: Samir Parikh <SParikh at CarCharging.com>
+>>
+>>>To: "slony1-general at lists.slony.info" <slony1-general at lists.slony.info>
+>>>Sent: Thursday, 17 April 2014, 2:06
+>>>Subject: [Slony1-general] Slony setup error
+>>>
+>>>
+>>>I am getting following error while trying to set up replication ? Can somebody help ?
+>>>
+>>>./slonik_subscribe_set 1 2 | ./slonik
+>>><stdin>:5: PGRES_FATAL_ERROR select max(ev_seqno) FROM
+>>>"_replication".sl_event , "_replication".sl_node  where ev_origin="_replication".getLocalNodeId('_replication')  AND ev_type <> 'SYNC'  AND sl_node.no_id= ev_origin - ERROR:  function _replication.getlocalnodeid(unknown) does not exist LINE 1: ...l_event , "_replication".sl_node  where ev_origin="_replicat...
+>>>                                                             ^
+>>>HINT:  No function matches the given name and argument types. You might need to add explicit type casts.
+>>>error: unable to query event history on node 2
+>>
+>>
+>> Well have you checked to see if the "_replication" schema and getlocalnodeid function are present on your new subscriber?
+>>
+>>  From the error message I can only assume you've not run "STORE NODE" against the node you're trying to subscribe,
+>>
+>>
+>>>waiting for events  (2,221473472232) only at (2,0) to be confirmed on
+>>>node 1
+>>
+>>
+>> This reinforces my thoughts, as well as running STORE NODE/PATH for your new subscriber you need to make sure you have a slon running against it too.
+>>
+>> Perhaps you could fill us in on the steps you've taken so far so we can see where you've gone off course.
+>>
+>>
+>> Glyn.
+>>
+>> p.s. I'll use this as a test to see if I can still post to the list from my yahoo.com address too; I've not much hope it will :-(
+>>
+>> _______________________________________________
+>> Slony1-general mailing list
+>> Slony1-general at lists.slony.info
+>> http://lists.slony.info/mailman/listinfo/slony1-general
+>>
+>
+>
+
+
+-- 
+Jan Wieck
+Senior Software Engineer
+http://slony.info
+
+From jan at wi3ck.info  Thu Apr 17 11:57:47 2014
+From: jan at wi3ck.info (Jan Wieck)
+Date: Thu, 17 Apr 2014 14:57:47 -0400
+Subject: [Slony1-general] Slony setup error
+In-Reply-To: <535023F7.2060200@wi3ck.info>
+References: <E71FD72131AC2444B02505A22C0457B0022A4BD0@mbx023-e1-nj-2.exch023.domain.local>	<1397726423.93962.YahooMailNeo@web133201.mail.ir2.yahoo.com>
+	<E71FD72131AC2444B02505A22C0457B0022A5F2E@mbx023-e1-nj-2.exch023.domain.local>
+	<53500F9F.1040802@wi3ck.info>
+	<E71FD72131AC2444B02505A22C0457B0022A6050@mbx023-e1-nj-2.exch023.domain.local>
+	<535023F7.2060200@wi3ck.info>
+Message-ID: <5350242B.2010408@wi3ck.info>
+
+On 04/17/14 14:56, Jan Wieck wrote:
+> On 04/17/14 14:51, Samir Parikh wrote:
+>> Some success. I  could now set up the replication after dropping/recreating the replication schema on both nodes.
+>> Now I am trying to add tables to set using slonik script and stuck with this syntax error. I googled it and found many instances of this error but could not find any solution that work for me.
+>>
+>> <stdin>:1: ERROR: syntax error at or near replication
+>> [root at vmbndbdev01 ~]# slonik <<_EOF_
+>>> cluster name = 'replication'
+>>> _EOF_
+>> <stdin>:1: ERROR: syntax error at or near replication
+>
+> The bison parser for this isn't the best in the world.
+>
+> It expects at least one admin conninfo and one actual command too.
+> Otherwise it is not considered a complete script and in bison "syntax
+> error" is pretty much all you get.
+
+Plus you need a semicolon at the end of course.
+
+
+Jan
+
+>
+>
+> Jan
+>
+>
+>>
+>> I tried with single,double and no quotes, but not luck with either of those.
+>>
+>> Thanks much.
+>> Samir
+>>
+>>
+>>
+>>
+>> -----Original Message-----
+>> From: Jan Wieck [mailto:jan at wi3ck.info]
+>> Sent: Thursday, April 17, 2014 10:30 AM
+>> To: Samir Parikh; Glyn Astill; slony1-general at lists.slony.info
+>> Subject: Re: [Slony1-general] Slony setup error
+>>
+>> On 04/17/14 12:50, Samir Parikh wrote:
+>>> Thanks for the quick response. Yes, you are right function getLocalNodeId does not exist on subscriber node but it does exists on primary node. On further check I could see on primary node under replication schema total 127 functions but in subscriber node I could see only 112. Not sure why there are missing functions which include getLocalNodeId.
+>>>
+>>> This is the very first time I am trying to set up slony replication. I am following documentation on slony.info.
+>>
+>> That sounds very odd.
+>>
+>> I would suggest doing an UNINSTALL NODE, DROP NODE (both for the non-functioning one), waiting until all traces of the dropped node are gone from the system (or using a different node ID to be sure) and then start over from STORE NODE, STORE PATH all the way.
+>>
+>> And make sure you use 2.2 or at least 2.1. 2.0 is marked end of life and earlier versions have not received any updates/fixes for quite a while now.
+>>
+>>
+>> Regards,
+>> Jan
+>>
+>>
+>>>
+>>> Thanks again.
+>>> Samir
+>>>
+>>> -----Original Message-----
+>>> From: Glyn Astill [mailto:glynastill at yahoo.co.uk]
+>>> Sent: Thursday, April 17, 2014 2:20 AM
+>>> To: Samir Parikh; slony1-general at lists.slony.info
+>>> Subject: Re: [Slony1-general] Slony setup error
+>>>
+>>>> From: Samir Parikh <SParikh at CarCharging.com>
+>>>
+>>>>To: "slony1-general at lists.slony.info" <slony1-general at lists.slony.info>
+>>>>Sent: Thursday, 17 April 2014, 2:06
+>>>>Subject: [Slony1-general] Slony setup error
+>>>>
+>>>>
+>>>>I am getting following error while trying to set up replication ? Can somebody help ?
+>>>>
+>>>>./slonik_subscribe_set 1 2 | ./slonik
+>>>><stdin>:5: PGRES_FATAL_ERROR select max(ev_seqno) FROM
+>>>>"_replication".sl_event , "_replication".sl_node  where ev_origin="_replication".getLocalNodeId('_replication')  AND ev_type <> 'SYNC'  AND sl_node.no_id= ev_origin - ERROR:  function _replication.getlocalnodeid(unknown) does not exist LINE 1: ...l_event , "_replication".sl_node  where ev_origin="_replicat...
+>>>>                                                             ^
+>>>>HINT:  No function matches the given name and argument types. You might need to add explicit type casts.
+>>>>error: unable to query event history on node 2
+>>>
+>>>
+>>> Well have you checked to see if the "_replication" schema and getlocalnodeid function are present on your new subscriber?
+>>>
+>>>  From the error message I can only assume you've not run "STORE NODE" against the node you're trying to subscribe,
+>>>
+>>>
+>>>>waiting for events  (2,221473472232) only at (2,0) to be confirmed on
+>>>>node 1
+>>>
+>>>
+>>> This reinforces my thoughts, as well as running STORE NODE/PATH for your new subscriber you need to make sure you have a slon running against it too.
+>>>
+>>> Perhaps you could fill us in on the steps you've taken so far so we can see where you've gone off course.
+>>>
+>>>
+>>> Glyn.
+>>>
+>>> p.s. I'll use this as a test to see if I can still post to the list from my yahoo.com address too; I've not much hope it will :-(
+>>>
+>>> _______________________________________________
+>>> Slony1-general mailing list
+>>> Slony1-general at lists.slony.info
+>>> http://lists.slony.info/mailman/listinfo/slony1-general
+>>>
+>>
+>>
+>
+>
+
+
+-- 
+Jan Wieck
+Senior Software Engineer
+http://slony.info
+
+From SParikh at CarCharging.com  Thu Apr 17 12:12:23 2014
+From: SParikh at CarCharging.com (Samir Parikh)
+Date: Thu, 17 Apr 2014 19:12:23 +0000
+Subject: [Slony1-general] Slony setup error
+In-Reply-To: <5350242B.2010408@wi3ck.info>
+References: <E71FD72131AC2444B02505A22C0457B0022A4BD0@mbx023-e1-nj-2.exch023.domain.local>
+	<1397726423.93962.YahooMailNeo@web133201.mail.ir2.yahoo.com>
+	<E71FD72131AC2444B02505A22C0457B0022A5F2E@mbx023-e1-nj-2.exch023.domain.local>
+	<53500F9F.1040802@wi3ck.info>
+	<E71FD72131AC2444B02505A22C0457B0022A6050@mbx023-e1-nj-2.exch023.domain.local>
+	<535023F7.2060200@wi3ck.info> <5350242B.2010408@wi3ck.info>
+Message-ID: <E71FD72131AC2444B02505A22C0457B0022A60B8@mbx023-e1-nj-2.exch023.domain.local>
+
+Great. It works now. Thank a ton.
+This forum is amazing. Really appreciating all your help.
+
+
+-----Original Message-----
+From: Jan Wieck [mailto:jan at wi3ck.info] 
+Sent: Thursday, April 17, 2014 11:58 AM
+To: Samir Parikh; Glyn Astill; slony1-general at lists.slony.info
+Subject: Re: [Slony1-general] Slony setup error
+
+On 04/17/14 14:56, Jan Wieck wrote:
+> On 04/17/14 14:51, Samir Parikh wrote:
+>> Some success. I  could now set up the replication after dropping/recreating the replication schema on both nodes.
+>> Now I am trying to add tables to set using slonik script and stuck with this syntax error. I googled it and found many instances of this error but could not find any solution that work for me.
+>>
+>> <stdin>:1: ERROR: syntax error at or near replication
+>> [root at vmbndbdev01 ~]# slonik <<_EOF_
+>>> cluster name = 'replication'
+>>> _EOF_
+>> <stdin>:1: ERROR: syntax error at or near replication
+>
+> The bison parser for this isn't the best in the world.
+>
+> It expects at least one admin conninfo and one actual command too.
+> Otherwise it is not considered a complete script and in bison "syntax 
+> error" is pretty much all you get.
+
+Plus you need a semicolon at the end of course.
+
+
+Jan
+
+>
+>
+> Jan
+>
+>
+>>
+>> I tried with single,double and no quotes, but not luck with either of those.
+>>
+>> Thanks much.
+>> Samir
+>>
+>>
+>>
+>>
+>> -----Original Message-----
+>> From: Jan Wieck [mailto:jan at wi3ck.info]
+>> Sent: Thursday, April 17, 2014 10:30 AM
+>> To: Samir Parikh; Glyn Astill; slony1-general at lists.slony.info
+>> Subject: Re: [Slony1-general] Slony setup error
+>>
+>> On 04/17/14 12:50, Samir Parikh wrote:
+>>> Thanks for the quick response. Yes, you are right function getLocalNodeId does not exist on subscriber node but it does exists on primary node. On further check I could see on primary node under replication schema total 127 functions but in subscriber node I could see only 112. Not sure why there are missing functions which include getLocalNodeId.
+>>>
+>>> This is the very first time I am trying to set up slony replication. I am following documentation on slony.info.
+>>
+>> That sounds very odd.
+>>
+>> I would suggest doing an UNINSTALL NODE, DROP NODE (both for the non-functioning one), waiting until all traces of the dropped node are gone from the system (or using a different node ID to be sure) and then start over from STORE NODE, STORE PATH all the way.
+>>
+>> And make sure you use 2.2 or at least 2.1. 2.0 is marked end of life and earlier versions have not received any updates/fixes for quite a while now.
+>>
+>>
+>> Regards,
+>> Jan
+>>
+>>
+>>>
+>>> Thanks again.
+>>> Samir
+>>>
+>>> -----Original Message-----
+>>> From: Glyn Astill [mailto:glynastill at yahoo.co.uk]
+>>> Sent: Thursday, April 17, 2014 2:20 AM
+>>> To: Samir Parikh; slony1-general at lists.slony.info
+>>> Subject: Re: [Slony1-general] Slony setup error
+>>>
+>>>> From: Samir Parikh <SParikh at CarCharging.com>
+>>>
+>>>>To: "slony1-general at lists.slony.info" 
+>>>><slony1-general at lists.slony.info>
+>>>>Sent: Thursday, 17 April 2014, 2:06
+>>>>Subject: [Slony1-general] Slony setup error
+>>>>
+>>>>
+>>>>I am getting following error while trying to set up replication ? Can somebody help ?
+>>>>
+>>>>./slonik_subscribe_set 1 2 | ./slonik
+>>>><stdin>:5: PGRES_FATAL_ERROR select max(ev_seqno) FROM 
+>>>>"_replication".sl_event , "_replication".sl_node  where ev_origin="_replication".getLocalNodeId('_replication')  AND ev_type <> 'SYNC'  AND sl_node.no_id= ev_origin - ERROR:  function _replication.getlocalnodeid(unknown) does not exist LINE 1: ...l_event , "_replication".sl_node  where ev_origin="_replicat...
+>>>>                                                             ^
+>>>>HINT:  No function matches the given name and argument types. You might need to add explicit type casts.
+>>>>error: unable to query event history on node 2
+>>>
+>>>
+>>> Well have you checked to see if the "_replication" schema and getlocalnodeid function are present on your new subscriber?
+>>>
+>>>  From the error message I can only assume you've not run "STORE 
+>>> NODE" against the node you're trying to subscribe,
+>>>
+>>>
+>>>>waiting for events  (2,221473472232) only at (2,0) to be confirmed 
+>>>>on node 1
+>>>
+>>>
+>>> This reinforces my thoughts, as well as running STORE NODE/PATH for your new subscriber you need to make sure you have a slon running against it too.
+>>>
+>>> Perhaps you could fill us in on the steps you've taken so far so we can see where you've gone off course.
+>>>
+>>>
+>>> Glyn.
+>>>
+>>> p.s. I'll use this as a test to see if I can still post to the list 
+>>> from my yahoo.com address too; I've not much hope it will :-(
+>>>
+>>> _______________________________________________
+>>> Slony1-general mailing list
+>>> Slony1-general at lists.slony.info
+>>> http://lists.slony.info/mailman/listinfo/slony1-general
+>>>
+>>
+>>
+>
+>
+
+
+--
+Jan Wieck
+Senior Software Engineer
+http://slony.info
+
+From vivek at khera.org  Thu Apr 17 12:46:12 2014
+From: vivek at khera.org (Vick Khera)
+Date: Thu, 17 Apr 2014 15:46:12 -0400
+Subject: [Slony1-general] Slony setup error
+In-Reply-To: <1397755383.87916.YahooMailNeo@web133202.mail.ir2.yahoo.com>
+References: <E71FD72131AC2444B02505A22C0457B0022A4BD0@mbx023-e1-nj-2.exch023.domain.local>
+	<1397726423.93962.YahooMailNeo@web133201.mail.ir2.yahoo.com>
+	<534FBC57.5080107@wi3ck.info>
+	<1397755383.87916.YahooMailNeo@web133202.mail.ir2.yahoo.com>
+Message-ID: <CALd+dcdgkidbjfmGmFKSM9vCKz4J+ununO+DLdGZxp5rA-ZwFQ@mail.gmail.com>
+
+https://dmarcian.com/dmarc-inspector/yahoo.co.uk says they publish a
+policy p=none, so that should be no problem for mailing lists. only
+p=reject is a problem.
+
+
+On Thu, Apr 17, 2014 at 1:23 PM, Glyn Astill <glynastill at yahoo.co.uk> wrote:
+>
+>
+>>>  p.s. I'll use this as a test to see if I can still post to the list
+>> from my yahoo.com address too; I've not much hope it will :-(
+>>
+>> Did @yahoo.co.uk receive the same ill advised changes? Not sure because
+>> so far I don't see any bounce messages.
+>>
+>
+> Not as far as I'm aware; I just assumed anything affecting yahoo.com would also apply to yahoo.co.uk, especially as I've had issues on the NetBSD lists for years, but afaik that's down to some sort of plain text issue.
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+
+From jan at wi3ck.info  Thu Apr 17 13:59:02 2014
+From: jan at wi3ck.info (Jan Wieck)
+Date: Thu, 17 Apr 2014 16:59:02 -0400
+Subject: [Slony1-general] Wide Area Replication, Add Set, without index?
+In-Reply-To: <CAEaSS0YbOUfRJfxoJMF0Ook-fCUtFHRLqa=h7E1EGUqJQPpu5A@mail.gmail.com>
+References: <CAEaSS0Z_Lvfy8t_f8q=0VH4=oqMH7RZLVpQKFijXvuS_uRFstQ@mail.gmail.com>	<CALd+dcdVPPg+0PmV7QyG0RhqVMbqOgE_hsgvtbu3D+SB6-a1AA@mail.gmail.com>
+	<CAEaSS0YbOUfRJfxoJMF0Ook-fCUtFHRLqa=h7E1EGUqJQPpu5A@mail.gmail.com>
+Message-ID: <53504096.3060503@wi3ck.info>
+
+On 02/14/14 15:26, Tory M Blue wrote:
+>
+>
+>
+> On Fri, Feb 14, 2014 at 10:35 AM, Vick Khera <vivek at khera.org
+> <mailto:vivek at khera.org>> wrote:
+>
+>
+>     On Thu, Feb 13, 2014 at 5:15 PM, Tory M Blue <tmblue at gmail.com
+>     <mailto:tmblue at gmail.com>> wrote:
+>
+>         so I'm wondering how do I change my scripts to create the
+>         index's at the end? I obviously can't drop the index on the
+>         master or everything will go to heck in a hand basket, but is
+>         there an instruction set when I'm adding a node and adding sets
+>         to that node, to tell it to ignore the indexes?
+>
+>
+>     I'm pretty sure slony disables indexes while copying, then re-builds
+>     them after it is done.
+>
+>
+>
+> Actually I believe this is beyond slony. The schema tells postgres what
+> to do, so if it's creating indexes when the table is created, seems like
+> everything pauses / waits for the index to be done, before moving on to
+> the next table copy.
+>
+> So I think editing the schema to do the indexes at the end or not at all
+> (make it manual), one should be able to use that schema on a remote slon
+> host, that host will not pause to create indexes, and allow slony to
+> push the data without a significant pause (some of our indexes have
+> taken 4+ hours to create).
+
+If you do a SUBSCRIBE SET without specifying OMIT COPY = yes, then Slony 
+is doing:
+
+     truncate the table
+     turn off indexes (mucking with system catalog here)
+     copy table
+     turn indexes back on
+     reindex table
+
+All this is done within one transaction for all tables in the set, so in 
+this case "mucking with system catalog" is safe, because it will never 
+be visible to any concurrent session.
+
+You could drop all indexes (and the primary key) from all the tables on 
+the subscriber, do the subscribe, then kill the slon (because without 
+the PK it won't be able to do much in terms of catching up), recreate PK 
+and indexes, then let it catch up.
+
+What I would rather suggest is that you enable TCP keepalives and 
+configure them in the slon config so that your firewall/NAT-gateway or 
+whatever is reaping the idle connections is kept from doing so.
+
+>
+> I'm going to test this anyways, I don't see anything particular to slon
+> to stop this behaviour
+
+TCP keepalives should do that, as a side effect.
+
+
+Regards,
+Jan
+
+-- 
+Jan Wieck
+Senior Software Engineer
+http://slony.info
+
+From ragavendra.dba at gmail.com  Fri Apr 25 04:32:27 2014
+From: ragavendra.dba at gmail.com (Raghav)
+Date: Fri, 25 Apr 2014 17:02:27 +0530
+Subject: [Slony1-general] Replication fails on Corrupted PK index
+Message-ID: <CANwAqWhebdCCjNvaMYSLR07ya0soSTwzRLo4b1W5Ye520_mpWQ@mail.gmail.com>
+
+Hi,
+
+I am facing an issue, where one of primary key index got corrupted, due to
+which duplicate rows got inserted into the table. Same duplicate rows are
+captured by slony in its sl_log_* and failing to replay those events on
+slave with duplicate key violation and aborting. Later I found a Slony Faq
+where it describes the similar situation(I am guessing) under "*8.4.
+*Replication
+Fails - Unique Constraint Violation" section in this link.
+http://main.slony.info/documentation/1.2/faq.html#AEN7936
+
+I could able to fix it by removing entries manually from the sl_log_* to
+continue syncing.
+
+My curious question is, why slony sl_log_* are not capturing distinct
+values. I believe if it captures the distinct values in sl_log_* then
+there's no point of sync abort. Correct me if am wrong.
+Also, the link describes the situation of Slony 1.2 version whereas am
+using latest version of slony. Is this still expected in this version of
+slony ?
+
+Details of issue for your reference:
+*Version:*
+
+PG 9.3, RHEL, Slony 2.2
+
+*On Primary*
+
+postgres=# \d dtest
+        Table "public.dtest"
+ Column |     Type      | Modifiers
+--------+---------------+-----------
+ id     | integer       | not null
+ name   | character(10) |
+Indexes:
+    "dtest_pkey" PRIMARY KEY, btree (id)
+Triggers:
+    _rf_logtrigger AFTER INSERT OR DELETE OR UPDATE ON dtest FOR EACH ROW
+EXECUTE PROCEDURE _rf.logtrigger('_rf', '2', 'k')
+    _rf_truncatetrigger BEFORE TRUNCATE ON dtest FOR EACH STATEMENT EXECUTE
+PROCEDURE _rf.log_truncate('2')
+Disabled triggers:
+    _rf_denyaccess BEFORE INSERT OR DELETE OR UPDATE ON dtest FOR EACH ROW
+EXECUTE PROCEDURE _rf.denyaccess('_rf')
+    _rf_truncatedeny BEFORE TRUNCATE ON dtest FOR EACH STATEMENT EXECUTE
+PROCEDURE _rf.deny_truncate()
+
+postgres=# select * from dtest ;     /// Due to corruption you have
+duplicate rows.
+ id |    name
+----+------------
+  1 | A
+  2 | B
+  3 | C
+  4 | D
+  4 | D
+
+postgres=# select * from _rf.sl_log_2;  /// This has captured the event as
+it is
+ log_origin | log_txid | log_tableid | log_actionseq | log_tablenspname |
+log_tablerelname | log_cmdtype | log_cmdupdncols |       log_cmdargs
+------------+----------+-------------+---------------+------------------+------------------+-------------+-----------------+------------------
+          1 |    12292 |           2 |             9 | public           |
+dtest            | T           |               0 | {}
+          1 |    12377 |           2 |            10 | public           |
+dtest            | I           |               0 | {id,1,name,"A
+          1 |    12389 |           2 |            11 | public           |
+dtest            | I           |               0 | {id,2,name,"B
+          1 |    12400 |           2 |            12 | public           |
+dtest            | I           |               0 | {id,3,name,"C
+          1 |    13605 |           2 |            13 | public           |
+dtest            | I           |               0 | {id,4,name,"D
+          1 |    13611 |           2 |            14 | public           |
+dtest            | I           |               0 | {id,4,name,"D
+(6 rows)
+
+
+*Slony Log information:*
+
+2014-04-11 11:20:09 PDT ERROR  remoteWorkerThread_1_1: error at end of COPY
+IN: ERROR:  duplicate key value violates unique constraint "dtest_pkey"
+DETAIL:  Key (id)=(4) already exists.
+CONTEXT:  SQL statement "INSERT INTO "public"."dtest" ("id", "name") VALUES
+($1, $2);"
+COPY sl_log_2, line 1: "1       13611   2       14      public  dtest   I
+    0       {id,4,name,"D         "}"
+2014-04-11 11:20:09 PDT ERROR  remoteWorkerThread_1_1: failed SYNC's log
+selection query was 'COPY ( select log_origin, log_txid, NULL::integer,
+log_actionseq, NULL::text, NULL::text, log_cmdtype, NULL::integer,
+log_cmdargs from "_rf".sl_log_script where log_origin = 1 and log_txid >=
+"pg_catalog".txid_snapshot_xmax('13607:13607:') and log_txid < '13614' and
+"pg_catalog".txid_visible_in_snapshot(log_txid, '13614:13614:') union all
+select log_origin, log_txid, NULL::integer, log_actionseq, NULL::text,
+NULL::text, log_cmdtype, NULL::integer, log_cmdargs from
+"_rf".sl_log_script where log_origin = 1 and log_txid in (select * from
+"pg_catalog".txid_snapshot_xip('13607:13607:') except select * from
+"pg_catalog".txid_snapshot_xip('13614:13614:') ) union all select
+log_origin, log_txid, log_tableid, log_actionseq, log_tablenspname,
+log_tablerelname, log_cmdtype, log_cmdupdncols, log_cmdargs from
+"_rf".sl_log_2 where log_origin = 1 and log_tableid in (1) and log_txid >=
+'13607' and log_txid < '13614' and
+"pg_catalog".txid_visible_in_snapshot(log_txid, '13614:13614:') union all
+select log_origin, log_txid, log_tableid, log_actionseq, log_tablenspname,
+log_tablerelname, log_cmdtype, log_cmdupdncols, log_cmdargs from
+"_rf".sl_log_2 where log_origin = 1 and log_tableid in (1) and log_txid in
+(select * from "pg_catalog".txid_snapshot_xip('13607:13607:') except select
+* from "pg_catalog".txid_snapshot_xip('13614:13614:') ) union all select
+log_origin, log_txid, log_tableid, log_actionseq, log_tablenspname,
+log_tablerelname, log_cmdtype, log_cmdupdncols, log_cmdargs from
+"_rf".sl_log_2 where log_origin = 1 and log_tableid in (2) and log_txid >=
+'13607' and log_txid < '13614' and
+"pg_catalog".txid_visible_in_snapshot(log_txid, '13614:13614:') union all
+select log_origin, log_txid, log_tableid, log_actionseq, log_tablenspname,
+log_tablerelname, log_cmdtype, log_cmdupdncols, log_cmdargs from
+"_rf".sl_log_2 where log_origin = 1 and log_tableid in (2) and log_txid in
+(select * from "pg_catalog".txid_snapshot_xip('13607:13607:') except select
+* from "pg_catalog".txid_snapshot_xip('13614:13614:') ) union all select
+log_origin, log_txid, log_tableid, log_actionseq, log_tablenspname,
+log_tablerelname, log_cmdtype, log_cmdupdncols, log_cmdargs from
+"_rf".sl_log_2 where log_origin = 1 and log_tableid in (3) and log_txid >=
+'13607' and log_txid < '13614' and
+"pg_catalog".txid_visible_in_snapshot(log_txid, '13614:13614:') union all
+select log_origin, log_txid, log_tableid, log_actionseq, log_tablenspname,
+log_tablerelname, log_cmdtype, log_cmdupdncols, log_cmdargs from
+"_rf".sl_log_2 where log_origin = 1 and log_tableid in (3) and log_txid in
+(select * from "pg_catalog".txid_snapshot_xip('13607:13607:') except select
+* from "pg_catalog".txid_snapshot_xip('13614:13614:') ) order by
+log_actionseq) TO STDOUT'
+2014-04-11 11:20:09 PDT ERROR  remoteWorkerThread_1: SYNC aborted
+
+Thank you in advance.
+
+-- 
+Regards
+Raghav
+Blog: htt://raghavt.blogspot.com/
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20140425/0727f553/attachment.htm 
+
