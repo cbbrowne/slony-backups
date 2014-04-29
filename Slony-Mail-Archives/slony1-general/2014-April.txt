@@ -1589,3 +1589,307 @@ Blog: htt://raghavt.blogspot.com/
 An HTML attachment was scrubbed...
 URL: http://lists.slony.info/pipermail/slony1-general/attachments/20140425/0727f553/attachment.htm 
 
+From jan at wi3ck.info  Sun Apr 27 10:06:54 2014
+From: jan at wi3ck.info (Jan Wieck)
+Date: Sun, 27 Apr 2014 13:06:54 -0400
+Subject: [Slony1-general] Replication fails on Corrupted PK index
+In-Reply-To: <CANwAqWhebdCCjNvaMYSLR07ya0soSTwzRLo4b1W5Ye520_mpWQ@mail.gmail.com>
+References: <CANwAqWhebdCCjNvaMYSLR07ya0soSTwzRLo4b1W5Ye520_mpWQ@mail.gmail.com>
+Message-ID: <535D392E.5070103@wi3ck.info>
+
+On 04/25/14 07:32, Raghav wrote:
+> Hi,
+>
+> I am facing an issue, where one of primary key index got corrupted, due
+> to which duplicate rows got inserted into the table. Same duplicate rows
+> are captured by slony in its sl_log_* and failing to replay those events
+> on slave with duplicate key violation and aborting. Later I found a
+> Slony Faq where it describes the similar situation(I am guessing) under
+> "*8.4. *Replication Fails - Unique Constraint Violation" section in this
+> link. http://main.slony.info/documentation/1.2/faq.html#AEN7936
+
+Let me make sure that I understand the issue correctly. You say that 
+your master database has a corrupted index, which allowed duplicate keys 
+to be inserted. This means that without removing those duplicate rows, 
+you could not REINDEX the table on the master either. Replication fails 
+because you do not have the same index corruption on the replica(s). 
+Correct me if I misunderstood.
+
+The following is based on this assumption.
+
+>
+> I could able to fix it by removing entries manually from the sl_log_* to
+> continue syncing.
+> My curious question is, why slony sl_log_* are not capturing distinct
+> values. I believe if it captures the distinct values in sl_log_* then
+> there's no point of sync abort. Correct me if am wrong.
+> Also, the link describes the situation of Slony 1.2 version whereas am
+> using latest version of slony. Is this still expected in this version of
+> slony ?
+
+Slony log tables are capturing INSERT, UPDATE, DELETE and TRUNCATE 
+operations. Except for the TRUNCATE, all those operations are captured 
+on the row level. These insert operations that led to duplicate keys did 
+happen, even though they should not have. But Slony has A) no way of 
+detecting that and B) it isn't Slony's duty to second guess the 
+integrity of the master database.
+
+What you might have here is that your replica contains all your data up 
+to a second before the index got corrupted. I say "might" because this 
+sort of index corruption could have had other side effects, like not 
+finding rows on UPDATE or DELETE, which therefore contain old data or 
+should not be there at all. Unless your application checks the query 
+execution results for the number of rows affected, those UPDATE/DELETE 
+failures would not have been detected and since no rows were affected, 
+no such operations would have been captured and replicated either.
+
+If you indeed find that your replica contains "better" data than the 
+corrupted master, then you could correct the situation easier by 
+performing a FAILOVER, or by uninstalling Slony and rebuilding the 
+cluster based on the healthy replica as initial master.
+
+
+Regards,
+Jan
+
+>
+> Details of issue for your reference:
+> *_Version:_*
+>
+> PG 9.3, RHEL, Slony 2.2
+>
+> *_On Primary_*
+>
+> postgres=# \d dtest
+>          Table "public.dtest"
+>   Column |     Type      | Modifiers
+> --------+---------------+-----------
+>   id     | integer       | not null
+>   name   | character(10) |
+> Indexes:
+>      "dtest_pkey" PRIMARY KEY, btree (id)
+> Triggers:
+>      _rf_logtrigger AFTER INSERT OR DELETE OR UPDATE ON dtest FOR EACH
+> ROW EXECUTE PROCEDURE _rf.logtrigger('_rf', '2', 'k')
+>      _rf_truncatetrigger BEFORE TRUNCATE ON dtest FOR EACH STATEMENT
+> EXECUTE PROCEDURE _rf.log_truncate('2')
+> Disabled triggers:
+>      _rf_denyaccess BEFORE INSERT OR DELETE OR UPDATE ON dtest FOR EACH
+> ROW EXECUTE PROCEDURE _rf.denyaccess('_rf')
+>      _rf_truncatedeny BEFORE TRUNCATE ON dtest FOR EACH STATEMENT
+> EXECUTE PROCEDURE _rf.deny_truncate()
+>
+> postgres=# select * from dtest ;     /// Due to corruption you have
+> duplicate rows.
+>   id |    name
+> ----+------------
+>    1 | A
+>    2 | B
+>    3 | C
+>    4 | D
+>    4 | D
+>
+> postgres=# select * from _rf.sl_log_2;  /// This has captured the event
+> as it is
+>   log_origin | log_txid | log_tableid | log_actionseq | log_tablenspname
+> | log_tablerelname | log_cmdtype | log_cmdupdncols |       log_cmdargs
+> ------------+----------+-------------+---------------+------------------+------------------+-------------+-----------------+------------------
+>            1 |    12292 |           2 |             9 | public
+> | dtest            | T           |               0 | {}
+>            1 |    12377 |           2 |            10 | public
+> | dtest            | I           |               0 | {id,1,name,"A
+>            1 |    12389 |           2 |            11 | public
+> | dtest            | I           |               0 | {id,2,name,"B
+>            1 |    12400 |           2 |            12 | public
+> | dtest            | I           |               0 | {id,3,name,"C
+>            1 |    13605 |           2 |            13 | public
+> | dtest            | I           |               0 | {id,4,name,"D
+>            1 |    13611 |           2 |            14 | public
+> | dtest            | I           |               0 | {id,4,name,"D
+> (6 rows)
+>
+>
+> *_Slony Log information:_*
+>
+> 2014-04-11 11:20:09 PDT ERROR  remoteWorkerThread_1_1: error at end of
+> COPY IN: ERROR:  duplicate key value violates unique constraint "dtest_pkey"
+> DETAIL:  Key (id)=(4) already exists.
+> CONTEXT:  SQL statement "INSERT INTO "public"."dtest" ("id", "name")
+> VALUES ($1, $2);"
+> COPY sl_log_2, line 1: "1       13611   2       14      public  dtest
+> I       0       {id,4,name,"D         "}"
+> 2014-04-11 11:20:09 PDT ERROR  remoteWorkerThread_1_1: failed SYNC's log
+> selection query was 'COPY ( select log_origin, log_txid, NULL::integer,
+> log_actionseq, NULL::text, NULL::text, log_cmdtype, NULL::integer,
+> log_cmdargs from "_rf".sl_log_script where log_origin = 1 and log_txid
+>  >= "pg_catalog".txid_snapshot_xmax('13607:13607:') and log_txid <
+> '13614' and "pg_catalog".txid_visible_in_snapshot(log_txid,
+> '13614:13614:') union all select log_origin, log_txid, NULL::integer,
+> log_actionseq, NULL::text, NULL::text, log_cmdtype, NULL::integer,
+> log_cmdargs from "_rf".sl_log_script where log_origin = 1 and log_txid
+> in (select * from "pg_catalog".txid_snapshot_xip('13607:13607:') except
+> select * from "pg_catalog".txid_snapshot_xip('13614:13614:') ) union all
+> select log_origin, log_txid, log_tableid, log_actionseq,
+> log_tablenspname, log_tablerelname, log_cmdtype, log_cmdupdncols,
+> log_cmdargs from "_rf".sl_log_2 where log_origin = 1 and log_tableid in
+> (1) and log_txid >= '13607' and log_txid < '13614' and
+> "pg_catalog".txid_visible_in_snapshot(log_txid, '13614:13614:') union
+> all select log_origin, log_txid, log_tableid, log_actionseq,
+> log_tablenspname, log_tablerelname, log_cmdtype, log_cmdupdncols,
+> log_cmdargs from "_rf".sl_log_2 where log_origin = 1 and log_tableid in
+> (1) and log_txid in (select * from
+> "pg_catalog".txid_snapshot_xip('13607:13607:') except select * from
+> "pg_catalog".txid_snapshot_xip('13614:13614:') ) union all select
+> log_origin, log_txid, log_tableid, log_actionseq, log_tablenspname,
+> log_tablerelname, log_cmdtype, log_cmdupdncols, log_cmdargs from
+> "_rf".sl_log_2 where log_origin = 1 and log_tableid in (2) and log_txid
+>  >= '13607' and log_txid < '13614' and
+> "pg_catalog".txid_visible_in_snapshot(log_txid, '13614:13614:') union
+> all select log_origin, log_txid, log_tableid, log_actionseq,
+> log_tablenspname, log_tablerelname, log_cmdtype, log_cmdupdncols,
+> log_cmdargs from "_rf".sl_log_2 where log_origin = 1 and log_tableid in
+> (2) and log_txid in (select * from
+> "pg_catalog".txid_snapshot_xip('13607:13607:') except select * from
+> "pg_catalog".txid_snapshot_xip('13614:13614:') ) union all select
+> log_origin, log_txid, log_tableid, log_actionseq, log_tablenspname,
+> log_tablerelname, log_cmdtype, log_cmdupdncols, log_cmdargs from
+> "_rf".sl_log_2 where log_origin = 1 and log_tableid in (3) and log_txid
+>  >= '13607' and log_txid < '13614' and
+> "pg_catalog".txid_visible_in_snapshot(log_txid, '13614:13614:') union
+> all select log_origin, log_txid, log_tableid, log_actionseq,
+> log_tablenspname, log_tablerelname, log_cmdtype, log_cmdupdncols,
+> log_cmdargs from "_rf".sl_log_2 where log_origin = 1 and log_tableid in
+> (3) and log_txid in (select * from
+> "pg_catalog".txid_snapshot_xip('13607:13607:') except select * from
+> "pg_catalog".txid_snapshot_xip('13614:13614:') ) order by log_actionseq)
+> TO STDOUT'
+> 2014-04-11 11:20:09 PDT ERROR  remoteWorkerThread_1: SYNC aborted
+>
+> Thank you in advance.
+>
+> --
+> Regards
+> Raghav
+> Blog: htt://raghavt.blogspot.com/ <http://raghavt.blogspot.com/>
+>
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+>
+
+
+-- 
+Jan Wieck
+Senior Software Engineer
+http://slony.info
+
+From ragavendra.dba at gmail.com  Mon Apr 28 02:19:49 2014
+From: ragavendra.dba at gmail.com (Raghav)
+Date: Mon, 28 Apr 2014 14:49:49 +0530
+Subject: [Slony1-general] Replication fails on Corrupted PK index
+In-Reply-To: <535D392E.5070103@wi3ck.info>
+References: <CANwAqWhebdCCjNvaMYSLR07ya0soSTwzRLo4b1W5Ye520_mpWQ@mail.gmail.com>
+	<535D392E.5070103@wi3ck.info>
+Message-ID: <CANwAqWj6NfbFUZfLMy==sgEFvhKcBjHJNGgX9g-XDgNm_RRfSg@mail.gmail.com>
+
+Thanks Jan for your reply.
+
+
+> Let me make sure that I understand the issue correctly. You say that your
+> master database has a corrupted index, which allowed duplicate keys to be
+> inserted
+
+
+Correct
+
+
+> . This means that without removing those duplicate rows, you could not
+> REINDEX the table on the master either. Replication fails because you do
+> not have the same index corruption on the replica(s). Correct me if I
+> misunderstood.
+>
+>
+Not exactly. Sorry, I didn't described it well. My point is not about
+fixing the corrupted index on the master node which anyways required to
+continue syncing. But I want slony not to repeat the same thing in its
+catalogs. Due to corruption one of the relation has accepted a duplicate
+row, however being healthy the sl_log_* has accepted the duplicate row
+thats where am worried and it has crashed the replication. Later removing
+duplicate entry, slony smartly started without any hiccups thats a
+wonderful area am impressed. Let me put into stages from crash to fix.
+
+1. Assume, at this stage Slony replication going fine between master/slave.
+2. Now, on master node index got corrupted on one of the replicating table.
+(Due to some reason).
+3. Master node allowed duplicate record due to corruption.
+4. Same record copied in sl_log_* ( which mean two records of same value)
+5. On Slave, event fails to apply and SYNC got aborted. (No corrupted pk
+index on slave, so it won't allow duplicates here).
+
+This is what happened in my case. When I check master/slave db logs for the
+time of sync abort there are only DML entries. But the slony_log was just
+showing duplicate key violation error and then aborted. By digging more, I
+found the details in sl_log_* for two entries.
+
+How I fixed is ?
+
+6. Stop slon on master/slave
+7. Remove duplicate row from master node (Remember slave node will not have
+duplicate since the PK index is fine and won't allow)
+8. Remove duplicate row from sl_log_*
+9. REINDEX table on master.
+10. Start slon.
+
+
+> Slony log tables are capturing INSERT, UPDATE, DELETE and TRUNCATE
+> operations. Except for the TRUNCATE, all those operations are captured on
+> the row level. These insert operations that led to duplicate keys did
+> happen, even though they should not have. But Slony has A) no way of
+> detecting that and B) it isn't Slony's duty to second guess the integrity
+> of the master database.
+>
+>
+I completely agree. If am not expecting too much here, how about adding
+this check in slony to handle such scenarios too ?.
+
+On same corrupted table, I implemented a stupid trick, just to avoid
+duplicates in sl_log_* and it worked. Check this out,
+
+postgres=# create unique index isl_log_1 on _rf.sl_log_1(log_cmdargs);
+CREATE INDEX
+postgres=# create unique index isl_log_2 on _rf.sl_log_2(log_cmdargs);
+CREATE INDEX
+postgres=# insert into dtest values (1,'D');
+INSERT 0 1
+postgres=# insert into dtest values (1,'D');
+ERROR:  duplicate key value violates unique constraint "isl_log_1"
+DETAIL:  Key (log_cmdargs)=({id,1,name,"D         "}) already exists.
+CONTEXT:  SQL statement "INSERT INTO _rf.sl_log_1 (log_origin, log_txid,
+log_tableid, log_actionseq, log_tablenspname, log_tablerelname,
+ log_cmdtype, log_cmdupdncols, log_cmdargs) VALUES (1,
+"pg_catalog".txid_current(), $1, nextval('_rf.sl_action_seq'), $2, $3, $4,
+$5, $6); "
+postgres=# select * from dtest ;
+ id |    name
+----+------------
+  1 | D
+(1 row)
+
+postgres=# select * from _rf.sl_log_1 ;
+ log_origin | log_txid | log_tableid | log_actionseq | log_tablenspname |
+log_tablerelname | log_cm
+------------+----------+-------------+---------------+------------------+------------------+-------
+          1 |    36882 |           2 |         15007 | public           |
+dtest            | I
+(1 row)
+
+Not similar, but something control like this will help slony continue even
+in case of corrupted index and it warns the user at database level itself.
+
+--Raghav
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20140428/63927e7e/attachment.html 
+
