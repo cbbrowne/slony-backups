@@ -1893,3 +1893,212 @@ in case of corrupted index and it warns the user at database level itself.
 An HTML attachment was scrubbed...
 URL: http://lists.slony.info/pipermail/slony1-general/attachments/20140428/63927e7e/attachment.html 
 
+From ssinger at ca.afilias.info  Mon Apr 28 05:01:11 2014
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Mon, 28 Apr 2014 08:01:11 -0400
+Subject: [Slony1-general] Replication fails on Corrupted PK index
+In-Reply-To: <CANwAqWj6NfbFUZfLMy==sgEFvhKcBjHJNGgX9g-XDgNm_RRfSg@mail.gmail.com>
+References: <CANwAqWhebdCCjNvaMYSLR07ya0soSTwzRLo4b1W5Ye520_mpWQ@mail.gmail.com>
+	<535D392E.5070103@wi3ck.info>
+	<CANwAqWj6NfbFUZfLMy==sgEFvhKcBjHJNGgX9g-XDgNm_RRfSg@mail.gmail.com>
+Message-ID: <535E4307.6060006@ca.afilias.info>
+
+On 04/28/2014 05:19 AM, Raghav wrote:
+> postgres=# insert into dtest values (1,'D');
+> INSERT 0 1
+> postgres=# insert into dtest values (1,'D');
+
+But your indexes will also prevent something like:
+
+* Stop your slons
+
+  insert into dtest values (1,'D');
+  delete from dtest;
+  insert into dtest values (1,'D');
+
+which should be allowed.
+
+
+
+From jan at wi3ck.info  Mon Apr 28 06:59:44 2014
+From: jan at wi3ck.info (Jan Wieck)
+Date: Mon, 28 Apr 2014 09:59:44 -0400
+Subject: [Slony1-general] Replication fails on Corrupted PK index
+In-Reply-To: <535E4307.6060006@ca.afilias.info>
+References: <CANwAqWhebdCCjNvaMYSLR07ya0soSTwzRLo4b1W5Ye520_mpWQ@mail.gmail.com>	<535D392E.5070103@wi3ck.info>	<CANwAqWj6NfbFUZfLMy==sgEFvhKcBjHJNGgX9g-XDgNm_RRfSg@mail.gmail.com>
+	<535E4307.6060006@ca.afilias.info>
+Message-ID: <535E5ED0.5080402@wi3ck.info>
+
+On 04/28/14 08:01, Steve Singer wrote:
+> On 04/28/2014 05:19 AM, Raghav wrote:
+>> postgres=# insert into dtest values (1,'D');
+>> INSERT 0 1
+>> postgres=# insert into dtest values (1,'D');
+>
+> But your indexes will also prevent something like:
+>
+> * Stop your slons
+>
+>    insert into dtest values (1,'D');
+>    delete from dtest;
+>    insert into dtest values (1,'D');
+>
+> which should be allowed.
+
+That is problem number 1).
+
+2) It will still allow something like
+
+     insert into dtest values (1, 'D', 'foo');
+     insert into dtest values (1, 'D', 'bar');
+
+    since the index isn't restricted to the primary key columns of the
+    table. And since it is shared by all user tables, that's impossible.
+
+3) It will also not prevent something like this:
+
+     insert into dtest values (1, 'D');
+     -- wait for 30 minutes in which slony cleanup switches logs and
+     -- the index corruption happens
+     insert into dtest values (1, 'D');
+
+In summary, attempting to guard against possible PostgreSQL bugs that 
+corrupt data is futile. Even if we could figure this one out, the next 
+problem would be to guard against a corruption of the sl_log_N tables.
+
+
+Regards,
+Jan
+
+
+-- 
+Jan Wieck
+Senior Software Engineer
+http://slony.info
+
+From glynastill at yahoo.co.uk  Mon Apr 28 06:56:16 2014
+From: glynastill at yahoo.co.uk (Glyn Astill)
+Date: Mon, 28 Apr 2014 14:56:16 +0100 (BST)
+Subject: [Slony1-general] Slony 2.2 failover changes
+Message-ID: <1398693376.30605.YahooMailNeo@web133205.mail.ir2.yahoo.com>
+
+Hi All,
+
+I'm testing the changes to failover in 2.2.2 and seem to be running into issues passing multiple nodes to failover.? In the following scenario with 4 nodes, node 2 is the origin of all sets and node 3 is a forwarding provider to node 4, i.e.
+
+1 <---- 2 ----> 3 ----> 4
+
+I'm attempting to fail over in a scenario where both nodes 2 and 3 have failed, so postgres is stopped for both of those nodes.? I'm running the following script:
+
+CLUSTER NAME = test_replication;
+NODE 1 ADMIN CONNINFO = 'dbname=TEST host=localhost port=5432 user=slony';
+NODE 2 ADMIN CONNINFO = 'dbname=TEST host=localhost port=5433 user=slony';
+NODE 3 ADMIN CONNINFO = 'dbname=TEST host=localhost port=5434 user=slony';
+NODE 4 ADMIN CONNINFO = 'dbname=TEST host=localhost port=5435 user=slony';
+FAILOVER (
+??? NODE = (ID = 2, BACKUP NODE = 1),
+??? NODE = (ID = 3, BACKUP NODE = 1)
+);
+
+However it would appear that slonik will wait indefinitely for node 4 to catch up via failed node 3:
+
+$ slonik test.scr
+test.scr:3: could not connect to server: Connection refused
+??????? Is the server running on host "localhost" (127.0.0.1) and accepting
+??????? TCP/IP connections on port 5433?
+test.scr:4: could not connect to server: Connection refused
+??????? Is the server running on host "localhost" (127.0.0.1) and accepting
+??????? TCP/IP connections on port 5434?
+executing preFailover(2,1) on 1
+NOTICE: executing "_test_replication".failedNode2 on node 1
+test.scr:6: NOTICE:? calling restart node 2
+test.scr:6: waiting for event (1,5000000157).? node 4 only on event 5000000156
+test.scr:6: waiting for event (1,5000000157).? node 4 only on event 5000000156
+test.scr:6: waiting for event (1,5000000157).? node 4 only on event 5000000156
+test.scr:6: waiting for event (1,5000000157).? node 4 only on event 5000000156
+test.scr:6: waiting for event (1,5000000157).? node 4 only on event 5000000156
+test.scr:6: waiting for event (1,5000000157).? node 4 only on event 5000000156
+test.scr:6: waiting for event (1,5000000157).? node 4 only on event 5000000156
+test.scr:6: waiting for event (1,5000000157).? node 4 only on event 5000000156
+test.scr:6: waiting for event (1,5000000157).? node 4 only on event 5000000156
+test.scr:6: waiting for event (1,5000000157).? node 4 only on event 5000000156
+test.scr:6: waiting for event (1,5000000157).? node 4 only on event 5000000156
+test.scr:6: waiting for event (1,5000000157).? node 4 only on event 5000000156
+test.scr:6: waiting for event (1,5000000157).? node 4 only on event 5000000156
+test.scr:6: waiting for event (1,5000000157).? node 4 only on event 5000000156
+test.scr:6: waiting for event (1,5000000157).? node 4 only on event 5000000156
+
+
+It'll only complete if I bring node 3 back up, which of course I couldn't do if it was really dead:
+
+NOTICE: executing "_test_replication".failedNode3 on node 1
+
+Have I totally got the wrong end of the stick here?
+
+Thanks
+Glyn
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20140428/f845cc3c/attachment-0001.htm 
+
+From ragavendra.dba at gmail.com  Mon Apr 28 07:43:16 2014
+From: ragavendra.dba at gmail.com (Raghav)
+Date: Mon, 28 Apr 2014 20:13:16 +0530
+Subject: [Slony1-general] Replication fails on Corrupted PK index
+In-Reply-To: <535E5ED0.5080402@wi3ck.info>
+References: <CANwAqWhebdCCjNvaMYSLR07ya0soSTwzRLo4b1W5Ye520_mpWQ@mail.gmail.com>
+	<535D392E.5070103@wi3ck.info>
+	<CANwAqWj6NfbFUZfLMy==sgEFvhKcBjHJNGgX9g-XDgNm_RRfSg@mail.gmail.com>
+	<535E4307.6060006@ca.afilias.info> <535E5ED0.5080402@wi3ck.info>
+Message-ID: <CANwAqWj8ivVK0OvpKrUMO2-3wfUqvze8e3OOORZ1+gMBAPVAGw@mail.gmail.com>
+
+On 28 Apr 2014 19:29, "Jan Wieck" <jan at wi3ck.info> wrote:
+>
+> On 04/28/14 08:01, Steve Singer wrote:
+>>
+
+Thank you Steve/Jan.
+
+As I said, I was just trying to prevent duplicate row in that way. Not that
+it will completely take care of it.
+
+
+>    since the index isn't restricted to the primary key columns of the
+>    tAble. And since it is shared by all user tables, that's impossible.
+>
+
+How about capturing primary key value in catalogs like its done for
+relation OID?
+(Its a last guess :) )
+
+> 3) It will also no t prevent something like this:
+>
+>
+>     insert into dtest values (1, 'D');
+>     -- wait for 30 minutes in which slony cleanup switches logs and
+>     -- the index corruption happens
+>
+>     insert into dtest values (1, 'D');
+>
+
+This is the next case i was thinking , it becomes difficult in my case too
+to find duplicate row in sl_log_N.
+
+I belive this type of scenario should be described somewhere in slony faq
+for user reference.
+
+-Raghav
+>
+> Regards,
+> Jan
+>
+>
+>
+> --
+> Jan Wieck
+> Senior Software Engineer
+> http://slony.info
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20140428/a563f620/attachment.htm 
+
