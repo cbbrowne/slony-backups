@@ -289,3 +289,249 @@ A
 Andrew Sullivan
 ajs at crankycanuck.ca
 
+From ssinger at ca.afilias.info  Tue May  6 07:54:38 2014
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Tue, 06 May 2014 10:54:38 -0400
+Subject: [Slony1-general] Slony 2.2 failover changes
+In-Reply-To: <1398962396.78123.YahooMailNeo@web133203.mail.ir2.yahoo.com>
+References: <1398693376.30605.YahooMailNeo@web133205.mail.ir2.yahoo.com>
+	<53611D6E.4000102@ca.afilias.info>
+	<1398875788.95667.YahooMailNeo@web133202.mail.ir2.yahoo.com>
+	<5361AE7C.3010108@ca.afilias.info>
+	<1398961980.61452.YahooMailNeo@web133201.mail.ir2.yahoo.com>
+	<1398962396.78123.YahooMailNeo@web133203.mail.ir2.yahoo.com>
+Message-ID: <5368F7AE.8070800@ca.afilias.info>
+
+
+
+I see what is going on (based on the logs you sent that the list didn't 
+like)
+
+
+node 4 is configured to use node 2 as the provider for the set
+
+Node 4 has the following in its event queue
+
+1,5000000111 SYNC
+.
+.
+1,5000000118 FAILOVER_NODE
+
+remoteWorker_1 on node 4 doesn't process the FAILOVER_NODE because it 
+can't get beyond the SYNC.  It can't get beyond the SYNC because the 
+provider for 1 is 2 which has gone offline.
+
+
+2014-05-01_165630 BSTDEBUG2 remoteWorkerThread_1: SYNC 5000000111 
+processing 2014-05-01_165630 BSTERROR slon_connectdb: 
+PQconnectdb("dbname=TEST host=localhost port=5433 user=slony") failed - 
+could not connect to server: Connection refused Is the server running on 
+host "localhost" (127.0.0.1) and accepting TCP/IP connections on port 
+5433? 2014-05-01_165630 BSTERROR remoteWorkerThread_1: cannot connect to 
+data provider 2 on 'dbname=TEST host=localhost port=5433 user=slony' 
+2014-05-01_165630 BSTDEBUG2 remoteWorkerThread_1: rollback SYNC 
+transaction 2014-05-01_165632 BSTERROR slon_connectdb: 
+PQconnectdb("dbname=TEST host=localhost port=5434 user=slony") failed - 
+could not connect to server: Connection refused Is the server running on 
+host "localhost" (127.0.0.1) and accepting TCP/IP connections on port 
+5434? 2014-05-01_165632 BSTWARN remoteListenThread_3: DB connection 
+failed - sleep 10 seconds
+
+
+
+From ssinger at ca.afilias.info  Tue May  6 08:49:50 2014
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Tue, 06 May 2014 11:49:50 -0400
+Subject: [Slony1-general] Slony 2.2 failover changes
+In-Reply-To: <5368F7AE.8070800@ca.afilias.info>
+References: <1398693376.30605.YahooMailNeo@web133205.mail.ir2.yahoo.com>
+	<53611D6E.4000102@ca.afilias.info>
+	<1398875788.95667.YahooMailNeo@web133202.mail.ir2.yahoo.com>
+	<5361AE7C.3010108@ca.afilias.info>
+	<1398961980.61452.YahooMailNeo@web133201.mail.ir2.yahoo.com>
+	<1398962396.78123.YahooMailNeo@web133203.mail.ir2.yahoo.com>
+	<5368F7AE.8070800@ca.afilias.info>
+Message-ID: <5369049E.5090508@ca.afilias.info>
+
+On 05/06/2014 10:54 AM, Steve Singer wrote:
+>
+>
+> I see what is going on (based on the logs you sent that the list didn't
+> like)
+>
+>
+> node 4 is configured to use node 2 as the provider for the set
+>
+> Node 4 has the following in its event queue
+>
+> 1,5000000111 SYNC
+> .
+> .
+> 1,5000000118 FAILOVER_NODE
+>
+> remoteWorker_1 on node 4 doesn't process the FAILOVER_NODE because it
+> can't get beyond the SYNC.  It can't get beyond the SYNC because the
+> provider for 1 is 2 which has gone offline.
+>
+
+I *suspect* the attached patch might fix the issue, but I haven't yet 
+done much testing with it.
+
+
+>
+> 2014-05-01_165630 BSTDEBUG2 remoteWorkerThread_1: SYNC 5000000111
+> processing 2014-05-01_165630 BSTERROR slon_connectdb:
+> PQconnectdb("dbname=TEST host=localhost port=5433 user=slony") failed -
+> could not connect to server: Connection refused Is the server running on
+> host "localhost" (127.0.0.1) and accepting TCP/IP connections on port
+> 5433? 2014-05-01_165630 BSTERROR remoteWorkerThread_1: cannot connect to
+> data provider 2 on 'dbname=TEST host=localhost port=5433 user=slony'
+> 2014-05-01_165630 BSTDEBUG2 remoteWorkerThread_1: rollback SYNC
+> transaction 2014-05-01_165632 BSTERROR slon_connectdb:
+> PQconnectdb("dbname=TEST host=localhost port=5434 user=slony") failed -
+> could not connect to server: Connection refused Is the server running on
+> host "localhost" (127.0.0.1) and accepting TCP/IP connections on port
+> 5434? 2014-05-01_165632 BSTWARN remoteListenThread_3: DB connection
+> failed - sleep 10 seconds
+>
+>
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: failover.diff
+Type: text/x-patch
+Size: 860 bytes
+Desc: not available
+Url : http://lists.slony.info/pipermail/slony1-general/attachments/20140506/1fd483dc/attachment.bin 
+
+From ssinger at ca.afilias.info  Tue May  6 12:29:53 2014
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Tue, 06 May 2014 15:29:53 -0400
+Subject: [Slony1-general] Slony 2.2 failover changes
+In-Reply-To: <5369049E.5090508@ca.afilias.info>
+References: <1398693376.30605.YahooMailNeo@web133205.mail.ir2.yahoo.com>
+	<53611D6E.4000102@ca.afilias.info>
+	<1398875788.95667.YahooMailNeo@web133202.mail.ir2.yahoo.com>
+	<5361AE7C.3010108@ca.afilias.info>
+	<1398961980.61452.YahooMailNeo@web133201.mail.ir2.yahoo.com>
+	<1398962396.78123.YahooMailNeo@web133203.mail.ir2.yahoo.com>
+	<5368F7AE.8070800@ca.afilias.info>
+	<5369049E.5090508@ca.afilias.info>
+Message-ID: <53693831.4010108@ca.afilias.info>
+
+On 05/06/2014 11:49 AM, Steve Singer wrote:
+> On 05/06/2014 10:54 AM, Steve Singer wrote:
+>>
+>>
+>> I see what is going on (based on the logs you sent that the list didn't
+>> like)
+>>
+>>
+>> node 4 is configured to use node 2 as the provider for the set
+>>
+>> Node 4 has the following in its event queue
+>>
+>> 1,5000000111 SYNC
+>> .
+>> .
+>> 1,5000000118 FAILOVER_NODE
+>>
+>> remoteWorker_1 on node 4 doesn't process the FAILOVER_NODE because it
+>> can't get beyond the SYNC.  It can't get beyond the SYNC because the
+>> provider for 1 is 2 which has gone offline.
+>>
+>
+> I *suspect* the attached patch might fix the issue, but I haven't yet
+> done much testing with it.
+>
+
+Testing shows that more is needed than just that  change.
+I'll open a bug once I have a more refined patch.
+
+
+
+>
+>>
+>> 2014-05-01_165630 BSTDEBUG2 remoteWorkerThread_1: SYNC 5000000111
+>> processing 2014-05-01_165630 BSTERROR slon_connectdb:
+>> PQconnectdb("dbname=TEST host=localhost port=5433 user=slony") failed -
+>> could not connect to server: Connection refused Is the server running on
+>> host "localhost" (127.0.0.1) and accepting TCP/IP connections on port
+>> 5433? 2014-05-01_165630 BSTERROR remoteWorkerThread_1: cannot connect to
+>> data provider 2 on 'dbname=TEST host=localhost port=5433 user=slony'
+>> 2014-05-01_165630 BSTDEBUG2 remoteWorkerThread_1: rollback SYNC
+>> transaction 2014-05-01_165632 BSTERROR slon_connectdb:
+>> PQconnectdb("dbname=TEST host=localhost port=5434 user=slony") failed -
+>> could not connect to server: Connection refused Is the server running on
+>> host "localhost" (127.0.0.1) and accepting TCP/IP connections on port
+>> 5434? 2014-05-01_165632 BSTWARN remoteListenThread_3: DB connection
+>> failed - sleep 10 seconds
+>>
+>>
+>
+
+
+From glynastill at yahoo.co.uk  Wed May  7 02:13:17 2014
+From: glynastill at yahoo.co.uk (Glyn Astill)
+Date: Wed, 7 May 2014 10:13:17 +0100 (BST)
+Subject: [Slony1-general] Slony 2.2 failover changes
+In-Reply-To: <53693831.4010108@ca.afilias.info>
+References: <1398693376.30605.YahooMailNeo@web133205.mail.ir2.yahoo.com>
+	<53611D6E.4000102@ca.afilias.info>
+	<1398875788.95667.YahooMailNeo@web133202.mail.ir2.yahoo.com>
+	<5361AE7C.3010108@ca.afilias.info>
+	<1398961980.61452.YahooMailNeo@web133201.mail.ir2.yahoo.com>
+	<1398962396.78123.YahooMailNeo@web133203.mail.ir2.yahoo.com>
+	<5368F7AE.8070800@ca.afilias.info>
+	<5369049E.5090508@ca.afilias.info>
+	<53693831.4010108@ca.afilias.info>
+Message-ID: <1399453997.98818.YahooMailNeo@web133204.mail.ir2.yahoo.com>
+
+
+
+
+
+----- Original Message -----
+> From: Steve Singer <ssinger at ca.afilias.info>
+> To: Glyn Astill <glynastill at yahoo.co.uk>; "slony1-general at lists.slony.info" <slony1-general at lists.slony.info>
+> Cc: 
+> Sent: Tuesday, 6 May 2014, 20:29
+> Subject: Re: [Slony1-general] Slony 2.2 failover changes
+> 
+> On 05/06/2014 11:49 AM, Steve Singer wrote:
+>>  On 05/06/2014 10:54 AM, Steve Singer wrote:
+>>> 
+>>> 
+>>>  I see what is going on (based on the logs you sent that the list 
+> didn't
+>>>  like)
+>>> 
+>>> 
+>>>  node 4 is configured to use node 2 as the provider for the set
+>>> 
+>>>  Node 4 has the following in its event queue
+>>> 
+>>>  1,5000000111 SYNC
+>>>  .
+>>>  .
+>>>  1,5000000118 FAILOVER_NODE
+>>> 
+>>>  remoteWorker_1 on node 4 doesn't process the FAILOVER_NODE because 
+> it
+>>>  can't get beyond the SYNC.? It can't get beyond the SYNC 
+> because the
+>>>  provider for 1 is 2 which has gone offline.
+>>> 
+>> 
+>>  I *suspect* the attached patch might fix the issue, but I haven't yet
+>>  done much testing with it.
+>> 
+> 
+> Testing shows that more is needed than just that? change.
+> I'll open a bug once I have a more refined patch.
+> 
+> 
+
+Thanks Steve, I'll wait for that then re-run my test.
+
+
