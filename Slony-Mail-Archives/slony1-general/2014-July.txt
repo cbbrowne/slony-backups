@@ -1135,3 +1135,151 @@ around via COPY)  gets rid of that particular round trip issue.
 An HTML attachment was scrubbed...
 URL: http://lists.slony.info/pipermail/slony1-general/attachments/20140714/d57b9ebd/attachment.htm 
 
+From davecramer at gmail.com  Wed Jul 16 09:24:19 2014
+From: davecramer at gmail.com (Dave Cramer)
+Date: Wed, 16 Jul 2014 12:24:19 -0400
+Subject: [Slony1-general] How to get database profiling with slony
+Message-ID: <CADK3HHK=sck2Jf-jm=9pAEpLbgSOEL-6cHp0nckECD5vVuKqPw@mail.gmail.com>
+
+I'm looking to figure out the read/write/transactions per day net of slony.
+
+Log grepping is not an option as the app generates too many logs
+
+Any ideas ?
+
+Dave Cramer
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20140716/ba97aba4/attachment.htm 
+
+From cbbrowne at afilias.info  Wed Jul 16 09:53:42 2014
+From: cbbrowne at afilias.info (Christopher Browne)
+Date: Wed, 16 Jul 2014 12:53:42 -0400
+Subject: [Slony1-general] How to get database profiling with slony
+In-Reply-To: <CADK3HHK=sck2Jf-jm=9pAEpLbgSOEL-6cHp0nckECD5vVuKqPw@mail.gmail.com>
+References: <CADK3HHK=sck2Jf-jm=9pAEpLbgSOEL-6cHp0nckECD5vVuKqPw@mail.gmail.com>
+Message-ID: <CANfbgba=h8bdk3HStFtCYgoBnTkQstJt-Tpez6EPTKKLgyCgoQ@mail.gmail.com>
+
+Hmm.  I'd thought that there were I/U/D stats captured in the logs (which,
+I observe, you think isn't entirely suitable).
+
+A look at HEAD is showing that there's a struct in src/slon/remote_worker.c
+called PerfMon that seems like it's intended for this sort of thing.
+
+Sadly, the code for this seems to have experienced a bit of bit-rot,
+notably in that the struct includes some "Big Tuple" stats that are
+obsolete as of Slony 2.2.
+
+Further, it only does *any* reporting at logging level DEBUG1, and you'd
+need for it to *always* report at that level to get any data, again, in the
+logs, which you weren't keen on.  (And I'll accept that; it's not nice for
+it to need to be captured that way.)
+
+There's something not quite right about this activity being solely
+considered as "debugging" activity that shouldn't be reported unless you're
+"debugging something."
+
+It seems to warrant a bit of brainstorming.
+
+I imagine it a neat idea to capture some data about levels of activity in a
+Slony table, thus, at the end of a SYNC, we might write out a tuple with
+some of this data into a wee table, and aggregate it somewhere before the
+cleanup thread cleans up the "detailed" data.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20140716/1a23064a/attachment.htm 
+
+From davecramer at gmail.com  Wed Jul 16 10:14:18 2014
+From: davecramer at gmail.com (Dave Cramer)
+Date: Wed, 16 Jul 2014 13:14:18 -0400
+Subject: [Slony1-general] How to get database profiling with slony
+In-Reply-To: <CANfbgba=h8bdk3HStFtCYgoBnTkQstJt-Tpez6EPTKKLgyCgoQ@mail.gmail.com>
+References: <CADK3HHK=sck2Jf-jm=9pAEpLbgSOEL-6cHp0nckECD5vVuKqPw@mail.gmail.com>
+	<CANfbgba=h8bdk3HStFtCYgoBnTkQstJt-Tpez6EPTKKLgyCgoQ@mail.gmail.com>
+Message-ID: <CADK3HHKN8oE=M7q8g7umt=nQ26Q0Huyfm0F4Wri4NrP81K-e1w@mail.gmail.com>
+
+Not sure I was clear enough. The goal is to find out what the read/write/tx
+profile of the application is as if slony wasn't there.
+
+If your intent was to suggest that if we aggregated slony stats so that we
+could subsequently use them to get the net statistics then yes, this would
+work
+
+Dave Cramer
+
+
+On 16 July 2014 12:53, Christopher Browne <cbbrowne at afilias.info> wrote:
+
+> Hmm.  I'd thought that there were I/U/D stats captured in the logs (which,
+> I observe, you think isn't entirely suitable).
+>
+> A look at HEAD is showing that there's a struct in
+> src/slon/remote_worker.c called PerfMon that seems like it's intended for
+> this sort of thing.
+>
+> Sadly, the code for this seems to have experienced a bit of bit-rot,
+> notably in that the struct includes some "Big Tuple" stats that are
+> obsolete as of Slony 2.2.
+>
+> Further, it only does *any* reporting at logging level DEBUG1, and you'd
+> need for it to *always* report at that level to get any data, again, in the
+> logs, which you weren't keen on.  (And I'll accept that; it's not nice for
+> it to need to be captured that way.)
+>
+> There's something not quite right about this activity being solely
+> considered as "debugging" activity that shouldn't be reported unless you're
+> "debugging something."
+>
+> It seems to warrant a bit of brainstorming.
+>
+> I imagine it a neat idea to capture some data about levels of activity in
+> a Slony table, thus, at the end of a SYNC, we might write out a tuple with
+> some of this data into a wee table, and aggregate it somewhere before the
+> cleanup thread cleans up the "detailed" data.
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20140716/5d6e1a27/attachment.htm 
+
+From cbbrowne at afilias.info  Wed Jul 16 11:52:14 2014
+From: cbbrowne at afilias.info (Christopher Browne)
+Date: Wed, 16 Jul 2014 14:52:14 -0400
+Subject: [Slony1-general] How to get database profiling with slony
+In-Reply-To: <CADK3HHKN8oE=M7q8g7umt=nQ26Q0Huyfm0F4Wri4NrP81K-e1w@mail.gmail.com>
+References: <CADK3HHK=sck2Jf-jm=9pAEpLbgSOEL-6cHp0nckECD5vVuKqPw@mail.gmail.com>
+	<CANfbgba=h8bdk3HStFtCYgoBnTkQstJt-Tpez6EPTKKLgyCgoQ@mail.gmail.com>
+	<CADK3HHKN8oE=M7q8g7umt=nQ26Q0Huyfm0F4Wri4NrP81K-e1w@mail.gmail.com>
+Message-ID: <CANfbgbbmougM1r_W-h_BYYNt-5LJbMFfHDgKMegDPcGcr7L6mA@mail.gmail.com>
+
+On Wed, Jul 16, 2014 at 1:14 PM, Dave Cramer <davecramer at gmail.com> wrote:
+
+> Not sure I was clear enough. The goal is to find out what the
+> read/write/tx profile of the application is as if slony wasn't there.
+>
+
+OK, that's a useful clarification.
+
+That makes things a bit harder, as Slony does a fair bit of activity (e.g.
+- queries to manage events, queries to determine what data to replicate,
+ cleanup of old data) that would also need to be accounted for.
+
+I'm not quite sure how to account for that load.
+
+
+> If your intent was to suggest that if we aggregated slony stats so that we
+> could subsequently use them to get the net statistics then yes, this would
+> work
+>
+
+Cool, sounds like it's a broadly helpful thing that should be helpful for
+your case, and, I'd hope, others.
+
+BTW, Jan has had some thoughts about trying to run the cleanup more often
+on the basis that if the cleanup frequency is higher than the Postgres
+checkpoint frequency, we might be able to avoid pushing sl_log_* to disk,
+which would mean that the cost of replication turns out to be lower than
+people were thinking.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20140716/7ef88fb7/attachment.htm 
+
