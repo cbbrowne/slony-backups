@@ -1283,3 +1283,227 @@ people were thinking.
 An HTML attachment was scrubbed...
 URL: http://lists.slony.info/pipermail/slony1-general/attachments/20140716/7ef88fb7/attachment.htm 
 
+From jan at wi3ck.info  Thu Jul 17 09:07:40 2014
+From: jan at wi3ck.info (Jan Wieck)
+Date: Thu, 17 Jul 2014 12:07:40 -0400
+Subject: [Slony1-general] How to get database profiling with slony
+In-Reply-To: <CANfbgbbmougM1r_W-h_BYYNt-5LJbMFfHDgKMegDPcGcr7L6mA@mail.gmail.com>
+References: <CADK3HHK=sck2Jf-jm=9pAEpLbgSOEL-6cHp0nckECD5vVuKqPw@mail.gmail.com>	<CANfbgba=h8bdk3HStFtCYgoBnTkQstJt-Tpez6EPTKKLgyCgoQ@mail.gmail.com>	<CADK3HHKN8oE=M7q8g7umt=nQ26Q0Huyfm0F4Wri4NrP81K-e1w@mail.gmail.com>
+	<CANfbgbbmougM1r_W-h_BYYNt-5LJbMFfHDgKMegDPcGcr7L6mA@mail.gmail.com>
+Message-ID: <53C7F4CC.4060406@wi3ck.info>
+
+On 07/16/14 14:52, Christopher Browne wrote:
+> On Wed, Jul 16, 2014 at 1:14 PM, Dave Cramer <davecramer at gmail.com
+> <mailto:davecramer at gmail.com>> wrote:
+>
+>     Not sure I was clear enough. The goal is to find out what the
+>     read/write/tx profile of the application is as if slony wasn't there.
+>
+>
+> OK, that's a useful clarification.
+>
+> That makes things a bit harder, as Slony does a fair bit of activity
+> (e.g. - queries to manage events, queries to determine what data to
+> replicate,  cleanup of old data) that would also need to be accounted for.
+>
+> I'm not quite sure how to account for that load.
+>
+>     If your intent was to suggest that if we aggregated slony stats so
+>     that we could subsequently use them to get the net statistics then
+>     yes, this would work
+>
+>
+> Cool, sounds like it's a broadly helpful thing that should be helpful
+> for your case, and, I'd hope, others.
+>
+> BTW, Jan has had some thoughts about trying to run the cleanup more
+> often on the basis that if the cleanup frequency is higher than the
+> Postgres checkpoint frequency, we might be able to avoid pushing
+> sl_log_* to disk, which would mean that the cost of replication turns
+> out to be lower than people were thinking.
+
+Correct. Not only lower in volume, but it would turn out that most of 
+the writes added by Slony go to WAL, which are sequential writes and 
+thus can often be included in just a slightly larger IO. So that would 
+be a double win.
+
+
+Jan
+
+
+-- 
+Jan Wieck
+Senior Software Engineer
+http://slony.info
+
+From Ger.Timmens at adyen.com  Thu Jul 17 14:45:25 2014
+From: Ger.Timmens at adyen.com (Ger Timmens)
+Date: Thu, 17 Jul 2014 23:45:25 +0200
+Subject: [Slony1-general] slony 2.2.3 experiences
+In-Reply-To: <mailman.1.1405623601.5222.slony1-general@lists.slony.info>
+References: <mailman.1.1405623601.5222.slony1-general@lists.slony.info>
+Message-ID: <53C843F5.8020405@adyen.com>
+
+Hi all,
+
+After upgrading our environment from slony 2.1.4 to slony 2.2.3
+we see 'a lot' more slony connections both on master, forwarders
+as subscribers.
+
+E.g. on the master we see approx 120 more 'idle' slony connections.
+This connections start around 50, groing to 120 over time
+(restarting slons, will bring it down and connections will increase again).
+
+This is probably related to the changed failover logic in slony 2.2.x
+over 2.1.x where each forwarding note should know about each
+other node ?
+
+If so, is there a way to go back to the 2.1.x behaviour (is it
+configurable) ?
+
+Thanks,
+
+Ger Timmens
+
+From jan at wi3ck.info  Thu Jul 17 14:58:57 2014
+From: jan at wi3ck.info (Jan Wieck)
+Date: Thu, 17 Jul 2014 17:58:57 -0400
+Subject: [Slony1-general] slony 2.2.3 experiences
+In-Reply-To: <53C843F5.8020405@adyen.com>
+References: <mailman.1.1405623601.5222.slony1-general@lists.slony.info>
+	<53C843F5.8020405@adyen.com>
+Message-ID: <53C84721.1040704@wi3ck.info>
+
+On 07/17/14 17:45, Ger Timmens wrote:
+> Hi all,
+>
+> After upgrading our environment from slony 2.1.4 to slony 2.2.3
+> we see 'a lot' more slony connections both on master, forwarders
+> as subscribers.
+>
+> E.g. on the master we see approx 120 more 'idle' slony connections.
+> This connections start around 50, groing to 120 over time
+> (restarting slons, will bring it down and connections will increase again).
+
+The number of connections should not go up like that.
+
+How does your cluster configuration look like? 50 connection to start 
+with sounds already high.
+
+Are there any error messages in the slon logs? What I can imagine is a 
+connection leak in some unusual error situation. Slon reconnects but 
+never closes the old connection.
+
+
+
+>
+> This is probably related to the changed failover logic in slony 2.2.x
+> over 2.1.x where each forwarding note should know about each
+> other node ?
+
+Not sure about that yet.
+
+
+Regards,
+Jan
+
+-- 
+Jan Wieck
+Senior Software Engineer
+http://slony.info
+
+From Ger.Timmens at adyen.com  Thu Jul 17 15:31:39 2014
+From: Ger.Timmens at adyen.com (Ger Timmens)
+Date: Fri, 18 Jul 2014 00:31:39 +0200
+Subject: [Slony1-general] slony 2.2.3 experiences
+In-Reply-To: <53C84721.1040704@wi3ck.info>
+References: <mailman.1.1405623601.5222.slony1-general@lists.slony.info>
+	<53C843F5.8020405@adyen.com> <53C84721.1040704@wi3ck.info>
+Message-ID: <53C84ECB.4080807@adyen.com>
+
+Hi Jan,
+
+> On 07/17/14 17:45, Ger Timmens wrote:
+>> Hi all,
+>>
+>> After upgrading our environment from slony 2.1.4 to slony 2.2.3
+>> we see 'a lot' more slony connections both on master, forwarders
+>> as subscribers.
+>>
+>> E.g. on the master we see approx 120 more 'idle' slony connections.
+>> This connections start around 50, groing to 120 over time
+>> (restarting slons, will bring it down and connections will increase
+>> again).
+>
+> The number of connections should not go up like that.
+>
+> How does your cluster configuration look like? 50 connection to start
+> with sounds already high.
+
+Master ==> Forwarder A, B, C, D
+
+Forwarder A ==> clients (13) in location x (forward =no)
+Forwarder B idle (backup for A)
+Forwarder C ==> clients (10) in location y (forward =no)
+Forwarder D idle (backup for D)
+
+
+>
+> Are there any error messages in the slon logs? What I can imagine is a
+> connection leak in some unusual error situation. Slon reconnects but
+> never closes the old connection.
+
+Don't see anything strange in the logs, apart from running out of client
+connections which we fixed by increasing max_connections.
+
+On a client feed by A:
+
+# select client_addr, usename, count(*) from pg_stat_activity group by 1,2;
+ client_addr  |   usename    | count
+--------------+--------------+-------
+ 127.0.0.1    | userA |     3
+              | postgres     |     1
+ A_ForwarderIP | slony        |    31
+ Master IP | slony        |    34
+ 127.0.0.1    | userB       |     3
+(5 rows)
+
+I wouldn't have expect here the slony connections from the master.
+
+>
+>
+>
+>>
+>> This is probably related to the changed failover logic in slony 2.2.x
+>> over 2.1.x where each forwarding note should know about each
+>> other node ?
+>
+> Not sure about that yet.
+>
+>
+> Regards,
+> Jan
+>
+
+Kind regards,
+
+Ger
+
+
+-- 
+Ger Timmens
+Adyen - Payments Made Easy
+http://www.adyen.com
+
+Visiting Address: Kantoorgebouw Nijenburg  Mail Address:
+Simon Carmiggeltstraat 6-50, 5th floor     P.O. Box 10095
+1011 DJ Amsterdam                          1001 EB Amsterdam
+The Netherlands                            The Netherlands
+
+Direct +31.20.240.1248
+Office +31.20.240.1240
+Mobile +31.62.483.8468
+Email ger.timmens at adyen.com
+
+
+
