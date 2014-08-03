@@ -1,0 +1,167 @@
+From rdessort at evolix.fr  Fri Aug  1 05:15:06 2014
+From: rdessort at evolix.fr (Romain Dessort)
+Date: Fri, 01 Aug 2014 14:15:06 +0200
+Subject: [Slony1-general] Initial sync copies tables infinitely
+Message-ID: <1406887682-sup-6188@dual.evolix.net>
+
+Hello,
+
+I have a strange problem after adding a third node to my Slony cluster:
+
+Up to now, I have a really simple Slony cluster: one master (node1), and one
+slave (node2), which is subscribed to a unique set (set1). Everything
+works fine for several years.
+But now I have to add a second slave (node3) subscribed to the same set as
+node2. So I followed the documentation?[1] to configure it and then started the
+slon daemon on node3.
+I see in the slon log file that tables are correctly copied.
+Ok, I wait some days (about 50GB of data to copy), but here is the weird
+problem: tables on the new slave seem to grow infinitely, but without data in
+it!
+
+Example with the table ?affectation?: normal size on master: 149MB.
+But on the new slave:
+
+    =# SELECT relname AS "relation", pg_size_pretty(pg_relation_size(C.oid)) AS "size"
+      FROM pg_class C LEFT JOIN pg_namespace N ON (N.oid = C.relnamespace)
+      WHERE nspname NOT IN ('pg_catalog', 'information_schema') AND relname='affectation';
+      relation   |  size  
+    -------------+--------
+     affectation | 22 GB
+    (1 row)
+
+But the table is empty:
+
+    =# select * from affectation;
+     affectation_id | datedu | dateau | passager | produitchoisi 
+    ----------------+--------+--------+----------+---------------
+    (0 rows)
+
+If a do a VACUUM on slave, all tables size goes to zero.
+
+In the log file, tables are recopied each 11/12 minutes: 
+
+    # grep '"public"."affectation"' /var/log/slony1/node3-gesto2.log
+    [?]
+    2014-08-01 12:06:14 CEST CONFIG remoteWorkerThread_1: prepare to copy table "public"."affectation"
+    2014-08-01 12:06:20 CEST CONFIG remoteWorkerThread_1: copy table "public"."affectation"
+    2014-08-01 12:06:20 CEST CONFIG remoteWorkerThread_1: Begin COPY of table "public"."affectation"
+    NOTICE:  truncate of "public"."affectation" failed - doing delete
+    2014-08-01 12:06:27 CEST CONFIG remoteWorkerThread_1: 124888731 bytes copied for table "public"."affectation"
+    2014-08-01 12:06:31 CEST CONFIG remoteWorkerThread_1: 10.932 seconds to copy table "public"."affectation"
+    2014-08-01 12:12:23 CEST CONFIG remoteWorkerThread_1: prepare to copy table "public"."affectation"
+    2014-08-01 12:12:28 CEST CONFIG remoteWorkerThread_1: copy table "public"."affectation"
+    2014-08-01 12:12:28 CEST CONFIG remoteWorkerThread_1: Begin COPY of table "public"."affectation"
+    NOTICE:  truncate of "public"."affectation" failed - doing delete
+    2014-08-01 12:12:35 CEST CONFIG remoteWorkerThread_1: 124892017 bytes copied for table "public"."affectation"
+    2014-08-01 12:12:39 CEST CONFIG remoteWorkerThread_1: 10.954 seconds to copy table "public"."affectation"
+    2014-08-01 12:18:33 CEST CONFIG remoteWorkerThread_1: prepare to copy table "public"."affectation"
+    2014-08-01 12:18:38 CEST CONFIG remoteWorkerThread_1: copy table "public"."affectation"
+    2014-08-01 12:18:38 CEST CONFIG remoteWorkerThread_1: Begin COPY of table "public"."affectation"
+    NOTICE:  truncate of "public"."affectation" failed - doing delete
+    2014-08-01 12:18:45 CEST CONFIG remoteWorkerThread_1: 124892761 bytes copied for table "public"."affectation"
+    2014-08-01 12:18:49 CEST CONFIG remoteWorkerThread_1: 11.409 seconds to copy table "public"."affectation"
+    [?]
+
+Note the correct table size (124742845 bytes) is copied.
+
+To isolate the problem, I tried to create a new table, add it to a second set and
+subscribe it to node3: everything ok, the copy process finish successfully. So
+the problem seems to come from the set1 specifically.
+
+All nodes run Slony 2.1.4 and PostgreSQL 9.3.4 under the same configuration.
+
+Do you have any ideas about this problem?
+It seems that Slony don't/can't acknowledge that tables are copied and so redo
+the copy again and again.
+
+[1]?http://slony.info/documentation/2.1/modifyingthings.html#AEN1048
+
+Thanks for any hint about that.
+Regards,
+-- 
+Romain Dessort <rdessort at evolix.fr> GnuPG: 3072D/724BC532
+Evolix ? H?bergement et Infog?rance Open Source http://www.evolix.fr/
+
+From cbbrowne at afilias.info  Fri Aug  1 09:52:58 2014
+From: cbbrowne at afilias.info (Christopher Browne)
+Date: Fri, 1 Aug 2014 12:52:58 -0400
+Subject: [Slony1-general] Initial sync copies tables infinitely
+In-Reply-To: <1406887682-sup-6188@dual.evolix.net>
+References: <1406887682-sup-6188@dual.evolix.net>
+Message-ID: <CANfbgbaDafb4CusHmb1+mnpqNss9vzXJu7p_qwNiU3MiCsu8QA@mail.gmail.com>
+
+I should expect that there'd be more in the log than that.
+
+What you are showing seems perfectly appropriate; what I imagine is missing
+is that at the end, something is going wrong, the set is treated as NOT
+having subscribed successfully, and it (correctly, generally speaking)
+tries again a bit later.
+
+Unfortunately, the "something going wrong" is some persistent problem, so
+the subscriptions to tables never succeed.
+
+There should surely be more in the log.
+
+Here's what the logs commonly look like at subscription time:
+
+DEBUG2 remoteWorkerThread_1: Received event #1 from 5000000017
+type:ENABLE_SUBSCRIPTION
+INFO   copy_set 1 - omit=f - bool=0
+INFO   omit is FALSE
+CONFIG version for "dbname=slonyregress1 host=localhost user=postgres
+port=7099" is 90304
+DEBUG1 copy_set_1 "dbname=slonyregress1 host=localhost user=postgres
+port=7099": backend pid = 19464
+CONFIG remoteWorkerThread_1: connected to provider DB
+CONFIG remoteWorkerThread_1: prepare to copy table "public"."table1"
+CONFIG remoteWorkerThread_1: prepare to copy table "public"."table2"
+CONFIG remoteWorkerThread_1: prepare to copy table "public"."table4"
+CONFIG remoteWorkerThread_1: prepare to copy table "public"."table5"
+CONFIG remoteWorkerThread_1: all tables for set 1 found on subscriber
+CONFIG remoteWorkerThread_1: copy table "public"."table1"
+CONFIG remoteWorkerThread_1: Begin COPY of table "public"."table1"
+NOTICE:  truncate of "public"."table1" failed - doing delete
+CONFIG remoteWorkerThread_1: 32 bytes copied for table "public"."table1"
+CONFIG remoteWorkerThread_1: 0.150 seconds to copy table "public"."table1"
+CONFIG remoteWorkerThread_1: copy table "public"."table2"
+CONFIG remoteWorkerThread_1: Begin COPY of table "public"."table2"
+NOTICE:  truncate of "public"."table2" succeeded
+CONFIG remoteWorkerThread_1: 36 bytes copied for table "public"."table2"
+CONFIG remoteWorkerThread_1: 0.219 seconds to copy table "public"."table2"
+CONFIG remoteWorkerThread_1: copy table "public"."table4"
+CONFIG remoteWorkerThread_1: Begin COPY of table "public"."table4"
+NOTICE:  truncate of "public"."table4" succeeded
+CONFIG remoteWorkerThread_1: 253 bytes copied for table "public"."table4"
+CONFIG remoteWorkerThread_1: 0.238 seconds to copy table "public"."table4"
+CONFIG remoteWorkerThread_1: copy table "public"."table5"
+CONFIG remoteWorkerThread_1: Begin COPY of table "public"."table5"
+NOTICE:  truncate of "public"."table5" succeeded
+CONFIG remoteWorkerThread_1: 0 bytes copied for table "public"."table5"
+CONFIG remoteWorkerThread_1: 0.167 seconds to copy table "public"."table5"
+INFO   remoteWorkerThread_1: copy_set SYNC found, use event seqno
+5000000015.
+INFO   remoteWorkerThread_1: 0.004 seconds to build initial setsync status
+DEBUG1 remoteWorkerThread_1: disconnected from provider DB
+INFO   copy_set 1 done in 0.798 seconds
+CONFIG enableSubscription: sub_set=1
+DEBUG2 sched_wakeup_node(): no_id=1 (0 threads + worker signaled)
+CONFIG storeListen: li_origin=1 li_receiver=2 li_provider=1
+DEBUG2 sched_wakeup_node(): no_id=1 (0 threads + worker signaled)
+DEBUG2 sched_wakeup_node(): no_id=1 (0 threads + worker signaled)
+CONFIG remoteWorkerThread_1: update provider configuration
+CONFIG remoteWorkerThread_1: added active set 1 to provider 1
+
+If you have logging turned way down so all you're seeing is CONFIG and
+higher, you should nonetheless see the bulk of the above (and note the bits
+*after* the last line indicating 0.167 seconds to copy table5).
+
+If an error occurred, that should surely be logged, and that would be the
+reason to not get the lines...
+
+INFO   copy_set 1 done in 0.798 seconds
+CONFIG enableSubscription: sub_set=1
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20140801/e34caf4b/attachment.html 
+
