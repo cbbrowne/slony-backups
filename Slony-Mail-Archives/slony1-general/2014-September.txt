@@ -337,3 +337,194 @@ Jan Wieck
 Senior Software Engineer
 http://slony.info
 
+From DPuertas at descartes.com  Mon Sep 22 07:34:50 2014
+From: DPuertas at descartes.com (Diego Puertas)
+Date: Mon, 22 Sep 2014 14:34:50 +0000
+Subject: [Slony1-general] Compiling Slony 1.2.23 for Postgres 9.3.4
+Message-ID: <DDF5A5CDDB9A064E86064303170943198AE6DFB9@CPEXM01.corp.dsg.local>
+
+Hello All,
+
+As part of a migration process from Postgres 8.1 to 9.3 I'm trying to compile Slony 1.2.23 for Postgres 9.3.4 on an Ubuntu 14.04 box.
+
+The development package has been installed:
+	postgresql-server-dev-9.3
+
+The configure command runs OK:
+	./configure --with-pgsharedir='/usr/share/postgresql
+
+But when I run make, it breaks and complaints it can't find a library called pstrdup. This is the output of the make command:
+
+gcc -g -O2 -Wall -Wmissing-prototypes -Wmissing-declarations -I../.. -DPGSHARE="\"/usr/share/postgresql\"" -DPG_VERSION_MAJOR=9 slonik.o dbutil.o parser.o  ../parsestatements/scanner.o -L/usr/lib/ -L/usr/lib/postgresql/9.3/lib/ -lpq  -Wl,-rpath,/usr/lib/ -lpgport  -o slonik
+/usr/lib//libpgport.a(wait_error.o): In function `wait_result_to_str':
+(.text+0x110): undefined reference to `pstrdup'
+
+
+It looks like this problem is referred to on a bug report from May 2013, and it's due to the fact that Postgres 9.3 introduced a new library, libpgcommon. I've tried to link this library by adding the following line at the end of config/acx_libpq.m4 :
+	LIBS="$LIBS -lpgcommon"
+
+But the result is the same.
+
+Did you find this problem before? How did you solve it?
+
+
+Thanks
+
+--
+Diego A Puertas
+
+From Ger.Timmens at adyen.com  Mon Sep 22 07:58:35 2014
+From: Ger.Timmens at adyen.com (Ger Timmens)
+Date: Mon, 22 Sep 2014 16:58:35 +0200
+Subject: [Slony1-general] Slony ignoring cleanup_interval?
+In-Reply-To: <mailman.1.1411239602.29042.slony1-general@lists.slony.info>
+References: <mailman.1.1411239602.29042.slony1-general@lists.slony.info>
+Message-ID: <5420391B.4030801@adyen.com>
+
+> Message: 1
+> Date: Fri, 19 Sep 2014 16:55:47 -0400
+> From: Steve Singer <ssinger at ca.afilias.info>
+> Subject: Re: [Slony1-general] Slony ignoring cleanup_interval?
+> To: Kristopher <kristopherwilson at gmail.com>,
+> 	slony1-general at lists.slony.info
+> Message-ID: <541C9853.3000307 at ca.afilias.info>
+> Content-Type: text/plain; charset=ISO-8859-1; format=flowed
+>
+> On 09/19/2014 01:50 PM, Kristopher wrote:
+>> I have the following setup in my conf file:
+>>
+>> cleanup_interval="5 seconds"
+>> sync_interval=1000
+>>
+>> cluster_name='dbcluster01'
+>> conn_info='...'
+>>
+>> And, via the log, it looks like slony is picking up on the 5 second
+>> cleanup interval:
+>>
+>> 2014-09-15 09:31:40 EDT CONFIG main: String option pid_file = [NULL]
+>> 2014-09-15 09:31:40 EDT CONFIG main: String option archive_dir = [NULL]
+>> 2014-09-15 09:31:40 EDT CONFIG main: String option sql_on_connection =
+>> [NULL]
+>> 2014-09-15 09:31:40 EDT CONFIG main: String option lag_interval = [NULL]
+>> 2014-09-15 09:31:40 EDT CONFIG main: String option command_on_logarchive
+>> = [NULL]
+>> 2014-09-15 09:31:40 EDT CONFIG main: String option syslog_facility = LOCAL0
+>> 2014-09-15 09:31:40 EDT CONFIG main: String option syslog_ident = slon
+>> 2014-09-15 09:31:40 EDT CONFIG main: String option cleanup_interval = 5
+>> seconds
+>>
+>> However, it only actually runs cleanup about every 10 minutes (the default):
+>>
+> We seem to be using
+> #define SLON_CLEANUP_SLEEP			600 /* sleep 10 minutes between */
+>
+> as basis to a random time to sleep between calling the cleanup process. 
+>   We then pass the cleanup_interval from  config file to the stored 
+> function.
+>
+> Maybe Jan or Chris can comment if they remember how this was intended to 
+> work with a cleanup_interval that is specified in the config file.
+>
+>
+>
+> For purposes of your upgrade you want to make sure that sl_log_1 and 
+> sl_log_2 have no rows in them then you can upgrade.
+>
+
+I encountered the same problem while upgrading.
+You can workaround it by running a:
+
+select _your_schema.cleanupevent('5 seconds'::interval);
+
+until sl_log[12] are empty.
+
+Regards,
+
+Ger
+
+-- 
+Ger Timmens
+Adyen - Payments Made Easy
+http://www.adyen.com
+
+Visiting Address: Kantoorgebouw Nijenburg  Mail Address:
+Simon Carmiggeltstraat 6-50, 5th floor     P.O. Box 10095
+1011 DJ Amsterdam                          1001 EB Amsterdam
+The Netherlands                            The Netherlands
+
+Direct +31.20.240.1248
+Office +31.20.240.1240
+Mobile +31.62.483.8468
+Email ger.timmens at adyen.com
+
+
+
+From ssinger at ca.afilias.info  Mon Sep 22 08:01:44 2014
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Mon, 22 Sep 2014 11:01:44 -0400
+Subject: [Slony1-general] Compiling Slony 1.2.23 for Postgres 9.3.4
+In-Reply-To: <DDF5A5CDDB9A064E86064303170943198AE6DFB9@CPEXM01.corp.dsg.local>
+References: <DDF5A5CDDB9A064E86064303170943198AE6DFB9@CPEXM01.corp.dsg.local>
+Message-ID: <542039D8.4090405@ca.afilias.info>
+
+On 09/22/2014 10:34 AM, Diego Puertas wrote:
+> Hello All,
+>
+> As part of a migration process from Postgres 8.1 to 9.3 I'm trying to compile Slony 1.2.23 for Postgres 9.3.4 on an Ubuntu 14.04 box.
+>
+> The development package has been installed:
+> 	postgresql-server-dev-9.3
+>
+> The configure command runs OK:
+> 	./configure --with-pgsharedir='/usr/share/postgresql
+>
+> But when I run make, it breaks and complaints it can't find a library called pstrdup. This is the output of the make command:
+>
+> gcc -g -O2 -Wall -Wmissing-prototypes -Wmissing-declarations -I../.. -DPGSHARE="\"/usr/share/postgresql\"" -DPG_VERSION_MAJOR=9 slonik.o dbutil.o parser.o  ../parsestatements/scanner.o -L/usr/lib/ -L/usr/lib/postgresql/9.3/lib/ -lpq  -Wl,-rpath,/usr/lib/ -lpgport  -o slonik
+> /usr/lib//libpgport.a(wait_error.o): In function `wait_result_to_str':
+> (.text+0x110): undefined reference to `pstrdup'
+>
+>
+> It looks like this problem is referred to on a bug report from May 2013, and it's due to the fact that Postgres 9.3 introduced a new library, libpgcommon. I've tried to link this library by adding the following line at the end of config/acx_libpq.m4 :
+> 	LIBS="$LIBS -lpgcommon"
+>
+> But the result is the same.
+>
+> Did you find this problem before? How did you solve it?
+>
+
+
+Make sure that  the link line is like
+
+gcc -g -O2 -Wall -Wmissing-prototypes -Wmissing-declarations -I../.. 
+-DPGSHARE="\"/usr/local/pgsql93/bin//../share/\"" -DPG_VERSION_MAJOR=9 
+slonik.o dbutil.o parser.o  ../parsestatements/scanner.o 
+-L/usr/local/pgsql93/lib/ -L/usr/local/pgsql93/lib/ -lpq 
+-Wl,-rpath,/usr/local/pgsql93/lib/ -lpgport -lpgcommon -o slonik
+
+so pgcommon comes after -lpgport.
+You probably need to change src/slonik/Makefile  not config/acx_libpq.m4
+
+That will fix the problem your having linking slonik, but the trigger 
+from 1.2 will still fail to compile against 9.3.   You will either need 
+to look at updating the 1.2 trigger to work against newer PG (and that 
+might not be the only issue getting 1.2 to work against 9.3).
+
+Or you could do your upgrade in stages, upgrade with slony 1.2 to 8.3 or 
+8.4 or 9.0 then upgrade from that to PG 9.3 with a more modern slony.
+
+
+
+>
+> Thanks
+>
+> --
+> Diego A Puertas
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+>
+
+
