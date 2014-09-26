@@ -554,3 +554,240 @@ a long outage!
 An HTML attachment was scrubbed...
 URL: http://lists.slony.info/pipermail/slony1-general/attachments/20140923/bb4e36b8/attachment.html 
 
+From cbbrowne at afilias.info  Wed Sep 24 09:29:21 2014
+From: cbbrowne at afilias.info (Christopher Browne)
+Date: Wed, 24 Sep 2014 12:29:21 -0400
+Subject: [Slony1-general] Slony ignoring cleanup_interval?
+In-Reply-To: <CAF9U7z8hp11Nny5papsdrxAJt-ccZt3FgKaFecB9c2L5Rin9Nw@mail.gmail.com>
+References: <CAF9U7z8hp11Nny5papsdrxAJt-ccZt3FgKaFecB9c2L5Rin9Nw@mail.gmail.com>
+Message-ID: <CANfbgbb5hVo4+r3djhW=wEqtuwjZWdFFrf27_EX8WfaR6kM_Ww@mail.gmail.com>
+
+On Fri, Sep 19, 2014 at 1:50 PM, Kristopher <kristopherwilson at gmail.com>
+wrote:
+
+> I have the following setup in my conf file:
+>
+> cleanup_interval="5 seconds"
+>
+> ...
+
+
+> However, it only actually runs cleanup about every 10 minutes (the
+> default):
+>
+
+We have, in fact, three parameters controlling cleanup:
+
+a) cleanup_interval, expressed as a Postgres interval, that, according to
+the docs, indicates:
+
+gettext_noop("A PostgreSQL value compatible with ::interval "
+ "which indicates what aging interval should be used "
+ "for deleting old events, and hence for purging sl_log_* tables."),
+
+(see src/slon/confoptions.c for that; I expect that there's a slon option
+that will make it print out the documentation strings).
+
+b) SLON_CLEANUP_SLEEP, in src/slon/slon.h, which is hardcoded to 600,
+indicating that every 600 seconds, the cleanup thread is called
+
+c) SLON_VACUUM_FREQUENCY, also in src/slon/slon.h, hardcoded to 3,
+indicating how often cleanup thread should VACUUM tables.
+
+We haven't exposed SLON_CLEANUP_SLEEP as a configuration option, and, in
+effect, that's a value you'd want to shorten a lot during this process.
+
+It wouldn't be a great deal of trouble to expose SLON_CLEANUP_SLEEP, and
+it's probably somewhat handy to do so, particularly for situations such as
+what you describe, where we want to avidly empty out sl_log_*.
+
+I'll see about coming up with a patch, with a view to applying this to the
+various major releases.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20140924/c58d3895/attachment.htm 
+
+From ssinger at ca.afilias.info  Wed Sep 24 10:00:37 2014
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Wed, 24 Sep 2014 13:00:37 -0400
+Subject: [Slony1-general] Slony ignoring cleanup_interval?
+In-Reply-To: <CANfbgbb5hVo4+r3djhW=wEqtuwjZWdFFrf27_EX8WfaR6kM_Ww@mail.gmail.com>
+References: <CAF9U7z8hp11Nny5papsdrxAJt-ccZt3FgKaFecB9c2L5Rin9Nw@mail.gmail.com>
+	<CANfbgbb5hVo4+r3djhW=wEqtuwjZWdFFrf27_EX8WfaR6kM_Ww@mail.gmail.com>
+Message-ID: <5422F8B5.6070506@ca.afilias.info>
+
+On 09/24/2014 12:29 PM, Christopher Browne wrote:
+> On Fri, Sep 19, 2014 at 1:50 PM, Kristopher <kristopherwilson at gmail.com
+> <mailto:kristopherwilson at gmail.com>> wrote:
+>
+>     I have the following setup in my conf file:
+>
+>     cleanup_interval="5 seconds"
+>
+> ...
+>
+>     However, it only actually runs cleanup about every 10 minutes (the
+>     default):
+>
+>
+> We have, in fact, three parameters controlling cleanup:
+>
+> a) cleanup_interval, expressed as a Postgres interval, that, according
+> to the docs, indicates:
+>
+> gettext_noop("A PostgreSQL value compatible with ::interval "
+> "which indicates what aging interval should be used "
+> "for deleting old events, and hence for purging sl_log_* tables."),
+>
+> (see src/slon/confoptions.c for that; I expect that there's a slon
+> option that will make it print out the documentation strings).
+>
+> b) SLON_CLEANUP_SLEEP, in src/slon/slon.h, which is hardcoded to 600,
+> indicating that every 600 seconds, the cleanup thread is called
+>
+> c) SLON_VACUUM_FREQUENCY, also in src/slon/slon.h, hardcoded to 3,
+> indicating how often cleanup thread should VACUUM tables.
+>
+> We haven't exposed SLON_CLEANUP_SLEEP as a configuration option, and, in
+> effect, that's a value you'd want to shorten a lot during this process.
+>
+> It wouldn't be a great deal of trouble to expose SLON_CLEANUP_SLEEP, and
+> it's probably somewhat handy to do so, particularly for situations such
+> as what you describe, where we want to avidly empty out sl_log_*.
+>
+> I'll see about coming up with a patch, with a view to applying this to
+> the various major releases.
+>
+
+My preference would be that we have 1 parameter in the config for 
+controlling how often the cleanup thread does it's stuff.
+
+Ie make SLON_CLEANUP_SLEEP be controlled by the existing 
+cleanup_interval field in the config.   I don't understand why/when 
+someone would want these two values to be different.
+
+
+
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+>
+
+
+From cbbrowne at afilias.info  Wed Sep 24 10:48:16 2014
+From: cbbrowne at afilias.info (Christopher Browne)
+Date: Wed, 24 Sep 2014 13:48:16 -0400
+Subject: [Slony1-general] Slony ignoring cleanup_interval?
+In-Reply-To: <5422F8B5.6070506@ca.afilias.info>
+References: <CAF9U7z8hp11Nny5papsdrxAJt-ccZt3FgKaFecB9c2L5Rin9Nw@mail.gmail.com>
+	<CANfbgbb5hVo4+r3djhW=wEqtuwjZWdFFrf27_EX8WfaR6kM_Ww@mail.gmail.com>
+	<5422F8B5.6070506@ca.afilias.info>
+Message-ID: <CANfbgbZnQxwrY4Mc6_s-TomyDXwTh_rmFiMC2ZBW_UOfrCRKOA@mail.gmail.com>
+
+On Wed, Sep 24, 2014 at 1:00 PM, Steve Singer <ssinger at ca.afilias.info>
+wrote:
+>
+>
+> My preference would be that we have 1 parameter in the config for
+> controlling how often the cleanup thread does it's stuff.
+>
+> Ie make SLON_CLEANUP_SLEEP be controlled by the existing cleanup_interval
+> field in the config.   I don't understand why/when someone would want these
+> two values to be different.
+
+
+I reckon that the difference between the two mattered a lot more back
+before we took the strategy of actively rotating between sl_log_1 and
+sl_log_2, and truncating frequently.
+
+I can perceive the difference between the two parameters, but sure, it
+seems like it would be a good idea, now, to consolidate them into being one
+parameter.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20140924/d8d336ef/attachment.htm 
+
+From jan at wi3ck.info  Wed Sep 24 19:46:48 2014
+From: jan at wi3ck.info (Jan Wieck)
+Date: Wed, 24 Sep 2014 22:46:48 -0400
+Subject: [Slony1-general] Slony ignoring cleanup_interval?
+In-Reply-To: <5422F8B5.6070506@ca.afilias.info>
+References: <CAF9U7z8hp11Nny5papsdrxAJt-ccZt3FgKaFecB9c2L5Rin9Nw@mail.gmail.com>	<CANfbgbb5hVo4+r3djhW=wEqtuwjZWdFFrf27_EX8WfaR6kM_Ww@mail.gmail.com>
+	<5422F8B5.6070506@ca.afilias.info>
+Message-ID: <54238218.5060301@wi3ck.info>
+
+On 09/24/2014 01:00 PM, Steve Singer wrote:
+> On 09/24/2014 12:29 PM, Christopher Browne wrote:
+>> On Fri, Sep 19, 2014 at 1:50 PM, Kristopher <kristopherwilson at gmail.com
+>> <mailto:kristopherwilson at gmail.com>> wrote:
+>>
+>>     I have the following setup in my conf file:
+>>
+>>     cleanup_interval="5 seconds"
+>>
+>> ...
+>>
+>>     However, it only actually runs cleanup about every 10 minutes (the
+>>     default):
+>>
+>>
+>> We have, in fact, three parameters controlling cleanup:
+>>
+>> a) cleanup_interval, expressed as a Postgres interval, that, according
+>> to the docs, indicates:
+>>
+>> gettext_noop("A PostgreSQL value compatible with ::interval "
+>> "which indicates what aging interval should be used "
+>> "for deleting old events, and hence for purging sl_log_* tables."),
+>>
+>> (see src/slon/confoptions.c for that; I expect that there's a slon
+>> option that will make it print out the documentation strings).
+>>
+>> b) SLON_CLEANUP_SLEEP, in src/slon/slon.h, which is hardcoded to 600,
+>> indicating that every 600 seconds, the cleanup thread is called
+>>
+>> c) SLON_VACUUM_FREQUENCY, also in src/slon/slon.h, hardcoded to 3,
+>> indicating how often cleanup thread should VACUUM tables.
+>>
+>> We haven't exposed SLON_CLEANUP_SLEEP as a configuration option, and, in
+>> effect, that's a value you'd want to shorten a lot during this process.
+>>
+>> It wouldn't be a great deal of trouble to expose SLON_CLEANUP_SLEEP, and
+>> it's probably somewhat handy to do so, particularly for situations such
+>> as what you describe, where we want to avidly empty out sl_log_*.
+>>
+>> I'll see about coming up with a patch, with a view to applying this to
+>> the various major releases.
+>>
+>
+> My preference would be that we have 1 parameter in the config for
+> controlling how often the cleanup thread does it's stuff.
+>
+> Ie make SLON_CLEANUP_SLEEP be controlled by the existing
+> cleanup_interval field in the config.   I don't understand why/when
+> someone would want these two values to be different.
+
+I think we introduced the cleanup_interval (very easily misunderstood as 
+something different from what it actually does) as a safeguard against 
+race conditions, where we feared to remove replication log too soon.
+
+Unless we still fear such race condition, we should get rid of that 
+parameter entirely and rely on "confirmed by everyone is obsolete data" 
+and just purge it.
+
+The thing that really matters in this context is the cleanup sleep time, 
+which determines how often the cleanup is actually done. Calling it 
+often enough compared to checkpoints can actually lead to a situation 
+where sl_log heap and index data never gets written to disk. And that is 
+a goal well worth aiming for.
+
+
+Jan
+
+-- 
+Jan Wieck
+Senior Software Engineer
+http://slony.info
+
