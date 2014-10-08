@@ -326,3 +326,144 @@ major changes in the 2.2 for failover.
 >
 
 
+From glynastill at yahoo.co.uk  Mon Oct  6 09:13:41 2014
+From: glynastill at yahoo.co.uk (Glyn Astill)
+Date: Mon, 6 Oct 2014 17:13:41 +0100
+Subject: [Slony1-general] Slony 2.1.4 - Issues re-subscribing provider
+	when origin down
+In-Reply-To: <542EDF9D.9050303@ca.afilias.info>
+References: <1412339223.8330.YahooMailNeo@web133203.mail.ir2.yahoo.com>
+	<542EDF9D.9050303@ca.afilias.info>
+Message-ID: <1412612021.43355.YahooMailNeo@web133206.mail.ir2.yahoo.com>
+
+
+> From: Steve Singer <ssinger at ca.afilias.info>
+>To: Glyn Astill <glynastill at yahoo.co.uk>; "slony1-general at lists.slony.info" <slony1-general at lists.slony.info> 
+>Sent: Friday, 3 October 2014, 18:40
+>Subject: Re: Slony 2.1.4 - Issues re-subscribing provider when origin down
+> 
+>
+>On 10/03/2014 08:27 AM, Glyn Astill wrote:
+>> Hi All,
+>>
+>> I'm looking at a slony setup using 2.1.4, with 4 nodes in the following
+>> configuration:
+>>
+>>      Node 1 --> Node 2
+>>      Node 1 --> Node 3 --> Node 4
+>>
+>> Node 1 is the origin of all sets, and node 3 is a provider of all to
+>> node 4.  What I'm looking to do is fail over to node 2 when both nodes 1
+>> and 3 have gone down.
+>>
+>> Is this possible?
+>
+>
+>Improvements with dealing with multiple nodes failing at once was one of 
+>the big changes with 2.2
+>
+>You might want to try something like
+>
+>NODE 1 ADMIN CONNINFO = 'dbname=TEST host=localhost port=5432
+>NODE 2 ADMIN CONNINFO = 'dbname=TEST host=localhost port=5433
+>NODE 3 ADMIN CONNINFO = 'dbname=TEST host=localhost port=5434
+>
+>   FAILOVER (
+>           ID = 1, BACKUP NODE = 2);
+>  SUBSCRIBE SET (ID = 1, PROVIDER = 2, RECEIVER = 4, FORWARD = YES);
+>
+>DROP NODE (ID = 3, EVENT NODE = 2);
+>DROP NODE (ID = 1, EVENT NODE = 2);
+>
+>But I haven't tried to setup a cluster in this configuration so I can't 
+>say for sure if it will work or not.  As a general comment I think 
+>trying to reshape the cluster before the FAILOVER command will be 
+>problematic.
+>
+>When I started doing a lot of failover tests with 2.1 I discovered a lot 
+>of cases that wouldn't work, or wouldn't work reliably.  That lead to 
+>major changes in the 2.2 for failover.
+>
+>
+
+Thanks Steve.
+
+Yeah this same scenario in 2.2 works fine, but 2.1 is looking pretty broken to me in terms of failing over at all if another node is down in addition to the origin.  Reordering the resubscribe of node 4 after the failover doesn't work, but also just attempting to failover fails when it can't contact the non-origin failed node; it appears slonik want's to connect to the other downed node regardless complaining "ERROR: no admin conninfo for node 3" if I remove the conninfo or failing when it can't connect when I leave it in.
+
+Was this something that was always impossible, or was it canges in 2.0/2.1 that introduced the issues?  I don't recall having the same issue in 1.2 - but it's a while ago now since I checked.
+
+
+From ssinger at ca.afilias.info  Mon Oct  6 09:59:08 2014
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Mon, 06 Oct 2014 12:59:08 -0400
+Subject: [Slony1-general] Slony 2.1.4 - Issues re-subscribing provider
+	when origin down
+In-Reply-To: <1412612021.43355.YahooMailNeo@web133206.mail.ir2.yahoo.com>
+References: <1412339223.8330.YahooMailNeo@web133203.mail.ir2.yahoo.com>
+	<542EDF9D.9050303@ca.afilias.info>
+	<1412612021.43355.YahooMailNeo@web133206.mail.ir2.yahoo.com>
+Message-ID: <5432CA5C.8030704@ca.afilias.info>
+
+On 10/06/2014 12:13 PM, Glyn Astill wrote:
+>
+>>
+>
+> Thanks Steve.
+>
+> Yeah this same scenario in 2.2 works fine, but 2.1 is looking pretty broken to me in terms of failing over at all if another node is down in addition to the origin.  Reordering the resubscribe of node 4 after the failover doesn't work, but also just attempting to failover fails when it can't contact the non-origin failed node; it appears slonik want's to connect to the other downed node regardless complaining "ERROR: no admin conninfo for node 3" if I remove the conninfo or failing when it can't connect when I leave it in.
+>
+> Was this something that was always impossible, or was it canges in 2.0/2.1 that introduced the issues?  I don't recall having the same issue in 1.2 - but it's a while ago now since I checked.
+>
+
+You could try disabling the automatic wait for stuff with the -w option 
+to slonik to see if it makes a difference.
+
+
+From glynastill at yahoo.co.uk  Mon Oct  6 10:21:33 2014
+From: glynastill at yahoo.co.uk (Glyn Astill)
+Date: Mon, 6 Oct 2014 18:21:33 +0100
+Subject: [Slony1-general] Slony 2.1.4 - Issues re-subscribing provider
+	when origin down
+In-Reply-To: <5432CA5C.8030704@ca.afilias.info>
+References: <1412339223.8330.YahooMailNeo@web133203.mail.ir2.yahoo.com>
+	<542EDF9D.9050303@ca.afilias.info>
+	<1412612021.43355.YahooMailNeo@web133206.mail.ir2.yahoo.com>
+	<5432CA5C.8030704@ca.afilias.info>
+Message-ID: <1412616093.88642.YahooMailNeo@web133202.mail.ir2.yahoo.com>
+
+----- Original Message -----
+
+> From: Steve Singer <ssinger at ca.afilias.info>
+> To: Glyn Astill <glynastill at yahoo.co.uk>; "slony1-general at lists.slony.info" <slony1-general at lists.slony.info>
+> Cc: 
+> Sent: Monday, 6 October 2014, 17:59
+> Subject: Re: Slony 2.1.4 - Issues re-subscribing provider when origin down
+> 
+> On 10/06/2014 12:13 PM, Glyn Astill wrote:
+> 
+>> 
+>>> 
+>> 
+>>  Thanks Steve.
+>> 
+>>  Yeah this same scenario in 2.2 works fine, but 2.1 is looking pretty broken 
+> to me in terms of failing over at all if another node is down in addition to the 
+> origin.  Reordering the resubscribe of node 4 after the failover doesn't 
+> work, but also just attempting to failover fails when it can't contact the 
+> non-origin failed node; it appears slonik want's to connect to the other 
+> downed node regardless complaining "ERROR: no admin conninfo for node 
+> 3" if I remove the conninfo or failing when it can't connect when I 
+> leave it in.
+>> 
+>>  Was this something that was always impossible, or was it canges in 2.0/2.1 
+> that introduced the issues?  I don't recall having the same issue in 1.2 - 
+> but it's a while ago now since I checked.
+>> 
+> 
+> You could try disabling the automatic wait for stuff with the -w option 
+> to slonik to see if it makes a difference.
+>
+
+No luck unfortunately.
+
+
