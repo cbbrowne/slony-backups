@@ -554,3 +554,1032 @@ On 7 October 2014 14:14, Vick Khera <vivek at khera.org> wrote:
 An HTML attachment was scrubbed...
 URL: http://lists.slony.info/pipermail/slony1-general/attachments/20141007/b11cf1e0/attachment.htm 
 
+From granthana.biswas at gmail.com  Thu Oct  9 05:18:38 2014
+From: granthana.biswas at gmail.com (Granthana Biswas)
+Date: Thu, 9 Oct 2014 17:48:38 +0530
+Subject: [Slony1-general] Error with Slony replication from another slony
+	cluster slave
+Message-ID: <CAAPsc-Sva1=QXOCpQg-PupVW4AdQMuGDSa2gfPKJihvNCuOH3w@mail.gmail.com>
+
+Hi All,
+
+I am trying to replicate from another Slony cluster's slave node.
+
+Cluster1 -> replicating from DB1 to -> DB2
+
+Cluster2 -> replicating from DB2 to -> DB3
+
+The initial sync up went fine without any errors. There are no errors in
+logs of both the clusters. Also no st_lag_num_events in DB3 or DB2 for
+Cluster2.
+
+But the data added in DB2 since I started slony Cluster2 is not reflecting
+in DB3.
+
+Does slony allow replication from another cluster's slony slave? Or did I
+miss something?
+
+Thanks & Regards,
+Granthana Biswas
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20141009/d7fc2429/attachment.htm 
+
+From jan at wi3ck.info  Thu Oct  9 05:30:19 2014
+From: jan at wi3ck.info (Jan Wieck)
+Date: Thu, 09 Oct 2014 08:30:19 -0400
+Subject: [Slony1-general] Error with Slony replication from another
+ slony cluster slave
+In-Reply-To: <CAAPsc-Sva1=QXOCpQg-PupVW4AdQMuGDSa2gfPKJihvNCuOH3w@mail.gmail.com>
+References: <CAAPsc-Sva1=QXOCpQg-PupVW4AdQMuGDSa2gfPKJihvNCuOH3w@mail.gmail.com>
+Message-ID: <54367FDB.7090202@wi3ck.info>
+
+On 10/09/2014 08:18 AM, Granthana Biswas wrote:
+> Hi All,
+>
+> I am trying to replicate from another Slony cluster's slave node.
+>
+> Cluster1 -> replicating from DB1 to -> DB2
+>
+> Cluster2 -> replicating from DB2 to -> DB3
+>
+> The initial sync up went fine without any errors. There are no errors in
+> logs of both the clusters. Also no st_lag_num_events in DB3 or DB2 for
+> Cluster2.
+>
+> But the data added in DB2 since I started slony Cluster2 is not
+> reflecting in DB3.
+>
+> Does slony allow replication from another cluster's slony slave? Or did
+> I miss something?
+
+This does not work because the logTrigger will only record information 
+when firing in session_replication_role 'origin'. When Slony is applying 
+changes from DB1 to DB2, the session_replication_role is 'replica', so 
+the logTrigger action is suppressed inside the trigger function.
+
+You will have to make DB3 a member of Cluster1 and use DB2 as the data 
+provider to achieve this. This has the added benefit that you can easily 
+change the data provider of DB3 to DB1 in case you need to perform any 
+maintenance on DB2.
+
+
+Regards,
+Jan
+
+-- 
+Jan Wieck
+Senior Software Engineer
+http://slony.info
+
+From glynastill at yahoo.co.uk  Thu Oct  9 05:40:53 2014
+From: glynastill at yahoo.co.uk (Glyn Astill)
+Date: Thu, 9 Oct 2014 13:40:53 +0100
+Subject: [Slony1-general] Error with Slony replication from another
+	slony	cluster slave
+In-Reply-To: <CAAPsc-Sva1=QXOCpQg-PupVW4AdQMuGDSa2gfPKJihvNCuOH3w@mail.gmail.com>
+References: <CAAPsc-Sva1=QXOCpQg-PupVW4AdQMuGDSa2gfPKJihvNCuOH3w@mail.gmail.com>
+Message-ID: <1412858453.95727.YahooMailNeo@web133203.mail.ir2.yahoo.com>
+
+
+
+
+
+
+>________________________________
+> From: Granthana Biswas <granthana.biswas at gmail.com>
+>To: slony1-general at lists.slony.info 
+>Sent: Thursday, 9 October 2014, 13:18
+>Subject: [Slony1-general] Error with Slony replication from another slony    cluster slave
+> 
+>
+>
+>Hi All,
+>
+>
+>I am trying to replicate from another Slony cluster's slave node. 
+>
+>
+>Cluster1 -> replicating from DB1 to -> DB2
+>
+>
+>Cluster2 -> replicating from DB2 to -> DB3
+>
+>
+>The initial sync up went fine without any errors. There are no errors in logs of both the clusters. Also no st_lag_num_events in DB3 or DB2 for Cluster2.
+>
+>
+>But the data added in DB2 since I started slony Cluster2 is not reflecting in DB3.
+>
+>
+>Does slony allow replication from another cluster's slony slave? Or did I miss something?
+>
+>
+
+Perhaps you could show us what you've done so far, to me it's unclear if you are setting up a totally seperate slony cluster for DB2->DB3, or just trying to subscribe DB3 to sets in the existing cluster.
+
+
+If it's the latter, then as long as the slave you want to use as the provider was subscribed to the sets you want with "FORWARD = YES" it should be ok
+
+
+See: http://main.slony.info/documentation/stmtsubscribeset.html
+
+You should be able to check by looking at sub_forward in sl_subscribe, some thing like:
+
+select * from _<cluster name>.sl_subscribe where sub_receiver = <id of DB2>;
+
+>Thanks & Regards,
+>Granthana Biswas
+>
+>
+
+From granthana.biswas at gmail.com  Thu Oct  9 06:14:04 2014
+From: granthana.biswas at gmail.com (Granthana Biswas)
+Date: Thu, 9 Oct 2014 18:44:04 +0530
+Subject: [Slony1-general] Error with Slony replication from another
+ slony cluster slave
+In-Reply-To: <1412858453.95727.YahooMailNeo@web133203.mail.ir2.yahoo.com>
+References: <CAAPsc-Sva1=QXOCpQg-PupVW4AdQMuGDSa2gfPKJihvNCuOH3w@mail.gmail.com>
+	<1412858453.95727.YahooMailNeo@web133203.mail.ir2.yahoo.com>
+Message-ID: <CAAPsc-RCfP6Va8R_BZRWaZcxMTuwVsFbaTeHo7YxdXMtc4NdEg@mail.gmail.com>
+
+I am trying to set up a totally separate cluster for DB2 -> DB3  :
+
+Cluster1 -> replicating from DB1 to -> DB2
+
+Cluster2 -> replicating from DB2 to -> DB3
+
+On Thu, Oct 9, 2014 at 6:10 PM, Glyn Astill <glynastill at yahoo.co.uk> wrote:
+
+>
+>
+>
+>
+>
+> >________________________________
+> > From: Granthana Biswas <granthana.biswas at gmail.com>
+> >To: slony1-general at lists.slony.info
+> >Sent: Thursday, 9 October 2014, 13:18
+> >Subject: [Slony1-general] Error with Slony replication from another
+> slony    cluster slave
+> >
+> >
+> >
+> >Hi All,
+> >
+> >
+> >I am trying to replicate from another Slony cluster's slave node.
+> >
+> >
+> >Cluster1 -> replicating from DB1 to -> DB2
+> >
+> >
+> >Cluster2 -> replicating from DB2 to -> DB3
+> >
+> >
+> >The initial sync up went fine without any errors. There are no errors in
+> logs of both the clusters. Also no st_lag_num_events in DB3 or DB2 for
+> Cluster2.
+> >
+> >
+> >But the data added in DB2 since I started slony Cluster2 is not
+> reflecting in DB3.
+> >
+> >
+> >Does slony allow replication from another cluster's slony slave? Or did I
+> miss something?
+> >
+> >
+>
+> Perhaps you could show us what you've done so far, to me it's unclear if
+> you are setting up a totally seperate slony cluster for DB2->DB3, or just
+> trying to subscribe DB3 to sets in the existing cluster.
+>
+>
+> If it's the latter, then as long as the slave you want to use as the
+> provider was subscribed to the sets you want with "FORWARD = YES" it should
+> be ok
+>
+>
+> See: http://main.slony.info/documentation/stmtsubscribeset.html
+>
+> You should be able to check by looking at sub_forward in sl_subscribe,
+> some thing like:
+>
+> select * from _<cluster name>.sl_subscribe where sub_receiver = <id of
+> DB2>;
+>
+> >Thanks & Regards,
+> >Granthana Biswas
+> >
+> >
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20141009/4a3b2e12/attachment.htm 
+
+From granthana.biswas at gmail.com  Thu Oct  9 06:16:37 2014
+From: granthana.biswas at gmail.com (Granthana Biswas)
+Date: Thu, 9 Oct 2014 18:46:37 +0530
+Subject: [Slony1-general] Error with Slony replication from another
+ slony cluster slave
+In-Reply-To: <54367FDB.7090202@wi3ck.info>
+References: <CAAPsc-Sva1=QXOCpQg-PupVW4AdQMuGDSa2gfPKJihvNCuOH3w@mail.gmail.com>
+	<54367FDB.7090202@wi3ck.info>
+Message-ID: <CAAPsc-T8khs6K17ZTa8OC6Bwz-n85-k4_aVNUn2xUukeXQGwcQ@mail.gmail.com>
+
+Hi Jan,
+
+Thanks for your quick reply!
+
+What if DB1 goes out in future? Can I make DB2 the new origin of same
+cluster, i.e. master of DB3 without down time for DB2?
+
+
+
+On Thu, Oct 9, 2014 at 6:00 PM, Jan Wieck <jan at wi3ck.info> wrote:
+
+> On 10/09/2014 08:18 AM, Granthana Biswas wrote:
+>
+>> Hi All,
+>>
+>> I am trying to replicate from another Slony cluster's slave node.
+>>
+>> Cluster1 -> replicating from DB1 to -> DB2
+>>
+>> Cluster2 -> replicating from DB2 to -> DB3
+>>
+>> The initial sync up went fine without any errors. There are no errors in
+>> logs of both the clusters. Also no st_lag_num_events in DB3 or DB2 for
+>> Cluster2.
+>>
+>> But the data added in DB2 since I started slony Cluster2 is not
+>> reflecting in DB3.
+>>
+>> Does slony allow replication from another cluster's slony slave? Or did
+>> I miss something?
+>>
+>
+> This does not work because the logTrigger will only record information
+> when firing in session_replication_role 'origin'. When Slony is applying
+> changes from DB1 to DB2, the session_replication_role is 'replica', so the
+> logTrigger action is suppressed inside the trigger function.
+>
+> You will have to make DB3 a member of Cluster1 and use DB2 as the data
+> provider to achieve this. This has the added benefit that you can easily
+> change the data provider of DB3 to DB1 in case you need to perform any
+> maintenance on DB2.
+>
+>
+> Regards,
+> Jan
+>
+> --
+> Jan Wieck
+> Senior Software Engineer
+> http://slony.info
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20141009/1dfede9a/attachment.htm 
+
+From granthana.biswas at gmail.com  Thu Oct  9 06:18:21 2014
+From: granthana.biswas at gmail.com (Granthana Biswas)
+Date: Thu, 9 Oct 2014 18:48:21 +0530
+Subject: [Slony1-general] Error with Slony replication from another slony
+ cluster slave
+Message-ID: <CAAPsc-SeOk8sgzGwes2k4DWJQhbfCN6Nag3ZqDx76nwLFGGmxA@mail.gmail.com>
+
+Hi Jan,
+
+Thanks for your quick reply!
+
+What if DB1 goes out in future? Can I make DB2 the new origin of same
+cluster, i.e. master of DB3 without down time for DB2?
+
+
+
+On Thu, Oct 9, 2014 at 6:00 PM, Jan Wieck <jan at wi3ck.info> wrote:
+
+> On 10/09/2014 08:18 AM, Granthana Biswas wrote:
+>
+>> Hi All,
+>>
+>> I am trying to replicate from another Slony cluster's slave node.
+>>
+>> Cluster1 -> replicating from DB1 to -> DB2
+>>
+>> Cluster2 -> replicating from DB2 to -> DB3
+>>
+>> The initial sync up went fine without any errors. There are no errors in
+>> logs of both the clusters. Also no st_lag_num_events in DB3 or DB2 for
+>> Cluster2.
+>>
+>> But the data added in DB2 since I started slony Cluster2 is not
+>> reflecting in DB3.
+>>
+>> Does slony allow replication from another cluster's slony slave? Or did
+>> I miss something?
+>>
+>
+> This does not work because the logTrigger will only record information
+> when firing in session_replication_role 'origin'. When Slony is applying
+> changes from DB1 to DB2, the session_replication_role is 'replica', so the
+> logTrigger action is suppressed inside the trigger function.
+>
+> You will have to make DB3 a member of Cluster1 and use DB2 as the data
+> provider to achieve this. This has the added benefit that you can easily
+> change the data provider of DB3 to DB1 in case you need to perform any
+> maintenance on DB2.
+>
+>
+> Regards,
+> Jan
+>
+> --
+> Jan Wieck
+> Senior Software Engineer
+> http://slony.info
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20141009/d8a39e6a/attachment-0001.htm 
+
+From granthana.biswas at gmail.com  Thu Oct  9 06:19:05 2014
+From: granthana.biswas at gmail.com (Granthana Biswas)
+Date: Thu, 9 Oct 2014 18:49:05 +0530
+Subject: [Slony1-general] Error with Slony replication from another slony
+ cluster slave
+Message-ID: <CAAPsc-QfdSZhu4nVbc4Ze_z=E6csuUKXE8CRdaV+B9eq=bQ+Ag@mail.gmail.com>
+
+Hi Glyn,
+
+
+I am trying to set up a totally separate cluster for DB2 -> DB3  :
+
+Cluster1 -> replicating from DB1 to -> DB2
+
+Cluster2 -> replicating from DB2 to -> DB3
+
+Granthana
+
+On Thu, Oct 9, 2014 at 6:10 PM, Glyn Astill <glynastill at yahoo.co.uk> wrote:
+
+>
+>
+>
+>
+>
+> >________________________________
+> > From: Granthana Biswas <granthana.biswas at gmail.com>
+> >To: slony1-general at lists.slony.info
+> >Sent: Thursday, 9 October 2014, 13:18
+> >Subject: [Slony1-general] Error with Slony replication from another
+> slony    cluster slave
+> >
+> >
+> >
+> >Hi All,
+> >
+> >
+> >I am trying to replicate from another Slony cluster's slave node.
+> >
+> >
+> >Cluster1 -> replicating from DB1 to -> DB2
+> >
+> >
+> >Cluster2 -> replicating from DB2 to -> DB3
+> >
+> >
+> >The initial sync up went fine without any errors. There are no errors in
+> logs of both the clusters. Also no st_lag_num_events in DB3 or DB2 for
+> Cluster2.
+> >
+> >
+> >But the data added in DB2 since I started slony Cluster2 is not
+> reflecting in DB3.
+> >
+> >
+> >Does slony allow replication from another cluster's slony slave? Or did I
+> miss something?
+> >
+> >
+>
+> Perhaps you could show us what you've done so far, to me it's unclear if
+> you are setting up a totally seperate slony cluster for DB2->DB3, or just
+> trying to subscribe DB3 to sets in the existing cluster.
+>
+>
+> If it's the latter, then as long as the slave you want to use as the
+> provider was subscribed to the sets you want with "FORWARD = YES" it should
+> be ok
+>
+>
+> See: http://main.slony.info/documentation/stmtsubscribeset.html
+>
+> You should be able to check by looking at sub_forward in sl_subscribe,
+> some thing like:
+>
+> select * from _<cluster name>.sl_subscribe where sub_receiver = <id of
+> DB2>;
+>
+> >Thanks & Regards,
+> >Granthana Biswas
+> >
+> >
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20141009/71859545/attachment.htm 
+
+From granthana.biswas at gmail.com  Thu Oct  9 06:41:14 2014
+From: granthana.biswas at gmail.com (Granthana Biswas)
+Date: Thu, 9 Oct 2014 19:11:14 +0530
+Subject: [Slony1-general] Error with Slony replication from another slony
+ cluster slave
+Message-ID: <CAAPsc-QMwn_owCSoD=KWyobuRPrOOpdozKpbryzXnja47qkt2A@mail.gmail.com>
+
+Hi Jan,
+
+Will it work if I change the slony user for cluster2?
+
+Regards,
+Granthana
+
+On Thu, Oct 9, 2014 at 6:00 PM, Jan Wieck <jan at wi3ck.info> wrote:
+
+> On 10/09/2014 08:18 AM, Granthana Biswas wrote:
+>
+>> Hi All,
+>>
+>> I am trying to replicate from another Slony cluster's slave node.
+>>
+>> Cluster1 -> replicating from DB1 to -> DB2
+>>
+>> Cluster2 -> replicating from DB2 to -> DB3
+>>
+>> The initial sync up went fine without any errors. There are no errors in
+>> logs of both the clusters. Also no st_lag_num_events in DB3 or DB2 for
+>> Cluster2.
+>>
+>> But the data added in DB2 since I started slony Cluster2 is not
+>> reflecting in DB3.
+>>
+>> Does slony allow replication from another cluster's slony slave? Or did
+>> I miss something?
+>>
+>
+> This does not work because the logTrigger will only record information
+> when firing in session_replication_role 'origin'. When Slony is applying
+> changes from DB1 to DB2, the session_replication_role is 'replica', so the
+> logTrigger action is suppressed inside the trigger function.
+>
+> You will have to make DB3 a member of Cluster1 and use DB2 as the data
+> provider to achieve this. This has the added benefit that you can easily
+> change the data provider of DB3 to DB1 in case you need to perform any
+> maintenance on DB2.
+>
+>
+> Regards,
+> Jan
+>
+> --
+> Jan Wieck
+> Senior Software Engineer
+> http://slony.info
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20141009/1e4b911a/attachment.htm 
+
+From glynastill at yahoo.co.uk  Thu Oct  9 07:02:10 2014
+From: glynastill at yahoo.co.uk (Glyn Astill)
+Date: Thu, 9 Oct 2014 15:02:10 +0100
+Subject: [Slony1-general] Error with Slony replication from another
+	slony cluster slave
+In-Reply-To: <CAAPsc-QfdSZhu4nVbc4Ze_z=E6csuUKXE8CRdaV+B9eq=bQ+Ag@mail.gmail.com>
+References: <CAAPsc-QfdSZhu4nVbc4Ze_z=E6csuUKXE8CRdaV+B9eq=bQ+Ag@mail.gmail.com>
+Message-ID: <1412863330.25877.YahooMailNeo@web133201.mail.ir2.yahoo.com>
+
+________________________________
+> From: Granthana Biswas <granthana.biswas at gmail.com>
+>To: "slony1-general at lists.slony.info" <slony1-general at lists.slony.info> 
+>Sent: Thursday, 9 October 2014, 14:19
+>Subject: [Slony1-general] Error with Slony replication from another slony cluster slave
+> 
+>
+>
+>Hi Glyn,
+>
+>
+>
+>I am trying to set up a totally separate cluster for DB2 -> DB3  :
+>
+>Cluster1 -> replicating from DB1 to -> DB2
+>
+>
+>Cluster2 -> replicating from DB2 to -> DB3
+>
+>
+>Granthana
+>
+>
+
+As Jan has already stated, it's not possible to do this with 2 separate clusters because the logtriggers won't fire on DB2 due to the session replication role.
+
+You want to get rid of Cluster2 and subscribe DB3 into Cluster1 with DB2 as it's provider.
+
+
+>On Thu, Oct 9, 2014 at 6:10 PM, Glyn Astill <glynastill at yahoo.co.uk> wrote:
+>
+>
+>>
+>>
+>>
+>>
+>>>________________________________
+>>> From: Granthana Biswas <granthana.biswas at gmail.com>
+>>>To: slony1-general at lists.slony.info
+>>>Sent: Thursday, 9 October 2014, 13:18
+>>>Subject: [Slony1-general] Error with Slony replication from another slony    cluster slave
+>>
+>>>
+>>>
+>>>
+>>>Hi All,
+>>>
+>>>
+>>>I am trying to replicate from another Slony cluster's slave node.
+>>>
+>>>
+>>>Cluster1 -> replicating from DB1 to -> DB2
+>>>
+>>>
+>>>Cluster2 -> replicating from DB2 to -> DB3
+>>>
+>>>
+>>>The initial sync up went fine without any errors. There are no errors in logs of both the clusters. Also no st_lag_num_events in DB3 or DB2 for Cluster2.
+>>>
+>>>
+>>>But the data added in DB2 since I started slony Cluster2 is not reflecting in DB3.
+>>>
+>>>
+>>>Does slony allow replication from another cluster's slony slave? Or did I miss something?
+>>>
+>>>
+>>
+>>Perhaps you could show us what you've done so far, to me it's unclear if you are setting up a totally seperate slony cluster for DB2->DB3, or just trying to subscribe DB3 to sets in the existing cluster.
+>>
+>>
+>>If it's the latter, then as long as the slave you want to use as the provider was subscribed to the sets you want with "FORWARD = YES" it should be ok
+>>
+>>
+>>See: http://main.slony.info/documentation/stmtsubscribeset.html
+>>
+>>You should be able to check by looking at sub_forward in sl_subscribe, some thing like:
+>>
+>>select * from _<cluster name>.sl_subscribe where sub_receiver = <id of DB2>;
+>>
+>>
+>>>Thanks & Regards,
+>>>Granthana Biswas
+
+From glynastill at yahoo.co.uk  Thu Oct  9 14:26:57 2014
+From: glynastill at yahoo.co.uk (Glyn Astill)
+Date: Thu, 9 Oct 2014 22:26:57 +0100
+Subject: [Slony1-general] Error with Slony replication from another
+	slony cluster slave
+In-Reply-To: <CAAPsc-SMde27UpeHyb7JLVLeDpmaQC1J9Fa+GF5p9=2ade7H5w@mail.gmail.com>
+References: <CAAPsc-QfdSZhu4nVbc4Ze_z=E6csuUKXE8CRdaV+B9eq=bQ+Ag@mail.gmail.com>
+	<1412863330.25877.YahooMailNeo@web133201.mail.ir2.yahoo.com>
+	<CAAPsc-SMde27UpeHyb7JLVLeDpmaQC1J9Fa+GF5p9=2ade7H5w@mail.gmail.com>
+Message-ID: <1412890017.53155.YahooMailNeo@web133205.mail.ir2.yahoo.com>
+
+> From: Granthana Biswas <granthana.biswas at gmail.com>
+>To: Glyn Astill <glynastill at yahoo.co.uk> 
+>Sent: Thursday, 9 October 2014, 16:34
+>Subject: Re: [Slony1-general] Error with Slony replication from another slony cluster slave
+> 
+>
+>
+>Hi Glyn,
+>
+>
+>In my case I have two clusters:
+>
+>
+>Cluster1 ->  replicating from DB1 -> DB2
+>Cluster2 ->  replicating from DB1 -> DB3
+>
+>
+>Can I stop Cluster2 and add DB3 to Cluster1 with DB2 as its master? Or do I have to delete the data first in DB3?
+>
+>
+
+You'll want to run DROP NODE against each node in Cluster2, (or if on 2.0+ you can get away with just DROP SCHEMA _Cluster2 CASCADE) and stop the slons for Cluster2.
+
+Then just run through adding the node into Cluster1 i.e. STORE NODE, STORE PATH for DB3 on Cluster1 and then SUBSCRIBE SET with the provider as DB2.
+
+As long as your schemas are as you want, the tables will be truncated on DB3 when you subscribe the sets.
+
+
+>I want to stop DB1 eventually and make DB2 the master.
+>
+>
+>Regards,
+>Granthana
+>
+>
+>
+>
+>
+>
+>
+>
+>
+>On Thu, Oct 9, 2014 at 7:32 PM, Glyn Astill <glynastill at yahoo.co.uk> wrote:
+>
+>________________________________
+>>> From: Granthana Biswas <granthana.biswas at gmail.com>
+>>>To: "slony1-general at lists.slony.info" <slony1-general at lists.slony.info>
+>>>Sent: Thursday, 9 October 2014, 14:19
+>>>Subject: [Slony1-general] Error with Slony replication from another slony cluster slave
+>>>
+>>>
+>>>
+>>>Hi Glyn,
+>>>
+>>>
+>>>
+>>>I am trying to set up a totally separate cluster for DB2 -> DB3  :
+>>>
+>>>Cluster1 -> replicating from DB1 to -> DB2
+>>>
+>>>
+>>>Cluster2 -> replicating from DB2 to -> DB3
+>>>
+>>>
+>>>Granthana
+>>>
+>>>
+>>
+>>As Jan has already stated, it's not possible to do this with 2 separate clusters because the logtriggers won't fire on DB2 due to the session replication role.
+>>
+>>You want to get rid of Cluster2 and subscribe DB3 into Cluster1 with DB2 as it's provider.
+>>
+>>
+>>
+>>>On Thu, Oct 9, 2014 at 6:10 PM, Glyn Astill <glynastill at yahoo.co.uk> wrote:
+>>>
+>>>
+>>>>
+>>>>
+>>>>
+>>>>
+>>>>>________________________________
+>>>>> From: Granthana Biswas <granthana.biswas at gmail.com>
+>>>>>To: slony1-general at lists.slony.info
+>>>>>Sent: Thursday, 9 October 2014, 13:18
+>>>>>Subject: [Slony1-general] Error with Slony replication from another slony    cluster slave
+>>>>
+>>>>>
+>>>>>
+>>>>>
+>>>>>Hi All,
+>>>>>
+>>>>>
+>>>>>I am trying to replicate from another Slony cluster's slave node.
+>>>>>
+>>>>>
+>>>>>Cluster1 -> replicating from DB1 to -> DB2
+>>>>>
+>>>>>
+>>>>>Cluster2 -> replicating from DB2 to -> DB3
+>>>>>
+>>>>>
+>>>>>The initial sync up went fine without any errors. There are no errors in logs of both the clusters. Also no st_lag_num_events in DB3 or DB2 for Cluster2.
+>>>>>
+>>>>>
+>>>>>But the data added in DB2 since I started slony Cluster2 is not reflecting in DB3.
+>>>>>
+>>>>>
+>>>>>Does slony allow replication from another cluster's slony slave? Or did I miss something?
+>>>>>
+>>>>>
+>>>>
+>>>>Perhaps you could show us what you've done so far, to me it's unclear if you are setting up a totally seperate slony cluster for DB2->DB3, or just trying to subscribe DB3 to sets in the existing cluster.
+>>>>
+>>>>
+>>>>If it's the latter, then as long as the slave you want to use as the provider was subscribed to the sets you want with "FORWARD = YES" it should be ok
+>>>>
+>>>>
+>>>>See: http://main.slony.info/documentation/stmtsubscribeset.html
+>>>>
+>>>>You should be able to check by looking at sub_forward in sl_subscribe, some thing like:
+>>>>
+>>>>select * from _<cluster name>.sl_subscribe where sub_receiver = <id of DB2>;
+>>>>
+>>>>
+>>>>>Thanks & Regards,
+>>>>>Granthana Biswas
+>>
+>
+>
+>
+
+From jan at wi3ck.info  Thu Oct  9 15:31:59 2014
+From: jan at wi3ck.info (Jan Wieck)
+Date: Thu, 09 Oct 2014 18:31:59 -0400
+Subject: [Slony1-general] Error with Slony replication from another
+ slony cluster slave
+In-Reply-To: <1412890017.53155.YahooMailNeo@web133205.mail.ir2.yahoo.com>
+References: <CAAPsc-QfdSZhu4nVbc4Ze_z=E6csuUKXE8CRdaV+B9eq=bQ+Ag@mail.gmail.com>	<1412863330.25877.YahooMailNeo@web133201.mail.ir2.yahoo.com>	<CAAPsc-SMde27UpeHyb7JLVLeDpmaQC1J9Fa+GF5p9=2ade7H5w@mail.gmail.com>
+	<1412890017.53155.YahooMailNeo@web133205.mail.ir2.yahoo.com>
+Message-ID: <54370CDF.7060104@wi3ck.info>
+
+On 10/09/2014 05:26 PM, Glyn Astill wrote:
+>> From: Granthana Biswas <granthana.biswas at gmail.com>
+>>To: Glyn Astill <glynastill at yahoo.co.uk>
+>>Sent: Thursday, 9 October 2014, 16:34
+>>Subject: Re: [Slony1-general] Error with Slony replication from another slony cluster slave
+>>
+>>
+>>
+>>Hi Glyn,
+>>
+>>
+>>In my case I have two clusters:
+>>
+>>
+>>Cluster1 ->  replicating from DB1 -> DB2
+>>Cluster2 ->  replicating from DB1 -> DB3
+>>
+>>
+>>Can I stop Cluster2 and add DB3 to Cluster1 with DB2 as its master? Or do I have to delete the data first in DB3?
+>>
+>>
+>
+> You'll want to run DROP NODE against each node in Cluster2, (or if on 2.0+ you can get away with just DROP SCHEMA _Cluster2 CASCADE) and stop the slons for Cluster2.
+
+
+Cascading, forwarding and all that is one of the core concepts of Slony. 
+If you create one single setup looking like this:
+
+     DB1 -> DB2 -> DB3
+
+then you have a lot more flexibility and functionality than is obvious 
+at first. Aside from being able to fail over to DB2.
+
+Slony will let you "MOVE" the master role from DB1 to DB2. That 
+operation will not just make DB2 the master, but at the same time DB1 
+becomes a replica that doesn't need an initial sync, so your setup now 
+would look like this:
+
+     DB1 <- DB2 -> DB3
+
+This is useful if you need to perform some maintenance on DB1. At this 
+point DB2 is your master an you would just stop the slon process for 
+DB1, do whatever you need to do, and start the slon process again. Once 
+DB1 has caught up, you just transfer the master role back and everything 
+is as it was.
+
+What also works is that if you need to perform maintenance on DB2, it 
+doesn't mean that DB3 has to fall behind too. You can easily change the 
+data provider for DB3 to be DB1, so your configuration changes to
+
+     DB1 -> DB2
+      |
+      V
+     DB3
+
+At this point you stop the slon process for DB2, perform what you need 
+to do on DB2, start the slon process and after DB2 has caught up, make 
+it the data provider for DB3 again.
+
+
+Regards,
+Jan
+
+-- 
+Jan Wieck
+Senior Software Engineer
+http://slony.info
+
+From davecramer at gmail.com  Thu Oct  9 15:34:10 2014
+From: davecramer at gmail.com (Dave Cramer)
+Date: Thu, 9 Oct 2014 18:34:10 -0400
+Subject: [Slony1-general] Error with Slony replication from another
+ slony cluster slave
+In-Reply-To: <54370CDF.7060104@wi3ck.info>
+References: <CAAPsc-QfdSZhu4nVbc4Ze_z=E6csuUKXE8CRdaV+B9eq=bQ+Ag@mail.gmail.com>
+	<1412863330.25877.YahooMailNeo@web133201.mail.ir2.yahoo.com>
+	<CAAPsc-SMde27UpeHyb7JLVLeDpmaQC1J9Fa+GF5p9=2ade7H5w@mail.gmail.com>
+	<1412890017.53155.YahooMailNeo@web133205.mail.ir2.yahoo.com>
+	<54370CDF.7060104@wi3ck.info>
+Message-ID: <CADK3HH+Gxype20zxrsrgftKN3GBvCCJ6CVm=JnYuuHM_vMv2SQ@mail.gmail.com>
+
+Jan,
+
+But as you said they all have to be in the same cluster, correct ?
+
+Dave Cramer
+
+On 9 October 2014 18:31, Jan Wieck <jan at wi3ck.info> wrote:
+
+> On 10/09/2014 05:26 PM, Glyn Astill wrote:
+> >> From: Granthana Biswas <granthana.biswas at gmail.com>
+> >>To: Glyn Astill <glynastill at yahoo.co.uk>
+> >>Sent: Thursday, 9 October 2014, 16:34
+> >>Subject: Re: [Slony1-general] Error with Slony replication from another
+> slony cluster slave
+> >>
+> >>
+> >>
+> >>Hi Glyn,
+> >>
+> >>
+> >>In my case I have two clusters:
+> >>
+> >>
+> >>Cluster1 ->  replicating from DB1 -> DB2
+> >>Cluster2 ->  replicating from DB1 -> DB3
+> >>
+> >>
+> >>Can I stop Cluster2 and add DB3 to Cluster1 with DB2 as its master? Or
+> do I have to delete the data first in DB3?
+> >>
+> >>
+> >
+> > You'll want to run DROP NODE against each node in Cluster2, (or if on
+> 2.0+ you can get away with just DROP SCHEMA _Cluster2 CASCADE) and stop the
+> slons for Cluster2.
+>
+>
+> Cascading, forwarding and all that is one of the core concepts of Slony.
+> If you create one single setup looking like this:
+>
+>      DB1 -> DB2 -> DB3
+>
+> then you have a lot more flexibility and functionality than is obvious
+> at first. Aside from being able to fail over to DB2.
+>
+> Slony will let you "MOVE" the master role from DB1 to DB2. That
+> operation will not just make DB2 the master, but at the same time DB1
+> becomes a replica that doesn't need an initial sync, so your setup now
+> would look like this:
+>
+>      DB1 <- DB2 -> DB3
+>
+> This is useful if you need to perform some maintenance on DB1. At this
+> point DB2 is your master an you would just stop the slon process for
+> DB1, do whatever you need to do, and start the slon process again. Once
+> DB1 has caught up, you just transfer the master role back and everything
+> is as it was.
+>
+> What also works is that if you need to perform maintenance on DB2, it
+> doesn't mean that DB3 has to fall behind too. You can easily change the
+> data provider for DB3 to be DB1, so your configuration changes to
+>
+>      DB1 -> DB2
+>       |
+>       V
+>      DB3
+>
+> At this point you stop the slon process for DB2, perform what you need
+> to do on DB2, start the slon process and after DB2 has caught up, make
+> it the data provider for DB3 again.
+>
+>
+> Regards,
+> Jan
+>
+> --
+> Jan Wieck
+> Senior Software Engineer
+> http://slony.info
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20141009/8e702ea1/attachment.htm 
+
+From jan at wi3ck.info  Thu Oct  9 15:34:59 2014
+From: jan at wi3ck.info (Jan Wieck)
+Date: Thu, 09 Oct 2014 18:34:59 -0400
+Subject: [Slony1-general] Error with Slony replication from another
+ slony cluster slave
+In-Reply-To: <CADK3HH+Gxype20zxrsrgftKN3GBvCCJ6CVm=JnYuuHM_vMv2SQ@mail.gmail.com>
+References: <CAAPsc-QfdSZhu4nVbc4Ze_z=E6csuUKXE8CRdaV+B9eq=bQ+Ag@mail.gmail.com>
+	<1412863330.25877.YahooMailNeo@web133201.mail.ir2.yahoo.com>
+	<CAAPsc-SMde27UpeHyb7JLVLeDpmaQC1J9Fa+GF5p9=2ade7H5w@mail.gmail.com>
+	<1412890017.53155.YahooMailNeo@web133205.mail.ir2.yahoo.com>
+	<54370CDF.7060104@wi3ck.info>
+	<CADK3HH+Gxype20zxrsrgftKN3GBvCCJ6CVm=JnYuuHM_vMv2SQ@mail.gmail.com>
+Message-ID: <54370D93.3090306@wi3ck.info>
+
+On 10/09/2014 06:34 PM, Dave Cramer wrote:
+> Jan,
+>
+> But as you said they all have to be in the same cluster, correct ?
+
+Yes.
+
+
+Jan
+
+
+>
+> Dave Cramer
+>
+> On 9 October 2014 18:31, Jan Wieck <jan at wi3ck.info
+> <mailto:jan at wi3ck.info>> wrote:
+>
+>     On 10/09/2014 05:26 PM, Glyn Astill wrote:
+>      >> From: Granthana Biswas <granthana.biswas at gmail.com
+>     <mailto:granthana.biswas at gmail.com>>
+>      >>To: Glyn Astill <glynastill at yahoo.co.uk
+>     <mailto:glynastill at yahoo.co.uk>>
+>      >>Sent: Thursday, 9 October 2014, 16:34
+>      >>Subject: Re: [Slony1-general] Error with Slony replication from
+>     another slony cluster slave
+>      >>
+>      >>
+>      >>
+>      >>Hi Glyn,
+>      >>
+>      >>
+>      >>In my case I have two clusters:
+>      >>
+>      >>
+>      >>Cluster1 ->  replicating from DB1 -> DB2
+>      >>Cluster2 ->  replicating from DB1 -> DB3
+>      >>
+>      >>
+>      >>Can I stop Cluster2 and add DB3 to Cluster1 with DB2 as its
+>     master? Or do I have to delete the data first in DB3?
+>      >>
+>      >>
+>      >
+>      > You'll want to run DROP NODE against each node in Cluster2, (or
+>     if on 2.0+ you can get away with just DROP SCHEMA _Cluster2 CASCADE)
+>     and stop the slons for Cluster2.
+>
+>
+>     Cascading, forwarding and all that is one of the core concepts of Slony.
+>     If you create one single setup looking like this:
+>
+>           DB1 -> DB2 -> DB3
+>
+>     then you have a lot more flexibility and functionality than is obvious
+>     at first. Aside from being able to fail over to DB2.
+>
+>     Slony will let you "MOVE" the master role from DB1 to DB2. That
+>     operation will not just make DB2 the master, but at the same time DB1
+>     becomes a replica that doesn't need an initial sync, so your setup now
+>     would look like this:
+>
+>           DB1 <- DB2 -> DB3
+>
+>     This is useful if you need to perform some maintenance on DB1. At this
+>     point DB2 is your master an you would just stop the slon process for
+>     DB1, do whatever you need to do, and start the slon process again. Once
+>     DB1 has caught up, you just transfer the master role back and everything
+>     is as it was.
+>
+>     What also works is that if you need to perform maintenance on DB2, it
+>     doesn't mean that DB3 has to fall behind too. You can easily change the
+>     data provider for DB3 to be DB1, so your configuration changes to
+>
+>           DB1 -> DB2
+>            |
+>            V
+>           DB3
+>
+>     At this point you stop the slon process for DB2, perform what you need
+>     to do on DB2, start the slon process and after DB2 has caught up, make
+>     it the data provider for DB3 again.
+>
+>
+>     Regards,
+>     Jan
+>
+>     --
+>     Jan Wieck
+>     Senior Software Engineer
+>     http://slony.info
+>     _______________________________________________
+>     Slony1-general mailing list
+>     Slony1-general at lists.slony.info <mailto:Slony1-general at lists.slony.info>
+>     http://lists.slony.info/mailman/listinfo/slony1-general
+>
+>
+
+
+-- 
+Jan Wieck
+Senior Software Engineer
+http://slony.info
+
