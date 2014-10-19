@@ -1911,3 +1911,611 @@ Dave Cramer
 An HTML attachment was scrubbed...
 URL: http://lists.slony.info/pipermail/slony1-general/attachments/20141016/9baaa6ea/attachment.htm 
 
+From glynastill at yahoo.co.uk  Thu Oct 16 07:34:13 2014
+From: glynastill at yahoo.co.uk (Glyn Astill)
+Date: Thu, 16 Oct 2014 15:34:13 +0100
+Subject: [Slony1-general] Lag time increasing but there are no events
+In-Reply-To: <CADK3HHJFyyxDs32wiKYe0bEReR3sB_q+xLyhBJ3=MSGtKkvZGQ@mail.gmail.com>
+References: <CADK3HHJFyyxDs32wiKYe0bEReR3sB_q+xLyhBJ3=MSGtKkvZGQ@mail.gmail.com>
+Message-ID: <1413470053.28032.YahooMailNeo@web133202.mail.ir2.yahoo.com>
+
+> From: Dave Cramer <davecramer at gmail.com>
+>To: slony <slony1-general at lists.slony.info> 
+>Sent: Thursday, 16 October 2014, 11:19
+>Subject: [Slony1-general] Lag time increasing but there are no events
+> 
+>
+>
+>I have a situation I can't explain.
+>
+>
+>sl_status shows lag time increasing. num events is 0, and the data is being replicated.
+>
+>
+>What exactly does lag_time represent ?
+>
+>
+
+My considerably fuzzy understanding is that it's essentially the time difference between the timestamp for the last received event in sl_confirm and the current timestamp so (current_timestmp-st_last_received_event_ts)
+
+I guess you've made sure the time is synchronized on all the nodes? That's the first thing I'd be checking as I'd expect to see a positive value in st_lag_num_events too if st_lag_time were going up.
+
+Is there anything out of place in the slon logs and have you tried restarting the slon daemons?  There's also the lag_interval parameter to look at, I've no idea how sl_status would look if that were set, but any chance it is?
+
+
+Personally I'd be digging into the sl_confirm and sl_event tables to look for some sort of clue if none of the above were fruitful.  Something like the below, which more likely than not isn't completely correct:
+
+select e.ev_origin, c.con_received, e.ev_seqno, (c.con_timestamp-e.ev_timestamp)
+from sl_event e inner join sl_confirm c on e.ev_seqno = con_seqno and e.ev_origin = c.con_origin
+order by (c.con_timestamp-e.ev_timestamp) desc;
+
+From davecramer at gmail.com  Thu Oct 16 07:41:47 2014
+From: davecramer at gmail.com (Dave Cramer)
+Date: Thu, 16 Oct 2014 10:41:47 -0400
+Subject: [Slony1-general] Lag time increasing but there are no events
+In-Reply-To: <1413470053.28032.YahooMailNeo@web133202.mail.ir2.yahoo.com>
+References: <CADK3HHJFyyxDs32wiKYe0bEReR3sB_q+xLyhBJ3=MSGtKkvZGQ@mail.gmail.com>
+	<1413470053.28032.YahooMailNeo@web133202.mail.ir2.yahoo.com>
+Message-ID: <CADK3HH+Z+hSHZfjnL+4WBta38GEJQvNrPsGDwBJ6utoqa33mrg@mail.gmail.com>
+
+Actually I think it is because a pg_dump of the db is going on.
+
+Can you dump a slave ?
+
+Do you have to exclude the slony clusters (which would make sense)?
+
+Thanks,
+
+Dave
+
+Dave Cramer
+
+On 16 October 2014 10:34, Glyn Astill <glynastill at yahoo.co.uk> wrote:
+
+> > From: Dave Cramer <davecramer at gmail.com>
+> >To: slony <slony1-general at lists.slony.info>
+> >Sent: Thursday, 16 October 2014, 11:19
+> >Subject: [Slony1-general] Lag time increasing but there are no events
+> >
+> >
+> >
+> >I have a situation I can't explain.
+> >
+> >
+> >sl_status shows lag time increasing. num events is 0, and the data is
+> being replicated.
+> >
+> >
+> >What exactly does lag_time represent ?
+> >
+> >
+>
+> My considerably fuzzy understanding is that it's essentially the time
+> difference between the timestamp for the last received event in sl_confirm
+> and the current timestamp so (current_timestmp-st_last_received_event_ts)
+>
+> I guess you've made sure the time is synchronized on all the nodes? That's
+> the first thing I'd be checking as I'd expect to see a positive value in
+> st_lag_num_events too if st_lag_time were going up.
+>
+> Is there anything out of place in the slon logs and have you tried
+> restarting the slon daemons?  There's also the lag_interval parameter to
+> look at, I've no idea how sl_status would look if that were set, but any
+> chance it is?
+>
+>
+> Personally I'd be digging into the sl_confirm and sl_event tables to look
+> for some sort of clue if none of the above were fruitful.  Something like
+> the below, which more likely than not isn't completely correct:
+>
+> select e.ev_origin, c.con_received, e.ev_seqno,
+> (c.con_timestamp-e.ev_timestamp)
+> from sl_event e inner join sl_confirm c on e.ev_seqno = con_seqno and
+> e.ev_origin = c.con_origin
+> order by (c.con_timestamp-e.ev_timestamp) desc;
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20141016/8179f290/attachment.htm 
+
+From glynastill at yahoo.co.uk  Thu Oct 16 08:26:29 2014
+From: glynastill at yahoo.co.uk (Glyn Astill)
+Date: Thu, 16 Oct 2014 16:26:29 +0100
+Subject: [Slony1-general] Lag time increasing but there are no events
+In-Reply-To: <CADK3HH+Z+hSHZfjnL+4WBta38GEJQvNrPsGDwBJ6utoqa33mrg@mail.gmail.com>
+References: <CADK3HHJFyyxDs32wiKYe0bEReR3sB_q+xLyhBJ3=MSGtKkvZGQ@mail.gmail.com>
+	<1413470053.28032.YahooMailNeo@web133202.mail.ir2.yahoo.com>
+	<CADK3HH+Z+hSHZfjnL+4WBta38GEJQvNrPsGDwBJ6utoqa33mrg@mail.gmail.com>
+Message-ID: <1413473189.71752.YahooMailNeo@web133206.mail.ir2.yahoo.com>
+
+
+> From: Dave Cramer <davecramer at gmail.com>
+>To: Glyn Astill <glynastill at yahoo.co.uk> 
+>Cc: slony <slony1-general at lists.slony.info> 
+>Sent: Thursday, 16 October 2014, 15:41
+>Subject: Re: [Slony1-general] Lag time increasing but there are no events
+> 
+>
+>
+>Actually I think it is because a pg_dump of the db is going on.
+>
+>
+>Can you dump a slave ? 
+>
+>
+>Do you have to exclude the slony clusters (which would make sense)?
+
+
+Yeah from past experience the locks taken by pg_dump cause replication to lag. I normally use the -N switch in pg_dump to exclude the schema.  For pg_restore I usually create a TOC with the -l option and pipe it to grep to filter out the references to the slony schema that get dumped for the triggers, and then -L option to use it with my restore. 
+
+From glynastill at yahoo.co.uk  Thu Oct 16 08:48:45 2014
+From: glynastill at yahoo.co.uk (Glyn Astill)
+Date: Thu, 16 Oct 2014 16:48:45 +0100
+Subject: [Slony1-general] Lag time increasing but there are no events
+In-Reply-To: <1413473189.71752.YahooMailNeo@web133206.mail.ir2.yahoo.com>
+References: <CADK3HHJFyyxDs32wiKYe0bEReR3sB_q+xLyhBJ3=MSGtKkvZGQ@mail.gmail.com>	<1413470053.28032.YahooMailNeo@web133202.mail.ir2.yahoo.com>	<CADK3HH+Z+hSHZfjnL+4WBta38GEJQvNrPsGDwBJ6utoqa33mrg@mail.gmail.com>
+	<1413473189.71752.YahooMailNeo@web133206.mail.ir2.yahoo.com>
+Message-ID: <1413474525.92897.YahooMailNeo@web133206.mail.ir2.yahoo.com>
+
+> From: Glyn Astill <glynastill at yahoo.co.uk>
+
+> To: Dave Cramer <davecramer at gmail.com>
+> Cc: slony <slony1-general at lists.slony.info>
+> Sent: Thursday, 16 October 2014, 16:26
+> Subject: Re: [Slony1-general] Lag time increasing but there are no events
+> 
+> 
+>>  From: Dave Cramer <davecramer at gmail.com>
+>> To: Glyn Astill <glynastill at yahoo.co.uk> 
+>> Cc: slony <slony1-general at lists.slony.info> 
+>> Sent: Thursday, 16 October 2014, 15:41
+>> Subject: Re: [Slony1-general] Lag time increasing but there are no events
+>> 
+>> 
+>> 
+>> Actually I think it is because a pg_dump of the db is going on.
+>> 
+>> 
+>> Can you dump a slave ? 
+>> 
+>> 
+>> Do you have to exclude the slony clusters (which would make sense)?
+> 
+> 
+> Yeah from past experience the locks taken by pg_dump cause replication to lag. I 
+> normally use the -N switch in pg_dump to exclude the schema.  For pg_restore I 
+> usually create a TOC with the -l option and pipe it to grep to filter out the 
+> references to the slony schema that get dumped for the triggers, and then -L 
+> option to use it with my restore. 
+
+Also I assumed you were using 2.0+ there, with 1.2 there's some slight fiddling done in pg_catalog to disable triggers, from memory pg_trigger.tgrelid is pointed to an index rather than the table or something like that.  I used to dump out with the slony schema, and run uninstallnode() and drop schema cascade against the restored database.
+
+From davecramer at gmail.com  Thu Oct 16 09:04:50 2014
+From: davecramer at gmail.com (Dave Cramer)
+Date: Thu, 16 Oct 2014 12:04:50 -0400
+Subject: [Slony1-general] Lag time increasing but there are no events
+In-Reply-To: <1413474525.92897.YahooMailNeo@web133206.mail.ir2.yahoo.com>
+References: <CADK3HHJFyyxDs32wiKYe0bEReR3sB_q+xLyhBJ3=MSGtKkvZGQ@mail.gmail.com>
+	<1413470053.28032.YahooMailNeo@web133202.mail.ir2.yahoo.com>
+	<CADK3HH+Z+hSHZfjnL+4WBta38GEJQvNrPsGDwBJ6utoqa33mrg@mail.gmail.com>
+	<1413473189.71752.YahooMailNeo@web133206.mail.ir2.yahoo.com>
+	<1413474525.92897.YahooMailNeo@web133206.mail.ir2.yahoo.com>
+Message-ID: <CADK3HH+eARg6O--r0b8XsDjoW1aQO+_5-wRtHFPmqBsUoKsmxQ@mail.gmail.com>
+
+Dave Cramer
+
+On 16 October 2014 11:48, Glyn Astill <glynastill at yahoo.co.uk> wrote:
+
+> > From: Glyn Astill <glynastill at yahoo.co.uk>
+>
+> > To: Dave Cramer <davecramer at gmail.com>
+> > Cc: slony <slony1-general at lists.slony.info>
+> > Sent: Thursday, 16 October 2014, 16:26
+> > Subject: Re: [Slony1-general] Lag time increasing but there are no events
+> >
+> >
+> >>  From: Dave Cramer <davecramer at gmail.com>
+> >> To: Glyn Astill <glynastill at yahoo.co.uk>
+> >> Cc: slony <slony1-general at lists.slony.info>
+> >> Sent: Thursday, 16 October 2014, 15:41
+> >> Subject: Re: [Slony1-general] Lag time increasing but there are no
+> events
+> >>
+> >>
+> >>
+> >> Actually I think it is because a pg_dump of the db is going on.
+> >>
+> >>
+> >> Can you dump a slave ?
+> >>
+> >>
+> >> Do you have to exclude the slony clusters (which would make sense)?
+> >
+> >
+> > Yeah from past experience the locks taken by pg_dump cause replication
+> to lag. I
+> > normally use the -N switch in pg_dump to exclude the schema.  For
+> pg_restore I
+> > usually create a TOC with the -l option and pipe it to grep to filter
+> out the
+> > references to the slony schema that get dumped for the triggers, and
+> then -L
+> > option to use it with my restore.
+>
+> Also I assumed you were using 2.0+ there, with 1.2 there's some slight
+> fiddling done in pg_catalog to disable triggers, from memory
+> pg_trigger.tgrelid is pointed to an index rather than the table or
+> something like that.  I used to dump out with the slony schema, and run
+> uninstallnode() and drop schema cascade against the restored database.
+>
+
+
+Yes I am using 2.0+ Thanks
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20141016/eacc51d8/attachment.htm 
+
+From jan at wi3ck.info  Fri Oct 17 05:51:43 2014
+From: jan at wi3ck.info (Jan Wieck)
+Date: Fri, 17 Oct 2014 08:51:43 -0400
+Subject: [Slony1-general] Lag time increasing but there are no events
+In-Reply-To: <1413474525.92897.YahooMailNeo@web133206.mail.ir2.yahoo.com>
+References: <CADK3HHJFyyxDs32wiKYe0bEReR3sB_q+xLyhBJ3=MSGtKkvZGQ@mail.gmail.com>	<1413470053.28032.YahooMailNeo@web133202.mail.ir2.yahoo.com>	<CADK3HH+Z+hSHZfjnL+4WBta38GEJQvNrPsGDwBJ6utoqa33mrg@mail.gmail.com>	<1413473189.71752.YahooMailNeo@web133206.mail.ir2.yahoo.com>
+	<1413474525.92897.YahooMailNeo@web133206.mail.ir2.yahoo.com>
+Message-ID: <544110DF.3040704@wi3ck.info>
+
+On 10/16/2014 11:48 AM, Glyn Astill wrote:
+>> From: Glyn Astill <glynastill at yahoo.co.uk>
+>
+>> To: Dave Cramer <davecramer at gmail.com>
+>> Cc: slony <slony1-general at lists.slony.info>
+>> Sent: Thursday, 16 October 2014, 16:26
+>> Subject: Re: [Slony1-general] Lag time increasing but there are no events
+>>
+>>
+>>>  From: Dave Cramer <davecramer at gmail.com>
+>>> To: Glyn Astill <glynastill at yahoo.co.uk>
+>>> Cc: slony <slony1-general at lists.slony.info>
+>>> Sent: Thursday, 16 October 2014, 15:41
+>>> Subject: Re: [Slony1-general] Lag time increasing but there are no events
+>>>
+>>>
+>>>
+>>> Actually I think it is because a pg_dump of the db is going on.
+>>>
+>>>
+>>> Can you dump a slave ?
+>>>
+>>>
+>>> Do you have to exclude the slony clusters (which would make sense)?
+>>
+>>
+>> Yeah from past experience the locks taken by pg_dump cause replication to lag. I
+>> normally use the -N switch in pg_dump to exclude the schema.  For pg_restore I
+>> usually create a TOC with the -l option and pipe it to grep to filter out the
+>> references to the slony schema that get dumped for the triggers, and then -L
+>> option to use it with my restore.
+>
+> Also I assumed you were using 2.0+ there, with 1.2 there's some slight fiddling done in pg_catalog to disable triggers, from memory pg_trigger.tgrelid is pointed to an index rather than the table or something like that.  I used to dump out with the slony schema, and run uninstallnode() and drop schema cascade against the restored database.
+
+Dumping a replica won't work <2.0 because the dump won't contain all the 
+information. With recent PG versions it will actually error out. With 
+2.0+ it does work, so with 2.0+ it is possible to take the backup from a 
+replica.
+
+Dave: A pg_dump can very well stop the creation of new SYNC events since 
+slon needs a brief exclusive lock on the sl_event table. If that is the 
+case, the st_last_event in sl_status will not be advancing as if no slon 
+would be running, which would explain the increase of st_lag_time with 
+zero st_lag_num_events.
+
+As suggested, dumping the database with -N to exclude the Slony-I schema 
+should do the trick and dumping it has very little value anyway. If you 
+ever have to restore from that dump, you'd either have to restore all 
+replicas from it as well and rebuild the cluster with OMIT COPY, or 
+rebuild the cluster with Slony copying the data. You would need to do 
+the latter if replicas aren't full copies of the entire master.
+
+
+Regards,
+Jan
+
+-- 
+Jan Wieck
+Senior Software Engineer
+http://slony.info
+
+From davecramer at gmail.com  Fri Oct 17 06:00:54 2014
+From: davecramer at gmail.com (Dave Cramer)
+Date: Fri, 17 Oct 2014 09:00:54 -0400
+Subject: [Slony1-general] Lag time increasing but there are no events
+In-Reply-To: <544110DF.3040704@wi3ck.info>
+References: <CADK3HHJFyyxDs32wiKYe0bEReR3sB_q+xLyhBJ3=MSGtKkvZGQ@mail.gmail.com>
+	<1413470053.28032.YahooMailNeo@web133202.mail.ir2.yahoo.com>
+	<CADK3HH+Z+hSHZfjnL+4WBta38GEJQvNrPsGDwBJ6utoqa33mrg@mail.gmail.com>
+	<1413473189.71752.YahooMailNeo@web133206.mail.ir2.yahoo.com>
+	<1413474525.92897.YahooMailNeo@web133206.mail.ir2.yahoo.com>
+	<544110DF.3040704@wi3ck.info>
+Message-ID: <CADK3HHJ17BFmAJK8_sE-NCFUGQS2PSJ1iHWTtiz8Nvf+0oaqhA@mail.gmail.com>
+
+So what's the best way to deal with very large databases. pg_dump just
+doesn't cut it. By the time we are finished dumping the data is stale
+anyway !
+
+I'm thinking of using PITR instead. Rolling over once a week
+
+Dave Cramer
+
+On 17 October 2014 08:51, Jan Wieck <jan at wi3ck.info> wrote:
+
+> On 10/16/2014 11:48 AM, Glyn Astill wrote:
+>
+>> From: Glyn Astill <glynastill at yahoo.co.uk>
+>>>
+>>
+>>  To: Dave Cramer <davecramer at gmail.com>
+>>> Cc: slony <slony1-general at lists.slony.info>
+>>> Sent: Thursday, 16 October 2014, 16:26
+>>> Subject: Re: [Slony1-general] Lag time increasing but there are no events
+>>>
+>>>
+>>>   From: Dave Cramer <davecramer at gmail.com>
+>>>> To: Glyn Astill <glynastill at yahoo.co.uk>
+>>>> Cc: slony <slony1-general at lists.slony.info>
+>>>> Sent: Thursday, 16 October 2014, 15:41
+>>>> Subject: Re: [Slony1-general] Lag time increasing but there are no
+>>>> events
+>>>>
+>>>>
+>>>>
+>>>> Actually I think it is because a pg_dump of the db is going on.
+>>>>
+>>>>
+>>>> Can you dump a slave ?
+>>>>
+>>>>
+>>>> Do you have to exclude the slony clusters (which would make sense)?
+>>>>
+>>>
+>>>
+>>> Yeah from past experience the locks taken by pg_dump cause replication
+>>> to lag. I
+>>> normally use the -N switch in pg_dump to exclude the schema.  For
+>>> pg_restore I
+>>> usually create a TOC with the -l option and pipe it to grep to filter
+>>> out the
+>>> references to the slony schema that get dumped for the triggers, and
+>>> then -L
+>>> option to use it with my restore.
+>>>
+>>
+>> Also I assumed you were using 2.0+ there, with 1.2 there's some slight
+>> fiddling done in pg_catalog to disable triggers, from memory
+>> pg_trigger.tgrelid is pointed to an index rather than the table or
+>> something like that.  I used to dump out with the slony schema, and run
+>> uninstallnode() and drop schema cascade against the restored database.
+>>
+>
+> Dumping a replica won't work <2.0 because the dump won't contain all the
+> information. With recent PG versions it will actually error out. With 2.0+
+> it does work, so with 2.0+ it is possible to take the backup from a replica.
+>
+> Dave: A pg_dump can very well stop the creation of new SYNC events since
+> slon needs a brief exclusive lock on the sl_event table. If that is the
+> case, the st_last_event in sl_status will not be advancing as if no slon
+> would be running, which would explain the increase of st_lag_time with zero
+> st_lag_num_events.
+>
+> As suggested, dumping the database with -N to exclude the Slony-I schema
+> should do the trick and dumping it has very little value anyway. If you
+> ever have to restore from that dump, you'd either have to restore all
+> replicas from it as well and rebuild the cluster with OMIT COPY, or rebuild
+> the cluster with Slony copying the data. You would need to do the latter if
+> replicas aren't full copies of the entire master.
+>
+>
+> Regards,
+> Jan
+>
+> --
+> Jan Wieck
+> Senior Software Engineer
+> http://slony.info
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20141017/0a3e600a/attachment.htm 
+
+From jan at wi3ck.info  Fri Oct 17 07:12:19 2014
+From: jan at wi3ck.info (Jan Wieck)
+Date: Fri, 17 Oct 2014 10:12:19 -0400
+Subject: [Slony1-general] Lag time increasing but there are no events
+In-Reply-To: <CADK3HHJ17BFmAJK8_sE-NCFUGQS2PSJ1iHWTtiz8Nvf+0oaqhA@mail.gmail.com>
+References: <CADK3HHJFyyxDs32wiKYe0bEReR3sB_q+xLyhBJ3=MSGtKkvZGQ@mail.gmail.com>
+	<1413470053.28032.YahooMailNeo@web133202.mail.ir2.yahoo.com>
+	<CADK3HH+Z+hSHZfjnL+4WBta38GEJQvNrPsGDwBJ6utoqa33mrg@mail.gmail.com>
+	<1413473189.71752.YahooMailNeo@web133206.mail.ir2.yahoo.com>
+	<1413474525.92897.YahooMailNeo@web133206.mail.ir2.yahoo.com>
+	<544110DF.3040704@wi3ck.info>
+	<CADK3HHJ17BFmAJK8_sE-NCFUGQS2PSJ1iHWTtiz8Nvf+0oaqhA@mail.gmail.com>
+Message-ID: <544123C3.7080402@wi3ck.info>
+
+On 10/17/2014 09:00 AM, Dave Cramer wrote:
+> So what's the best way to deal with very large databases. pg_dump just
+> doesn't cut it. By the time we are finished dumping the data is stale
+> anyway !
+>
+> I'm thinking of using PITR instead. Rolling over once a week
+
+basebackup or some combination of pg_start_backup() and rsync will work. 
+You can do that against master or replica and do the UNINSTALL NODE in 
+case you have to use it.
+
+
+Jan
+
+>
+> Dave Cramer
+>
+> On 17 October 2014 08:51, Jan Wieck <jan at wi3ck.info
+> <mailto:jan at wi3ck.info>> wrote:
+>
+>     On 10/16/2014 11:48 AM, Glyn Astill wrote:
+>
+>             From: Glyn Astill <glynastill at yahoo.co.uk
+>             <mailto:glynastill at yahoo.co.uk>>
+>
+>
+>             To: Dave Cramer <davecramer at gmail.com
+>             <mailto:davecramer at gmail.com>>
+>             Cc: slony <slony1-general at lists.slony.__info
+>             <mailto:slony1-general at lists.slony.info>>
+>             Sent: Thursday, 16 October 2014, 16:26
+>             Subject: Re: [Slony1-general] Lag time increasing but there
+>             are no events
+>
+>
+>                   From: Dave Cramer <davecramer at gmail.com
+>                 <mailto:davecramer at gmail.com>>
+>                 To: Glyn Astill <glynastill at yahoo.co.uk
+>                 <mailto:glynastill at yahoo.co.uk>
+>                 Cc: slony <slony1-general at lists.slony.__info
+>                 <mailto:slony1-general at lists.slony.info>>
+>                 Sent: Thursday, 16 October 2014, 15:41
+>                 Subject: Re: [Slony1-general] Lag time increasing but
+>                 there are no events
+>
+>
+>
+>                 Actually I think it is because a pg_dump of the db is
+>                 going on.
+>
+>
+>                 Can you dump a slave ?
+>
+>
+>                 Do you have to exclude the slony clusters (which would
+>                 make sense)?
+>
+>
+>
+>             Yeah from past experience the locks taken by pg_dump cause
+>             replication to lag. I
+>             normally use the -N switch in pg_dump to exclude the
+>             schema.  For pg_restore I
+>             usually create a TOC with the -l option and pipe it to grep
+>             to filter out the
+>             references to the slony schema that get dumped for the
+>             triggers, and then -L
+>             option to use it with my restore.
+>
+>
+>         Also I assumed you were using 2.0+ there, with 1.2 there's some
+>         slight fiddling done in pg_catalog to disable triggers, from
+>         memory pg_trigger.tgrelid is pointed to an index rather than the
+>         table or something like that.  I used to dump out with the slony
+>         schema, and run uninstallnode() and drop schema cascade against
+>         the restored database.
+>
+>
+>     Dumping a replica won't work <2.0 because the dump won't contain all
+>     the information. With recent PG versions it will actually error out.
+>     With 2.0+ it does work, so with 2.0+ it is possible to take the
+>     backup from a replica.
+>
+>     Dave: A pg_dump can very well stop the creation of new SYNC events
+>     since slon needs a brief exclusive lock on the sl_event table. If
+>     that is the case, the st_last_event in sl_status will not be
+>     advancing as if no slon would be running, which would explain the
+>     increase of st_lag_time with zero st_lag_num_events.
+>
+>     As suggested, dumping the database with -N to exclude the Slony-I
+>     schema should do the trick and dumping it has very little value
+>     anyway. If you ever have to restore from that dump, you'd either
+>     have to restore all replicas from it as well and rebuild the cluster
+>     with OMIT COPY, or rebuild the cluster with Slony copying the data.
+>     You would need to do the latter if replicas aren't full copies of
+>     the entire master.
+>
+>
+>     Regards,
+>     Jan
+>
+>     --
+>     Jan Wieck
+>     Senior Software Engineer
+>     http://slony.info
+>
+>
+
+
+-- 
+Jan Wieck
+Senior Software Engineer
+http://slony.info
+
+From vivek at khera.org  Fri Oct 17 13:12:30 2014
+From: vivek at khera.org (Vick Khera)
+Date: Fri, 17 Oct 2014 16:12:30 -0400
+Subject: [Slony1-general] Lag time increasing but there are no events
+In-Reply-To: <CADK3HHJ17BFmAJK8_sE-NCFUGQS2PSJ1iHWTtiz8Nvf+0oaqhA@mail.gmail.com>
+References: <CADK3HHJFyyxDs32wiKYe0bEReR3sB_q+xLyhBJ3=MSGtKkvZGQ@mail.gmail.com>
+	<1413470053.28032.YahooMailNeo@web133202.mail.ir2.yahoo.com>
+	<CADK3HH+Z+hSHZfjnL+4WBta38GEJQvNrPsGDwBJ6utoqa33mrg@mail.gmail.com>
+	<1413473189.71752.YahooMailNeo@web133206.mail.ir2.yahoo.com>
+	<1413474525.92897.YahooMailNeo@web133206.mail.ir2.yahoo.com>
+	<544110DF.3040704@wi3ck.info>
+	<CADK3HHJ17BFmAJK8_sE-NCFUGQS2PSJ1iHWTtiz8Nvf+0oaqhA@mail.gmail.com>
+Message-ID: <CALd+dcdQWgzp1O4_ysiegg3HGjPFTLHA04q9hoDsrT-mWzhozQ@mail.gmail.com>
+
+On Fri, Oct 17, 2014 at 9:00 AM, Dave Cramer <davecramer at gmail.com> wrote:
+> So what's the best way to deal with very large databases. pg_dump just
+> doesn't cut it. By the time we are finished dumping the data is stale anyway
+> !
+>
+> I'm thinking of using PITR instead. Rolling over once a week
+
+What problem are you solving then, that is not already solved by
+having a replica using slony?
+
+From davecramer at gmail.com  Fri Oct 17 13:37:59 2014
+From: davecramer at gmail.com (Dave Cramer)
+Date: Fri, 17 Oct 2014 16:37:59 -0400
+Subject: [Slony1-general] Lag time increasing but there are no events
+In-Reply-To: <CALd+dcdQWgzp1O4_ysiegg3HGjPFTLHA04q9hoDsrT-mWzhozQ@mail.gmail.com>
+References: <CADK3HHJFyyxDs32wiKYe0bEReR3sB_q+xLyhBJ3=MSGtKkvZGQ@mail.gmail.com>
+	<1413470053.28032.YahooMailNeo@web133202.mail.ir2.yahoo.com>
+	<CADK3HH+Z+hSHZfjnL+4WBta38GEJQvNrPsGDwBJ6utoqa33mrg@mail.gmail.com>
+	<1413473189.71752.YahooMailNeo@web133206.mail.ir2.yahoo.com>
+	<1413474525.92897.YahooMailNeo@web133206.mail.ir2.yahoo.com>
+	<544110DF.3040704@wi3ck.info>
+	<CADK3HHJ17BFmAJK8_sE-NCFUGQS2PSJ1iHWTtiz8Nvf+0oaqhA@mail.gmail.com>
+	<CALd+dcdQWgzp1O4_ysiegg3HGjPFTLHA04q9hoDsrT-mWzhozQ@mail.gmail.com>
+Message-ID: <CADK3HHKF1_su9k1=DqtbtzMkHLXwwFnZLWt=gKgiHiYGsY9ouw@mail.gmail.com>
+
+Well replica's don't protect you from everything. Such as drop table, or
+delete from ... or truncate ...
+
+No one backup solution protects you from everything.
+
+Dave
+
+Dave Cramer
+
+On 17 October 2014 16:12, Vick Khera <vivek at khera.org> wrote:
+
+> On Fri, Oct 17, 2014 at 9:00 AM, Dave Cramer <davecramer at gmail.com> wrote:
+> > So what's the best way to deal with very large databases. pg_dump just
+> > doesn't cut it. By the time we are finished dumping the data is stale
+> anyway
+> > !
+> >
+> > I'm thinking of using PITR instead. Rolling over once a week
+>
+> What problem are you solving then, that is not already solved by
+> having a replica using slony?
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20141017/11558fd5/attachment.htm 
+
