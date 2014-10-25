@@ -130,3 +130,146 @@ Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
 You are on the CC list for the bug.
 You are the assignee for the bug.
 
+From bugzilla-daemon at main.slony.info  Wed Oct 22 15:31:53 2014
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed, 22 Oct 2014 15:31:53 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 354] New: failover can get stuck waiting for
+ events after sl_listen is empty
+Message-ID: <bug-354-4@http.www.slony.info/bugzilla/>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=354
+
+           Summary: failover can get stuck waiting for events after
+                    sl_listen is empty
+           Product: Slony-I
+           Version: devel
+          Platform: PC
+        OS/Version: Linux
+            Status: NEW
+          Severity: enhancement
+          Priority: low
+         Component: stored procedures
+        AssignedTo: slony1-bugs at lists.slony.info
+        ReportedBy: ssinger at ca.afilias.info
+                CC: slony1-bugs at lists.slony.info
+   Estimated Hours: 0.0
+
+
+This applies to the 2.2 branch and master
+
+Consider a cluster where node 1 is the origin of all sets
+
+1-->2
+|
+3->5
+|
+4
+
+FAILOVER(id=5,backup node=5);
+
+Where we are failing over a non-origin.
+
+The remote worker for a node like node 4 might receiver an event from node 1
+
+FAILOVER_NODE, 5, 5000001234)
+That says the node 5 has failed and the last event from node 5 that node 1 has
+seen is 5000001234
+
+Now if node 4 gets the failover over before 5,5000001234
+then the the remoteWorker_1 will call the failedNode() stored function on node
+4.
+
+Then it will wait for  5,5000001234.  However if slon then restarts the slon
+will never process 5,5000001234 (a restart might not even be required but that
+is how I've seen this)
+
+The failedNode() call erased all the sl_listen entires with li_origin=5
+select * FROM _disorder_replica.sl_listen where li_origin=5;
+ li_origin | li_provider | li_receiver 
+-----------+-------------+-------------
+(0 rows)
+
+None of the remoteListener threads will be listening for events from node 5 so
+the misisng SYNC will never get processed.  The SYNC probably contains no data
+because 5 is not an origin but the failover event is stuck.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Oct 22 15:33:53 2014
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed, 22 Oct 2014 15:33:53 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 354] failover can get stuck waiting for events
+ after sl_listen is empty
+In-Reply-To: <bug-354-4@http.www.slony.info/bugzilla/>
+References: <bug-354-4@http.www.slony.info/bugzilla/>
+Message-ID: <20141022223353.459F32917DC@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=354
+
+--- Comment #1 from Steve Singer <ssinger at ca.afilias.info> 2014-10-22 15:33:53 PDT ---
+In RebuildListenNetwork we have the following comment
+
+    --for every failed node we delete all sl_listen entries
+        --except via providers (listed in sl_subscribe)
+        --or failover candidates (sl_failover_targets)
+        --we do this to prevent a non-failover candidate
+        --that is more ahead of the failover candidate from
+        --sending events to the failover candidate that
+        --are 'too far ahead'
+
+    delete from @NAMESPACE at .sl_listen where
+               li_origin=v_row.origin and
+               li_receiver=v_row.receiver            
+               and li_provider not in 
+                   (select sub_provider from
+                   @NAMESPACE at .sl_subscribe,
+                   @NAMESPACE at .sl_set where
+                   sub_set=set_id
+                   and set_origin=v_row.origin);
+
+node 5 isn't a provider of anything so the listen network is erased.
+
+I think this is wrong.
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+You are the assignee for the bug.
+
+From bugzilla-daemon at main.slony.info  Wed Oct 22 17:57:49 2014
+From: bugzilla-daemon at main.slony.info (bugzilla-daemon at main.slony.info)
+Date: Wed, 22 Oct 2014 17:57:49 -0700 (PDT)
+Subject: [Slony1-bugs] [Bug 352] Postgres HEAD refactored INT64_FORMAT out
+	of pg_config.h
+In-Reply-To: <bug-352-4@http.www.slony.info/bugzilla/>
+References: <bug-352-4@http.www.slony.info/bugzilla/>
+Message-ID: <20141023005749.639772917DC@main.slony.info>
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=352
+
+--- Comment #2 from Steve Singer <ssinger at ca.afilias.info> 2014-10-22 17:57:49 PDT ---
+Created an attachment (id=206)
+ --> (http://www.slony.info/bugzilla/attachment.cgi?id=206)
+include postgres_fe (DRAFT)
+
+This is another approach we could take
+include postgres_fe.h which picks up the location that INT64_FORMAT has been
+moved to.
+
+Including postgres_fe.h mean that we need to use the SERVER include paths when
+building slonik and slon.  We do this anyway if we are building with pgport (so
+to build with this patch do --with-pgport on the configure line)
+
+If we go with that approach we'd make both pgport and non-pgport builds use
+those
+
+-- 
+Configure bugmail: http://www.slony.info/bugzilla/userprefs.cgi?tab=email
+------- You are receiving this mail because: -------
+You are on the CC list for the bug.
+
