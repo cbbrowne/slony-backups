@@ -185,3 +185,254 @@ database) I think still would apply in certain cases.
 > http://lists.slony.info/mailman/listinfo/slony1-general
 >
 
+From pwnell at me.com  Fri Dec  5 12:33:08 2014
+From: pwnell at me.com (Waldo Nell)
+Date: Fri, 05 Dec 2014 12:33:08 -0800
+Subject: [Slony1-general] Slony-I 2.2.3 fails on execute script
+Message-ID: <8ECC1485-988A-4787-A3C1-D0407FF9D6D7@me.com>
+
+I have a working Slony-I setup with one master and one slave.  I tried to run a simple alter table add column statement via execute script.  This always worked for me, however today it failed.
+
+I got this error (truncated) on the slave:
+
+2014-12-05 21:51:14 SAST ERROR  remoteWorkerThread_1_1: error at end of COPY IN: ERROR:  schema "_appcluster" does not exist
+CONTEXT:  SQL statement "select _AppCluster.sequenceSetValue($1,$2,NULL,$3,true); "
+COPY sl_log_1, line 1: "1       4065328 \N      13346355        \N      \N      S       \N      {"alter table future_details add note_adm text;"..."
+2014-12-05 21:51:14 SAST ERROR  remoteWorkerThread_1_1: failed SYNC's log selection query was 'COPY ( select log_origin, log_txid, NULL::integer, log_actionseq, NULL::text, NUL
+L::text, log_cmdtype, NULL::integer, log_cmdargs from "_AppCluster".sl_log_script where log_origin = 1 and log_txid >= "pg_catalog".txid_snapshot_xmax('4065328:4065330:406532
+8') and log_txid < '4065334' and "pg_catalog".txid_visible_in_snapshot(log_txid, '4065334:4065334:') union all select log_origin, log_txid, NULL::integer, log_actionseq, NULL::
+...
+
+Why am I getting this error that the schema does not exist?  If I insert data into a replicated table on the master, it appears correctly on the slave.  
+
+On the slave:
+
+oasis=# \dn
+    List of schemas
+    Name      |  Owner   
+---------------+----------
+_AppCluster | postgres
+public        | postgres
+(2 rows)
+
+Can anyone provide advise?
+
+Thanks
+Waldo
+
+
+From ssinger at ca.afilias.info  Fri Dec  5 13:09:39 2014
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Fri, 05 Dec 2014 16:09:39 -0500
+Subject: [Slony1-general] Slony-I 2.2.3 fails on execute script
+In-Reply-To: <8ECC1485-988A-4787-A3C1-D0407FF9D6D7@me.com>
+References: <8ECC1485-988A-4787-A3C1-D0407FF9D6D7@me.com>
+Message-ID: <54821F13.20308@ca.afilias.info>
+
+On 12/05/2014 03:33 PM, Waldo Nell wrote:
+
+I think because your slony cluster name is mixed case (AppCluster)
+
+This looks like http://bugs.slony.info/bugzilla/show_bug.cgi?id=349
+
+Chris has a patch attached to that bug
+You might want to apply that patch and rebuild slony.
+
+
+
+> I have a working Slony-I setup with one master and one slave.  I tried to run a simple alter table add column statement via execute script.  This always worked for me, however today it failed.
+>
+> I got this error (truncated) on the slave:
+>
+> 2014-12-05 21:51:14 SAST ERROR  remoteWorkerThread_1_1: error at end of COPY IN: ERROR:  schema "_appcluster" does not exist
+> CONTEXT:  SQL statement "select _AppCluster.sequenceSetValue($1,$2,NULL,$3,true); "
+> COPY sl_log_1, line 1: "1       4065328 \N      13346355        \N      \N      S       \N      {"alter table future_details add note_adm text;"..."
+> 2014-12-05 21:51:14 SAST ERROR  remoteWorkerThread_1_1: failed SYNC's log selection query was 'COPY ( select log_origin, log_txid, NULL::integer, log_actionseq, NULL::text, NUL
+> L::text, log_cmdtype, NULL::integer, log_cmdargs from "_AppCluster".sl_log_script where log_origin = 1 and log_txid >= "pg_catalog".txid_snapshot_xmax('4065328:4065330:406532
+> 8') and log_txid < '4065334' and "pg_catalog".txid_visible_in_snapshot(log_txid, '4065334:4065334:') union all select log_origin, log_txid, NULL::integer, log_actionseq, NULL::
+> ...
+>
+> Why am I getting this error that the schema does not exist?  If I insert data into a replicated table on the master, it appears correctly on the slave.
+>
+> On the slave:
+>
+> oasis=# \dn
+>      List of schemas
+>      Name      |  Owner
+> ---------------+----------
+> _AppCluster | postgres
+> public        | postgres
+> (2 rows)
+>
+> Can anyone provide advise?
+>
+> Thanks
+> Waldo
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+>
+
+
+From pwnell at me.com  Fri Dec  5 13:20:49 2014
+From: pwnell at me.com (Waldo Nell)
+Date: Fri, 05 Dec 2014 13:20:49 -0800
+Subject: [Slony1-general] Slony-I 2.2.3 fails on execute script
+In-Reply-To: <54821F13.20308@ca.afilias.info>
+References: <8ECC1485-988A-4787-A3C1-D0407FF9D6D7@me.com>
+	<54821F13.20308@ca.afilias.info>
+Message-ID: <C8D3B5EC-B31D-4166-9743-CEFF3B5C6CDC@me.com>
+
+That did it, thank you so much.
+
+Why has this patch not been applied to the main trunk of 2.2.3?
+
+
+> On Dec 5, 2014, at 13:09, Steve Singer <ssinger at ca.afilias.info> wrote:
+> 
+> On 12/05/2014 03:33 PM, Waldo Nell wrote:
+> 
+> I think because your slony cluster name is mixed case (AppCluster)
+> 
+> This looks like http://bugs.slony.info/bugzilla/show_bug.cgi?id=349
+> 
+> Chris has a patch attached to that bug
+> You might want to apply that patch and rebuild slony.
+
+
+From pwnell at me.com  Fri Dec  5 13:23:52 2014
+From: pwnell at me.com (Waldo Nell)
+Date: Fri, 05 Dec 2014 13:23:52 -0800
+Subject: [Slony1-general] Slony-I 2.2.3 fails on execute script
+In-Reply-To: <C8D3B5EC-B31D-4166-9743-CEFF3B5C6CDC@me.com>
+References: <8ECC1485-988A-4787-A3C1-D0407FF9D6D7@me.com>
+	<54821F13.20308@ca.afilias.info>
+	<C8D3B5EC-B31D-4166-9743-CEFF3B5C6CDC@me.com>
+Message-ID: <DB265BD6-9505-4824-BD84-8E8B88EE4CFD@me.com>
+
+Never mind my last question - I see that it was misreported on 1.2, and is actually present in the current trunk, and that it was only picked up recently.
+
+
+> On Dec 5, 2014, at 13:20, Waldo Nell <pwnell at me.com> wrote:
+> 
+> 
+> Why has this patch not been applied to the main trunk of 2.2.3?
+
+
+From dustink at consistentstate.com  Fri Dec  5 13:36:33 2014
+From: dustink at consistentstate.com (dustin kempter)
+Date: Fri, 05 Dec 2014 14:36:33 -0700
+Subject: [Slony1-general] slony 2.2 with postgres 9.3 and 8.4?
+Message-ID: <54822561.4080801@consistentstate.com>
+
+Hi all, were trying to get slony 2.2.3 working between 2 nodes. 1 with 
+postgres 9.3 installed. and another with 8.4. But we keep getting this error
+
+<stdin>:506: PGRES_FATAL_ERROR load '$libdir/slony1_funcs.2.2.3'; - 
+ERROR: could not access file "$libdir/slony1_funcs.2.2.3": No such file 
+or directory
+<stdin>:506: Error: the extension for the Slony-I C functions cannot be 
+loaded in database 'dbname=tigris port=5432 host=192.168.2.59 user=postgres'
+
+ive added the slon bin dir to my path but it still seems to have issues. 
+any help would be great thanks!
+
+
+
+From ssinger at ca.afilias.info  Fri Dec  5 13:39:59 2014
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Fri, 05 Dec 2014 16:39:59 -0500
+Subject: [Slony1-general] slony 2.2 with postgres 9.3 and 8.4?
+In-Reply-To: <54822561.4080801@consistentstate.com>
+References: <54822561.4080801@consistentstate.com>
+Message-ID: <5482262F.9040403@ca.afilias.info>
+
+On 12/05/2014 04:36 PM, dustin kempter wrote:
+> Hi all, were trying to get slony 2.2.3 working between 2 nodes. 1 with
+> postgres 9.3 installed. and another with 8.4. But we keep getting this error
+>
+> <stdin>:506: PGRES_FATAL_ERROR load '$libdir/slony1_funcs.2.2.3'; -
+> ERROR: could not access file "$libdir/slony1_funcs.2.2.3": No such file
+> or directory
+> <stdin>:506: Error: the extension for the Slony-I C functions cannot be
+> loaded in database 'dbname=tigris port=5432 host=192.168.2.59 user=postgres'
+>
+> ive added the slon bin dir to my path but it still seems to have issues.
+> any help would be great thanks!
+>
+
+Is the slony shared library Slony 2.2.3 installed on the database server 
+192.168.2.59
+
+You need to get/build/install slony for PG 9.3 on the 9.3 server
+and get/build/install slony against PG 8.4 on the 8.4 server
+
+A shared library slony1_funcs.2.2.3.so should be in the postgresql lib 
+directory on both machines
+
+
+
+
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+>
+
+
+From pwnell at me.com  Fri Dec  5 13:43:20 2014
+From: pwnell at me.com (Waldo Nell)
+Date: Fri, 05 Dec 2014 13:43:20 -0800
+Subject: [Slony1-general] slony 2.2 with postgres 9.3 and 8.4?
+In-Reply-To: <54822561.4080801@consistentstate.com>
+References: <54822561.4080801@consistentstate.com>
+Message-ID: <BA504FA0-D49F-4098-8982-AF87753BAEA9@me.com>
+
+
+> 
+> Hi all, were trying to get slony 2.2.3 working between 2 nodes. 1 with 
+> postgres 9.3 installed. and another with 8.4. But we keep getting this error
+> 
+> <stdin>:506: PGRES_FATAL_ERROR load '$libdir/slony1_funcs.2.2.3'; - 
+> ERROR: could not access file "$libdir/slony1_funcs.2.2.3": No such file 
+> or directory
+> <stdin>:506: Error: the extension for the Slony-I C functions cannot be 
+> loaded in database 'dbname=tigris port=5432 host=192.168.2.59 user=postgres'
+> 
+> ive added the slon bin dir to my path but it still seems to have issues. 
+> any help would be great thanks!
+> 
+
+When you ran ./configure, did you specify ?with-pgconfigdir=<Path to PostgreSQL bin dir> ?
+
+
+
+From jan at wi3ck.info  Fri Dec  5 21:39:06 2014
+From: jan at wi3ck.info (Jan Wieck)
+Date: Sat, 06 Dec 2014 00:39:06 -0500
+Subject: [Slony1-general] Slony-I 2.2.3 fails on execute script
+In-Reply-To: <8ECC1485-988A-4787-A3C1-D0407FF9D6D7@me.com>
+References: <8ECC1485-988A-4787-A3C1-D0407FF9D6D7@me.com>
+Message-ID: <5482967A.2030602@wi3ck.info>
+
+On 12/05/2014 03:33 PM, Waldo Nell wrote:
+> I have a working Slony-I setup with one master and one slave.  I tried to run a simple alter table add column statement via execute script.  This always worked for me, however today it failed.
+
+Please stop using terms like "master" and "slave" in a Slony context.
+
+There is no "master" or "slave". There are origins of sets and 
+subscribers of sets. The latter are sometimes referred to as replica.
+
+
+Thanks,
+Jan
+
+
+-- 
+Jan Wieck
+Senior Software Engineer
+http://slony.info
+
