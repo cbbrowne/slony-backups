@@ -635,3 +635,951 @@ Thank you!
 An HTML attachment was scrubbed...
 URL: http://lists.slony.info/pipermail/slony1-general/attachments/20141216/ee794a36/attachment.htm 
 
+From ajs at crankycanuck.ca  Tue Dec 16 06:16:10 2014
+From: ajs at crankycanuck.ca (Andrew Sullivan)
+Date: Tue, 16 Dec 2014 09:16:10 -0500
+Subject: [Slony1-general] Duplicate key while merging temporary to main
+ set
+In-Reply-To: <CAJnnue3xNufp-GXSWD7XAfx=UNig8fVprMc43DSOB2sPM892Qw@mail.gmail.com>
+References: <CAJnnue3xNufp-GXSWD7XAfx=UNig8fVprMc43DSOB2sPM892Qw@mail.gmail.com>
+Message-ID: <20141216141610.GC31758@crankycanuck.ca>
+
+On Tue, Dec 16, 2014 at 08:32:03AM -0200, Carlos Henrique Reimer wrote:
+> Hi,
+> 
+> I'm trying to replicate a postgresql database 8.3 with 1TB data and about
+
+8.3.what?  And also, is that a typo, or do you really mean 8.3?  If
+so, I hope you're aware that you're running a database system that was
+EOL'd by the community almost two years ago.
+
+On the issue:
+
+> "8357_isarq"."wm_bco_pla"; " PGRES_FATAL_ERROR ERROR:  could not create
+> unique index "pk_wm_bco_pla"
+> DETAIL:  Key (bco_cod, pla_cod)=(399, 5056110) is duplicated.
+> CONTEXT:  SQL statement "reindex table "8357_isarq"."wm_bco_pla""
+
+> The error indicates "8357_isarq"."wm_bco_pla" has duplicated rows for
+> primary key  (bco_cod, pla_cod)=(399, 5056110) but when I query the table
+> using this pk I got only one row:
+> 
+> select * from "8357_isarq"."wm_bco_pla" where bco_cod=399 and pla_cod =
+> '5056110';
+>  bco_cod | pla_cod |                pla_des                | ativo |
+> conta_pai | pla_itlistserv | pla_ctacosif
+> ---------+---------+---------------------------------------+-------+-----------+----------------+--------------
+>      399 | 5056110 | RENDAS TRANSACOES VISA ELETRON - HBBR | S     |
+> 5056004   |           1501 | 71799003
+> (1 row)
+
+Are you quite sure that your source table isn't corrupt?  That'd be my
+first suspicion.  I'd dump the source table and look for a duplicate
+before jumping to the conclusion that you are going to "lose three
+days of replication processing".  Your replica may in fact contain a
+copy of a corrupted database, and it might be tripping on this.
+
+Best regards,
+
+A
+
+-- 
+Andrew Sullivan
+ajs at crankycanuck.ca
+
+From carlos.reimer at opendb.com.br  Tue Dec 16 07:11:40 2014
+From: carlos.reimer at opendb.com.br (Carlos Henrique Reimer)
+Date: Tue, 16 Dec 2014 13:11:40 -0200
+Subject: [Slony1-general] Duplicate key while merging temporary to main
+	set
+In-Reply-To: <20141216141610.GC31758@crankycanuck.ca>
+References: <CAJnnue3xNufp-GXSWD7XAfx=UNig8fVprMc43DSOB2sPM892Qw@mail.gmail.com>
+	<20141216141610.GC31758@crankycanuck.ca>
+Message-ID: <CAJnnue2yBcdmW+V4Vchsur2mArar=Wcg9oH2_o0vL8xBdmOgVg@mail.gmail.com>
+
+As you told, table seemed to be corrupted. I got two rows from this select:
+SELECT bco_cod, pla_cod, COUNT(*) from "8357_isarq"."wm_bco_pla" GROUP BY
+bco_cod, pla_cod HAVING      COUNT(*) > 1;
+
+Ran a delete to remove the two rows and SLONY could continue on with the
+processing.
+
+Hope to get the replication finished soon in order to end the migration
+from 8.3 to 9.3.
+
+Thank you!
+
+On Tue, Dec 16, 2014 at 12:16 PM, Andrew Sullivan <ajs at crankycanuck.ca>
+wrote:
+>
+> On Tue, Dec 16, 2014 at 08:32:03AM -0200, Carlos Henrique Reimer wrote:
+> > Hi,
+> >
+> > I'm trying to replicate a postgresql database 8.3 with 1TB data and about
+>
+> 8.3.what?  And also, is that a typo, or do you really mean 8.3?  If
+> so, I hope you're aware that you're running a database system that was
+> EOL'd by the community almost two years ago.
+>
+> On the issue:
+>
+> > "8357_isarq"."wm_bco_pla"; " PGRES_FATAL_ERROR ERROR:  could not create
+> > unique index "pk_wm_bco_pla"
+> > DETAIL:  Key (bco_cod, pla_cod)=(399, 5056110) is duplicated.
+> > CONTEXT:  SQL statement "reindex table "8357_isarq"."wm_bco_pla""
+>
+> > The error indicates "8357_isarq"."wm_bco_pla" has duplicated rows for
+> > primary key  (bco_cod, pla_cod)=(399, 5056110) but when I query the table
+> > using this pk I got only one row:
+> >
+> > select * from "8357_isarq"."wm_bco_pla" where bco_cod=399 and pla_cod =
+> > '5056110';
+> >  bco_cod | pla_cod |                pla_des                | ativo |
+> > conta_pai | pla_itlistserv | pla_ctacosif
+> >
+> ---------+---------+---------------------------------------+-------+-----------+----------------+--------------
+> >      399 | 5056110 | RENDAS TRANSACOES VISA ELETRON - HBBR | S     |
+> > 5056004   |           1501 | 71799003
+> > (1 row)
+>
+> Are you quite sure that your source table isn't corrupt?  That'd be my
+> first suspicion.  I'd dump the source table and look for a duplicate
+> before jumping to the conclusion that you are going to "lose three
+> days of replication processing".  Your replica may in fact contain a
+> copy of a corrupted database, and it might be tripping on this.
+>
+> Best regards,
+>
+> A
+>
+> --
+> Andrew Sullivan
+> ajs at crankycanuck.ca
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+>
+
+
+-- 
+Reimer
+47-3347-1724 47-9183-0547 msn: carlos.reimer at opendb.com.br
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20141216/5b7b664b/attachment.htm 
+
+From ajs at crankycanuck.ca  Tue Dec 16 07:14:44 2014
+From: ajs at crankycanuck.ca (Andrew Sullivan)
+Date: Tue, 16 Dec 2014 10:14:44 -0500
+Subject: [Slony1-general] Duplicate key while merging temporary to main
+ set
+In-Reply-To: <CAJnnue2yBcdmW+V4Vchsur2mArar=Wcg9oH2_o0vL8xBdmOgVg@mail.gmail.com>
+References: <CAJnnue3xNufp-GXSWD7XAfx=UNig8fVprMc43DSOB2sPM892Qw@mail.gmail.com>
+	<20141216141610.GC31758@crankycanuck.ca>
+	<CAJnnue2yBcdmW+V4Vchsur2mArar=Wcg9oH2_o0vL8xBdmOgVg@mail.gmail.com>
+Message-ID: <20141216151444.GF31758@crankycanuck.ca>
+
+On Tue, Dec 16, 2014 at 01:11:40PM -0200, Carlos Henrique Reimer wrote:
+> As you told, table seemed to be corrupted. I got two rows from this select:
+
+My only worry now would be that you have other problems in the origin.
+This sort of index corruption tends not to be isolated to a single
+case.  Good luck!
+
+A
+
+-- 
+Andrew Sullivan
+ajs at crankycanuck.ca
+
+From jan at wi3ck.info  Tue Dec 16 09:56:06 2014
+From: jan at wi3ck.info (Jan Wieck)
+Date: Tue, 16 Dec 2014 12:56:06 -0500
+Subject: [Slony1-general] Duplicate key while merging temporary to main
+ set
+In-Reply-To: <CAJnnue3xNufp-GXSWD7XAfx=UNig8fVprMc43DSOB2sPM892Qw@mail.gmail.com>
+References: <CAJnnue3xNufp-GXSWD7XAfx=UNig8fVprMc43DSOB2sPM892Qw@mail.gmail.com>
+Message-ID: <54907236.2090303@wi3ck.info>
+
+On 12/16/2014 05:32 AM, Carlos Henrique Reimer wrote:
+
+> "8357_isarq"."wm_bco_pla"; " PGRES_FATAL_ERROR ERROR:  could not create
+> unique index "pk_wm_bco_pla"
+> DETAIL:  Key (bco_cod, pla_cod)=(399, 5056110) is duplicated.
+> CONTEXT:  SQL statement "reindex table "8357_isarq"."wm_bco_pla""
+> PL/pgSQL function finishtableaftercopy(integer) line 26 at EXECUTE statement
+> 2014-12-16 07:08:25 BRST WARN   remoteWorkerThread_1: data copy for set
+> 999 failed 108 times - sleep 60 seconds
+>
+> The error indicates "8357_isarq"."wm_bco_pla" has duplicated rows for
+> primary key  (bco_cod, pla_cod)=(399, 5056110) but when I query the
+> table using this pk I got only one row:
+>
+> select * from "8357_isarq"."wm_bco_pla" where bco_cod=399 and pla_cod =
+> '5056110';
+>   bco_cod | pla_cod |                pla_des                | ativo |
+> conta_pai | pla_itlistserv | pla_ctacosif
+> ---------+---------+---------------------------------------+-------+-----------+----------------+--------------
+>       399 | 5056110 | RENDAS TRANSACOES VISA ELETRON - HBBR | S     |
+> 5056004   |           1501 | 71799003
+> (1 row)
+
+This means that a sequential scan (done by the COPY) produces multiple 
+rows with that primary key, while only one of them has an index entry. 
+As Andrew pointed out, you have index corruption on the source database. 
+I bet a REINDEX of that table on the source will fail too.
+
+> Slony is trying to merge the temporary set to the main set every 60
+> seconds and getting this error. I do not want to loose three days of
+> replication processing.
+
+No, Slony is still processing the SUBSCRIBE SET for the small temporary 
+set (and repeatedly failing on that). The MERGE SET is queued behind and 
+not touched yet.
+
+> Is there anything I can do to fix this error or at least can I remove
+> this table from the temporary set and work on this issue afterwards?
+
+Reading your follow up, you only got a single duplicate on this one. 
+However, there is a high chance that your DELETE actually deleted the 
+wrong row version. Since you are running a really outdated version of 
+PostgreSQL I would not be surprised if some bug made an outdated version 
+of that row visible again. The index entry for that PK would be pointing 
+at the last row version, which you now deleted. The replica would now 
+contain the old row version again.
+
+Check if you have a row with that PK in the replica and what that 
+actually looks like.
+
+
+Regards, Jan
+
+
+-- 
+Jan Wieck
+Senior Software Engineer
+http://slony.info
+
+From carlos.reimer at opendb.com.br  Tue Dec 16 10:12:41 2014
+From: carlos.reimer at opendb.com.br (Carlos Henrique Reimer)
+Date: Tue, 16 Dec 2014 16:12:41 -0200
+Subject: [Slony1-general] Duplicate key while merging temporary to main
+	set
+In-Reply-To: <54907236.2090303@wi3ck.info>
+References: <CAJnnue3xNufp-GXSWD7XAfx=UNig8fVprMc43DSOB2sPM892Qw@mail.gmail.com>
+	<54907236.2090303@wi3ck.info>
+Message-ID: <CAJnnue01EmPemk6xfAHzVA-kKQqscHGG1n_ynU3M-Y_Oh1QPZQ@mail.gmail.com>
+
+Hi Jan,
+
+Just verified the row again and I see it is visible again even after
+removing it with DELETE this morning. Checked the replica and the table
+contains the same row with same contents.
+
+Tried a reindex table and it worked fine.
+
+Hope no more discrepancies will be found until the complete cluster is
+replicated.
+
+Thanks!
+
+
+On Tue, Dec 16, 2014 at 3:56 PM, Jan Wieck <jan at wi3ck.info> wrote:
+>
+> On 12/16/2014 05:32 AM, Carlos Henrique Reimer wrote:
+>
+>  "8357_isarq"."wm_bco_pla"; " PGRES_FATAL_ERROR ERROR:  could not create
+>> unique index "pk_wm_bco_pla"
+>> DETAIL:  Key (bco_cod, pla_cod)=(399, 5056110) is duplicated.
+>> CONTEXT:  SQL statement "reindex table "8357_isarq"."wm_bco_pla""
+>> PL/pgSQL function finishtableaftercopy(integer) line 26 at EXECUTE
+>> statement
+>> 2014-12-16 07:08:25 BRST WARN   remoteWorkerThread_1: data copy for set
+>> 999 failed 108 times - sleep 60 seconds
+>>
+>> The error indicates "8357_isarq"."wm_bco_pla" has duplicated rows for
+>> primary key  (bco_cod, pla_cod)=(399, 5056110) but when I query the
+>> table using this pk I got only one row:
+>>
+>> select * from "8357_isarq"."wm_bco_pla" where bco_cod=399 and pla_cod =
+>> '5056110';
+>>   bco_cod | pla_cod |                pla_des                | ativo |
+>> conta_pai | pla_itlistserv | pla_ctacosif
+>> ---------+---------+---------------------------------------+
+>> -------+-----------+----------------+--------------
+>>       399 | 5056110 | RENDAS TRANSACOES VISA ELETRON - HBBR | S     |
+>> 5056004   |           1501 | 71799003
+>> (1 row)
+>>
+>
+> This means that a sequential scan (done by the COPY) produces multiple
+> rows with that primary key, while only one of them has an index entry. As
+> Andrew pointed out, you have index corruption on the source database. I bet
+> a REINDEX of that table on the source will fail too.
+>
+>  Slony is trying to merge the temporary set to the main set every 60
+>> seconds and getting this error. I do not want to loose three days of
+>> replication processing.
+>>
+>
+> No, Slony is still processing the SUBSCRIBE SET for the small temporary
+> set (and repeatedly failing on that). The MERGE SET is queued behind and
+> not touched yet.
+>
+>  Is there anything I can do to fix this error or at least can I remove
+>> this table from the temporary set and work on this issue afterwards?
+>>
+>
+> Reading your follow up, you only got a single duplicate on this one.
+> However, there is a high chance that your DELETE actually deleted the wrong
+> row version. Since you are running a really outdated version of PostgreSQL
+> I would not be surprised if some bug made an outdated version of that row
+> visible again. The index entry for that PK would be pointing at the last
+> row version, which you now deleted. The replica would now contain the old
+> row version again.
+>
+> Check if you have a row with that PK in the replica and what that actually
+> looks like.
+>
+>
+> Regards, Jan
+>
+>
+> --
+> Jan Wieck
+> Senior Software Engineer
+> http://slony.info
+>
+
+
+-- 
+Reimer
+47-3347-1724 47-9183-0547 msn: carlos.reimer at opendb.com.br
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20141216/ec3f055b/attachment.htm 
+
+From carlos.reimer at opendb.com.br  Wed Dec 17 05:48:55 2014
+From: carlos.reimer at opendb.com.br (Carlos Henrique Reimer)
+Date: Wed, 17 Dec 2014 11:48:55 -0200
+Subject: [Slony1-general] WARNING: out of shared memory
+Message-ID: <CAJnnue3BBPWoNRSQ8fe5RUQytYamRwJsxTsS2bVVECiFGzD+2g@mail.gmail.com>
+
+Hi,
+
+We are trying to upgrade our PG from 8.3 to 9.3 with slony 2.2.3.
+
+The complete database (21.000 tables) is now being sincronized with SLONY
+and I would like to terminate the replication processing in order to
+another team test the application with the new 9.3 replicated database.
+They will need several hours to test the application. Once I get they green
+light, will repeat the processing again and replicate the database from
+scratch.
+
+I'm trying to unsubscribe a receiver from the master set but I'm getting an
+out of shared memory message:
+
+cat unsubscribe2.sl
+cluster name = slcluster;
+node 1 admin conninfo = 'dbname=FiscalWeb host=192.168.23.10 user=slonyo';
+node 2 admin conninfo = 'dbname=FiscalWeb host=192.168.23.11 user=slonyn';
+unsubscribe set ( id = 1 , receiver = 2);
+
+slonik < unsubscribe2.sl
+<stdin>:4: WARNING:  out of shared memory
+CONTEXT:  SQL statement "drop trigger "_slcluster_logtrigger" on
+"8359_wsn"."tbpgdas01502""
+PL/pgSQL function altertabledroptriggers(integer) line 47 at EXECUTE
+statement
+SQL statement "SELECT "_slcluster".alterTableDropTriggers(v_tab_row.tab_id)"
+PL/pgSQL function unsubscribeset(integer,integer,boolean) line 49 at PERFORM
+<stdin>:4: PGRES_FATAL_ERROR lock table "_slcluster".sl_event_lock,
+"_slcluster".sl_config_lock;select "_slcluster".unsubscribeSet(1,
+2,false);  - ERROR:  out of shared memory
+HINT:  You might need to increase max_locks_per_transaction.
+CONTEXT:  SQL statement "drop trigger "_slcluster_logtrigger" on
+"8359_wsn"."tbpgdas01502""
+PL/pgSQL function altertabledroptriggers(integer) line 47 at EXECUTE
+statement
+SQL statement "SELECT "_slcluster".alterTableDropTriggers(v_tab_row.tab_id)"
+PL/pgSQL function unsubscribeset(integer,integer,boolean) line 49 at PERFORM
+[postgres at 00002-NfseNet-SGDB reimer]$ ^C
+
+max_locks_per_transaction is set to 255. Changed to 4096 and will restart
+the database during the night change window.
+
+Tried to repeat the process again and now I'm getting always the same error:
+[postgres at 00002-NfseNet-SGDB reimer]$ slonik < unsubscribe2.sl
+<stdin>:4: PGRES_FATAL_ERROR lock table "_slcluster".sl_event_lock,
+"_slcluster".sl_config_lock;select "_slcluster".unsubscribeSet(1,
+2,false);  - ERROR:  deadlock detected
+DETAIL:  Process 15366 waits for AccessExclusiveLock on relation 29564 of
+database 16384; blocked by process 14994.
+Process 14994 waits for RowExclusiveLock on relation 84222 of database
+16384; blocked by process 15366.
+HINT:  See server log for query details.
+CONTEXT:  SQL statement "lock table "7481_spunico"."sincdc" in access
+exclusive mode"
+PL/pgSQL function altertabledroptriggers(integer) line 42 at EXECUTE
+statement
+SQL statement "SELECT "_slcluster".alterTableDropTriggers(v_tab_row.tab_id)"
+PL/pgSQL function unsubscribeset(integer,integer,boolean) line 49 at PERFORM
+[postgres at 00002-NfseNet-SGDB reimer]$
+
+The two pids reported by the deadlock message are probably temporary
+processed created by SLONY as I did not find them in the system.
+
+The increase in the max_locks_per_transactions and the server restart will
+fix this issue?
+
+Thank you!
+
+-- 
+Reimer
+47-3347-1724 47-9183-0547 msn: carlos.reimer at opendb.com.br
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20141217/0b6435dd/attachment.htm 
+
+From ssinger at ca.afilias.info  Wed Dec 17 07:22:00 2014
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Wed, 17 Dec 2014 10:22:00 -0500
+Subject: [Slony1-general] WARNING: out of shared memory
+In-Reply-To: <CAJnnue3BBPWoNRSQ8fe5RUQytYamRwJsxTsS2bVVECiFGzD+2g@mail.gmail.com>
+References: <CAJnnue3BBPWoNRSQ8fe5RUQytYamRwJsxTsS2bVVECiFGzD+2g@mail.gmail.com>
+Message-ID: <54919F98.5010905@ca.afilias.info>
+
+On 12/17/2014 08:48 AM, Carlos Henrique Reimer wrote:
+> Hi,
+>
+> We are trying to upgrade our PG from 8.3 to 9.3 with slony 2.2.3.
+>
+> The complete database (21.000 tables) is now being sincronized with
+> SLONY and I would like to terminate the replication processing in order
+> to another team test the application with the new 9.3 replicated
+> database. They will need several hours to test the application. Once I
+> get they green light, will repeat the processing again and replicate the
+> database from scratch.
+>
+> I'm trying to unsubscribe a receiver from the master set but I'm getting
+> an out of shared memory message:
+>
+> cat unsubscribe2.sl <http://unsubscribe2.sl>
+> cluster name = slcluster;
+> node 1 admin conninfo = 'dbname=FiscalWeb host=192.168.23.10 user=slonyo';
+> node 2 admin conninfo = 'dbname=FiscalWeb host=192.168.23.11 user=slonyn';
+> unsubscribe set ( id = 1 , receiver = 2);
+>
+> slonik < unsubscribe2.sl <http://unsubscribe2.sl>
+> <stdin>:4: WARNING:  out of shared memory
+> CONTEXT:  SQL statement "drop trigger "_slcluster_logtrigger" on
+> "8359_wsn"."tbpgdas01502""
+> PL/pgSQL function altertabledroptriggers(integer) line 47 at EXECUTE
+> statement
+> SQL statement "SELECT "_slcluster".alterTableDropTriggers(v_tab_row.tab_id)"
+> PL/pgSQL function unsubscribeset(integer,integer,boolean) line 49 at PERFORM
+> <stdin>:4: PGRES_FATAL_ERROR lock table "_slcluster".sl_event_lock,
+> "_slcluster".sl_config_lock;select "_slcluster".unsubscribeSet(1,
+> 2,false);  - ERROR:  out of shared memory
+> HINT:  You might need to increase max_locks_per_transaction.
+> CONTEXT:  SQL statement "drop trigger "_slcluster_logtrigger" on
+> "8359_wsn"."tbpgdas01502""
+> PL/pgSQL function altertabledroptriggers(integer) line 47 at EXECUTE
+> statement
+> SQL statement "SELECT "_slcluster".alterTableDropTriggers(v_tab_row.tab_id)"
+> PL/pgSQL function unsubscribeset(integer,integer,boolean) line 49 at PERFORM
+> [postgres at 00002-NfseNet-SGDB reimer]$ ^C
+>
+> max_locks_per_transaction is set to 255. Changed to 4096 and will
+> restart the database during the night change window.
+>
+> Tried to repeat the process again and now I'm getting always the same error:
+> [postgres at 00002-NfseNet-SGDB reimer]$ slonik < unsubscribe2.sl
+> <http://unsubscribe2.sl>
+> <stdin>:4: PGRES_FATAL_ERROR lock table "_slcluster".sl_event_lock,
+> "_slcluster".sl_config_lock;select "_slcluster".unsubscribeSet(1,
+> 2,false);  - ERROR:  deadlock detected
+> DETAIL:  Process 15366 waits for AccessExclusiveLock on relation 29564
+> of database 16384; blocked by process 14994.
+> Process 14994 waits for RowExclusiveLock on relation 84222 of database
+> 16384; blocked by process 15366.
+> HINT:  See server log for query details.
+> CONTEXT:  SQL statement "lock table "7481_spunico"."sincdc" in access
+> exclusive mode"
+> PL/pgSQL function altertabledroptriggers(integer) line 42 at EXECUTE
+> statement
+> SQL statement "SELECT "_slcluster".alterTableDropTriggers(v_tab_row.tab_id)"
+> PL/pgSQL function unsubscribeset(integer,integer,boolean) line 49 at PERFORM
+> [postgres at 00002-NfseNet-SGDB reimer]$
+>
+> The two pids reported by the deadlock message are probably temporary
+> processed created by SLONY as I did not find them in the system.
+>
+> The increase in the max_locks_per_transactions and the server restart
+> will fix this issue?
+>
+
+
+If you have 27,000 tables in your replication set then I think 
+max_locks_per_transaction might needs to be at least that big.  The 
+alterTableDropTriggers function  will take a lock on each table in the set.
+
+As for your deadlock you should figure out what process 15366 is
+Since this operation takes an exclusive lock on all tables in the set on 
+the replica you probably don't want any other processes accessing those 
+tables at that point in time.
+
+
+
+
+
+> Thank you!
+>
+> --
+> Reimer
+> 47-3347-1724 47-9183-0547 msn: carlos.reimer at opendb.com.br
+> <mailto:carlos.reimer at opendb.com.br>
+>
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+>
+
+
+From carlos.reimer at opendb.com.br  Wed Dec 17 10:44:27 2014
+From: carlos.reimer at opendb.com.br (Carlos Henrique Reimer)
+Date: Wed, 17 Dec 2014 16:44:27 -0200
+Subject: [Slony1-general] WARNING: out of shared memory
+In-Reply-To: <54919F98.5010905@ca.afilias.info>
+References: <CAJnnue3BBPWoNRSQ8fe5RUQytYamRwJsxTsS2bVVECiFGzD+2g@mail.gmail.com>
+	<54919F98.5010905@ca.afilias.info>
+Message-ID: <CAJnnue3NXZH8cyr5RA7rVGrAo=xCc31V3cpcEQwpowQ1bXqp2g@mail.gmail.com>
+
+Hi Steve,
+
+As you said the deadlock was caused by process 15366 but I did not find it
+because I was looking in the wrong server. Once the process was identified
+I could stop it and run the commands successfully.
+
+Thank you for your help!
+
+On Wed, Dec 17, 2014 at 1:22 PM, Steve Singer <ssinger at ca.afilias.info>
+wrote:
+>
+> On 12/17/2014 08:48 AM, Carlos Henrique Reimer wrote:
+> > Hi,
+> >
+> > We are trying to upgrade our PG from 8.3 to 9.3 with slony 2.2.3.
+> >
+> > The complete database (21.000 tables) is now being sincronized with
+> > SLONY and I would like to terminate the replication processing in order
+> > to another team test the application with the new 9.3 replicated
+> > database. They will need several hours to test the application. Once I
+> > get they green light, will repeat the processing again and replicate the
+> > database from scratch.
+> >
+> > I'm trying to unsubscribe a receiver from the master set but I'm getting
+> > an out of shared memory message:
+> >
+> > cat unsubscribe2.sl <http://unsubscribe2.sl>
+> > cluster name = slcluster;
+> > node 1 admin conninfo = 'dbname=FiscalWeb host=192.168.23.10
+> user=slonyo';
+> > node 2 admin conninfo = 'dbname=FiscalWeb host=192.168.23.11
+> user=slonyn';
+> > unsubscribe set ( id = 1 , receiver = 2);
+> >
+> > slonik < unsubscribe2.sl <http://unsubscribe2.sl>
+> > <stdin>:4: WARNING:  out of shared memory
+> > CONTEXT:  SQL statement "drop trigger "_slcluster_logtrigger" on
+> > "8359_wsn"."tbpgdas01502""
+> > PL/pgSQL function altertabledroptriggers(integer) line 47 at EXECUTE
+> > statement
+> > SQL statement "SELECT
+> "_slcluster".alterTableDropTriggers(v_tab_row.tab_id)"
+> > PL/pgSQL function unsubscribeset(integer,integer,boolean) line 49 at
+> PERFORM
+> > <stdin>:4: PGRES_FATAL_ERROR lock table "_slcluster".sl_event_lock,
+> > "_slcluster".sl_config_lock;select "_slcluster".unsubscribeSet(1,
+> > 2,false);  - ERROR:  out of shared memory
+> > HINT:  You might need to increase max_locks_per_transaction.
+> > CONTEXT:  SQL statement "drop trigger "_slcluster_logtrigger" on
+> > "8359_wsn"."tbpgdas01502""
+> > PL/pgSQL function altertabledroptriggers(integer) line 47 at EXECUTE
+> > statement
+> > SQL statement "SELECT
+> "_slcluster".alterTableDropTriggers(v_tab_row.tab_id)"
+> > PL/pgSQL function unsubscribeset(integer,integer,boolean) line 49 at
+> PERFORM
+> > [postgres at 00002-NfseNet-SGDB reimer]$ ^C
+> >
+> > max_locks_per_transaction is set to 255. Changed to 4096 and will
+> > restart the database during the night change window.
+> >
+> > Tried to repeat the process again and now I'm getting always the same
+> error:
+> > [postgres at 00002-NfseNet-SGDB reimer]$ slonik < unsubscribe2.sl
+> > <http://unsubscribe2.sl>
+> > <stdin>:4: PGRES_FATAL_ERROR lock table "_slcluster".sl_event_lock,
+> > "_slcluster".sl_config_lock;select "_slcluster".unsubscribeSet(1,
+> > 2,false);  - ERROR:  deadlock detected
+> > DETAIL:  Process 15366 waits for AccessExclusiveLock on relation 29564
+> > of database 16384; blocked by process 14994.
+> > Process 14994 waits for RowExclusiveLock on relation 84222 of database
+> > 16384; blocked by process 15366.
+> > HINT:  See server log for query details.
+> > CONTEXT:  SQL statement "lock table "7481_spunico"."sincdc" in access
+> > exclusive mode"
+> > PL/pgSQL function altertabledroptriggers(integer) line 42 at EXECUTE
+> > statement
+> > SQL statement "SELECT
+> "_slcluster".alterTableDropTriggers(v_tab_row.tab_id)"
+> > PL/pgSQL function unsubscribeset(integer,integer,boolean) line 49 at
+> PERFORM
+> > [postgres at 00002-NfseNet-SGDB reimer]$
+> >
+> > The two pids reported by the deadlock message are probably temporary
+> > processed created by SLONY as I did not find them in the system.
+> >
+> > The increase in the max_locks_per_transactions and the server restart
+> > will fix this issue?
+> >
+>
+>
+> If you have 27,000 tables in your replication set then I think
+> max_locks_per_transaction might needs to be at least that big.  The
+> alterTableDropTriggers function  will take a lock on each table in the set.
+>
+> As for your deadlock you should figure out what process 15366 is
+> Since this operation takes an exclusive lock on all tables in the set on
+> the replica you probably don't want any other processes accessing those
+> tables at that point in time.
+>
+>
+>
+>
+>
+> > Thank you!
+> >
+> > --
+> > Reimer
+> > 47-3347-1724 47-9183-0547 msn: carlos.reimer at opendb.com.br
+> > <mailto:carlos.reimer at opendb.com.br>
+> >
+> >
+> > _______________________________________________
+> > Slony1-general mailing list
+> > Slony1-general at lists.slony.info
+> > http://lists.slony.info/mailman/listinfo/slony1-general
+> >
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+>
+
+
+-- 
+Reimer
+47-3347-1724 47-9183-0547 msn: carlos.reimer at opendb.com.br
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20141217/34b77f43/attachment-0001.htm 
+
+From jan at wi3ck.info  Wed Dec 17 15:02:35 2014
+From: jan at wi3ck.info (Jan Wieck)
+Date: Wed, 17 Dec 2014 18:02:35 -0500
+Subject: [Slony1-general] Duplicate key while merging temporary to main
+	set
+In-Reply-To: <CAJnnue01EmPemk6xfAHzVA-kKQqscHGG1n_ynU3M-Y_Oh1QPZQ@mail.gmail.com>
+References: <CAJnnue3xNufp-GXSWD7XAfx=UNig8fVprMc43DSOB2sPM892Qw@mail.gmail.com>
+	<54907236.2090303@wi3ck.info>
+	<CAJnnue01EmPemk6xfAHzVA-kKQqscHGG1n_ynU3M-Y_Oh1QPZQ@mail.gmail.com>
+Message-ID: <CAGBW59fhLwi02g7ZgvtCy4qVGKu02XqMRcGB2mKQMBpQH0PS-g@mail.gmail.com>
+
+On Dec 16, 2014 1:12 PM, "Carlos Henrique Reimer" <
+carlos.reimer at opendb.com.br> wrote:
+>
+> Hi Jan,
+>
+> Just verified the row again and I see it is visible again even after
+removing it with DELETE this morning. Checked the replica and the table
+contains the same row with same contents.
+>
+> Tried a reindex table and it worked fine.
+>
+
+The reindex worked because you deleted one of the heap row versions. As
+said, you just have a good chance to have deleted the wrong one.
+
+Jan
+
+--
+Jan Wieck
+Senior Software Engineer
+http://slony.info
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20141217/49731972/attachment.htm 
+
+From jan at wi3ck.info  Wed Dec 17 15:05:50 2014
+From: jan at wi3ck.info (Jan Wieck)
+Date: Wed, 17 Dec 2014 18:05:50 -0500
+Subject: [Slony1-general] PGRES_FATAL_ERROR ERROR: could not access file
+ "$libdir/slony1_funcs.2.2.3": No such file or directory
+In-Reply-To: <CAEaSS0YsHQpgirW0bRdEbA9YbUFRjK7dTZ+dKmFBXTr8+dSjgw@mail.gmail.com>
+References: <CAEaSS0YsHQpgirW0bRdEbA9YbUFRjK7dTZ+dKmFBXTr8+dSjgw@mail.gmail.com>
+Message-ID: <CAGBW59erGnr00Awyjr5MTt2LuFY5-xKA2sY71=v3vGwUxuRa_w@mail.gmail.com>
+
+On Dec 16, 2014 1:35 AM, "Tory M Blue" <tmblue at gmail.com> wrote:
+>
+> Trying a production upgrade, after upgrade 3 different environments and
+I'm getting this error.
+>
+> PGRES_FATAL_ERROR ERROR:  could not access file
+"$libdir/slony1_funcs.2.2.3": No such file or directory
+>
+> The files are there, anyway to force this? even tried to create a export
+libdir with no success.
+
+Are the files there on all the involved nodes?
+
+Jan
+
+--
+Jan Wieck
+Senior Software Engineer
+http://slony.info
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20141217/d6d5dcd7/attachment.htm 
+
+From tmblue at gmail.com  Wed Dec 17 15:13:58 2014
+From: tmblue at gmail.com (Tory M Blue)
+Date: Wed, 17 Dec 2014 15:13:58 -0800
+Subject: [Slony1-general] PGRES_FATAL_ERROR ERROR: could not access file
+ "$libdir/slony1_funcs.2.2.3": No such file or directory
+In-Reply-To: <CAGBW59erGnr00Awyjr5MTt2LuFY5-xKA2sY71=v3vGwUxuRa_w@mail.gmail.com>
+References: <CAEaSS0YsHQpgirW0bRdEbA9YbUFRjK7dTZ+dKmFBXTr8+dSjgw@mail.gmail.com>
+	<CAGBW59erGnr00Awyjr5MTt2LuFY5-xKA2sY71=v3vGwUxuRa_w@mail.gmail.com>
+Message-ID: <CAEaSS0Yqa1i4Bbx6ffbfLTXRp3aNS1QKgvs-NHU2C7MmSt2Vrg@mail.gmail.com>
+
+On Wed, Dec 17, 2014 at 3:05 PM, Jan Wieck <jan at wi3ck.info> wrote:
+>
+> On Dec 16, 2014 1:35 AM, "Tory M Blue" <tmblue at gmail.com> wrote:
+> >
+> > Trying a production upgrade, after upgrade 3 different environments and
+> I'm getting this error.
+> >
+> > PGRES_FATAL_ERROR ERROR:  could not access file
+> "$libdir/slony1_funcs.2.2.3": No such file or directory
+> >
+> > The files are there, anyway to force this? even tried to create a export
+> libdir with no success.
+>
+> Are the files there on all the involved nodes?
+>
+> Jan
+>
+> --
+> Jan Wieck
+> Senior Software Engineer
+> http://slony.info
+>
+
+Yes that was the rub and where the documentation needs to be more clear. It
+was not and the error doesn't bubble up the fact that the error came from a
+slave or other node. So I beat myself around the head for an hour, looking
+at one post where your exact response was provided, 3-5 times, never once
+having it register that was my issue :)  Once i upgraded the other 3 nodes,
+things worked perfectly, but I was spending a lot of time looking at paths,
+looking at my scripts on the box that I had upgraded.
+
+So it would have been nice if the error stated that so and so node failed :)
+
+But I finally got it, thanks Jan!
+
+Tory
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20141217/e3f23163/attachment.htm 
+
+From scott.marlowe at gmail.com  Wed Dec 17 20:35:16 2014
+From: scott.marlowe at gmail.com (Scott Marlowe)
+Date: Wed, 17 Dec 2014 21:35:16 -0700
+Subject: [Slony1-general] Truncate ONLY propagates as only Truncate. PG
+	9.2.9/Slony 2.2.1
+Message-ID: <CAOR=d=1xOgwmvsF5mhiAivthUskyxqu4hfftfH2ceksWPyr_Fg@mail.gmail.com>
+
+So as the title states, we're running pg 9.2.9 and slony 2.2.1
+
+If you create a parent / child table with inherit, then truncate only
+the parent table, it will work properly on the source but will
+propagate as a regular truncate on the destinations.
+
+create table parent yada;
+create table chlid inherits parent yada;
+insert rows into parent, and rows into child tables
+
+subscribe parent and child to another node...
+
+on source run "truncate only parent" and note that child table there
+still has its own rows. Check on subscriber and children tables are
+now empty.
+
+1: Is this a known bug?
+2: Is it planned to fix it?
+
+We were bitten by it quite by surprise and lost a lot of data in child
+tables. Luckily we noticed before switching over from the master node
+to another and resubed the child tables.
+
+-- 
+To understand recursion, one must first understand recursion.
+
+From ssinger at ca.afilias.info  Thu Dec 18 04:33:40 2014
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Thu, 18 Dec 2014 07:33:40 -0500
+Subject: [Slony1-general] Truncate ONLY propagates as only Truncate. PG
+ 9.2.9/Slony 2.2.1
+In-Reply-To: <CAOR=d=1xOgwmvsF5mhiAivthUskyxqu4hfftfH2ceksWPyr_Fg@mail.gmail.com>
+References: <CAOR=d=1xOgwmvsF5mhiAivthUskyxqu4hfftfH2ceksWPyr_Fg@mail.gmail.com>
+Message-ID: <5492C9A4.5010802@ca.afilias.info>
+
+On 12/17/2014 11:35 PM, Scott Marlowe wrote:
+> So as the title states, we're running pg 9.2.9 and slony 2.2.1
+>
+> If you create a parent / child table with inherit, then truncate only
+> the parent table, it will work properly on the source but will
+> propagate as a regular truncate on the destinations.
+>
+> create table parent yada;
+> create table chlid inherits parent yada;
+> insert rows into parent, and rows into child tables
+>
+> subscribe parent and child to another node...
+>
+> on source run "truncate only parent" and note that child table there
+> still has its own rows. Check on subscriber and children tables are
+> now empty.
+>
+> 1: Is this a known bug?
+> 2: Is it planned to fix it?
+>
+
+No this isn't a known bug, this worked properly prior to 2.1 when the 
+pl/sql function was used to apply the truncate on a replica (it did a 
+truncate only).  The C apply trigger in 2.2 is missing the 'only'.
+
+I think we'll need to fix this.
+There is a handful of bugs that we are close to committing fixes for, 
+once those are in we should do a 2.2.4 release
+
+
+> We were bitten by it quite by surprise and lost a lot of data in child
+> tables. Luckily we noticed before switching over from the master node
+> to another and resubed the child tables.
+>
+
+
+From scott.marlowe at gmail.com  Thu Dec 18 09:42:58 2014
+From: scott.marlowe at gmail.com (Scott Marlowe)
+Date: Thu, 18 Dec 2014 10:42:58 -0700
+Subject: [Slony1-general] Truncate ONLY propagates as only Truncate. PG
+ 9.2.9/Slony 2.2.1
+In-Reply-To: <5492C9A4.5010802@ca.afilias.info>
+References: <CAOR=d=1xOgwmvsF5mhiAivthUskyxqu4hfftfH2ceksWPyr_Fg@mail.gmail.com>
+	<5492C9A4.5010802@ca.afilias.info>
+Message-ID: <CAOR=d=3zqWGTozncs9ATB+7BrnH-D7oV290UzDWFXoS5gNh5vg@mail.gmail.com>
+
+On Thu, Dec 18, 2014 at 5:33 AM, Steve Singer <ssinger at ca.afilias.info> wrote:
+> On 12/17/2014 11:35 PM, Scott Marlowe wrote:
+>>
+>> So as the title states, we're running pg 9.2.9 and slony 2.2.1
+>>
+>> If you create a parent / child table with inherit, then truncate only
+>> the parent table, it will work properly on the source but will
+>> propagate as a regular truncate on the destinations.
+>>
+>> create table parent yada;
+>> create table chlid inherits parent yada;
+>> insert rows into parent, and rows into child tables
+>>
+>> subscribe parent and child to another node...
+>>
+>> on source run "truncate only parent" and note that child table there
+>> still has its own rows. Check on subscriber and children tables are
+>> now empty.
+>>
+>> 1: Is this a known bug?
+>> 2: Is it planned to fix it?
+>>
+>
+> No this isn't a known bug, this worked properly prior to 2.1 when the pl/sql
+> function was used to apply the truncate on a replica (it did a truncate
+> only).  The C apply trigger in 2.2 is missing the 'only'.
+>
+> I think we'll need to fix this.
+> There is a handful of bugs that we are close to committing fixes for, once
+> those are in we should do a 2.2.4 release
+>
+
+Thanks! (and we're on 2.2.2 not 2.2.1 i just checked)
+
+From ssinger at ca.afilias.info  Thu Dec 18 12:40:47 2014
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Thu, 18 Dec 2014 15:40:47 -0500
+Subject: [Slony1-general] Truncate ONLY propagates as only Truncate. PG
+ 9.2.9/Slony 2.2.1
+In-Reply-To: <CAOR=d=3zqWGTozncs9ATB+7BrnH-D7oV290UzDWFXoS5gNh5vg@mail.gmail.com>
+References: <CAOR=d=1xOgwmvsF5mhiAivthUskyxqu4hfftfH2ceksWPyr_Fg@mail.gmail.com>	<5492C9A4.5010802@ca.afilias.info>
+	<CAOR=d=3zqWGTozncs9ATB+7BrnH-D7oV290UzDWFXoS5gNh5vg@mail.gmail.com>
+Message-ID: <54933BCF.5040003@ca.afilias.info>
+
+On 12/18/2014 12:42 PM, Scott Marlowe wrote:
+
+I have added a patch for this against
+
+http://bugs.slony.info/bugzilla/show_bug.cgi?id=356
+
+
+> On Thu, Dec 18, 2014 at 5:33 AM, Steve Singer <ssinger at ca.afilias.info> wrote:
+>> On 12/17/2014 11:35 PM, Scott Marlowe wrote:
+>>>
+>>> So as the title states, we're running pg 9.2.9 and slony 2.2.1
+>>>
+>>> If you create a parent / child table with inherit, then truncate only
+>>> the parent table, it will work properly on the source but will
+>>> propagate as a regular truncate on the destinations.
+>>>
+>>> create table parent yada;
+>>> create table chlid inherits parent yada;
+>>> insert rows into parent, and rows into child tables
+>>>
+>>> subscribe parent and child to another node...
+>>>
+>>> on source run "truncate only parent" and note that child table there
+>>> still has its own rows. Check on subscriber and children tables are
+>>> now empty.
+>>>
+>>> 1: Is this a known bug?
+>>> 2: Is it planned to fix it?
+>>>
+>>
+>> No this isn't a known bug, this worked properly prior to 2.1 when the pl/sql
+>> function was used to apply the truncate on a replica (it did a truncate
+>> only).  The C apply trigger in 2.2 is missing the 'only'.
+>>
+>> I think we'll need to fix this.
+>> There is a handful of bugs that we are close to committing fixes for, once
+>> those are in we should do a 2.2.4 release
+>>
+>
+> Thanks! (and we're on 2.2.2 not 2.2.1 i just checked)
+>
+
+
