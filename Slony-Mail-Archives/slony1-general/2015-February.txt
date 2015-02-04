@@ -1,0 +1,127 @@
+From ssinger at ca.afilias.info  Mon Feb  2 06:41:36 2015
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Mon, 02 Feb 2015 09:41:36 -0500
+Subject: [Slony1-general] Slony 2.2.3 extended lag recovery
+In-Reply-To: <685898092.2705713.1422550898490.JavaMail.yahoo@mail.yahoo.com>
+References: <685898092.2705713.1422550898490.JavaMail.yahoo@mail.yahoo.com>
+Message-ID: <54CF8CA0.5090206@ca.afilias.info>
+
+On 01/29/2015 12:01 PM, Glyn Astill wrote:
+
+
+Why are you regularly running vacuum full (versus normal vaccum?)
+
+Vacuum full will take an exclusive lock on the table for its duration. 
+Also the cluster command tends to be faster than vacuum full but with 
+similar results (re-writing your tables)
+
+Are you running vacuum full on specific tables or on all tables in your 
+cluster?
+
+If you do a vacuum full on a table on your replica slony won't be able 
+to insert any data into that table until the vacuum transaction is 
+complete and the exclusive lock is released.
+
+
+
+
+
+> Hi All,
+>
+> We're currently running slony 2.2.3 with 4 pg 9.0 nodes.  Occasionally since we upgraded from 2.1 I've been seeing some "humps" where subscribers are lagging and taking an extended period of time to recover.
+>
+> I can't ever reproduce it and I've come to a dead end.  I'm going to waffle a bit below, but I'm hoping someone can see something I'm missing.
+>
+> These humps appear to not really correlate with increased activity on the origin, and I've been struggling to put my finger on anything aggravating the issue.  Today however I've seen the same symptoms, and the start times of the lag align with an exclusive lock on a subscribers replicated table whilst vaccum full was run.
+>
+> Whilst I'd expect that to cause some lag and a bit of a backlog, the vacuum full took only 2 minutes and the lag builds up gradually afterwards.  Eventually after a long time replication will catch up, but it's out of proportion to our transaction rate, and a restart of the slon on the subscriber causes it to catch up very swiftly.  I've attached a graph of sl_status from the origin showing the time and event lag buildup and a pretty swift slice on the end of the humps where I restart the slons.
+>
+> The graph (attached) shows nodes 4 & 5 starting to lag first, as they were the first to have the vacuum full run, then node 7 starts to lag when it has the same vacuum full run (at this point the lag on the two other nodes hadn't been noticed).  This excerpt from one of the subscribers shows the copy being blocked:
+>
+> 2015-01-29 10:09:54 GMT [13246]: [39-1] app=slon.local_cleanup,user=slony,db=X,host=somehost NOTICE:  Slony-I: Logswitch to sl_log_1 initiated
+> 2015-01-29 10:09:54 GMT [13246]: [40-1] app=slon.local_cleanup,user=slony,db=X,host=somehost CONTEXT:  SQL statement "SELECT "_main_replication".logswitch_start()"
+> 2015-01-29 10:12:04 GMT [13243]: [9-1] app=slon.remoteWorkerThread_8,user=slony,db=X,host=somehost LOG:  duration: 5089.684 ms  statement: COPY "_main_replication"."sl_log_1" ( log_origin, log_txid,log_tableid,log_actionseq,log_tablenspname, log_tablerelname, log_cmdtype, log_cmdupdncols,log_cmdargs) FROM STDIN
+> 2015-01-29 10:19:05 GMT [13243]: [10-1] app=slon.remoteWorkerThread_8,user=slony,db=X,host=somehost LOG:  process 13243 still waiting for RowExclusiveLock on relation 279233 of database 274556 after 1000.038 ms at character 13
+> 2015-01-29 10:19:05 GMT [13243]: [11-1] app=slon.remoteWorkerThread_8,user=slony,db=X,host=somehost QUERY:  UPDATE ONLY "myschema"."table_being_full_vacuumed" SET "text" = $1 WHERE "address" = $2;
+> 2015-01-29 10:19:05 GMT [13243]: [12-1] app=slon.remoteWorkerThread_8,user=slony,db=X,host=somehost CONTEXT:  COPY sl_log_1, line 37: "8    1108084090    2    1219750937    myschema    table_being_full_vacuumed    U    1    {text,"",address,some_address_data}"
+> 2015-01-29 10:19:05 GMT [13243]: [13-1] app=slon.remoteWorkerThread_8,user=slony,db=X,host=somehost STATEMENT:  COPY "_main_replication"."sl_log_1" ( log_origin, log_txid,log_tableid,log_actionseq,log_tablenspname, log_tablerelname, log_cmdtype, log_cmdupdncols,log_cmdargs) FROM STDIN
+> 2015-01-29 10:20:43 GMT [13243]: [14-1] app=slon.remoteWorkerThread_8,user=slony,db=X,host=somehost LOG:  process 13243 acquired RowExclusiveLock on relation 279233 of database 274556 after 98754.902 ms at character 13
+> 2015-01-29 10:20:43 GMT [13243]: [15-1] app=slon.remoteWorkerThread_8,user=slony,db=X,host=somehost QUERY:  UPDATE ONLY "myschema"."table_being_full_vacuumed" SET "text" = $1 WHERE "address" = $2;
+> 2015-01-29 10:20:43 GMT [13243]: [16-1] app=slon.remoteWorkerThread_8,user=slony,db=X,host=somehost CONTEXT:  COPY sl_log_1, line 37: "8    1108084090    2    1219750937    myschema    table_being_full_vacuumed    U    1    {text,"",address,some_address_data}"
+> 2015-01-29 10:20:43 GMT [13243]: [17-1] app=slon.remoteWorkerThread_8,user=slony,db=X,host=somehost STATEMENT:  COPY "_main_replication"."sl_log_1" ( log_origin, log_txid,log_tableid,log_actionseq,log_tablenspname, log_tablerelname, log_cmdtype, log_cmdupdncols,log_cmdargs) FROM STDIN
+> 2015-01-29 10:20:43 GMT [13243]: [18-1] app=slon.remoteWorkerThread_8,user=slony,db=X,host=somehost LOG:  duration: 98915.154 ms  statement: COPY "_main_replication"."sl_log_1" ( log_origin, log_txid,log_tableid,log_actionseq,log_tablenspname, log_tablerelname, log_cmdtype, log_cmdupdncols,log_cmdargs) FROM STDIN
+> 2015-01-29 10:22:00 GMT [13246]: [41-1] app=slon.local_cleanup,user=slony,db=X,host=somehost NOTICE:  Slony-I: log switch to sl_log_1 complete - truncate sl_log_2
+> 2015-01-29 10:22:00 GMT [13246]: [42-1] app=slon.local_cleanup,user=slony,db=X,host=somehost CONTEXT:  PL/pgSQL function "cleanupevent" line 94 at assignment
+> 2015-01-29 10:34:01 GMT [13246]: [43-1] app=slon.local_cleanup,user=slony,db=X,host=somehost NOTICE:  Slony-I: Logswitch to sl_log_2 initiated
+> 2015-01-29 10:34:01 GMT [13246]: [44-1] app=slon.local_cleanup,user=slony,db=X,host=somehost CONTEXT:  SQL statement "SELECT "_main_replication".logswitch_start()"
+> 2015-01-29 10:46:08 GMT [13246]: [45-1] app=slon.local_cleanup,user=slony,db=X,host=somehost NOTICE:  Slony-I: could not lock sl_log_1 - sl_log_1 not truncated
+> 2015-01-29 10:46:08 GMT [13246]: [46-1] app=slon.local_cleanup,user=slony,db=X,host=somehost CONTEXT:  PL/pgSQL function "cleanupevent" line 94 at assignment
+>
+> After this the copies go through cycles of increasing and decreacing duration, which I'm guessing is something normal (perhaps syncs being grouped?), and I'm seeing messages stating "could not lock sl_log_1 - sl_log_1 not truncated" a couple of times before the switch completes, and again I'm guessing this is just blocking because of inserts capturing changes and is normal? Autovacuum hasn't hit sl_log at all during this period.
+>
+> Does anyone have any ideas?  I've debug logs from the slons, and postgres logs I can send off list if anyone has any ideas.
+>
+> Thanks
+> Glyn
+>
+>
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+>
+
+
+From glynastill at yahoo.co.uk  Mon Feb  2 09:59:54 2015
+From: glynastill at yahoo.co.uk (Glyn Astill)
+Date: Mon, 2 Feb 2015 17:59:54 +0000 (UTC)
+Subject: [Slony1-general] Slony 2.2.3 extended lag recovery
+In-Reply-To: <54CF8CA0.5090206@ca.afilias.info>
+References: <54CF8CA0.5090206@ca.afilias.info>
+Message-ID: <725041738.1147357.1422899994574.JavaMail.yahoo@mail.yahoo.com>
+
+----- Original Message -----
+
+> From: Steve Singer <ssinger at ca.afilias.info>
+> To: slony1-general at lists.slony.info
+> Cc: 
+> Sent: Monday, 2 February 2015, 14:41
+> Subject: Re: [Slony1-general] Slony 2.2.3 extended lag recovery
+> 
+> On 01/29/2015 12:01 PM, Glyn Astill wrote:
+> 
+> 
+> Why are you regularly running vacuum full (versus normal vaccum?)
+
+> 
+
+We're not regularly running vacuum full, I didn't state that.
+
+> Vacuum full will take an exclusive lock on the table for its duration. 
+> Also the cluster command tends to be faster than vacuum full but with 
+> similar results (re-writing your tables)
+> 
+> Are you running vacuum full on specific tables or on all tables in your 
+> cluster?
+
+> 
+
+Understood.
+
+Just the one, just the once, I only mentioned it because it was the thing that caused the lag build up - and the lag was expected, no ignorance there.
+
+
+However we've had similar long running backlogs since moving to 2.2 and we're definatey not ever running vacuum full at any other time.
+
+> If you do a vacuum full on a table on your replica slony won't be able 
+> to insert any data into that table until the vacuum transaction is 
+> complete and the exclusive lock is released.
+> 
+> 
+
+
+Understood.  My point is that we seem to be seeing lag recovery taking longer than expected since slony switched to using copy vs regular insert/update/delete.  
+
+
+
