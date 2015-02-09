@@ -282,3 +282,593 @@ Size: 163 bytes
 Desc: Digital signature
 Url : http://lists.slony.info/pipermail/slony1-general/attachments/20150204/5151c80f/attachment.pgp 
 
+From tmblue at gmail.com  Thu Feb  5 10:19:49 2015
+From: tmblue at gmail.com (Tory M Blue)
+Date: Thu, 5 Feb 2015 10:19:49 -0800
+Subject: [Slony1-general] sl_log_1 not truncated, could not lock
+Message-ID: <CAEaSS0bYKrArHg86iith=1orwa4SO2s9dhk9ga5BMFyXHF9eyA@mail.gmail.com>
+
+2015-02-05 09:53:29 PST clsdb postgres 10.13.200.232(54830) 51877
+2015-02-05 09:53:29.976 PSTNOTICE:  Slony-I: log switch to sl_log_2
+complete - truncate sl_log_1
+
+2015-02-05 10:01:34 PST clsdb postgres 10.13.200.231(46083) 42459
+2015-02-05 10:01:34.481 PSTNOTICE:  Slony-I: could not lock sl_log_1 -
+sl_log_1 not truncated
+
+Sooo I have 13 million rows in sl_log_1 and from my checks of various
+tables things are replicated, but this table still has a lock and is not
+being truncated, These errors have been happening since 12:08 AM..
+
+my sl_log_2 table now has 8 million rows but I'm replicating and not adding
+a bunch of data. We did some massive deletes last nights, 20million was the
+last batch when things stopped seeming to switch and truncate.
+
+Soooo, questions. How can I verify sl_log_1 can be truncated (everything in
+it has been replicated) and how can I figure out what is locking, so that
+slony can't truncate?
+
+I'm not hurting, just stressing at this point
+
+Thanks
+tory
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20150205/df81c31f/attachment.htm 
+
+From ssinger at ca.afilias.info  Thu Feb  5 10:33:41 2015
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Thu, 05 Feb 2015 13:33:41 -0500
+Subject: [Slony1-general] sl_log_1 not truncated, could not lock
+In-Reply-To: <CAEaSS0bYKrArHg86iith=1orwa4SO2s9dhk9ga5BMFyXHF9eyA@mail.gmail.com>
+References: <CAEaSS0bYKrArHg86iith=1orwa4SO2s9dhk9ga5BMFyXHF9eyA@mail.gmail.com>
+Message-ID: <54D3B785.3010606@ca.afilias.info>
+
+On 02/05/2015 01:19 PM, Tory M Blue wrote:
+> 2015-02-05 09:53:29 PST clsdb postgres 10.13.200.232(54830) 51877
+> 2015-02-05 09:53:29.976 PSTNOTICE:  Slony-I: log switch to sl_log_2
+> complete - truncate sl_log_1
+>
+> 2015-02-05 10:01:34 PST clsdb postgres 10.13.200.231(46083) 42459
+> 2015-02-05 10:01:34.481 PSTNOTICE:  Slony-I: could not lock sl_log_1 -
+> sl_log_1 not truncated
+>
+> Sooo I have 13 million rows in sl_log_1 and from my checks of various
+> tables things are replicated, but this table still has a lock and is not
+> being truncated, These errors have been happening since 12:08 AM..
+>
+> my sl_log_2 table now has 8 million rows but I'm replicating and not
+> adding a bunch of data. We did some massive deletes last nights,
+> 20million was the last batch when things stopped seeming to switch and
+> truncate.
+>
+> Soooo, questions. How can I verify sl_log_1 can be truncated (everything
+> in it has been replicated) and how can I figure out what is locking, so
+> that slony can't truncate?
+
+
+Everything must be replicated the confirmation must make it back to the 
+origin before a log can be truncated?
+
+What does your sl_status on your origin show?
+
+The most common reasons why log truncation hasn't happened are
+
+1) Replication is behind
+2) Confirmations aren't making it back to the origin
+3) You have a long running transaction on the origin.  A log running 
+transaction can prevent log switching from taking place even if that 
+transaction doesn't actually change replicated tables.
+
+
+
+>
+> I'm not hurting, just stressing at this point
+>
+> Thanks
+> tory
+>
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+>
+
+
+From tmblue at gmail.com  Thu Feb  5 10:41:55 2015
+From: tmblue at gmail.com (Tory M Blue)
+Date: Thu, 5 Feb 2015 10:41:55 -0800
+Subject: [Slony1-general] sl_log_1 not truncated, could not lock
+In-Reply-To: <54D3B785.3010606@ca.afilias.info>
+References: <CAEaSS0bYKrArHg86iith=1orwa4SO2s9dhk9ga5BMFyXHF9eyA@mail.gmail.com>
+	<54D3B785.3010606@ca.afilias.info>
+Message-ID: <CAEaSS0bbWPSyZH15nEW11apgGp_psdqA-pyKEF_WE=Y5ZvqUHQ@mail.gmail.com>
+
+On Thu, Feb 5, 2015 at 10:33 AM, Steve Singer <ssinger at ca.afilias.info>
+wrote:
+
+> On 02/05/2015 01:19 PM, Tory M Blue wrote:
+>
+>> 2015-02-05 09:53:29 PST clsdb postgres 10.13.200.232(54830) 51877
+>> 2015-02-05 09:53:29.976 PSTNOTICE:  Slony-I: log switch to sl_log_2
+>> complete - truncate sl_log_1
+>>
+>> 2015-02-05 10:01:34 PST clsdb postgres 10.13.200.231(46083) 42459
+>> 2015-02-05 10:01:34.481 PSTNOTICE:  Slony-I: could not lock sl_log_1 -
+>> sl_log_1 not truncated
+>>
+>> Sooo I have 13 million rows in sl_log_1 and from my checks of various
+>> tables things are replicated, but this table still has a lock and is not
+>> being truncated, These errors have been happening since 12:08 AM..
+>>
+>> my sl_log_2 table now has 8 million rows but I'm replicating and not
+>> adding a bunch of data. We did some massive deletes last nights,
+>> 20million was the last batch when things stopped seeming to switch and
+>> truncate.
+>>
+>> Soooo, questions. How can I verify sl_log_1 can be truncated (everything
+>> in it has been replicated) and how can I figure out what is locking, so
+>> that slony can't truncate?
+>>
+>
+>
+> Everything must be replicated the confirmation must make it back to the
+> origin before a log can be truncated?
+>
+> What does your sl_status on your origin show?
+>
+> The most common reasons why log truncation hasn't happened are
+>
+> 1) Replication is behind
+> 2) Confirmations aren't making it back to the origin
+> 3) You have a long running transaction on the origin.  A log running
+> transaction can prevent log switching from taking place even if that
+> transaction doesn't actually change replicated tables.
+>
+>
+>
+>
+>> I'm not hurting, just stressing at this point
+>>
+>> Thanks
+>> tory
+>>
+>>
+Thanks Steve
+
+ st_origin | st_received | st_last_event |      st_last_event_ts       |
+st_last
+_received |      st_last_received_ts      |   st_last_received_event_ts   |
+st_l
+ag_num_events |   st_lag_time
+-----------+-------------+---------------+-----------------------------+--------
+----------+-------------------------------+-------------------------------+-----
+--------------+-----------------
+         1 |           3 |    5003919991 | 2015-02-05 10:39:51.6253-08 |
+    5
+003919976 | 2015-02-05 10:39:38.031286-08 | 2015-02-05 10:39:35.615581-08 |
+
+           15 | 00:00:16.763937
+         1 |           2 |    5003919991 | 2015-02-05 10:39:51.6253-08 |
+    5
+003919865 | 2015-02-05 10:37:37.127661-08 | 2015-02-05 10:37:34.596838-08 |
+
+          126 | 00:02:17.78268
+         1 |           4 |    5003919991 | 2015-02-05 10:39:51.6253-08 |
+    5
+003919982 | 2015-02-05 10:39:43.971439-08 | 2015-02-05 10:39:42.618684-08 |
+
+            9 | 00:00:09.760834
+(3 rows)
+
+Not sure what this means exactly, but again if we are fully replicated,
+that would tell me that we have syncs being replied to.  Obviously we have
+new data coming in but it's just slowing growing sl_log_2, which can't
+switch to sl_log_1, because _log_1 has not been able to truncate. And this
+is after restarting slon (for grins!)
+
+Thanks!
+Tory
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20150205/d8cb96f5/attachment-0001.htm 
+
+From ssinger at ca.afilias.info  Thu Feb  5 10:45:32 2015
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Thu, 05 Feb 2015 13:45:32 -0500
+Subject: [Slony1-general] sl_log_1 not truncated, could not lock
+In-Reply-To: <CAEaSS0bbWPSyZH15nEW11apgGp_psdqA-pyKEF_WE=Y5ZvqUHQ@mail.gmail.com>
+References: <CAEaSS0bYKrArHg86iith=1orwa4SO2s9dhk9ga5BMFyXHF9eyA@mail.gmail.com>	<54D3B785.3010606@ca.afilias.info>
+	<CAEaSS0bbWPSyZH15nEW11apgGp_psdqA-pyKEF_WE=Y5ZvqUHQ@mail.gmail.com>
+Message-ID: <54D3BA4C.9070607@ca.afilias.info>
+
+On 02/05/2015 01:41 PM, Tory M Blue wrote:
+>
+
+>
+>
+>     Everything must be replicated the confirmation must make it back to
+>     the origin before a log can be truncated?
+>
+>     What does your sl_status on your origin show?
+>
+>     The most common reasons why log truncation hasn't happened are
+>
+>     1) Replication is behind
+>     2) Confirmations aren't making it back to the origin
+>     3) You have a long running transaction on the origin.  A log running
+>     transaction can prevent log switching from taking place even if that
+>     transaction doesn't actually change replicated tables.
+>
+>
+>
+>
+>         I'm not hurting, just stressing at this point
+>
+>         Thanks
+>         tory
+>
+>
+> Thanks Steve
+>
+>   st_origin | st_received | st_last_event |      st_last_event_ts
+> | st_last
+> _received |      st_last_received_ts      |   st_last_received_event_ts
+>    | st_l
+> ag_num_events |   st_lag_time
+> -----------+-------------+---------------+-----------------------------+--------
+> ----------+-------------------------------+-------------------------------+-----
+> --------------+-----------------
+>           1 |           3 |    5003919991 | 2015-02-05 10:39:51.6253-08
+> |       5
+> 003919976 | 2015-02-05 10:39:38.031286-08 | 2015-02-05 10:39:35.615581-08 |
+>             15 | 00:00:16.763937
+>           1 |           2 |    5003919991 | 2015-02-05 10:39:51.6253-08
+> |       5
+> 003919865 | 2015-02-05 10:37:37.127661-08 | 2015-02-05 10:37:34.596838-08 |
+>            126 | 00:02:17.78268
+>           1 |           4 |    5003919991 | 2015-02-05 10:39:51.6253-08
+> |       5
+> 003919982 | 2015-02-05 10:39:43.971439-08 | 2015-02-05 10:39:42.618684-08 |
+>              9 | 00:00:09.760834
+> (3 rows)
+>
+> Not sure what this means exactly, but again if we are fully replicated,
+> that would tell me that we have syncs being replied to.  Obviously we
+> have new data coming in but it's just slowing growing sl_log_2, which
+> can't switch to sl_log_1, because _log_1 has not been able to truncate.
+> And this is after restarting slon (for grins!)
+
+
+Based on that I'd say the most likely culprit is (3) since it doesn't 
+appear to be case 1 or 2. Do you have any long running transactions on 
+your origin?
+
+
+
+
+
+>
+> Thanks!
+> Tory
+
+
+From tmblue at gmail.com  Thu Feb  5 11:03:18 2015
+From: tmblue at gmail.com (Tory M Blue)
+Date: Thu, 5 Feb 2015 11:03:18 -0800
+Subject: [Slony1-general] sl_log_1 not truncated, could not lock
+In-Reply-To: <54D3BA4C.9070607@ca.afilias.info>
+References: <CAEaSS0bYKrArHg86iith=1orwa4SO2s9dhk9ga5BMFyXHF9eyA@mail.gmail.com>
+	<54D3B785.3010606@ca.afilias.info>
+	<CAEaSS0bbWPSyZH15nEW11apgGp_psdqA-pyKEF_WE=Y5ZvqUHQ@mail.gmail.com>
+	<54D3BA4C.9070607@ca.afilias.info>
+Message-ID: <CAEaSS0YOJgSLs9P4MbKzUCo26MUzd9F_89eV2VA9wB05LhjaJQ@mail.gmail.com>
+
+On Thu, Feb 5, 2015 at 10:45 AM, Steve Singer <ssinger at ca.afilias.info>
+wrote:
+
+> On 02/05/2015 01:41 PM, Tory M Blue wrote:
+>
+>>
+>>
+>
+>>
+>>     Everything must be replicated the confirmation must make it back to
+>>     the origin before a log can be truncated?
+>>
+>>     What does your sl_status on your origin show?
+>>
+>>     The most common reasons why log truncation hasn't happened are
+>>
+>>     1) Replication is behind
+>>     2) Confirmations aren't making it back to the origin
+>>     3) You have a long running transaction on the origin.  A log running
+>>     transaction can prevent log switching from taking place even if that
+>>     transaction doesn't actually change replicated tables.
+>>
+>>
+>>
+>>
+>>         I'm not hurting, just stressing at this point
+>>
+>>         Thanks
+>>         tory
+>>
+>>
+>> Thanks Steve
+>>
+>>   st_origin | st_received | st_last_event |      st_last_event_ts
+>> | st_last
+>> _received |      st_last_received_ts      |   st_last_received_event_ts
+>>    | st_l
+>> ag_num_events |   st_lag_time
+>> -----------+-------------+---------------+------------------
+>> -----------+--------
+>> ----------+-------------------------------+-----------------
+>> --------------+-----
+>> --------------+-----------------
+>>           1 |           3 |    5003919991 | 2015-02-05 10:39:51.6253-08
+>> |       5
+>> 003919976 | 2015-02-05 10:39:38.031286-08 | 2015-02-05 10:39:35.615581-08
+>> |
+>>             15 | 00:00:16.763937
+>>           1 |           2 |    5003919991 | 2015-02-05 10:39:51.6253-08
+>> |       5
+>> 003919865 | 2015-02-05 10:37:37.127661-08 | 2015-02-05 10:37:34.596838-08
+>> |
+>>            126 | 00:02:17.78268
+>>           1 |           4 |    5003919991 | 2015-02-05 10:39:51.6253-08
+>> |       5
+>> 003919982 | 2015-02-05 10:39:43.971439-08 | 2015-02-05 10:39:42.618684-08
+>> |
+>>              9 | 00:00:09.760834
+>> (3 rows)
+>>
+>> Not sure what this means exactly, but again if we are fully replicated,
+>> that would tell me that we have syncs being replied to.  Obviously we
+>> have new data coming in but it's just slowing growing sl_log_2, which
+>> can't switch to sl_log_1, because _log_1 has not been able to truncate.
+>> And this is after restarting slon (for grins!)
+>>
+>
+>
+> Based on that I'd say the most likely culprit is (3) since it doesn't
+> appear to be case 1 or 2. Do you have any long running transactions on your
+> origin?
+>
+>
+I'm looking and don't see any long running queries, obviously with such a
+large sl_log table now, updates are in the 5-9 second range
+
+2015-02-05 10:50:58 PST clsdb postgres 10.13.200.242(45605) 39989
+2015-02-05 10:50:58.522 PSTLOG:  duration: 6350.246 ms  statement: COPY (
+select log_origin, log_txid,LOTS OF STUFF DELETED.
+
+Also the below tells me unless 2.2 is totally different that everything in
+my log tables has been syncd and just needs to be deleted?
+
+ ev_origin |  ev_seqno  | txid_snapshot_xmin
+-----------+------------+--------------------
+         1 | 5003918695 |          459837392
+         2 | 5000984115 |           34125442
+         3 | 5000016464 |           15773130
+         4 | 5000878307 |           15901785
+(4 rows)
+
+ Thanks Steve!
+
+Tory
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20150205/ca86036c/attachment.htm 
+
+From ssinger at ca.afilias.info  Thu Feb  5 11:41:43 2015
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Thu, 05 Feb 2015 14:41:43 -0500
+Subject: [Slony1-general] sl_log_1 not truncated, could not lock
+In-Reply-To: <CAEaSS0YOJgSLs9P4MbKzUCo26MUzd9F_89eV2VA9wB05LhjaJQ@mail.gmail.com>
+References: <CAEaSS0bYKrArHg86iith=1orwa4SO2s9dhk9ga5BMFyXHF9eyA@mail.gmail.com>	<54D3B785.3010606@ca.afilias.info>	<CAEaSS0bbWPSyZH15nEW11apgGp_psdqA-pyKEF_WE=Y5ZvqUHQ@mail.gmail.com>	<54D3BA4C.9070607@ca.afilias.info>
+	<CAEaSS0YOJgSLs9P4MbKzUCo26MUzd9F_89eV2VA9wB05LhjaJQ@mail.gmail.com>
+Message-ID: <54D3C777.3070402@ca.afilias.info>
+
+On 02/05/2015 02:03 PM, Tory M Blue wrote:
+>
+>
+> On Thu, Feb 5, 2015 at 10:45 AM, Steve Singer <ssinger at ca.afilias.info
+> <mailto:ssinger at ca.afilias.info>> wrote:
+>
+>     On 02/05/2015 01:41 PM, Tory M Blue wrote:
+>
+>
+>
+>
+>
+>              Everything must be replicated the confirmation must make it
+>         back to
+>              the origin before a log can be truncated?
+>
+>              What does your sl_status on your origin show?
+>
+>              The most common reasons why log truncation hasn't happened are
+>
+>              1) Replication is behind
+>              2) Confirmations aren't making it back to the origin
+>              3) You have a long running transaction on the origin.  A
+>         log running
+>              transaction can prevent log switching from taking place
+>         even if that
+>              transaction doesn't actually change replicated tables.
+>
+>
+>
+>
+>                  I'm not hurting, just stressing at this point
+>
+>                  Thanks
+>                  tory
+>
+>
+>         Thanks Steve
+>
+>            st_origin | st_received | st_last_event |      st_last_event_ts
+>         | st_last
+>         _received |      st_last_received_ts      |
+>           st_last_received_event_ts
+>             | st_l
+>         ag_num_events |   st_lag_time
+>         -----------+-------------+----__-----------+------------------__-----------+--------
+>         ----------+-------------------__------------+-----------------__--------------+-----
+>         --------------+---------------__--
+>                    1 |           3 | 5003919991 <tel:5003919991> |
+>         2015-02-05 10:39:51.6253-08
+>         |       5
+>         003919976 | 2015-02-05 10:39:38.031286-08 | 2015-02-05
+>         10:39:35.615581-08 |
+>                      15 | 00:00:16.763937
+>                    1 |           2 | 5003919991 <tel:5003919991> |
+>         2015-02-05 10:39:51.6253-08
+>         |       5
+>         003919865 | 2015-02-05 10:37:37.127661-08 | 2015-02-05
+>         10:37:34.596838-08 |
+>                     126 | 00:02:17.78268
+>                    1 |           4 | 5003919991 <tel:5003919991> |
+>         2015-02-05 10:39:51.6253-08
+>         |       5
+>         003919982 | 2015-02-05 10:39:43.971439-08 | 2015-02-05
+>         10:39:42.618684-08 |
+>                       9 | 00:00:09.760834
+>         (3 rows)
+>
+>         Not sure what this means exactly, but again if we are fully
+>         replicated,
+>         that would tell me that we have syncs being replied to.
+>         Obviously we
+>         have new data coming in but it's just slowing growing sl_log_2,
+>         which
+>         can't switch to sl_log_1, because _log_1 has not been able to
+>         truncate.
+>         And this is after restarting slon (for grins!)
+>
+>
+>
+>     Based on that I'd say the most likely culprit is (3) since it
+>     doesn't appear to be case 1 or 2. Do you have any long running
+>     transactions on your origin?
+>
+>
+> I'm looking and don't see any long running queries, obviously with such
+> a large sl_log table now, updates are in the 5-9 second range
+
+
+Your looking for long running transactions not queries.
+
+What does this give you?
+
+select state,min(xact_start) from pg_stat_activity group by state ;
+
+and what is
+select txid_current_snapshot()
+
+>
+> 2015-02-05 10:50:58 PST clsdb postgres 10.13.200.242(45605) 39989
+> 2015-02-05 10:50:58.522 PSTLOG:  duration: 6350.246 ms  statement: COPY
+> ( select log_origin, log_txid,LOTS OF STUFF DELETED.
+>
+> Also the below tells me unless 2.2 is totally different that everything
+> in my log tables has been syncd and just needs to be deleted?
+>
+>   ev_origin |  ev_seqno  | txid_snapshot_xmin
+> -----------+------------+--------------------
+>           1 | 5003918695 <tel:5003918695> |          459837392
+>           2 | 5000984115 |           34125442
+>           3 | 5000016464 |           15773130
+>           4 | 5000878307 |           15901785
+> (4 rows)
+>
+>   Thanks Steve!
+>
+> Tory
+
+
+From tmblue at gmail.com  Thu Feb  5 12:25:35 2015
+From: tmblue at gmail.com (Tory M Blue)
+Date: Thu, 5 Feb 2015 12:25:35 -0800
+Subject: [Slony1-general] sl_log_1 not truncated, could not lock
+In-Reply-To: <54D3C777.3070402@ca.afilias.info>
+References: <CAEaSS0bYKrArHg86iith=1orwa4SO2s9dhk9ga5BMFyXHF9eyA@mail.gmail.com>
+	<54D3B785.3010606@ca.afilias.info>
+	<CAEaSS0bbWPSyZH15nEW11apgGp_psdqA-pyKEF_WE=Y5ZvqUHQ@mail.gmail.com>
+	<54D3BA4C.9070607@ca.afilias.info>
+	<CAEaSS0YOJgSLs9P4MbKzUCo26MUzd9F_89eV2VA9wB05LhjaJQ@mail.gmail.com>
+	<54D3C777.3070402@ca.afilias.info>
+Message-ID: <CAEaSS0ait0dZHDO+HB-4_VGtAA=T7CHzOK+5p_YA4=7QmYXKqQ@mail.gmail.com>
+
+On Thu, Feb 5, 2015 at 11:41 AM, Steve Singer <ssinger at ca.afilias.info>
+wrote:
+
+> On 02/05/2015 02:03 PM, Tory M Blue wrote:
+>
+>>
+>>
+>> On Thu, Feb 5, 2015 at 10:45 AM, Steve Singer <ssinger at ca.afilias.info
+>> <mailto:ssinger at ca.afilias.info>> wrote:
+>>
+>>     On 02/05/2015 01:41 PM, Tory M Blue wrote:
+>>
+>>
+>>
+>>
+>>
+> Your looking for long running transactions not queries.
+>
+> What does this give you?
+>
+> select state,min(xact_start) from pg_stat_activity group by state ;
+>
+
+ state  |              min
+--------+-------------------------------
+ active | 2015-02-05 12:14:13.445753-08
+ idle   |
+(2 rows)
+
+
+>
+> and what is
+> select txid_current_snapshot(
+
+
+ txid_current_snapshot
+-------------------------------
+ 460123733:460124165:460123733
+(1 row)
+
+
+I didn't see anything in the pg_stat table that was not a current job, or a
+job that had been running for any length of time..
+
+I went ahead and manually truncated sl_log_1 , the next log switch worked
+just fine, and the following truncate of sl_log_2 worked automatically as
+well. I think this has something to do with the size of the table, and the
+fact that sync events were taking 5-9 seconds each. Maybe, the truncate was
+being blocked based on those events? I did some checking and I felt secure
+that all events in sl_log_1 were in fact sync'd/replicated. I can't tell
+you what was locking that table however.
+
+But as of right now I seem to be in a good state
+
+I based the commands off this thread/site
+
+http://venublog.com/2012/03/12/postgresql-slony-replication-lag-manual-log-tables-cleanup/
+
+older version but since I was not doing a delete and following the truncate
+that 2.2 uses, felt I was in okay shape to go behind the curtains and try
+to shake slon loose.
+
+Thanks Steve!
+Tory
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20150205/5a885f94/attachment.htm 
+
