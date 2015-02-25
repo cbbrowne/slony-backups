@@ -1164,3 +1164,298 @@ from there."
 An HTML attachment was scrubbed...
 URL: http://lists.slony.info/pipermail/slony1-general/attachments/20150219/2a38fe64/attachment.htm 
 
+From clement1289 at gmail.com  Mon Feb 23 07:51:06 2015
+From: clement1289 at gmail.com (Clement Thomas)
+Date: Mon, 23 Feb 2015 21:21:06 +0530
+Subject: [Slony1-general] sl_log_1 and sl_log_2 tables not cleaned up
+Message-ID: <CAAbfDy9mdW1yeOJN6Z6N0Tjmvsvd1LBY0ow+9VO5eoM8vuXuZg@mail.gmail.com>
+
+Hi All,
+          we face a weird problem in our 3 node slony setup.
+
+* node1 (db1.domain.tld )  is the master provider and node2
+(db2.domain.tld ), node3  (db3.domain.tld ) are subscribers.
+currently nodes have 5 replication sets and the replication is working
+fine.
+* the problem is sl_log_1 and sl_log_2 tables in node1 gets cleaned up
+properly, but the tables in the node2 and node3 doesn't.  On node1 the
+total number of rows in sl_log_1 table is 24845 and in sl_log_2 it is
+0. whereas
+
+node2:
+
+                         relation                         |  size
+----------------------------------------------------------+---------
+ _mhb_replication.sl_log_2                                | 130 GB
+ _mhb_replication.sl_log_2_idx1                           | 47 GB
+ _mhb_replication.PartInd_mhb_replication_sl_log_2-node-1 | 30 GB
+
+node3:
+                         relation                         |  size
+----------------------------------------------------------+--------
+ _mhb_replication.sl_log_2                                | 133 GB
+ _mhb_replication.sl_log_2_idx1                           | 47 GB
+ _mhb_replication.PartInd_mhb_replication_sl_log_2-node-1 | 30 GB
+ _mhb_replication.sl_log_1                                | 352 MB
+
+
+in node2 and node3 could see the following lines frequently.
+
+slon[20695]: [4031-1] FATAL  cleanupThread: "delete from
+"_mhb_replication".sl_log_1 where log_origin = '1' and log_xid <
+'2130551154'; delete from
+slon[20695]: [4031-2]  "_mhb_replication".sl_log_2 where log_origin =
+'1' and log_xid < '2130551154'; delete from
+"_mhb_replication".sl_seqlog where
+slon[20695]: [4031-3]  seql_origin = '1' and seql_ev_seqno <
+'51449379'; select "_mhb_replication".logswitch_finish(); " - ERROR:
+canceling statement
+slon[20695]: [4031-4]  due to statement timeout
+slon[20695]: [4032-1] DEBUG2 slon_retry() from pid=20695
+
+please find the slony_tools.conf here
+https://gist.github.com/clement1289/d928acb771ca01a89281 and sl_status
+/sl_listen output here
+https://gist.github.com/clement1289/88df40f77c03c691eee5 . Hoping for
+some help.
+
+Regards,
+Clement
+
+From guillaume at lelarge.info  Mon Feb 23 09:31:39 2015
+From: guillaume at lelarge.info (Guillaume Lelarge)
+Date: Mon, 23 Feb 2015 18:31:39 +0100
+Subject: [Slony1-general] sl_log_1 and sl_log_2 tables not cleaned up
+In-Reply-To: <CAAbfDy9mdW1yeOJN6Z6N0Tjmvsvd1LBY0ow+9VO5eoM8vuXuZg@mail.gmail.com>
+References: <CAAbfDy9mdW1yeOJN6Z6N0Tjmvsvd1LBY0ow+9VO5eoM8vuXuZg@mail.gmail.com>
+Message-ID: <CAECtzeVsJ_yQm+0nVgAJxz_-8ToXG5NZ2xYpQNMJnTy9+kftWg@mail.gmail.com>
+
+Hi,
+
+Le 23 f?vr. 2015 16:51, "Clement Thomas" <clement1289 at gmail.com> a ?crit :
+>
+> Hi All,
+>           we face a weird problem in our 3 node slony setup.
+>
+> * node1 (db1.domain.tld )  is the master provider and node2
+> (db2.domain.tld ), node3  (db3.domain.tld ) are subscribers.
+> currently nodes have 5 replication sets and the replication is working
+> fine.
+> * the problem is sl_log_1 and sl_log_2 tables in node1 gets cleaned up
+> properly, but the tables in the node2 and node3 doesn't.  On node1 the
+> total number of rows in sl_log_1 table is 24845 and in sl_log_2 it is
+> 0. whereas
+>
+> node2:
+>
+>                          relation                         |  size
+> ----------------------------------------------------------+---------
+>  _mhb_replication.sl_log_2                                | 130 GB
+>  _mhb_replication.sl_log_2_idx1                           | 47 GB
+>  _mhb_replication.PartInd_mhb_replication_sl_log_2-node-1 | 30 GB
+>
+> node3:
+>                          relation                         |  size
+> ----------------------------------------------------------+--------
+>  _mhb_replication.sl_log_2                                | 133 GB
+>  _mhb_replication.sl_log_2_idx1                           | 47 GB
+>  _mhb_replication.PartInd_mhb_replication_sl_log_2-node-1 | 30 GB
+>  _mhb_replication.sl_log_1                                | 352 MB
+>
+>
+> in node2 and node3 could see the following lines frequently.
+>
+> slon[20695]: [4031-1] FATAL  cleanupThread: "delete from
+> "_mhb_replication".sl_log_1 where log_origin = '1' and log_xid <
+> '2130551154'; delete from
+> slon[20695]: [4031-2]  "_mhb_replication".sl_log_2 where log_origin =
+> '1' and log_xid < '2130551154'; delete from
+> "_mhb_replication".sl_seqlog where
+> slon[20695]: [4031-3]  seql_origin = '1' and seql_ev_seqno <
+> '51449379'; select "_mhb_replication".logswitch_finish(); " - ERROR:
+> canceling statement
+> slon[20695]: [4031-4]  due to statement timeout
+> slon[20695]: [4032-1] DEBUG2 slon_retry() from pid=20695
+>
+> please find the slony_tools.conf here
+> https://gist.github.com/clement1289/d928acb771ca01a89281 and sl_status
+> /sl_listen output here
+> https://gist.github.com/clement1289/88df40f77c03c691eee5 . Hoping for
+> some help.
+>
+
+You should change PostgreSQL configuration. Statement_timeout is too low.
+Unset it or set it higher.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20150223/f6a181d3/attachment.htm 
+
+From stephane.schildknecht at postgres.fr  Mon Feb 23 09:36:31 2015
+From: stephane.schildknecht at postgres.fr (=?UTF-8?B?U3TDqXBoYW5lIFNjaGlsZGtuZWNodA==?=)
+Date: Mon, 23 Feb 2015 18:36:31 +0100
+Subject: [Slony1-general] sl_log_1 and sl_log_2 tables not cleaned up
+In-Reply-To: <CAECtzeVsJ_yQm+0nVgAJxz_-8ToXG5NZ2xYpQNMJnTy9+kftWg@mail.gmail.com>
+References: <CAAbfDy9mdW1yeOJN6Z6N0Tjmvsvd1LBY0ow+9VO5eoM8vuXuZg@mail.gmail.com>
+	<CAECtzeVsJ_yQm+0nVgAJxz_-8ToXG5NZ2xYpQNMJnTy9+kftWg@mail.gmail.com>
+Message-ID: <54EB651F.3010801@postgres.fr>
+
+On 23/02/2015 18:31, Guillaume Lelarge wrote:
+> Hi,
+> 
+> Le 23 f?vr. 2015 16:51, "Clement Thomas" <clement1289 at gmail.com
+> <mailto:clement1289 at gmail.com>> a ?crit :
+>>
+>> Hi All,
+>>           we face a weird problem in our 3 node slony setup.
+>>
+>> * node1 (db1.domain.tld )  is the master provider and node2
+>> (db2.domain.tld ), node3  (db3.domain.tld ) are subscribers.
+>> currently nodes have 5 replication sets and the replication is working
+>> fine.
+>> * the problem is sl_log_1 and sl_log_2 tables in node1 gets cleaned up
+>> properly, but the tables in the node2 and node3 doesn't.  On node1 the
+>> total number of rows in sl_log_1 table is 24845 and in sl_log_2 it is
+>> 0. whereas
+>>
+>> node2:
+>>
+>>                          relation                         |  size
+>> ----------------------------------------------------------+---------
+>>  _mhb_replication.sl_log_2                                | 130 GB
+>>  _mhb_replication.sl_log_2_idx1                           | 47 GB
+>>  _mhb_replication.PartInd_mhb_replication_sl_log_2-node-1 | 30 GB
+>>
+>> node3:
+>>                          relation                         |  size
+>> ----------------------------------------------------------+--------
+>>  _mhb_replication.sl_log_2                                | 133 GB
+>>  _mhb_replication.sl_log_2_idx1                           | 47 GB
+>>  _mhb_replication.PartInd_mhb_replication_sl_log_2-node-1 | 30 GB
+>>  _mhb_replication.sl_log_1                                | 352 MB
+>>
+>>
+>> in node2 and node3 could see the following lines frequently.
+>>
+>> slon[20695]: [4031-1] FATAL  cleanupThread: "delete from
+>> "_mhb_replication".sl_log_1 where log_origin = '1' and log_xid <
+>> '2130551154'; delete from
+>> slon[20695]: [4031-2]  "_mhb_replication".sl_log_2 where log_origin =
+>> '1' and log_xid < '2130551154'; delete from
+>> "_mhb_replication".sl_seqlog where
+>> slon[20695]: [4031-3]  seql_origin = '1' and seql_ev_seqno <
+>> '51449379'; select "_mhb_replication".logswitch_finish(); " - ERROR:
+>> canceling statement
+>> slon[20695]: [4031-4]  due to statement timeout
+>> slon[20695]: [4032-1] DEBUG2 slon_retry() from pid=20695
+>>
+>> please find the slony_tools.conf here
+>> https://gist.github.com/clement1289/d928acb771ca01a89281 and sl_status
+>> /sl_listen output here
+>> https://gist.github.com/clement1289/88df40f77c03c691eee5 . Hoping for
+>> some help.
+>>
+> 
+> You should change PostgreSQL configuration. Statement_timeout is too low. Unset
+> it or set it higher.
+
+At least for the slony user. The table and index are really big. It may take a
+long time to delete from them.
+
+-- 
+St?phane Schildknecht
+Contact r?gional PostgreSQL pour l'Europe francophone
+Loxodata - Conseil, expertise et formations
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: signature.asc
+Type: application/pgp-signature
+Size: 490 bytes
+Desc: OpenPGP digital signature
+Url : http://lists.slony.info/pipermail/slony1-general/attachments/20150223/ae1c7e97/attachment.pgp 
+
+From clement1289 at gmail.com  Tue Feb 24 01:28:32 2015
+From: clement1289 at gmail.com (Clement Thomas)
+Date: Tue, 24 Feb 2015 14:58:32 +0530
+Subject: [Slony1-general] sl_log_1 and sl_log_2 tables not cleaned up
+In-Reply-To: <CAECtzeVsJ_yQm+0nVgAJxz_-8ToXG5NZ2xYpQNMJnTy9+kftWg@mail.gmail.com>
+References: <CAAbfDy9mdW1yeOJN6Z6N0Tjmvsvd1LBY0ow+9VO5eoM8vuXuZg@mail.gmail.com>
+	<CAECtzeVsJ_yQm+0nVgAJxz_-8ToXG5NZ2xYpQNMJnTy9+kftWg@mail.gmail.com>
+Message-ID: <CAAbfDy_=V9QWheYvNPv9=CPVRpbXtfAB1OHnj-4X+t6A2WdYCg@mail.gmail.com>
+
+Hi,
+    Thanks for pointing it. Ya the statement_timeout was set to 0 in
+node1 and 600000 in node2 and node3. when i set it to 0 on node2 and
+node3 replication lagged. and i could see
+
+NOTICE:  Slony-I: log switch to sl_log_2 still in progress - sl_log_1
+not truncated
+
+i had to set statement_timeout back to 600000 to fix the replication
+issue as the nodes are in production. what is the better way to clean
+these tables?
+
+Regards,
+Clement
+
+On Mon, Feb 23, 2015 at 11:01 PM, Guillaume Lelarge
+<guillaume at lelarge.info> wrote:
+> Hi,
+>
+> Le 23 f?vr. 2015 16:51, "Clement Thomas" <clement1289 at gmail.com> a ?crit :
+>
+>
+>>
+>> Hi All,
+>>           we face a weird problem in our 3 node slony setup.
+>>
+>> * node1 (db1.domain.tld )  is the master provider and node2
+>> (db2.domain.tld ), node3  (db3.domain.tld ) are subscribers.
+>> currently nodes have 5 replication sets and the replication is working
+>> fine.
+>> * the problem is sl_log_1 and sl_log_2 tables in node1 gets cleaned up
+>> properly, but the tables in the node2 and node3 doesn't.  On node1 the
+>> total number of rows in sl_log_1 table is 24845 and in sl_log_2 it is
+>> 0. whereas
+>>
+>> node2:
+>>
+>>                          relation                         |  size
+>> ----------------------------------------------------------+---------
+>>  _mhb_replication.sl_log_2                                | 130 GB
+>>  _mhb_replication.sl_log_2_idx1                           | 47 GB
+>>  _mhb_replication.PartInd_mhb_replication_sl_log_2-node-1 | 30 GB
+>>
+>> node3:
+>>                          relation                         |  size
+>> ----------------------------------------------------------+--------
+>>  _mhb_replication.sl_log_2                                | 133 GB
+>>  _mhb_replication.sl_log_2_idx1                           | 47 GB
+>>  _mhb_replication.PartInd_mhb_replication_sl_log_2-node-1 | 30 GB
+>>  _mhb_replication.sl_log_1                                | 352 MB
+>>
+>>
+>> in node2 and node3 could see the following lines frequently.
+>>
+>> slon[20695]: [4031-1] FATAL  cleanupThread: "delete from
+>> "_mhb_replication".sl_log_1 where log_origin = '1' and log_xid <
+>> '2130551154'; delete from
+>> slon[20695]: [4031-2]  "_mhb_replication".sl_log_2 where log_origin =
+>> '1' and log_xid < '2130551154'; delete from
+>> "_mhb_replication".sl_seqlog where
+>> slon[20695]: [4031-3]  seql_origin = '1' and seql_ev_seqno <
+>> '51449379'; select "_mhb_replication".logswitch_finish(); " - ERROR:
+>> canceling statement
+>> slon[20695]: [4031-4]  due to statement timeout
+>> slon[20695]: [4032-1] DEBUG2 slon_retry() from pid=20695
+>>
+>> please find the slony_tools.conf here
+>> https://gist.github.com/clement1289/d928acb771ca01a89281 and sl_status
+>> /sl_listen output here
+>> https://gist.github.com/clement1289/88df40f77c03c691eee5 . Hoping for
+>> some help.
+>>
+>
+> You should change PostgreSQL configuration. Statement_timeout is too low.
+> Unset it or set it higher.
+
