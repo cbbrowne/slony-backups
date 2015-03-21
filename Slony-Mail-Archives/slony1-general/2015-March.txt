@@ -89,3 +89,771 @@ Well it looks like ddlscript_complete calls updateRelname() and repair_log_trigg
 
 Wouldn't it be better to try and patch execute script to handle your case sensitivity issue?
 
+From davecramer at gmail.com  Thu Mar 19 03:32:07 2015
+From: davecramer at gmail.com (Dave Cramer)
+Date: Thu, 19 Mar 2015 06:32:07 -0400
+Subject: [Slony1-general] replicating execute script
+In-Reply-To: <45333666.434909.1426758467158.JavaMail.yahoo@mail.yahoo.com>
+References: <CADK3HHJg=1-Y5yseNJf8gxhhBf2=T=gBMnYUBm4M71AmG2FkvA@mail.gmail.com>
+	<45333666.434909.1426758467158.JavaMail.yahoo@mail.yahoo.com>
+Message-ID: <CADK3HH+6rqK-LaQmY-SzF_Vpm8mZTCRKCbo2V+q69qqzjSrkRw@mail.gmail.com>
+
+Actually I think it has been fixed in bug 349 (Thanks Chris) However I'd
+like to integrate schema changes into something like flyway.
+https://github.com/flyway/
+
+Not sure how this best plays out yet.
+
+
+
+Dave Cramer
+
+On 19 March 2015 at 05:47, Glyn Astill <glynastill at yahoo.co.uk> wrote:
+
+> > From: Dave Cramer <davecramer at gmail.com>
+> >To: slony <slony1-general at lists.slony.info>
+> >Sent: Wednesday, 18 March 2015, 13:50
+> >Subject: [Slony1-general] replicating execute script
+> >
+> >
+> >
+> >Due to the usage of capital letters in the slony cluster execute script
+> fails.
+> >
+> >
+> >I am looking to replicate execute script for DDL changes. From what I can
+> see execute script takes a lock out on sl_lock before executing the script,
+> and releases it at the end.
+> >
+> >
+> >What else am I missing ?
+> >
+>
+>
+> Well it looks like ddlscript_complete calls updateRelname() and
+> repair_log_triggers(true), so I guess that's part of it.
+>
+>
+> Wouldn't it be better to try and patch execute script to handle your case
+> sensitivity issue?
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20150319/e91126ca/attachment.html 
+
+From davecramer at gmail.com  Thu Mar 19 06:57:01 2015
+From: davecramer at gmail.com (Dave Cramer)
+Date: Thu, 19 Mar 2015 09:57:01 -0400
+Subject: [Slony1-general] replicating execute script
+In-Reply-To: <550AD466.9050903@afilias.info>
+References: <CADK3HHJg=1-Y5yseNJf8gxhhBf2=T=gBMnYUBm4M71AmG2FkvA@mail.gmail.com>
+	<45333666.434909.1426758467158.JavaMail.yahoo@mail.yahoo.com>
+	<CADK3HH+6rqK-LaQmY-SzF_Vpm8mZTCRKCbo2V+q69qqzjSrkRw@mail.gmail.com>
+	<550AD466.9050903@afilias.info>
+Message-ID: <CADK3HHJVVvzVAnvgYZnP3EM27N4DhwZduHuO+CVEgVyQ57DCaA@mail.gmail.com>
+
+On 19 March 2015 at 09:51, Steve Singer <ssinger at afilias.info> wrote:
+
+> On 03/19/2015 06:32 AM, Dave Cramer wrote:
+>
+>> Actually I think it has been fixed in bug 349 (Thanks Chris) However I'd
+>> like to integrate schema changes into something like flyway.
+>> https://github.com/flyway/
+>>
+>> Not sure how this best plays out yet.
+>>
+>>
+>
+> I think it would be great to see slony support in some schema management
+> tools such as flyway,alembic or liquibase
+>
+> I see two approaches worth considering
+>
+> 1) Have the schema managment tool Call the slonik executable and pass in a
+> slonik script.
+>
+
+While I see the merit in this from your POV it is rather "blocky" and sort
+of breaks the spirit of flyway (the only one I have seriously looked at)
+
+>
+> 2) Call the SQL stored procedures directly.  This would involve calling
+> _slonyschema.ddlCapture for each SQL statement.  Then calling
+> ddlScript_complete()
+>
+
+Yes, this is where I was headed. Unfortunately flyway appears to call their
+hooks as a transaction. I have asked them to provide a hook without a
+transaction.
+
+
+>
+> I would recommend against trying to duplicate the functions in ddlScript
+> capture or ddlScript_complete.  I'll describe what they do in 2.2
+> for interest sake but I don't see any reason why you would want to
+> re-invent this code.
+>
+> Agreed.
+
+
+> The advantage of just using option 1 is that we (the slony developers) try
+> to keep the slonik command syntax somewhat stable between releases but we
+> reserve the right to change the API of the stored functions as we desire.
+> We don't consider the stored functions a stable API.
+> The pg-admin folks use the stored functions directly and keeping pg-admin
+> working with the various slony versions and API changes
+> in something they need to keep on-top of.  You would have to take on a
+> similar responsibility.
+>
+
+Any reason why you couldn't have a stable API here. Somewhat higher level
+than the current functions which would allow you to still do whatever you
+wanted below this layer ?
+
+
+>
+> If you to teach your schema management tool to do more than just DDL but
+> also do things like add new tables to a
+> replication set then the job of doing this directly with the stored
+> procedures becomes larger.  Slonik often does more than just call the
+> stored functions.
+>
+
+One step at a time ;)
+
+Dave
+
+>
+>
+> Here are the major steps the ddlScript_capture stored function performs
+> when submitting DDL to run on all nodes
+>
+>  * Captures the values of any replicated sequences
+>  * Inserts the ddl into the sl_log_script table
+>  * Executes the DDL submitted
+>
+> The ddlScript_complete call will then
+>  * Add a row to sl_log_script indicating the DDL is complete
+>  * Call the updateRelName functions to check for any table renames
+>  * Call repair_log_triggers to fix the kkvv encoding for the trigger
+> arguments
+>
+>
+>
+>>
+>> Dave Cramer
+>>
+>> On 19 March 2015 at 05:47, Glyn Astill <glynastill at yahoo.co.uk
+>> <mailto:glynastill at yahoo.co.uk>> wrote:
+>>
+>>      > From: Dave Cramer <davecramer at gmail.com
+>>     <mailto:davecramer at gmail.com>>
+>>      >To: slony <slony1-general at lists.slony.info
+>>     <mailto:slony1-general at lists.slony.info>>
+>>      >Sent: Wednesday, 18 March 2015, 13:50
+>>      >Subject: [Slony1-general] replicating execute script
+>>     >
+>>     >
+>>     >
+>>     >Due to the usage of capital letters in the slony cluster execute
+>> script fails.
+>>     >
+>>     >
+>>     >I am looking to replicate execute script for DDL changes. From what
+>> I can see execute script takes a lock out on sl_lock before executing the
+>> script, and releases it at the end.
+>>     >
+>>     >
+>>     >What else am I missing ?
+>>     >
+>>
+>>
+>>     Well it looks like ddlscript_complete calls updateRelname() and
+>>     repair_log_triggers(true), so I guess that's part of it.
+>>
+>>
+>>     Wouldn't it be better to try and patch execute script to handle your
+>>     case sensitivity issue?
+>>
+>>
+>>
+>>
+>> _______________________________________________
+>> Slony1-general mailing list
+>> Slony1-general at lists.slony.info
+>> http://lists.slony.info/mailman/listinfo/slony1-general
+>>
+>>
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20150319/1f0ea1b8/attachment.htm 
+
+From ssinger at afilias.info  Thu Mar 19 06:51:34 2015
+From: ssinger at afilias.info (Steve Singer)
+Date: Thu, 19 Mar 2015 09:51:34 -0400
+Subject: [Slony1-general] replicating execute script
+In-Reply-To: <CADK3HH+6rqK-LaQmY-SzF_Vpm8mZTCRKCbo2V+q69qqzjSrkRw@mail.gmail.com>
+References: <CADK3HHJg=1-Y5yseNJf8gxhhBf2=T=gBMnYUBm4M71AmG2FkvA@mail.gmail.com>	<45333666.434909.1426758467158.JavaMail.yahoo@mail.yahoo.com>
+	<CADK3HH+6rqK-LaQmY-SzF_Vpm8mZTCRKCbo2V+q69qqzjSrkRw@mail.gmail.com>
+Message-ID: <550AD466.9050903@afilias.info>
+
+On 03/19/2015 06:32 AM, Dave Cramer wrote:
+> Actually I think it has been fixed in bug 349 (Thanks Chris) However I'd
+> like to integrate schema changes into something like flyway.
+> https://github.com/flyway/
+>
+> Not sure how this best plays out yet.
+>
+
+
+I think it would be great to see slony support in some schema management 
+tools such as flyway,alembic or liquibase
+
+I see two approaches worth considering
+
+1) Have the schema managment tool Call the slonik executable and pass in 
+a slonik script.
+
+2) Call the SQL stored procedures directly.  This would involve calling
+_slonyschema.ddlCapture for each SQL statement.  Then calling 
+ddlScript_complete()
+
+I would recommend against trying to duplicate the functions in ddlScript 
+capture or ddlScript_complete.  I'll describe what they do in 2.2
+for interest sake but I don't see any reason why you would want to 
+re-invent this code.
+
+The advantage of just using option 1 is that we (the slony developers) 
+try to keep the slonik command syntax somewhat stable between releases 
+but we reserve the right to change the API of the stored functions as we 
+desire.  We don't consider the stored functions a stable API.
+The pg-admin folks use the stored functions directly and keeping 
+pg-admin working with the various slony versions and API changes
+in something they need to keep on-top of.  You would have to take on a 
+similar responsibility.
+
+If you to teach your schema management tool to do more than just DDL but 
+also do things like add new tables to a
+replication set then the job of doing this directly with the stored 
+procedures becomes larger.  Slonik often does more than just call the 
+stored functions.
+
+
+Here are the major steps the ddlScript_capture stored function performs 
+when submitting DDL to run on all nodes
+
+  * Captures the values of any replicated sequences
+  * Inserts the ddl into the sl_log_script table
+  * Executes the DDL submitted
+
+The ddlScript_complete call will then
+  * Add a row to sl_log_script indicating the DDL is complete
+  * Call the updateRelName functions to check for any table renames
+  * Call repair_log_triggers to fix the kkvv encoding for the trigger 
+arguments
+
+
+>
+>
+> Dave Cramer
+>
+> On 19 March 2015 at 05:47, Glyn Astill <glynastill at yahoo.co.uk
+> <mailto:glynastill at yahoo.co.uk>> wrote:
+>
+>      > From: Dave Cramer <davecramer at gmail.com
+>     <mailto:davecramer at gmail.com>>
+>      >To: slony <slony1-general at lists.slony.info
+>     <mailto:slony1-general at lists.slony.info>>
+>      >Sent: Wednesday, 18 March 2015, 13:50
+>      >Subject: [Slony1-general] replicating execute script
+>     >
+>     >
+>     >
+>     >Due to the usage of capital letters in the slony cluster execute script fails.
+>     >
+>     >
+>     >I am looking to replicate execute script for DDL changes. From what I can see execute script takes a lock out on sl_lock before executing the script, and releases it at the end.
+>     >
+>     >
+>     >What else am I missing ?
+>     >
+>
+>
+>     Well it looks like ddlscript_complete calls updateRelname() and
+>     repair_log_triggers(true), so I guess that's part of it.
+>
+>
+>     Wouldn't it be better to try and patch execute script to handle your
+>     case sensitivity issue?
+>
+>
+>
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+>
+
+
+From ssinger at afilias.info  Thu Mar 19 08:50:23 2015
+From: ssinger at afilias.info (Steve Singer)
+Date: Thu, 19 Mar 2015 11:50:23 -0400
+Subject: [Slony1-general] replicating execute script
+In-Reply-To: <CADK3HHJVVvzVAnvgYZnP3EM27N4DhwZduHuO+CVEgVyQ57DCaA@mail.gmail.com>
+References: <CADK3HHJg=1-Y5yseNJf8gxhhBf2=T=gBMnYUBm4M71AmG2FkvA@mail.gmail.com>
+	<45333666.434909.1426758467158.JavaMail.yahoo@mail.yahoo.com>
+	<CADK3HH+6rqK-LaQmY-SzF_Vpm8mZTCRKCbo2V+q69qqzjSrkRw@mail.gmail.com>
+	<550AD466.9050903@afilias.info>
+	<CADK3HHJVVvzVAnvgYZnP3EM27N4DhwZduHuO+CVEgVyQ57DCaA@mail.gmail.com>
+Message-ID: <550AF03F.1030705@afilias.info>
+
+On 03/19/2015 09:57 AM, Dave Cramer wrote:
+>
+> On 19 March 2015 at 09:51, Steve Singer <ssinger at afilias.info
+> <mailto:ssinger at afilias.info>> wrote:
+>
+>     On 03/19/2015 06:32 AM, Dave Cramer wrote:
+>
+>         Actually I think it has been fixed in bug 349 (Thanks Chris)
+>         However I'd
+>         like to integrate schema changes into something like flyway.
+>         https://github.com/flyway/
+>
+>         Not sure how this best plays out yet.
+>
+>
+>
+>     I think it would be great to see slony support in some schema
+>     management tools such as flyway,alembic or liquibase
+>
+>     I see two approaches worth considering
+>
+>     1) Have the schema managment tool Call the slonik executable and
+>     pass in a slonik script.
+>
+>
+> While I see the merit in this from your POV it is rather "blocky" and
+> sort of breaks the spirit of flyway (the only one I have seriously
+> looked at)
+>
+>
+>     2) Call the SQL stored procedures directly.  This would involve calling
+>     _slonyschema.ddlCapture for each SQL statement.  Then calling
+>     ddlScript_complete()
+>
+>
+> Yes, this is where I was headed. Unfortunately flyway appears to call
+> their hooks as a transaction. I have asked them to provide a hook
+> without a transaction.
+>
+
+What do you mean 'as a transaction'  I think you could do those commands 
+as part of larger transaction.
+
+The EXECUTE SCRIPT cases are an easy example (in slony 2.2+) because 
+they don't generate any events or involve waiting for events.  I think 
+you could call those functions as part of a larger migration operation.
+
+A much harder case is 'create a table, and add it to my existing 
+replication set'.
+
+The slonik for this would look something like
+
+create set(id=1234, origin=1);
+set add table(set id=1234, fully qualified name='public.some_new_table');
+subscribe set(set id=1234, provider=1,receiver=2);
+--repeat the subscribe set for all nodes that get the set
+merge set(id=1,add id=1234, origin=1);
+
+
+Slonik will issue many different stored function calls, commit 
+transactions , wait for things to replicate and then move onto the next 
+command.    Your not going to be able to do something like above as part 
+of a single-uncommitted transaction.  Even if we had a stable API the 
+burden of calling those functions , in the right order , at the right 
+time, against the correct node isn't trivial (slonik.c is over 6000 
+lines of code)
+
+
+
+In the past I've thought about creating something like a pl/slonik.
+
+Maybe where the admin conn_info strings are available somewhere on each 
+database server then you do something in SQL like
+
+DO $$
+
+   create set(id=1234, origin=1);
+   set add table(set id=1234,
+       fully qualified  name='public.some_new_table');
+   subscribe set(set id=1234, provider=1,receiver=2);
+   --repeat the subscribe set for all nodes that get the set
+   merge set(id=1,add id=1234, origin=1);
+$$ language plslonik;
+
+
+This still couldn't be transactional, the pl/slonik interperter would 
+then need to open up libpq connections to both the local database and 
+all the remote databases using the admin conninfo connection data to 
+actually issue the commands slonik issues today.
+
+
+
+
+>
+>     I would recommend against trying to duplicate the functions in
+>     ddlScript capture or ddlScript_complete.  I'll describe what they do
+>     in 2.2
+>     for interest sake but I don't see any reason why you would want to
+>     re-invent this code.
+>
+> Agreed.
+>
+>     The advantage of just using option 1 is that we (the slony
+>     developers) try to keep the slonik command syntax somewhat stable
+>     between releases but we reserve the right to change the API of the
+>     stored functions as we desire.  We don't consider the stored
+>     functions a stable API.
+>     The pg-admin folks use the stored functions directly and keeping
+>     pg-admin working with the various slony versions and API changes
+>     in something they need to keep on-top of.  You would have to take on
+>     a similar responsibility.
+>
+>
+> Any reason why you couldn't have a stable API here. Somewhat higher
+> level than the current functions which would allow you to still do
+> whatever you wanted below this layer ?
+>
+>
+>     If you to teach your schema management tool to do more than just DDL
+>     but also do things like add new tables to a
+>     replication set then the job of doing this directly with the stored
+>     procedures becomes larger.  Slonik often does more than just call
+>     the stored functions.
+>
+>
+> One step at a time ;)
+>
+> Dave
+>
+>
+>
+>     Here are the major steps the ddlScript_capture stored function
+>     performs when submitting DDL to run on all nodes
+>
+>       * Captures the values of any replicated sequences
+>       * Inserts the ddl into the sl_log_script table
+>       * Executes the DDL submitted
+>
+>     The ddlScript_complete call will then
+>       * Add a row to sl_log_script indicating the DDL is complete
+>       * Call the updateRelName functions to check for any table renames
+>       * Call repair_log_triggers to fix the kkvv encoding for the
+>     trigger arguments
+>
+>
+>
+>
+>         Dave Cramer
+>
+>         On 19 March 2015 at 05:47, Glyn Astill <glynastill at yahoo.co.uk
+>         <mailto:glynastill at yahoo.co.uk>
+>         <mailto:glynastill at yahoo.co.uk
+>         <mailto:glynastill at yahoo.co.uk>__>> wrote:
+>
+>               > From: Dave Cramer <davecramer at gmail.com
+>         <mailto:davecramer at gmail.com>
+>              <mailto:davecramer at gmail.com <mailto:davecramer at gmail.com>>>
+>               >To: slony <slony1-general at lists.slony.__info
+>         <mailto:slony1-general at lists.slony.info>
+>              <mailto:slony1-general at lists.__slony.info
+>         <mailto:slony1-general at lists.slony.info>>>
+>               >Sent: Wednesday, 18 March 2015, 13:50
+>               >Subject: [Slony1-general] replicating execute script
+>              >
+>              >
+>              >
+>              >Due to the usage of capital letters in the slony cluster
+>         execute script fails.
+>              >
+>              >
+>              >I am looking to replicate execute script for DDL changes.
+>          From what I can see execute script takes a lock out on sl_lock
+>         before executing the script, and releases it at the end.
+>              >
+>              >
+>              >What else am I missing ?
+>              >
+>
+>
+>              Well it looks like ddlscript_complete calls updateRelname() and
+>              repair_log_triggers(true), so I guess that's part of it.
+>
+>
+>              Wouldn't it be better to try and patch execute script to
+>         handle your
+>              case sensitivity issue?
+>
+>
+>
+>
+>         _________________________________________________
+>         Slony1-general mailing list
+>         Slony1-general at lists.slony.__info
+>         <mailto:Slony1-general at lists.slony.info>
+>         http://lists.slony.info/__mailman/listinfo/slony1-__general
+>         <http://lists.slony.info/mailman/listinfo/slony1-general>
+>
+>
+>
+
+
+From davecramer at gmail.com  Thu Mar 19 08:56:40 2015
+From: davecramer at gmail.com (Dave Cramer)
+Date: Thu, 19 Mar 2015 11:56:40 -0400
+Subject: [Slony1-general] replicating execute script
+In-Reply-To: <550AF03F.1030705@afilias.info>
+References: <CADK3HHJg=1-Y5yseNJf8gxhhBf2=T=gBMnYUBm4M71AmG2FkvA@mail.gmail.com>
+	<45333666.434909.1426758467158.JavaMail.yahoo@mail.yahoo.com>
+	<CADK3HH+6rqK-LaQmY-SzF_Vpm8mZTCRKCbo2V+q69qqzjSrkRw@mail.gmail.com>
+	<550AD466.9050903@afilias.info>
+	<CADK3HHJVVvzVAnvgYZnP3EM27N4DhwZduHuO+CVEgVyQ57DCaA@mail.gmail.com>
+	<550AF03F.1030705@afilias.info>
+Message-ID: <CADK3HH+Sz3y29xLVjOQig8SfNH2-ud7ZZDcKPiS5gkd=uv2GtQ@mail.gmail.com>
+
+Dave Cramer
+
+On 19 March 2015 at 11:50, Steve Singer <ssinger at afilias.info> wrote:
+
+> On 03/19/2015 09:57 AM, Dave Cramer wrote:
+>
+>>
+>> On 19 March 2015 at 09:51, Steve Singer <ssinger at afilias.info
+>> <mailto:ssinger at afilias.info>> wrote:
+>>
+>>     On 03/19/2015 06:32 AM, Dave Cramer wrote:
+>>
+>>         Actually I think it has been fixed in bug 349 (Thanks Chris)
+>>         However I'd
+>>         like to integrate schema changes into something like flyway.
+>>         https://github.com/flyway/
+>>
+>>         Not sure how this best plays out yet.
+>>
+>>
+>>
+>>     I think it would be great to see slony support in some schema
+>>     management tools such as flyway,alembic or liquibase
+>>
+>>     I see two approaches worth considering
+>>
+>>     1) Have the schema managment tool Call the slonik executable and
+>>     pass in a slonik script.
+>>
+>>
+>> While I see the merit in this from your POV it is rather "blocky" and
+>> sort of breaks the spirit of flyway (the only one I have seriously
+>> looked at)
+>>
+>>
+>>     2) Call the SQL stored procedures directly.  This would involve
+>> calling
+>>     _slonyschema.ddlCapture for each SQL statement.  Then calling
+>>     ddlScript_complete()
+>>
+>>
+>> Yes, this is where I was headed. Unfortunately flyway appears to call
+>> their hooks as a transaction. I have asked them to provide a hook
+>> without a transaction.
+>>
+>>
+> What do you mean 'as a transaction'  I think you could do those commands
+> as part of larger transaction.
+>
+
+So there are a number of callbacks in flyway. beforeMigration, etc, however
+they all get executed inside a subtransaction, in other words before the
+call back is executed the do begin; then the callback then end;
+
+
+>
+> The EXECUTE SCRIPT cases are an easy example (in slony 2.2+) because they
+> don't generate any events or involve waiting for events.  I think you could
+> call those functions as part of a larger migration operation.
+>
+> great
+
+
+> A much harder case is 'create a table, and add it to my existing
+> replication set'.
+>
+> The slonik for this would look something like
+>
+> create set(id=1234, origin=1);
+> set add table(set id=1234, fully qualified name='public.some_new_table');
+> subscribe set(set id=1234, provider=1,receiver=2);
+> --repeat the subscribe set for all nodes that get the set
+> merge set(id=1,add id=1234, origin=1);
+>
+>
+> Slonik will issue many different stored function calls, commit
+> transactions , wait for things to replicate and then move onto the next
+> command.    Your not going to be able to do something like above as part of
+> a single-uncommitted transaction.  Even if we had a stable API the burden
+> of calling those functions , in the right order , at the right time,
+> against the correct node isn't trivial (slonik.c is over 6000 lines of code)
+>
+>
+> Clearly this is step 2, and much more difficult.
+
+
+
+
+>
+> In the past I've thought about creating something like a pl/slonik.
+>
+> Maybe where the admin conn_info strings are available somewhere on each
+> database server then you do something in SQL like
+>
+> DO $$
+>
+>   create set(id=1234, origin=1);
+>   set add table(set id=1234,
+>       fully qualified  name='public.some_new_table');
+>   subscribe set(set id=1234, provider=1,receiver=2);
+>   --repeat the subscribe set for all nodes that get the set
+>   merge set(id=1,add id=1234, origin=1);
+> $$ language plslonik;
+>
+>
+> This still couldn't be transactional, the pl/slonik interperter would then
+> need to open up libpq connections to both the local database and all the
+> remote databases using the admin conninfo connection data to actually issue
+> the commands slonik issues today.
+>
+>
+Yes, the complexity of this makes it difficult to generalize. For not it's
+not in scope
+
+Thanks,
+
+Dave
+
+>
+>
+>
+>
+>>     I would recommend against trying to duplicate the functions in
+>>     ddlScript capture or ddlScript_complete.  I'll describe what they do
+>>     in 2.2
+>>     for interest sake but I don't see any reason why you would want to
+>>     re-invent this code.
+>>
+>> Agreed.
+>>
+>>     The advantage of just using option 1 is that we (the slony
+>>     developers) try to keep the slonik command syntax somewhat stable
+>>     between releases but we reserve the right to change the API of the
+>>     stored functions as we desire.  We don't consider the stored
+>>     functions a stable API.
+>>     The pg-admin folks use the stored functions directly and keeping
+>>     pg-admin working with the various slony versions and API changes
+>>     in something they need to keep on-top of.  You would have to take on
+>>     a similar responsibility.
+>>
+>>
+>> Any reason why you couldn't have a stable API here. Somewhat higher
+>> level than the current functions which would allow you to still do
+>> whatever you wanted below this layer ?
+>>
+>>
+>>     If you to teach your schema management tool to do more than just DDL
+>>     but also do things like add new tables to a
+>>     replication set then the job of doing this directly with the stored
+>>     procedures becomes larger.  Slonik often does more than just call
+>>     the stored functions.
+>>
+>>
+>> One step at a time ;)
+>>
+>> Dave
+>>
+>>
+>>
+>>     Here are the major steps the ddlScript_capture stored function
+>>     performs when submitting DDL to run on all nodes
+>>
+>>       * Captures the values of any replicated sequences
+>>       * Inserts the ddl into the sl_log_script table
+>>       * Executes the DDL submitted
+>>
+>>     The ddlScript_complete call will then
+>>       * Add a row to sl_log_script indicating the DDL is complete
+>>       * Call the updateRelName functions to check for any table renames
+>>       * Call repair_log_triggers to fix the kkvv encoding for the
+>>     trigger arguments
+>>
+>>
+>>
+>>
+>>         Dave Cramer
+>>
+>>         On 19 March 2015 at 05:47, Glyn Astill <glynastill at yahoo.co.uk
+>>         <mailto:glynastill at yahoo.co.uk>
+>>         <mailto:glynastill at yahoo.co.uk
+>>         <mailto:glynastill at yahoo.co.uk>__>> wrote:
+>>
+>>               > From: Dave Cramer <davecramer at gmail.com
+>>         <mailto:davecramer at gmail.com>
+>>              <mailto:davecramer at gmail.com <mailto:davecramer at gmail.com>>>
+>>               >To: slony <slony1-general at lists.slony.__info
+>>         <mailto:slony1-general at lists.slony.info>
+>>              <mailto:slony1-general at lists.__slony.info
+>>         <mailto:slony1-general at lists.slony.info>>>
+>>               >Sent: Wednesday, 18 March 2015, 13:50
+>>               >Subject: [Slony1-general] replicating execute script
+>>              >
+>>              >
+>>              >
+>>              >Due to the usage of capital letters in the slony cluster
+>>         execute script fails.
+>>              >
+>>              >
+>>              >I am looking to replicate execute script for DDL changes.
+>>          From what I can see execute script takes a lock out on sl_lock
+>>         before executing the script, and releases it at the end.
+>>              >
+>>              >
+>>              >What else am I missing ?
+>>              >
+>>
+>>
+>>              Well it looks like ddlscript_complete calls updateRelname()
+>> and
+>>              repair_log_triggers(true), so I guess that's part of it.
+>>
+>>
+>>              Wouldn't it be better to try and patch execute script to
+>>         handle your
+>>              case sensitivity issue?
+>>
+>>
+>>
+>>
+>>         _________________________________________________
+>>         Slony1-general mailing list
+>>         Slony1-general at lists.slony.__info
+>>         <mailto:Slony1-general at lists.slony.info>
+>>         http://lists.slony.info/__mailman/listinfo/slony1-__general
+>>         <http://lists.slony.info/mailman/listinfo/slony1-general>
+>>
+>>
+>>
+>>
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20150319/ee269059/attachment.htm 
+
