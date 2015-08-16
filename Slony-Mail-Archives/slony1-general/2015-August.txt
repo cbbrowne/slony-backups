@@ -59,3 +59,355 @@ Tory
 An HTML attachment was scrubbed...
 URL: http://lists.slony.info/pipermail/slony1-general/attachments/20150813/03237a07/attachment.htm 
 
+From tmblue at gmail.com  Fri Aug 14 14:16:52 2015
+From: tmblue at gmail.com (Tory M Blue)
+Date: Fri, 14 Aug 2015 14:16:52 -0700
+Subject: [Slony1-general] Slony multiple locations,
+	questions concerning node ID's
+In-Reply-To: <CAEaSS0YmauW0FBmYARGwAKrDjX+3pTMyxCuxqNLRjoDRMB7eeg@mail.gmail.com>
+References: <CAEaSS0YmauW0FBmYARGwAKrDjX+3pTMyxCuxqNLRjoDRMB7eeg@mail.gmail.com>
+Message-ID: <CAEaSS0ZFkj6NWEZskgjAq8g5gabHoQF6EtRLXZb19_jxjmnAuA@mail.gmail.com>
+
+On Thu, Aug 13, 2015 at 3:51 PM, Tory M Blue <tmblue at gmail.com> wrote:
+
+>
+> Been a bit, but I'm back with a question.
+>
+> I'm looking at doing a migration from one site to another and eventually
+> have a hot warm site.
+>
+> Right now I have a 5 box slony cluster at site A
+>
+> Site A: Node 1 and 2 can switch/fail, nodes 3-5 are partial and can't
+> become master.
+>
+> Node 1: MASTER
+> Node 2: SLAVE
+> Node 3: QUERYSLAVE1
+> Node 4: QUERYSLAVE2
+> Node 5: QUERYSLAVE3
+>
+> I have a new 5 node cluster in Site B.
+>
+> Site B:  This is our default turn up, so they have the same NODE ID as
+> Site A..
+>
+> Node 1: MASTER
+> Node 2: SLAVE
+> Node 3: QUERYSLAVE1
+> Node 4: QUERYSLAVE2
+> Node 5: QUERYSLAVE3
+>
+> I was really interested in Node 2 of Site A replicating to Node 1 of Site
+> B, and then just let the other boxen in site B take their information from
+> Node 1 of the same site.
+>
+>  I think there is going to be some confusion with NODE ID's. I believe I
+> can tell Site A that the Master of Site B is actually node 10 <whatever>
+> and get it replicating and be able to drop NODE 10 if I needed from site A.
+> However if I end up switching to the Master in Site B,  It won't know how
+> to tell SITE A to kiss off,  as the NODE's in it's config will be
+> 1,2,3,4,5, which are the same as Site A, so there would be no real way for
+> me to clean up and or remove SITE A devices, drop node using NODE ID would
+> be no beuno.
+>
+> So I guess basically, do I have to have unique NODE ID's (think I do, but
+> if not??). It will just require some rework for every site I bring up,
+>  this means I have a few different configurations and or scripts to use
+> depending on what site the cluster is in.
+>
+> Is this sort of clear, murky yet you have the general idea, or holy carp
+> Tory what are you asking?
+>
+> Thanks
+> Tory
+>
+
+
+Okay so someone pinged me off list and stated yes NODE ID's have to be
+unique, okay figured but that's good to know.
+
+Now I'm wondering how to best setup the replication.
+
+If Site A has
+
+(Nodes 1-5)
+MASTER - Replicates to the 4 servers below
+SLAVE
+QUERYSLAVE1,2,3
+
+Site B has similar
+
+(Nodes 11-15)
+DRMASTER - Replicates to the 4 servers below.
+DRSLAVE
+DRQUERYSLAVE1,2,3
+
+I was just thinking I would add DRMASTER as a slave off of SLAVE. Since
+SLAVE has forward = yes, it could easily forward the data on to DRMASTER
+and DRMASTER could in turn send all that DATA down it's pipe to
+DRSLAVE/DRQUERYS*
+
+I've run into a couple of issues and that is that it seems that all nodes
+in site A become aware of DRMASTER from site B, and not sure I want that
+and/or if it's possible to get around that.
+
+The paths should be in site A
+
+Master <-> Slave (set 1-3)
+Master <-> Queryslave* (set 1)
+Slave <-> Queryslave* (set 1) (due to switchover possibility).
+
+paths in site B
+
+DrMaster <-> DRSlave (set 1-3)
+DrMaster <-> DRQueryslave* (set 1)
+DrSlave <-> DRQueryslave* (set 1) (due to switchover possibility).
+
+
+Then I would add a new path
+
+Slave <-> DrMaster (set 1-3)
+
+I'm wondering if I'm looking at this right. These are 2 separate clusters
+but the data has to be in sync and I'm looking to use this as a site
+migration tool.
+
+BTW we have been using slony for over 9 years ,so I'm not totally new to
+it, but it's always been isolated into it's own cluster (prod, staging, Qa,
+Dev etc), now I'm looking to use it as a migration mechanism between 2
+clusters at differing locations.
+
+Thanks and sorry for being dense
+Tory
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20150814/79f9d8ae/attachment.htm 
+
+From steve at ssinger.info  Fri Aug 14 19:05:08 2015
+From: steve at ssinger.info (Steve Singer)
+Date: Fri, 14 Aug 2015 22:05:08 -0400
+Subject: [Slony1-general] Slony multiple locations,
+ questions concerning node ID's
+In-Reply-To: <CAEaSS0ZFkj6NWEZskgjAq8g5gabHoQF6EtRLXZb19_jxjmnAuA@mail.gmail.com>
+References: <CAEaSS0YmauW0FBmYARGwAKrDjX+3pTMyxCuxqNLRjoDRMB7eeg@mail.gmail.com>
+	<CAEaSS0ZFkj6NWEZskgjAq8g5gabHoQF6EtRLXZb19_jxjmnAuA@mail.gmail.com>
+Message-ID: <BLU436-SMTP35004927BAA37C7198DF62DC7B0@phx.gbl>
+
+On Fri, 14 Aug 2015, Tory M Blue wrote:
+
+> Okay so someone pinged me off list and stated yes NODE ID's have to be unique, okay figured but that's good to know.
+> 
+> Now I'm wondering how to best setup the replication.
+> 
+> If Site A has?
+> 
+> (Nodes 1-5)
+> MASTER - Replicates to the 4 servers below
+> SLAVE
+> QUERYSLAVE1,2,3
+> 
+> Site B has similar
+> 
+> (Nodes 11-15)
+> DRMASTER - Replicates to the 4 servers below.
+> DRSLAVE
+> DRQUERYSLAVE1,2,3
+> 
+> I was just thinking I would add DRMASTER as a slave off of SLAVE. Since SLAVE has forward = yes, it could easily
+> forward the data on to DRMASTER and DRMASTER could in turn send all that DATA down it's pipe to DRSLAVE/DRQUERYS*
+> 
+> I've run into a couple of issues and that is that it seems that all nodes in site A become aware of DRMASTER from
+> site B, and not sure I want that and/or if it's possible to get around that. ?
+
+I think you need to be a bit more careful about your terminology and set + 
+node numbering, I am not exactly sure what your describing.
+
+All nodes in a cluster need to be aware of all other nodes.  If your going 
+to have 1 slony cluster that spans both sites you need to have unique node 
+numbers and all nodes need to be 'aware' of other nodes.  All nodes in your 
+cluster need to confirm all events from all other nodes, even if the node 
+isn't subscribed to anything from some other node.  It's a bit chatty but I 
+don't think this is going to be a problem for 12 nodes.
+
+What I don't understand though is what you mean below by '2 separate 
+clusters' and that your re-using 'set 1', 'set 1' can only have 1 node of an 
+origin.
+
+Is what you really mean something like this
+
+Site 1
+Node 11: Master for set 1.  Replica for set 2
+Node 12: replica for set 1
+Node 1[3,4,5]: Query slave replicas for set 1
+
+Site 2:
+Node 21: Master for set 2, replica for set 1
+Node 22: Replica for set 2
+Node 2[3,4,5]: Query slave replicas for set 2
+
+In the above setup there can't be any overlap between the tables in set 1 
+and the tables in set 2.  What I describe above is a single slony cluster.
+
+If what you really means is having 2 slony clusters that are somehow 
+connected then we aren't talking about the same thing.  If you can make 
+that work (and I think some people on the list have done that type of thing) 
+then you would need some nodes to be part of both clusters.
+
+
+> 
+> The paths should be in site A
+> 
+> Master <-> Slave (set 1-3)
+> Master <-> Queryslave* (set 1)
+> Slave <-> Queryslave* (set 1) (due to switchover possibility).
+> 
+> paths in site B
+> 
+> DrMaster <-> DRSlave (set 1-3)
+> DrMaster <-> DRQueryslave* (set 1)
+> DrSlave <-> DRQueryslave* (set 1) (due to switchover possibility).
+> 
+> 
+> Then I would add a new path
+> 
+> Slave <-> DrMaster (set 1-3)
+> 
+> I'm wondering if I'm looking at this right. These are 2 separate clusters but the data has to be in sync and I'm
+> looking to use this as a site migration tool.
+> 
+> BTW we have been using slony for over 9 years ,so I'm not totally new to it, but it's always been isolated into it's
+> own cluster (prod, staging, Qa, Dev etc), now I'm looking to use it as a migration mechanism between 2 clusters at
+> differing locations.
+> 
+> Thanks and sorry for being dense
+> Tory
+> 
+> 
+> 
+>
+
+From tmblue at gmail.com  Fri Aug 14 22:02:23 2015
+From: tmblue at gmail.com (Tory M Blue)
+Date: Fri, 14 Aug 2015 22:02:23 -0700
+Subject: [Slony1-general] Slony multiple locations,
+ questions concerning node ID's
+In-Reply-To: <BLU436-SMTP35004927BAA37C7198DF62DC7B0@phx.gbl>
+References: <CAEaSS0YmauW0FBmYARGwAKrDjX+3pTMyxCuxqNLRjoDRMB7eeg@mail.gmail.com>
+	<CAEaSS0ZFkj6NWEZskgjAq8g5gabHoQF6EtRLXZb19_jxjmnAuA@mail.gmail.com>
+	<BLU436-SMTP35004927BAA37C7198DF62DC7B0@phx.gbl>
+Message-ID: <CAEaSS0ZM9ncBYwQB13r5TEoYw40czvkNCtYAoeozUMfA3gPN5g@mail.gmail.com>
+
+On Fri, Aug 14, 2015 at 7:05 PM, Steve Singer <steve at ssinger.info> wrote:
+
+> On Fri, 14 Aug 2015, Tory M Blue wrote:
+>
+> Okay so someone pinged me off list and stated yes NODE ID's have to be
+>> unique, okay figured but that's good to know.
+>>
+>> Now I'm wondering how to best setup the replication.
+>>
+>> If Site A has
+>>
+>> (Nodes 1-5)
+>> MASTER - Replicates to the 4 servers below
+>> SLAVE
+>> QUERYSLAVE1,2,3
+>>
+>> Site B has similar
+>>
+>> (Nodes 11-15)
+>> DRMASTER - Replicates to the 4 servers below.
+>> DRSLAVE
+>> DRQUERYSLAVE1,2,3
+>>
+>> I was just thinking I would add DRMASTER as a slave off of SLAVE. Since
+>> SLAVE has forward = yes, it could easily
+>> forward the data on to DRMASTER and DRMASTER could in turn send all that
+>> DATA down it's pipe to DRSLAVE/DRQUERYS*
+>>
+>> I've run into a couple of issues and that is that it seems that all nodes
+>> in site A become aware of DRMASTER from
+>> site B, and not sure I want that and/or if it's possible to get around
+>> that.
+>>
+>
+> I think you need to be a bit more careful about your terminology and set +
+> node numbering, I am not exactly sure what your describing.
+>
+> There is no doubt, and I appreciate you attempting :)
+
+
+
+> All nodes in a cluster need to be aware of all other nodes.  If your going
+> to have 1 slony cluster that spans both sites you need to have unique node
+> numbers and all nodes need to be 'aware' of other nodes.  All nodes in your
+> cluster need to confirm all events from all other nodes, even if the node
+> isn't subscribed to anything from some other node.  It's a bit chatty but I
+> don't think this is going to be a problem for 12 nodes.
+>
+> What I don't understand though is what you mean below by '2 separate
+> clusters' and that your re-using 'set 1', 'set 1' can only have 1 node of
+> an origin.
+>
+> Is what you really mean something like this
+>
+> Site 1
+> Node 11: Master for set 1.  Replica for set 2
+> Node 12: replica for set 1
+> Node 1[3,4,5]: Query slave replicas for set 1
+>
+> Site 2:
+> Node 21: Master for set 2, replica for set 1
+> Node 22: Replica for set 2
+> Node 2[3,4,5]: Query slave replicas for set 2
+>
+> In the above setup there can't be any overlap between the tables in set 1
+> and the tables in set 2.  What I describe above is a single slony cluster.
+>
+> If what you really means is having 2 slony clusters that are somehow
+> connected then we aren't talking about the same thing.  If you can make
+> that work (and I think some people on the list have done that type of
+> thing) then you would need some nodes to be part of both clusters.
+>
+>
+>>
+Thanks again Steve. I am not trying to establish a 10+ node cluster. What I
+am trying to do is establish a relationship between 2 clusters.
+
+Set 1-3 are unique sets tied to a single Origin yes, but they are available
+to read from the slaves.
+
+What i'm trying to do , figure out (without the required vocabulary
+obviously), is to in fact create a fail over scenario
+
+There is a slon document that uses this image.
+
+http://slony.info/documentation/concepts.html
+
+
+
+However in my failed description, I was trying to free up the origin from
+having to talk to all 10 nodes, but instead offload some of that chatter
+from the Slave to site B's "would be Master and let site B's ("Master)
+handle the replication to nodes 12-15  (there would never be a need to
+switchover from site A  to any other node in Site B (but node 11).
+
+So Site A would be aware of Nodes 1-5 (1 being the insert origin) and node
+11 (which is in Site B configured as a slave).  Site B nodes would only
+know that they are talking to node 11 as their origin, other than node 11,
+node 12-15 would only know about Node 11-15 and nothing about Nodes 1-5.
+
+UUGH improper terminology I'm sure.. It's probably more frustrating trying
+to decipher more than it is me trying to explain.
+
+If I had 2 circles the only box that would touch both circles would be node
+11, where node 1-5 are in their own  bubble, and nodes 12-15 in their own.
+with the exception of node 11 being in both circles.
+
+man.. hopefully I'm doing somewhat of a better job explaining.
+Tory
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20150814/59714a43/attachment.htm 
+
