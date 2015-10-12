@@ -44,3 +44,191 @@ Can anyone think of a reason why these tables shouldn't have a primary key?
 >
 
 
+From sungh.lei at gmail.com  Fri Oct  9 20:34:23 2015
+From: sungh.lei at gmail.com (Sung Hsin Lei)
+Date: Fri, 9 Oct 2015 23:34:23 -0400
+Subject: [Slony1-general] Slony Replication Startup Speed
+Message-ID: <CAHD_kvnWruCyJsX_=xFHMiWkvxahY1U0wLtKpRonCLAHBAUQag@mail.gmail.com>
+
+Hello,
+
+I have a 10gig database on the Master which I backed up and restored on the
+Slave. Database activity is low. When I setup Slony replication from the
+Master to the Slave, it would take hours before new information from the
+Master would be updated into the Slave. Postgres would be also VERY slow
+for the first few hours. However, after the initial wait period, the Slave
+would update within a second or so and Postgres speed would return to
+normal. I'm assuming that Slony is taking time to verify the initial
+database integrity between the Master and the Slave. Am i right? I would
+like to know if there's a way to have the updates start within the first
+few minutes of the original setup.
+
+
+Thanks.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20151009/cb7d99cb/attachment.htm 
+
+From scott.marlowe at gmail.com  Fri Oct  9 21:50:21 2015
+From: scott.marlowe at gmail.com (Scott Marlowe)
+Date: Fri, 9 Oct 2015 22:50:21 -0600
+Subject: [Slony1-general] Slony Replication Startup Speed
+In-Reply-To: <CAHD_kvnWruCyJsX_=xFHMiWkvxahY1U0wLtKpRonCLAHBAUQag@mail.gmail.com>
+References: <CAHD_kvnWruCyJsX_=xFHMiWkvxahY1U0wLtKpRonCLAHBAUQag@mail.gmail.com>
+Message-ID: <CAOR=d=01EHSAEm80iFyQBbqzFkHrf8e6WZnVOhS9yZnL7ER27g@mail.gmail.com>
+
+On Fri, Oct 9, 2015 at 9:34 PM, Sung Hsin Lei <sungh.lei at gmail.com> wrote:
+> Hello,
+>
+> I have a 10gig database on the Master which I backed up and restored on the
+> Slave. Database activity is low. When I setup Slony replication from the
+> Master to the Slave, it would take hours before new information from the
+> Master would be updated into the Slave. Postgres would be also VERY slow for
+> the first few hours. However, after the initial wait period, the Slave would
+> update within a second or so and Postgres speed would return to normal. I'm
+> assuming that Slony is taking time to verify the initial database integrity
+> between the Master and the Slave. Am i right? I would like to know if
+> there's a way to have the updates start within the first few minutes of the
+> original setup.
+
+In a normal slony sub, all you need on the slave is the schema. If
+there's data there it'll get truncated / deleted, so there's no reason
+to spend time copying it over.
+
+IF and only IF you are willing to take your master offline from your
+application (i.e. stop writes going to it) you can copy over the data
+and then subscribe with no copy. If the master is not taken "offline"
+from an application perspective then a subscribe with no copy will
+result in your master and slave not having the same data (which is
+bad).
+
+From sungh.lei at gmail.com  Fri Oct  9 22:09:07 2015
+From: sungh.lei at gmail.com (Sung Hsin Lei)
+Date: Sat, 10 Oct 2015 01:09:07 -0400
+Subject: [Slony1-general] Slony Replication Startup Speed
+In-Reply-To: <CAOR=d=01EHSAEm80iFyQBbqzFkHrf8e6WZnVOhS9yZnL7ER27g@mail.gmail.com>
+References: <CAHD_kvnWruCyJsX_=xFHMiWkvxahY1U0wLtKpRonCLAHBAUQag@mail.gmail.com>
+	<CAOR=d=01EHSAEm80iFyQBbqzFkHrf8e6WZnVOhS9yZnL7ER27g@mail.gmail.com>
+Message-ID: <CAHD_kvkNTx7zm2fmiJGYO96x9OT21kcsLa7JM=vmj6ekzn5+hw@mail.gmail.com>
+
+Thanks for the response.
+
+How about when you change the db schema such as adding/removing/renaming
+tables, columns and dependencies? We usually stop the replication, delete
+the cluster from both Master and Slave, make the changes on both Master and
+Slave and run the setup from scratch. This would also freeze postgres and
+take several hours for replication to start. Isn't there a way to make it
+faster considering that all data is already in the Slave?
+
+Also, how do you subscribe with no copy?
+
+
+
+On Sat, Oct 10, 2015 at 12:50 AM, Scott Marlowe <scott.marlowe at gmail.com>
+wrote:
+
+> On Fri, Oct 9, 2015 at 9:34 PM, Sung Hsin Lei <sungh.lei at gmail.com> wrote:
+> > Hello,
+> >
+> > I have a 10gig database on the Master which I backed up and restored on
+> the
+> > Slave. Database activity is low. When I setup Slony replication from the
+> > Master to the Slave, it would take hours before new information from the
+> > Master would be updated into the Slave. Postgres would be also VERY slow
+> for
+> > the first few hours. However, after the initial wait period, the Slave
+> would
+> > update within a second or so and Postgres speed would return to normal.
+> I'm
+> > assuming that Slony is taking time to verify the initial database
+> integrity
+> > between the Master and the Slave. Am i right? I would like to know if
+> > there's a way to have the updates start within the first few minutes of
+> the
+> > original setup.
+>
+> In a normal slony sub, all you need on the slave is the schema. If
+> there's data there it'll get truncated / deleted, so there's no reason
+> to spend time copying it over.
+>
+> IF and only IF you are willing to take your master offline from your
+> application (i.e. stop writes going to it) you can copy over the data
+> and then subscribe with no copy. If the master is not taken "offline"
+> from an application perspective then a subscribe with no copy will
+> result in your master and slave not having the same data (which is
+> bad).
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20151010/a5397825/attachment.htm 
+
+From scott.marlowe at gmail.com  Fri Oct  9 23:51:26 2015
+From: scott.marlowe at gmail.com (Scott Marlowe)
+Date: Sat, 10 Oct 2015 00:51:26 -0600
+Subject: [Slony1-general] Slony Replication Startup Speed
+In-Reply-To: <CAHD_kvkNTx7zm2fmiJGYO96x9OT21kcsLa7JM=vmj6ekzn5+hw@mail.gmail.com>
+References: <CAHD_kvnWruCyJsX_=xFHMiWkvxahY1U0wLtKpRonCLAHBAUQag@mail.gmail.com>
+	<CAOR=d=01EHSAEm80iFyQBbqzFkHrf8e6WZnVOhS9yZnL7ER27g@mail.gmail.com>
+	<CAHD_kvkNTx7zm2fmiJGYO96x9OT21kcsLa7JM=vmj6ekzn5+hw@mail.gmail.com>
+Message-ID: <CAOR=d=3m8HwyzDLdpwq9d6Ptfc8A_-BVUB5PeZECFAkcFwJAWg@mail.gmail.com>
+
+On Fri, Oct 9, 2015 at 11:09 PM, Sung Hsin Lei <sungh.lei at gmail.com> wrote:
+>
+>
+> On Sat, Oct 10, 2015 at 12:50 AM, Scott Marlowe <scott.marlowe at gmail.com>
+> wrote:
+>>
+>> On Fri, Oct 9, 2015 at 9:34 PM, Sung Hsin Lei <sungh.lei at gmail.com> wrote:
+>> > Hello,
+>> >
+>> > I have a 10gig database on the Master which I backed up and restored on
+>> > the
+>> > Slave. Database activity is low. When I setup Slony replication from the
+>> > Master to the Slave, it would take hours before new information from the
+>> > Master would be updated into the Slave. Postgres would be also VERY slow
+>> > for
+>> > the first few hours. However, after the initial wait period, the Slave
+>> > would
+>> > update within a second or so and Postgres speed would return to normal.
+>> > I'm
+>> > assuming that Slony is taking time to verify the initial database
+>> > integrity
+>> > between the Master and the Slave. Am i right? I would like to know if
+>> > there's a way to have the updates start within the first few minutes of
+>> > the
+>> > original setup.
+>>
+>> In a normal slony sub, all you need on the slave is the schema. If
+>> there's data there it'll get truncated / deleted, so there's no reason
+>> to spend time copying it over.
+>>
+>> IF and only IF you are willing to take your master offline from your
+>> application (i.e. stop writes going to it) you can copy over the data
+>> and then subscribe with no copy. If the master is not taken "offline"
+>> from an application perspective then a subscribe with no copy will
+>> result in your master and slave not having the same data (which is
+>> bad).
+>
+>
+> Thanks for the response.
+>
+> How about when you change the db schema such as adding/removing/renaming
+> tables, columns and dependencies? We usually stop the replication, delete
+> the cluster from both Master and Slave, make the changes on both Master and
+> Slave and run the setup from scratch. This would also freeze postgres and
+> take several hours for replication to start. Isn't there a way to make it
+> faster considering that all data is already in the Slave?
+
+Yes, what you are looking for is the EXECUTE SCRIPT command. See this page:
+http://slony.info/adminguide/2.2/doc/adminguide/stmtddlscript.html
+
+>
+> Also, how do you subscribe with no copy?
+>
+
+There's an argument for the slonik subscribe command called "omit copy". See:
+http://slony.info/adminguide/2.2/doc/adminguide/stmtsubscribeset.html
+
+Note that all of this assumes you're running slony 2.2.latest. If
+you're running on slony 1.2 etc PLEASE consider upgrading.
+
