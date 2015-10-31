@@ -316,3 +316,705 @@ Thanks in advance
 
 
 
+From glynastill at yahoo.co.uk  Thu Oct 29 03:39:01 2015
+From: glynastill at yahoo.co.uk (Glyn Astill)
+Date: Thu, 29 Oct 2015 10:39:01 +0000 (UTC)
+Subject: [Slony1-general] Error when adding a table to replication
+In-Reply-To: <5630E99E.6040209@consistentstate.com>
+References: <5630E99E.6040209@consistentstate.com>
+Message-ID: <562277277.7082224.1446115141768.JavaMail.yahoo@mail.yahoo.com>
+
+----- Original Message -----
+
+> From: CS DBA <cs_dba at consistentstate.com>
+> To: slony1-general at lists.slony.info
+> Cc: 
+> Sent: Wednesday, 28 October 2015, 15:28
+> Subject: [Slony1-general] Error when adding a table to replication
+> 
+> 
+> The archive dir is writable by postgres and the file perms are:
+> ls -l /usr/local/pgsql/slon_logs/slony1_log_2_00000000000001552202.sql.tmp
+> -rw-r--r-- 1 postgres postgres 504 2015-10-27 13:18 
+> /usr/local/pgsql/slon_logs/slony1_log_2_00000000000001552202.sql.tmp
+> 
+> 
+> Thoughts?
+> 
+
+
+I'm fairly un-knowledgable when it comes to slony log shipping, but it might help if you tell us what user the slon daemon is running under.
+
+From ssinger at ca.afilias.info  Thu Oct 29 07:03:02 2015
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Thu, 29 Oct 2015 10:03:02 -0400
+Subject: [Slony1-general] Error when adding a table to replication
+In-Reply-To: <5630E99E.6040209@consistentstate.com>
+References: <5630E99E.6040209@consistentstate.com>
+Message-ID: <56322716.1010608@ca.afilias.info>
+
+On 10/28/2015 11:28 AM, CS DBA wrote:
+
+That error seems to be generated when it tries to write data to the 
+archive file but when no the file pointer to the archive is null.
+
+It isn't obvious to me looking at the code how this can happen at least 
+in the current version of slony.
+
+Which version of slony are you using?
+
+I assume if you restart the slon you get this right away?
+
+The log message 'does not require Slony-I serial key' also looks suspect.
+
+
+
+
+> We're seeing this in the slon logs (we are doing slon archiving as well,
+> the slon -a flag):
+>
+> 2015-10-28 07:54:56 PDTDEBUG1 remoteWorkerThread_1: connected to provider DB
+> 2015-10-28 07:54:56 PDTDEBUG2 remoteWorkerThread_1: prepare to copy
+> table "abc"."data_set_720"
+> 2015-10-28 07:54:56 PDTDEBUG3 remoteWorkerThread_1: table
+> "sch1"."data_set_720" does not require Slony-I serial key
+> 2015-10-28 07:54:56 PDTDEBUG2 remoteWorkerThread_1: all tables for set
+> 14 found on subscriber
+> 2015-10-28 07:54:56 PDTDEBUG2 remoteWorkerThread_1: copy table
+> "sch1"."data_set_720"
+> 2015-10-28 07:54:56 PDTDEBUG3 remoteWorkerThread_1: table
+> "sch1"."data_set_720" does not require Slony-I serial key
+> 2015-10-28 07:54:56 PDTDEBUG2 remoteWorkerThread_1: Begin COPY of table
+> "sch1"."data_set_720"
+> 2015-10-28 07:54:56 PDTDEBUG2 remoteWorkerThread_1:  nodeon73 is 0
+> NOTICE:  truncate of "sch1"."data_set_720" succeeded
+> 2015-10-28 07:54:56 PDTERROR  remoteWorkerThread_1: Cannot write to
+> archive file
+> /usr/local/pgsql/slon_logs/slony1_log_2_00000000000001552202.sql.tmp -
+> not open
+> 2015-10-28 07:54:56 PDTWARN   remoteWorkerThread_1: data copy for set 14
+> failed 1103 times - sleep 60 seconds
+> 2015-10-28 07:55:04 PDTDEBUG2 remoteListenThread_1: queue event
+> 1,1587129 SYNC
+>
+>
+> The archive dir is writable by postgres and the file perms are:
+> ls -l /usr/local/pgsql/slon_logs/slony1_log_2_00000000000001552202.sql.tmp
+> -rw-r--r-- 1 postgres postgres 504 2015-10-27 13:18
+> /usr/local/pgsql/slon_logs/slony1_log_2_00000000000001552202.sql.tmp
+>
+>
+> Thoughts?
+>
+> Thanks in advance
+>
+>
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+>
+
+
+From jaime at 2ndquadrant.com  Thu Oct 29 12:58:14 2015
+From: jaime at 2ndquadrant.com (Jaime Casanova)
+Date: Thu, 29 Oct 2015 14:58:14 -0500
+Subject: [Slony1-general] adding a replication node instructions update?
+In-Reply-To: <87d1wltbwv.fsf@alice.fifthhorseman.net>
+References: <87d1wltbwv.fsf@alice.fifthhorseman.net>
+Message-ID: <CAJKUy5jr=Ua-deX=DQGL4ZkEQk-q3P6u=B2Qp5F3E2tuccf+yA@mail.gmail.com>
+
+On 11 October 2015 at 14:58, Daniel Kahn Gillmor <dkg at fifthhorseman.net> wrote:
+> hey slony people--
+>
+> http://www.slony.info/documentation/2.0/administration.html#AEN697
+>
+> says:
+>
+>> 3.1.4. Adding a Replication Node
+>>
+>> To add a node to the replication cluster you should
+>>
+>>     Create a database for the node and install your application schema in it.
+>>
+>>     createdb -h $NEWSLAVE_HOST $SLAVEDB
+>>     pg_dump -h $MASTER_HOST -s $MASTERDB | psql -h $NEWSLAVE_HOST $SLAVEDB
+>
+> however, this step seems like it's not quite right.
+>
+> in particular, this step appears to copy the master's replication
+> namespace into the new replication database.  This causes the subsequent
+> STORE NODE command to fail with a complaint that the _$CLUSTER_NAME
+> schema is already present.
+>
+> I think if you add -N _$CLUSTERNAME to the pg_dump side of the pipeline,
+> then the rest of the directions should complete OK.
+>
+> Is this a bug in the documentation, or have i misunderstood something?
+>
+
+looks like a bug in documentation, yes
+
+-- 
+Jaime Casanova         www.2ndQuadrant.com
+Professional PostgreSQL: Soporte 24x7 y capacitaci?n
+
+From cs_dba at consistentstate.com  Thu Oct 29 13:01:12 2015
+From: cs_dba at consistentstate.com (CS DBA)
+Date: Thu, 29 Oct 2015 14:01:12 -0600
+Subject: [Slony1-general] Error when adding a table to replication
+In-Reply-To: <56322716.1010608@ca.afilias.info>
+References: <5630E99E.6040209@consistentstate.com>
+	<56322716.1010608@ca.afilias.info>
+Message-ID: <56327B08.4030501@consistentstate.com>
+
+Its an older version, I'll need to check with the client to be sure, if 
+we restart the slon daemons then everything works fine, until we add 
+another table
+
+
+On 10/29/2015 08:03 AM, Steve Singer wrote:
+> On 10/28/2015 11:28 AM, CS DBA wrote:
+>
+> That error seems to be generated when it tries to write data to the 
+> archive file but when no the file pointer to the archive is null.
+>
+> It isn't obvious to me looking at the code how this can happen at 
+> least in the current version of slony.
+>
+> Which version of slony are you using?
+>
+> I assume if you restart the slon you get this right away?
+>
+> The log message 'does not require Slony-I serial key' also looks suspect.
+>
+>
+>
+>
+>> We're seeing this in the slon logs (we are doing slon archiving as well,
+>> the slon -a flag):
+>>
+>> 2015-10-28 07:54:56 PDTDEBUG1 remoteWorkerThread_1: connected to 
+>> provider DB
+>> 2015-10-28 07:54:56 PDTDEBUG2 remoteWorkerThread_1: prepare to copy
+>> table "abc"."data_set_720"
+>> 2015-10-28 07:54:56 PDTDEBUG3 remoteWorkerThread_1: table
+>> "sch1"."data_set_720" does not require Slony-I serial key
+>> 2015-10-28 07:54:56 PDTDEBUG2 remoteWorkerThread_1: all tables for set
+>> 14 found on subscriber
+>> 2015-10-28 07:54:56 PDTDEBUG2 remoteWorkerThread_1: copy table
+>> "sch1"."data_set_720"
+>> 2015-10-28 07:54:56 PDTDEBUG3 remoteWorkerThread_1: table
+>> "sch1"."data_set_720" does not require Slony-I serial key
+>> 2015-10-28 07:54:56 PDTDEBUG2 remoteWorkerThread_1: Begin COPY of table
+>> "sch1"."data_set_720"
+>> 2015-10-28 07:54:56 PDTDEBUG2 remoteWorkerThread_1:  nodeon73 is 0
+>> NOTICE:  truncate of "sch1"."data_set_720" succeeded
+>> 2015-10-28 07:54:56 PDTERROR  remoteWorkerThread_1: Cannot write to
+>> archive file
+>> /usr/local/pgsql/slon_logs/slony1_log_2_00000000000001552202.sql.tmp -
+>> not open
+>> 2015-10-28 07:54:56 PDTWARN   remoteWorkerThread_1: data copy for set 14
+>> failed 1103 times - sleep 60 seconds
+>> 2015-10-28 07:55:04 PDTDEBUG2 remoteListenThread_1: queue event
+>> 1,1587129 SYNC
+>>
+>>
+>> The archive dir is writable by postgres and the file perms are:
+>> ls -l 
+>> /usr/local/pgsql/slon_logs/slony1_log_2_00000000000001552202.sql.tmp
+>> -rw-r--r-- 1 postgres postgres 504 2015-10-27 13:18
+>> /usr/local/pgsql/slon_logs/slony1_log_2_00000000000001552202.sql.tmp
+>>
+>>
+>> Thoughts?
+>>
+>> Thanks in advance
+>>
+>>
+>>
+>> _______________________________________________
+>> Slony1-general mailing list
+>> Slony1-general at lists.slony.info
+>> http://lists.slony.info/mailman/listinfo/slony1-general
+>>
+>
+
+
+From ssinger at ca.afilias.info  Thu Oct 29 13:21:28 2015
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Thu, 29 Oct 2015 16:21:28 -0400
+Subject: [Slony1-general] Error when adding a table to replication
+In-Reply-To: <56327B08.4030501@consistentstate.com>
+References: <5630E99E.6040209@consistentstate.com>
+	<56322716.1010608@ca.afilias.info>
+	<56327B08.4030501@consistentstate.com>
+Message-ID: <56327FC8.8040702@ca.afilias.info>
+
+On 10/29/2015 04:01 PM, CS DBA wrote:
+> Its an older version, I'll need to check with the client to be sure, if
+> we restart the slon daemons then everything works fine, until we add
+> another table
+>
+
+If you can reproduce this in a 2.2.x version I'll try to see why it 
+happens (looking at the code nothing jumps out at me)
+
+If you can only reproduce this in 1.2.x then there is a good chance that 
+it has already been fixed.
+
+
+>
+> On 10/29/2015 08:03 AM, Steve Singer wrote:
+>> On 10/28/2015 11:28 AM, CS DBA wrote:
+>>
+>> That error seems to be generated when it tries to write data to the
+>> archive file but when no the file pointer to the archive is null.
+>>
+>> It isn't obvious to me looking at the code how this can happen at
+>> least in the current version of slony.
+>>
+>> Which version of slony are you using?
+>>
+>> I assume if you restart the slon you get this right away?
+>>
+>> The log message 'does not require Slony-I serial key' also looks suspect.
+>>
+>>
+>>
+>>
+>>> We're seeing this in the slon logs (we are doing slon archiving as well,
+>>> the slon -a flag):
+>>>
+>>> 2015-10-28 07:54:56 PDTDEBUG1 remoteWorkerThread_1: connected to
+>>> provider DB
+>>> 2015-10-28 07:54:56 PDTDEBUG2 remoteWorkerThread_1: prepare to copy
+>>> table "abc"."data_set_720"
+>>> 2015-10-28 07:54:56 PDTDEBUG3 remoteWorkerThread_1: table
+>>> "sch1"."data_set_720" does not require Slony-I serial key
+>>> 2015-10-28 07:54:56 PDTDEBUG2 remoteWorkerThread_1: all tables for set
+>>> 14 found on subscriber
+>>> 2015-10-28 07:54:56 PDTDEBUG2 remoteWorkerThread_1: copy table
+>>> "sch1"."data_set_720"
+>>> 2015-10-28 07:54:56 PDTDEBUG3 remoteWorkerThread_1: table
+>>> "sch1"."data_set_720" does not require Slony-I serial key
+>>> 2015-10-28 07:54:56 PDTDEBUG2 remoteWorkerThread_1: Begin COPY of table
+>>> "sch1"."data_set_720"
+>>> 2015-10-28 07:54:56 PDTDEBUG2 remoteWorkerThread_1:  nodeon73 is 0
+>>> NOTICE:  truncate of "sch1"."data_set_720" succeeded
+>>> 2015-10-28 07:54:56 PDTERROR  remoteWorkerThread_1: Cannot write to
+>>> archive file
+>>> /usr/local/pgsql/slon_logs/slony1_log_2_00000000000001552202.sql.tmp -
+>>> not open
+>>> 2015-10-28 07:54:56 PDTWARN   remoteWorkerThread_1: data copy for set 14
+>>> failed 1103 times - sleep 60 seconds
+>>> 2015-10-28 07:55:04 PDTDEBUG2 remoteListenThread_1: queue event
+>>> 1,1587129 SYNC
+>>>
+>>>
+>>> The archive dir is writable by postgres and the file perms are:
+>>> ls -l
+>>> /usr/local/pgsql/slon_logs/slony1_log_2_00000000000001552202.sql.tmp
+>>> -rw-r--r-- 1 postgres postgres 504 2015-10-27 13:18
+>>> /usr/local/pgsql/slon_logs/slony1_log_2_00000000000001552202.sql.tmp
+>>>
+>>>
+>>> Thoughts?
+>>>
+>>> Thanks in advance
+>>>
+>>>
+>>>
+>>> _______________________________________________
+>>> Slony1-general mailing list
+>>> Slony1-general at lists.slony.info
+>>> http://lists.slony.info/mailman/listinfo/slony1-general
+>>>
+>>
+>
+
+
+From cs_dba at consistentstate.com  Thu Oct 29 14:10:19 2015
+From: cs_dba at consistentstate.com (CS DBA)
+Date: Thu, 29 Oct 2015 15:10:19 -0600
+Subject: [Slony1-general] Error when adding a table to replication
+In-Reply-To: <56327FC8.8040702@ca.afilias.info>
+References: <5630E99E.6040209@consistentstate.com>
+	<56322716.1010608@ca.afilias.info>
+	<56327B08.4030501@consistentstate.com>
+	<56327FC8.8040702@ca.afilias.info>
+Message-ID: <56328B3B.8040004@consistentstate.com>
+
+
+
+On 10/29/2015 02:21 PM, Steve Singer wrote:
+> On 10/29/2015 04:01 PM, CS DBA wrote:
+>> Its an older version, I'll need to check with the client to be sure, if
+>> we restart the slon daemons then everything works fine, until we add
+>> another table
+>>
+>
+> If you can reproduce this in a 2.2.x version I'll try to see why it 
+> happens (looking at the code nothing jumps out at me)
+>
+> If you can only reproduce this in 1.2.x then there is a good chance 
+> that it has already been fixed.
+
+OK I'll let you know what we find, thanks
+
+
+>
+>
+>>
+>> On 10/29/2015 08:03 AM, Steve Singer wrote:
+>>> On 10/28/2015 11:28 AM, CS DBA wrote:
+>>>
+>>> That error seems to be generated when it tries to write data to the
+>>> archive file but when no the file pointer to the archive is null.
+>>>
+>>> It isn't obvious to me looking at the code how this can happen at
+>>> least in the current version of slony.
+>>>
+>>> Which version of slony are you using?
+>>>
+>>> I assume if you restart the slon you get this right away?
+>>>
+>>> The log message 'does not require Slony-I serial key' also looks 
+>>> suspect.
+>>>
+>>>
+>>>
+>>>
+>>>> We're seeing this in the slon logs (we are doing slon archiving as 
+>>>> well,
+>>>> the slon -a flag):
+>>>>
+>>>> 2015-10-28 07:54:56 PDTDEBUG1 remoteWorkerThread_1: connected to
+>>>> provider DB
+>>>> 2015-10-28 07:54:56 PDTDEBUG2 remoteWorkerThread_1: prepare to copy
+>>>> table "abc"."data_set_720"
+>>>> 2015-10-28 07:54:56 PDTDEBUG3 remoteWorkerThread_1: table
+>>>> "sch1"."data_set_720" does not require Slony-I serial key
+>>>> 2015-10-28 07:54:56 PDTDEBUG2 remoteWorkerThread_1: all tables for set
+>>>> 14 found on subscriber
+>>>> 2015-10-28 07:54:56 PDTDEBUG2 remoteWorkerThread_1: copy table
+>>>> "sch1"."data_set_720"
+>>>> 2015-10-28 07:54:56 PDTDEBUG3 remoteWorkerThread_1: table
+>>>> "sch1"."data_set_720" does not require Slony-I serial key
+>>>> 2015-10-28 07:54:56 PDTDEBUG2 remoteWorkerThread_1: Begin COPY of 
+>>>> table
+>>>> "sch1"."data_set_720"
+>>>> 2015-10-28 07:54:56 PDTDEBUG2 remoteWorkerThread_1: nodeon73 is 0
+>>>> NOTICE:  truncate of "sch1"."data_set_720" succeeded
+>>>> 2015-10-28 07:54:56 PDTERROR  remoteWorkerThread_1: Cannot write to
+>>>> archive file
+>>>> /usr/local/pgsql/slon_logs/slony1_log_2_00000000000001552202.sql.tmp -
+>>>> not open
+>>>> 2015-10-28 07:54:56 PDTWARN   remoteWorkerThread_1: data copy for 
+>>>> set 14
+>>>> failed 1103 times - sleep 60 seconds
+>>>> 2015-10-28 07:55:04 PDTDEBUG2 remoteListenThread_1: queue event
+>>>> 1,1587129 SYNC
+>>>>
+>>>>
+>>>> The archive dir is writable by postgres and the file perms are:
+>>>> ls -l
+>>>> /usr/local/pgsql/slon_logs/slony1_log_2_00000000000001552202.sql.tmp
+>>>> -rw-r--r-- 1 postgres postgres 504 2015-10-27 13:18
+>>>> /usr/local/pgsql/slon_logs/slony1_log_2_00000000000001552202.sql.tmp
+>>>>
+>>>>
+>>>> Thoughts?
+>>>>
+>>>> Thanks in advance
+>>>>
+>>>>
+>>>>
+>>>> _______________________________________________
+>>>> Slony1-general mailing list
+>>>> Slony1-general at lists.slony.info
+>>>> http://lists.slony.info/mailman/listinfo/slony1-general
+>>>>
+>>>
+>>
+>
+
+
+From sungh.lei at gmail.com  Thu Oct 29 17:06:51 2015
+From: sungh.lei at gmail.com (Sung Hsin Lei)
+Date: Thu, 29 Oct 2015 20:06:51 -0400
+Subject: [Slony1-general] Slony Replication Startup Speed
+In-Reply-To: <CAOR=d=3m8HwyzDLdpwq9d6Ptfc8A_-BVUB5PeZECFAkcFwJAWg@mail.gmail.com>
+References: <CAHD_kvnWruCyJsX_=xFHMiWkvxahY1U0wLtKpRonCLAHBAUQag@mail.gmail.com>
+	<CAOR=d=01EHSAEm80iFyQBbqzFkHrf8e6WZnVOhS9yZnL7ER27g@mail.gmail.com>
+	<CAHD_kvkNTx7zm2fmiJGYO96x9OT21kcsLa7JM=vmj6ekzn5+hw@mail.gmail.com>
+	<CAOR=d=3m8HwyzDLdpwq9d6Ptfc8A_-BVUB5PeZECFAkcFwJAWg@mail.gmail.com>
+Message-ID: <CAHD_kvk+C-HAgAY+KmqNUPWs4TsH4gOFS14-Mg-BVam0+ticOA@mail.gmail.com>
+
+Hello,
+
+I successfully update the main db and one replicated db with the following:
+
+cluster name = slony_rep1
+
+node 1 admin conninfo = 'dbname = MyDB host = localhost user = slony1
+password = Ejhfg33EdddsufhErR76 port = 6234';
+node 2 admin conninfo = 'dbname = MyDB host = 86.88.5.4 user = slony1
+password = Ejhfg33EdddsufhErR76 port = 6234';
+
+EXECUTE SCRIPT
+(
+    SQL = 'ALTER TABLE operators RENAME COLUMN firstname TO lastname;',
+    EVENT NODE = 1
+);
+
+
+
+
+However, I have 1 main db to 2 replicated db. The second replicated db has
+the following cluster name and node information:
+
+cluster name = slony_rep2
+
+node 1 admin conninfo = 'dbname = MyDB host = localhost user = slony2
+password = Ejhfg33EdddsufhErR76 port = 6234';
+node 2 admin conninfo = 'dbname = MyDB host = 86.88.5.17 user = slony2
+password = Ejhfg33EdddsufhErR76 port = 6234';
+
+
+Do I need to run slonik twice with different cluster and node indo? That
+does not seem right. After running the first time, the main db and the
+first replicated db will be consistent but not the second replicated db.
+Also, if I run it a second time, wouldn't the main db already be updated
+hence the sql statements used for the original update will surely fail?
+
+
+Thanks again.
+
+On Sat, Oct 10, 2015 at 2:51 AM, Scott Marlowe <scott.marlowe at gmail.com>
+wrote:
+
+> On Fri, Oct 9, 2015 at 11:09 PM, Sung Hsin Lei <sungh.lei at gmail.com>
+> wrote:
+> >
+> >
+> > On Sat, Oct 10, 2015 at 12:50 AM, Scott Marlowe <scott.marlowe at gmail.com
+> >
+> > wrote:
+> >>
+> >> On Fri, Oct 9, 2015 at 9:34 PM, Sung Hsin Lei <sungh.lei at gmail.com>
+> wrote:
+> >> > Hello,
+> >> >
+> >> > I have a 10gig database on the Master which I backed up and restored
+> on
+> >> > the
+> >> > Slave. Database activity is low. When I setup Slony replication from
+> the
+> >> > Master to the Slave, it would take hours before new information from
+> the
+> >> > Master would be updated into the Slave. Postgres would be also VERY
+> slow
+> >> > for
+> >> > the first few hours. However, after the initial wait period, the Slave
+> >> > would
+> >> > update within a second or so and Postgres speed would return to
+> normal.
+> >> > I'm
+> >> > assuming that Slony is taking time to verify the initial database
+> >> > integrity
+> >> > between the Master and the Slave. Am i right? I would like to know if
+> >> > there's a way to have the updates start within the first few minutes
+> of
+> >> > the
+> >> > original setup.
+> >>
+> >> In a normal slony sub, all you need on the slave is the schema. If
+> >> there's data there it'll get truncated / deleted, so there's no reason
+> >> to spend time copying it over.
+> >>
+> >> IF and only IF you are willing to take your master offline from your
+> >> application (i.e. stop writes going to it) you can copy over the data
+> >> and then subscribe with no copy. If the master is not taken "offline"
+> >> from an application perspective then a subscribe with no copy will
+> >> result in your master and slave not having the same data (which is
+> >> bad).
+> >
+> >
+> > Thanks for the response.
+> >
+> > How about when you change the db schema such as adding/removing/renaming
+> > tables, columns and dependencies? We usually stop the replication, delete
+> > the cluster from both Master and Slave, make the changes on both Master
+> and
+> > Slave and run the setup from scratch. This would also freeze postgres and
+> > take several hours for replication to start. Isn't there a way to make it
+> > faster considering that all data is already in the Slave?
+>
+> Yes, what you are looking for is the EXECUTE SCRIPT command. See this page:
+> http://slony.info/adminguide/2.2/doc/adminguide/stmtddlscript.html
+>
+> >
+> > Also, how do you subscribe with no copy?
+> >
+>
+> There's an argument for the slonik subscribe command called "omit copy".
+> See:
+> http://slony.info/adminguide/2.2/doc/adminguide/stmtsubscribeset.html
+>
+> Note that all of this assumes you're running slony 2.2.latest. If
+> you're running on slony 1.2 etc PLEASE consider upgrading.
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20151029/f6f0c522/attachment-0001.htm 
+
+From scott.marlowe at gmail.com  Thu Oct 29 17:39:26 2015
+From: scott.marlowe at gmail.com (Scott Marlowe)
+Date: Thu, 29 Oct 2015 18:39:26 -0600
+Subject: [Slony1-general] Slony Replication Startup Speed
+In-Reply-To: <CAHD_kvk+C-HAgAY+KmqNUPWs4TsH4gOFS14-Mg-BVam0+ticOA@mail.gmail.com>
+References: <CAHD_kvnWruCyJsX_=xFHMiWkvxahY1U0wLtKpRonCLAHBAUQag@mail.gmail.com>
+	<CAOR=d=01EHSAEm80iFyQBbqzFkHrf8e6WZnVOhS9yZnL7ER27g@mail.gmail.com>
+	<CAHD_kvkNTx7zm2fmiJGYO96x9OT21kcsLa7JM=vmj6ekzn5+hw@mail.gmail.com>
+	<CAOR=d=3m8HwyzDLdpwq9d6Ptfc8A_-BVUB5PeZECFAkcFwJAWg@mail.gmail.com>
+	<CAHD_kvk+C-HAgAY+KmqNUPWs4TsH4gOFS14-Mg-BVam0+ticOA@mail.gmail.com>
+Message-ID: <CAOR=d=3zx_vBDQoE3yNdcNvnnSWdBC75UyMgE9hDrdD=_p6Tzw@mail.gmail.com>
+
+On Thu, Oct 29, 2015 at 6:06 PM, Sung Hsin Lei <sungh.lei at gmail.com> wrote:
+> Hello,
+>
+> I successfully update the main db and one replicated db with the following:
+>
+> cluster name = slony_rep1
+>
+> node 1 admin conninfo = 'dbname = MyDB host = localhost user = slony1
+> password = Ejhfg33EdddsufhErR76 port = 6234';
+> node 2 admin conninfo = 'dbname = MyDB host = 86.88.5.4 user = slony1
+> password = Ejhfg33EdddsufhErR76 port = 6234';
+>
+> EXECUTE SCRIPT
+> (
+>     SQL = 'ALTER TABLE operators RENAME COLUMN firstname TO lastname;',
+>     EVENT NODE = 1
+> );
+>
+>
+>
+>
+> However, I have 1 main db to 2 replicated db. The second replicated db has
+> the following cluster name and node information:
+>
+> cluster name = slony_rep2
+>
+> node 1 admin conninfo = 'dbname = MyDB host = localhost user = slony2
+> password = Ejhfg33EdddsufhErR76 port = 6234';
+> node 2 admin conninfo = 'dbname = MyDB host = 86.88.5.17 user = slony2
+> password = Ejhfg33EdddsufhErR76 port = 6234';
+
+Shouldn't that be node 3 not node 2?
+
+> Do I need to run slonik twice with different cluster and node indo? That
+> does not seem right. After running the first time, the main db and the first
+> replicated db will be consistent but not the second replicated db. Also, if
+> I run it a second time, wouldn't the main db already be updated hence the
+> sql statements used for the original update will surely fail?
+
+You can just run it on all three at once.
+
+node 1 admin conninfo = 'dbname = MyDB host = localhost user = slony1
+password = Ejhfg33EdddsufhErR76 port = 6234';
+node 2 admin conninfo = 'dbname = MyDB host = 86.88.5.4 user = slony1
+password = Ejhfg33EdddsufhErR76 port = 6234';
+node 3 admin conninfo = 'dbname = MyDB host = 86.88.5.17 user = slony2
+password = Ejhfg33EdddsufhErR76 port = 6234';
+
+EXECUTE SCRIPT
+(
+    SQL = 'ALTER TABLE operators RENAME COLUMN firstname TO lastname;',
+    EVENT NODE = 1
+);
+
+From sungh.lei at gmail.com  Thu Oct 29 18:49:44 2015
+From: sungh.lei at gmail.com (Sung Hsin Lei)
+Date: Thu, 29 Oct 2015 21:49:44 -0400
+Subject: [Slony1-general] Slony Replication Startup Speed
+In-Reply-To: <CAOR=d=3zx_vBDQoE3yNdcNvnnSWdBC75UyMgE9hDrdD=_p6Tzw@mail.gmail.com>
+References: <CAHD_kvnWruCyJsX_=xFHMiWkvxahY1U0wLtKpRonCLAHBAUQag@mail.gmail.com>
+	<CAOR=d=01EHSAEm80iFyQBbqzFkHrf8e6WZnVOhS9yZnL7ER27g@mail.gmail.com>
+	<CAHD_kvkNTx7zm2fmiJGYO96x9OT21kcsLa7JM=vmj6ekzn5+hw@mail.gmail.com>
+	<CAOR=d=3m8HwyzDLdpwq9d6Ptfc8A_-BVUB5PeZECFAkcFwJAWg@mail.gmail.com>
+	<CAHD_kvk+C-HAgAY+KmqNUPWs4TsH4gOFS14-Mg-BVam0+ticOA@mail.gmail.com>
+	<CAOR=d=3zx_vBDQoE3yNdcNvnnSWdBC75UyMgE9hDrdD=_p6Tzw@mail.gmail.com>
+Message-ID: <CAHD_kvm=hUgL6d86zeQ_zuNLSV58f=bCkZccv+FgdRJ+TzGSOA@mail.gmail.com>
+
+Actually, node 2 is correct. I have 2 different clusters. Each cluster has
+node 1 and node 2. Each cluster replicates to 1 db.
+
+On Thu, Oct 29, 2015 at 8:39 PM, Scott Marlowe <scott.marlowe at gmail.com>
+wrote:
+
+> On Thu, Oct 29, 2015 at 6:06 PM, Sung Hsin Lei <sungh.lei at gmail.com>
+> wrote:
+> > Hello,
+> >
+> > I successfully update the main db and one replicated db with the
+> following:
+> >
+> > cluster name = slony_rep1
+> >
+> > node 1 admin conninfo = 'dbname = MyDB host = localhost user = slony1
+> > password = Ejhfg33EdddsufhErR76 port = 6234';
+> > node 2 admin conninfo = 'dbname = MyDB host = 86.88.5.4 user = slony1
+> > password = Ejhfg33EdddsufhErR76 port = 6234';
+> >
+> > EXECUTE SCRIPT
+> > (
+> >     SQL = 'ALTER TABLE operators RENAME COLUMN firstname TO lastname;',
+> >     EVENT NODE = 1
+> > );
+> >
+> >
+> >
+> >
+> > However, I have 1 main db to 2 replicated db. The second replicated db
+> has
+> > the following cluster name and node information:
+> >
+> > cluster name = slony_rep2
+> >
+> > node 1 admin conninfo = 'dbname = MyDB host = localhost user = slony2
+> > password = Ejhfg33EdddsufhErR76 port = 6234';
+> > node 2 admin conninfo = 'dbname = MyDB host = 86.88.5.17 user = slony2
+> > password = Ejhfg33EdddsufhErR76 port = 6234';
+>
+> Shouldn't that be node 3 not node 2?
+>
+> > Do I need to run slonik twice with different cluster and node indo? That
+> > does not seem right. After running the first time, the main db and the
+> first
+> > replicated db will be consistent but not the second replicated db. Also,
+> if
+> > I run it a second time, wouldn't the main db already be updated hence the
+> > sql statements used for the original update will surely fail?
+>
+> You can just run it on all three at once.
+>
+> node 1 admin conninfo = 'dbname = MyDB host = localhost user = slony1
+> password = Ejhfg33EdddsufhErR76 port = 6234';
+> node 2 admin conninfo = 'dbname = MyDB host = 86.88.5.4 user = slony1
+> password = Ejhfg33EdddsufhErR76 port = 6234';
+> node 3 admin conninfo = 'dbname = MyDB host = 86.88.5.17 user = slony2
+> password = Ejhfg33EdddsufhErR76 port = 6234';
+>
+> EXECUTE SCRIPT
+> (
+>     SQL = 'ALTER TABLE operators RENAME COLUMN firstname TO lastname;',
+>     EVENT NODE = 1
+> );
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20151029/5404a327/attachment.htm 
+
