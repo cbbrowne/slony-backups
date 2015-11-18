@@ -1200,3 +1200,489 @@ Ludovic Toinel
 This message contains information that may be privileged or confidential and is the property of the Capgemini Group. It is intended only for the person to whom it is addressed. If you are not the intended recipient, you are not authorized to read, print, retain, copy, disseminate, distribute, or use this message or any part thereof. If you receive this message in error, please notify the sender immediately and delete all copies of this message.
 
 
+From ttignor at akamai.com  Mon Nov 16 05:52:00 2015
+From: ttignor at akamai.com (Tignor, Tom)
+Date: Mon, 16 Nov 2015 13:52:00 +0000
+Subject: [Slony1-general] remote listener serializability
+Message-ID: <D26F49AE.41208%ttignor@akamai.com>
+
+
+Hello slony1 community,
+I'm part of a team at Akamai working on a notification service based on postgres. (We call it an Alert Management System.) We're at the point where we need to scale past the single instance DB and so have been working with slony1-2.2.4 (and postgresql-9.1.18) to make that happen. Most tests in the past few months have been great, but in recent tests the reassuring SYNC-event-output-per-two-seconds suddenly disappeared. Throughout the day, it returns for a few minutes (normally less than 5, never 10) and then re-enters limbo. Vigorous debugging ensued, and the problem was proven to be the serializable isolation level set in slon/remote_listen.c. Our recent test environment doesn't have a tremendous write rate (measured in KB/s), but it does have 200-400 clients at any one time, which may be a factor. Below is the stack shown in gdb of the postgres server proc (identified via pg_stat_activity) while slon is in limbo.
+What are the thoughts on possible changes to the remote listener isolation level and their impact? I've tested changes using repeatable read instead, and also with serializable but dropping the deferrable option. The latter offers little improvement if any, but the former seems to return us to healthy replication. In searching around, I found Jan W filed Bug 336 last year (link below) which suggests we could relax the isolation level here and elsewhere. If it was helpful, I could verify an agreed solution and submit it back as a patch. (Not really in the slony community yet, just looking at the process now.)
+Thanks in advance,
+
+http://www.slony.info/bugzilla/show_bug.cgi?id=336
+
+
+
+(gdb) thread apply all bt
+
+
+Thread 1 (process 13052):
+
+#0  0xffffe430 in __kernel_vsyscall ()
+
+#1  0xf76d2c0f in semop () from /lib32/libc.so.6
+
+#2  0x08275a26 in PGSemaphoreLock (sema=0xf69d6784, interruptOK=1 '\001') at pg_sema.c:424
+
+#3  0x082b52cb in ProcWaitForSignal () at proc.c:1443
+
+#4  0x082bb57a in GetSafeSnapshot (origSnapshot=<optimized out>) at predicate.c:1520
+
+#5  RegisterSerializableTransaction (snapshot=0x88105a0) at predicate.c:1580
+
+#6  0x083b3f35 in GetTransactionSnapshot () at snapmgr.c:138
+
+#7  0x082c460a in exec_simple_query (
+
+    query_string=0xa87d248 "select ev_origin, ev_seqno, ev_timestamp,        ev_snapshot,        \"pg_catalog\".txid_snapshot_xmin(ev_snapshot),        \"pg_catalog\".txid_snapshot_xmax(ev_snapshot),        ev_type,        ev_data1,"...)
+
+    at postgres.c:948
+
+#8  PostgresMain (argc=1, argv=0xa7cd1e0, dbname=0xa7cd1d0 "ams", username=0xa7cd1b8 "ams_slony") at postgres.c:4021
+
+#9  0x08284a58 in BackendRun (port=0xa808118) at postmaster.c:3657
+
+#10 BackendStartup (port=0xa808118) at postmaster.c:3330
+
+#11 ServerLoop () at postmaster.c:1483
+
+#12 0x082854d8 in PostmasterMain (argc=3, argv=0xa7ccb58) at postmaster.c:1144
+
+#13 0x080cb430 in main (argc=3, argv=0xa7ccb58) at main.c:210
+
+(gdb)
+
+
+Tom    :-)
+
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20151116/1908a779/attachment.htm 
+
+From ssinger at ca.afilias.info  Mon Nov 16 10:28:11 2015
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Mon, 16 Nov 2015 13:28:11 -0500
+Subject: [Slony1-general] remote listener serializability
+In-Reply-To: <D26F49AE.41208%ttignor@akamai.com>
+References: <D26F49AE.41208%ttignor@akamai.com>
+Message-ID: <564A203B.9030806@ca.afilias.info>
+
+On 11/16/2015 08:52 AM, Tignor, Tom wrote:
+>
+> Hello slony1 community,
+> I?m part of a team at Akamai working on a notification service based on
+> postgres. (We call it an Alert Management System.) We?re at the point
+> where we need to scale past the single instance DB and so have been
+> working with slony1-2.2.4 (and postgresql-9.1.18) to make that happen.
+> Most tests in the past few months have been great, but in recent tests
+> the reassuring SYNC-event-output-per-two-seconds suddenly disappeared.
+> Throughout the day, it returns for a few minutes (normally less than 5,
+> never 10) and then re-enters limbo. Vigorous debugging ensued, and the
+> problem was proven to be the serializable isolation level set in
+> slon/remote_listen.c. Our recent test environment doesn?t have a
+> tremendous write rate (measured in KB/s), but it does have 200-400
+> clients at any one time, which may be a factor. Below is the stack shown
+> in gdb of the postgres server proc (identified via pg_stat_activity)
+> while slon is in limbo.
+
+> What are the thoughts on possible changes to the remote listener
+> isolation level and their impact? I?ve tested changes using repeatable
+> read instead, and also with serializable but dropping the deferrable
+> option. The latter offers little improvement if any, but the former
+> seems to return us to healthy replication. In searching around, I found
+> Jan W filed Bug 336 last year (link below) which suggests we could relax
+> the isolation level here and elsewhere. If it was helpful, I could
+> verify an agreed solution and submit it back as a patch. (Not really in
+> the slony community yet, just looking at the process now.)
+> Thanks in advance,
+
+The last time we had a change to isolation levels was in response to 
+this thread
+
+
+http://lists.slony.info/pipermail/slony1-general/2011-November/011939.html
+
+Also know as bug #255 (http://www.slony.info/bugzilla/show_bug.cgi?id=255)
+
+I can't recall if anyone figured out if we could reduce the remote 
+listener isolation level to read committed - read only or not.
+
+One concern at the back of my mind is if a read only repeatable read 
+transactions would result in more pivot conflicts than a read only 
+serializable deferrable transaction where the conflicts are with a 
+serializable transaction running on the origin by some application 
+transaction.
+
+
+
+
+
+
+>
+> http://www.slony.info/bugzilla/show_bug.cgi?id=336
+>
+>
+> (gdb) thread apply all bt
+>
+>
+> Thread 1 (process 13052):
+>
+> #0  0xffffe430 in __kernel_vsyscall ()
+>
+> #1  0xf76d2c0f in semop () from /lib32/libc.so.6
+>
+> #2  0x08275a26 in PGSemaphoreLock (sema=0xf69d6784, interruptOK=1
+> '\001') at pg_sema.c:424
+>
+> #3  0x082b52cb in ProcWaitForSignal () at proc.c:1443
+>
+> #4  0x082bb57a in GetSafeSnapshot (origSnapshot=<optimized out>) at
+> predicate.c:1520
+>
+> #5  RegisterSerializableTransaction (snapshot=0x88105a0) at predicate.c:1580
+>
+> #6  0x083b3f35 in GetTransactionSnapshot () at snapmgr.c:138
+>
+> #7  0x082c460a in exec_simple_query (
+>
+>      query_string=0xa87d248 "select ev_origin, ev_seqno, ev_timestamp,
+>        ev_snapshot,
+> \"pg_catalog\".txid_snapshot_xmin(ev_snapshot),
+> \"pg_catalog\".txid_snapshot_xmax(ev_snapshot),        ev_type,
+> ev_data1,"...)
+>
+>      at postgres.c:948
+>
+> #8  PostgresMain (argc=1, argv=0xa7cd1e0, dbname=0xa7cd1d0 "ams",
+> username=0xa7cd1b8 "ams_slony") at postgres.c:4021
+>
+> #9  0x08284a58 in BackendRun (port=0xa808118) at postmaster.c:3657
+>
+> #10 BackendStartup (port=0xa808118) at postmaster.c:3330
+>
+> #11 ServerLoop () at postmaster.c:1483
+>
+> #12 0x082854d8 in PostmasterMain (argc=3, argv=0xa7ccb58) at
+> postmaster.c:1144
+>
+> #13 0x080cb430 in main (argc=3, argv=0xa7ccb58) at main.c:210
+>
+> (gdb)
+>
+>
+>
+> Tom    :-)
+>
+>
+>
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+>
+
+
+From armand.pirvu at gmail.com  Mon Nov 16 19:32:14 2015
+From: armand.pirvu at gmail.com (Armand Pirvu (home))
+Date: Mon, 16 Nov 2015 21:32:14 -0600
+Subject: [Slony1-general] slony newbie setup trouble
+Message-ID: <42B5229E-D607-439E-A90D-5CAFD005F4C0@gmail.com>
+
+Hi
+
+Please pardon the length of this email but I felt it is best to give a global view
+
+I was looking at slonik for a project. 
+All the setup info, tutorials etc etc seems to vary
+
+http://raghavt.blogspot.com/2012/07/simple-slony-i-replication-setup.html
+and
+http://www.linuxjournal.com/article/7834
+
+Just to name two sources of study
+
+
+So I used two approaches
+
+1 - Passing commands to slonik directly. All ok 
+2 - Using the provided perl scripts . Not ok and this is where I would like some tips , guidance
+
+master node: 192.168.5.221
+master db: primdb
+
+
+slave node: 192.168.5.222
+slave db: bkdb
+
+I use .pgpass 
+
+
+/etc/slony1-94/slon_tools.conf
+
+I stripped out all comments to keep things to a minimum
+
+
+     1	# 
+     2	# Author: Christopher Browne
+     3	# Copyright 2004-2009 Afilias Canada
+     4	# Revised extensively by Steve Simms
+     5	
+     6	# Keeping the following three lines for backwards compatibility in
+     7	# case this gets incorporated into a 1.0.6 release.
+     8	#
+     9	# TODO: The scripts should check for an environment variable
+    10	# containing the location of a configuration file.  That would
+    11	# simplify this configuration file and allow Slony-I tools to still work
+    12	# in situations where it doesn't exist.
+    13	#
+    14	if ($ENV{"SLONYNODES"}) {
+    15	    require $ENV{"SLONYNODES"};
+    16	} else {
+    17	
+    21	    $CLUSTER_NAME = 'armandpc';
+    26	    $PIDFILE_DIR = '/var/run/slony1';
+    36	    $LOGDIR = '/var/log/slony1-94';
+    53	    $MASTERNODE = 1;
+    56	    $DEBUGLEVEL = 2;
+    63	    $SLEEP_TIME = 60;
+    64	
+    65	    # Watchdog version to use 1 or 2 (default 1)
+    66	    # $WATCHDOG_VERSION = 1;
+    67	    # Be verbose (default 1)
+    68	    $WATCHDOG_VERBOSE = 0;
+    75	    add_node(node     => 1,
+    76		     host     => '192.168.5.221',
+    77		     dbname   => 'primdb',
+    78		     port     => 5432,
+    79		     user     => 'postgres',
+    80	             password => '',
+    81	             config   => '/etc/slony1-94/slon_tools.conf');
+    83	    add_node(node     => 2,
+    84		     host     => '192.168.5.222',
+    85		     dbname   => 'bkdb',
+    86		     port     => 5432,
+    87		     user     => 'postgres',
+    88	             password => '',
+    89	             config   => '/etc/slony1-94/slon_tools.conf');
+    91	}
+    96	$SLONY_SETS = {
+    98	    # A unique name for the set
+    99	    "set1_1" => {
+   101		# The set_id, also unique
+   102		"set_id" => 1,
+   127		"table_id"    => 1,
+   128		"sequence_id" => 1,
+   132	        "pkeyedtables" => [
+   133				   'test1',
+   134				   ],
+   138		"keyedtables" => {},
+   139		"sequences" => [],
+   140	    },
+   142	};
+   152	if ($ENV{"SLONYSET"}) {
+   153	    require $ENV{"SLONYSET"};
+   154	}
+   156	# Please do not add or change anything below this point.
+   157	1;
+
+
+And now the questions/steps
+
+a	-     add_node(node     => 1,
+             host     => '192.168.5.221',
+             dbname   => 'primdb',
+             port     => 5432,
+             user     => 'postgres',
+             password => '',
+             config   => '/path/to/node1_config_file.conf');
+
+
+
+
+I presume this would be config   => '/etc/slony1-94/slon_tools.conf' or am I wrong ?
+
+b	-         "pkeyedtables" => [
+                           'test1',
+                           ],
+
+The table name in single or double quotes ? I saw an example with double quotes
+
+c	-	steps done
+
+/usr/pgsql-9.4/bin/slonik_init_cluster -c /etc/slony1-94/slon_tools.conf
+
+# INIT CLUSTER
+cluster name = armandpc;
+ node 1 admin conninfo='host=192.168.5.221 dbname=primdb user=postgres port=5432';
+ node 2 admin conninfo='host=192.168.5.222 dbname=bkdb user=postgres port=5432';
+  init cluster (id = 1, comment = 'Node 1 - primdb at 192.168.5.221');
+
+# STORE NODE
+  store node (id = 2, event node = 1, comment = 'Node 2 - bkdb at 192.168.5.222');
+  echo 'Set up replication nodes';
+
+# STORE PATH
+  echo 'Next: configure paths for each node/origin';
+  store path (server = 1, client = 2, conninfo = 'host=192.168.5.221 dbname=primdb user=postgres port=5432');
+  store path (server = 2, client = 1, conninfo = 'host=192.168.5.222 dbname=bkdb user=postgres port=5432');
+  echo 'Replication nodes prepared';
+  echo 'Please start a slon replication daemon for each node';
+
+
+-bash-4.1$ /usr/pgsql-9.4/bin/slonik_init_cluster -c /etc/slony1-94/slon_tools.conf |/usr/pgsql-9.4/bin/slonik
+<stdin>:10: Set up replication nodes
+<stdin>:13: Next: configure paths for each node/origin
+<stdin>:16: Replication nodes prepared
+<stdin>:17: Please start a slon replication daemon for each node
+
+
+
+/usr/pgsql-9.4/bin/slonik_create_set -c /etc/slony1-94/slon_tools.conf  1   
+
+cluster name = armandpc;
+ node 1 admin conninfo='host=192.168.5.221 dbname=primdb user=postgres port=5432';
+ node 2 admin conninfo='host=192.168.5.222 dbname=bkdb user=postgres port=5432';
+
+# TABLE ADD KEY
+
+# CREATE SET
+    create set (id = 1, origin = 1, comment = 'Set 1 (set1_1) for armandpc');
+
+# SET ADD TABLE
+  echo 'Subscription set 1 (set1_1) created';
+  echo 'Adding tables to the subscription set';
+  set add table (set id = 1, origin = 1, id = 1,
+                 full qualified name = 'public.test1',
+                 comment = 'Table public.test1 with primary key');
+  echo 'Add primary keyed table public.test1';
+
+# SET ADD SEQUENCE
+  echo 'Adding sequences to the subscription set';
+  echo 'All tables added';
+
+/usr/pgsql-9.4/bin/slonik_create_set -c slon.conf 1|/usr/pgsql-9.4/bin/slonik   
+
+<stdin>:11: Subscription set 1 (set1_1) created
+<stdin>:12: Adding tables to the subscription set
+<stdin>:16: Add primary keyed table public.test1
+<stdin>:19: Adding sequences to the subscription set
+<stdin>:20: All tables added
+
+
+/usr/pgsql-9.4/bin/slon_start -c /etc/slony1-94/slon_tools.conf 1  &
+fails to start
+
+2015-11-16 20:59:50 CST ERROR  syntax error in file "/etc/slony1-94/slon_tools.conf" line 13, near end of line
+2015-11-16 20:59:50 CST CONFIG main: slon version 2.2.4 starting up
+usage: /usr/pgsql-9.4/bin/slon [options] clustername conninfo
+
+Options:
+    -h                    print usage message and exit
+    -v                    print version and exit
+    -d <debuglevel>       verbosity of logging (1..4)
+    -s <milliseconds>     SYNC check interval (default 10000)
+    -t <milliseconds>     SYNC interval timeout (default 60000)
+    -o <milliseconds>     desired subscriber SYNC processing time
+    -g <num>              maximum SYNC group size (default 6)
+    -c <num>              how often to vacuum in cleanup cycles
+    -p <filename>         slon pid file
+    -f <filename>         slon configuration file
+    -a <directory>        directory to store SYNC archive files
+    -x <command>          program to run after writing archive file
+    -q <num>              Terminate when this node reaches # of SYNCs
+    -r <num>              # of syncs for -q option
+    -l <interval>         this node should lag providers by this interval
+
+
+So what gives ? How do I debug, fix , move forward ? Aside the doc which maybe I missed , has an example which yes it works but it not going in all these details, any other examples and so on ?
+
+
+Many thanks
+Armand
+
+
+
+
+From ssinger at ca.afilias.info  Mon Nov 16 19:52:55 2015
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Mon, 16 Nov 2015 22:52:55 -0500
+Subject: [Slony1-general] slony newbie setup trouble
+In-Reply-To: <42B5229E-D607-439E-A90D-5CAFD005F4C0@gmail.com>
+References: <42B5229E-D607-439E-A90D-5CAFD005F4C0@gmail.com>
+Message-ID: <564AA497.8060808@ca.afilias.info>
+
+On 11/16/2015 10:32 PM, Armand Pirvu (home) wrote:
+> Hi
+>
+> Please pardon the length of this email but I felt it is best to give a global view
+>
+> I was looking at slonik for a project.
+> All the setup info, tutorials etc etc seems to vary
+>
+> http://raghavt.blogspot.com/2012/07/simple-slony-i-replication-setup.html
+> and
+> http://www.linuxjournal.com/article/7834
+>
+
+>
+>
+> /usr/pgsql-9.4/bin/slon_start -c /etc/slony1-94/slon_tools.conf 1  &
+> fails to start
+>
+
+I think the config file should be to slon config file not a slon_tools.conf
+
+ie the format is
+
+cluster_name=myrep
+pid_file='/opt/PostgreSQL/9.1/data/master_slon.pid'
+conn_info='host=localhost dbname=master user=postgres port=5432'
+
+http://www.slony.info/documentation/2.2/runtime-config.html
+
+Or see  slon_node.conf.sample which I think is included with the perl tools
+
+
+
+> 2015-11-16 20:59:50 CST ERROR  syntax error in file "/etc/slony1-94/slon_tools.conf" line 13, near end of line
+> 2015-11-16 20:59:50 CST CONFIG main: slon version 2.2.4 starting up
+> usage: /usr/pgsql-9.4/bin/slon [options] clustername conninfo
+>
+> Options:
+>      -h                    print usage message and exit
+>      -v                    print version and exit
+>      -d <debuglevel>       verbosity of logging (1..4)
+>      -s <milliseconds>     SYNC check interval (default 10000)
+>      -t <milliseconds>     SYNC interval timeout (default 60000)
+>      -o <milliseconds>     desired subscriber SYNC processing time
+>      -g <num>              maximum SYNC group size (default 6)
+>      -c <num>              how often to vacuum in cleanup cycles
+>      -p <filename>         slon pid file
+>      -f <filename>         slon configuration file
+>      -a <directory>        directory to store SYNC archive files
+>      -x <command>          program to run after writing archive file
+>      -q <num>              Terminate when this node reaches # of SYNCs
+>      -r <num>              # of syncs for -q option
+>      -l <interval>         this node should lag providers by this interval
+>
+>
+> So what gives ? How do I debug, fix , move forward ? Aside the doc which maybe I missed , has an example which yes it works but it not going in all these details, any other examples and so on ?
+>
+>
+> Many thanks
+> Armand
+>
+>
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+>
+
+
