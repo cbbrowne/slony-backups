@@ -1792,3 +1792,417 @@ On Nov 16, 2015, at 9:52 PM, Steve Singer <ssinger at ca.afilias.info> wrote:
 An HTML attachment was scrubbed...
 URL: http://lists.slony.info/pipermail/slony1-general/attachments/20151117/c80bef9d/attachment.htm 
 
+From ttignor at akamai.com  Wed Nov 18 06:26:15 2015
+From: ttignor at akamai.com (Tignor, Tom)
+Date: Wed, 18 Nov 2015 14:26:15 +0000
+Subject: [Slony1-general] remote listener serializability
+In-Reply-To: <564A203B.9030806@ca.afilias.info>
+References: <D26F49AE.41208%ttignor@akamai.com>
+	<564A203B.9030806@ca.afilias.info>
+Message-ID: <D271E352.42CC8%ttignor@akamai.com>
+
+	
+	Hi Steve,
+	Sorry for the delay getting back. Inspired by your questions, I?ve been
+reading up on SSI, the Cahill paper and slony1 and postgres code. To
+answer your question, I don?t believe reducing the isolation level for the
+remote listener can increase pivot conflicts. As I understand pivots, they
+sit in the middle of a ?dangerous structure,? on either side of an
+rw-dependency relationship for two other transactions. So a read-only
+transaction can?t be a pivot. Also, since we?re not changing the data
+remote listener reads, I don?t believe we?d be creating new
+rw-dependencies and so making pivots of other transactions.
+	For us, I think there is a broader issue. I found the README-SSI in the
+postgres 9.1.18 package. It seems clear the benefits of SSI in postgres
+only arrive if all your transactions are serializable.
+
+??
+    * Any transaction which is run at a transaction isolation level
+other than SERIALIZABLE will not be affected by SSI.  If you want to
+enforce business rules through SSI, all transactions should be run at
+the SERIALIZABLE transaction isolation level, and that should
+probably be set as the default.
+
+??
+
+	Comments in predicate.c also seem to support the idea.
+	I believe all the apps in our DB (other than slony1) are using the
+default read committed isolation level. As I review our DB-facing procs, I
+can see listeners have rw-dependencies on the remote worker (via sl_event)
+and the remote worker has an rw-dependency on any of our clients writing
+to sl_log_1/2. As I understand SSI, that constitutes a ?dangerous
+structure,? but we still can?t expect postgres SSI to save us if the
+clients are non-serializable. Under these conditions, what benefit comes
+from serializable slony1 transactions?
+	Maybe a solution could be to provide a reduced serialization level as a
+runtime option? Requirements vary between apps. For bank transactions,
+it?s certainly clear that everything should be bulletproof. Far better to
+get it done late than to do it wrong. For our notification service,
+though, timeliness is more important. No ones likes losing data, but the
+value of the data degrades in minutes (and unaddressed alarms are likely
+to be regenerated.) It?s far less tolerable to stop replication in its
+tracks for long periods in order to achieve serializability.
+	I see this message has gotten long. Thanks in advance for your time and
+consideration.
+
+	Tom    :-)
+
+
+
+On 11/16/15, 1:28 PM, "Steve Singer" <ssinger at ca.afilias.info> wrote:
+
+>On 11/16/2015 08:52 AM, Tignor, Tom wrote:
+>>
+>> Hello slony1 community,
+>> I?m part of a team at Akamai working on a notification service based on
+>> postgres. (We call it an Alert Management System.) We?re at the point
+>> where we need to scale past the single instance DB and so have been
+>> working with slony1-2.2.4 (and postgresql-9.1.18) to make that happen.
+>> Most tests in the past few months have been great, but in recent tests
+>> the reassuring SYNC-event-output-per-two-seconds suddenly disappeared.
+>> Throughout the day, it returns for a few minutes (normally less than 5,
+>> never 10) and then re-enters limbo. Vigorous debugging ensued, and the
+>> problem was proven to be the serializable isolation level set in
+>> slon/remote_listen.c. Our recent test environment doesn?t have a
+>> tremendous write rate (measured in KB/s), but it does have 200-400
+>> clients at any one time, which may be a factor. Below is the stack shown
+>> in gdb of the postgres server proc (identified via pg_stat_activity)
+>> while slon is in limbo.
+>
+>> What are the thoughts on possible changes to the remote listener
+>> isolation level and their impact? I?ve tested changes using repeatable
+>> read instead, and also with serializable but dropping the deferrable
+>> option. The latter offers little improvement if any, but the former
+>> seems to return us to healthy replication. In searching around, I found
+>> Jan W filed Bug 336 last year (link below) which suggests we could relax
+>> the isolation level here and elsewhere. If it was helpful, I could
+>> verify an agreed solution and submit it back as a patch. (Not really in
+>> the slony community yet, just looking at the process now.)
+>> Thanks in advance,
+>
+>The last time we had a change to isolation levels was in response to
+>this thread
+>
+>
+>http://lists.slony.info/pipermail/slony1-general/2011-November/011939.html
+>
+>Also know as bug #255 (http://www.slony.info/bugzilla/show_bug.cgi?id=255)
+>
+>I can't recall if anyone figured out if we could reduce the remote
+>listener isolation level to read committed - read only or not.
+>
+>One concern at the back of my mind is if a read only repeatable read
+>transactions would result in more pivot conflicts than a read only
+>serializable deferrable transaction where the conflicts are with a
+>serializable transaction running on the origin by some application
+>transaction.
+>
+>
+>
+>
+>
+>
+>>
+>> http://www.slony.info/bugzilla/show_bug.cgi?id=336
+>>
+>>
+>> (gdb) thread apply all bt
+>>
+>>
+>> Thread 1 (process 13052):
+>>
+>> #0  0xffffe430 in __kernel_vsyscall ()
+>>
+>> #1  0xf76d2c0f in semop () from /lib32/libc.so.6
+>>
+>> #2  0x08275a26 in PGSemaphoreLock (sema=0xf69d6784, interruptOK=1
+>> '\001') at pg_sema.c:424
+>>
+>> #3  0x082b52cb in ProcWaitForSignal () at proc.c:1443
+>>
+>> #4  0x082bb57a in GetSafeSnapshot (origSnapshot=<optimized out>) at
+>> predicate.c:1520
+>>
+>> #5  RegisterSerializableTransaction (snapshot=0x88105a0) at
+>>predicate.c:1580
+>>
+>> #6  0x083b3f35 in GetTransactionSnapshot () at snapmgr.c:138
+>>
+>> #7  0x082c460a in exec_simple_query (
+>>
+>>      query_string=0xa87d248 "select ev_origin, ev_seqno, ev_timestamp,
+>>        ev_snapshot,
+>> \"pg_catalog\".txid_snapshot_xmin(ev_snapshot),
+>> \"pg_catalog\".txid_snapshot_xmax(ev_snapshot),        ev_type,
+>> ev_data1,"...)
+>>
+>>      at postgres.c:948
+>>
+>> #8  PostgresMain (argc=1, argv=0xa7cd1e0, dbname=0xa7cd1d0 "ams",
+>> username=0xa7cd1b8 "ams_slony") at postgres.c:4021
+>>
+>> #9  0x08284a58 in BackendRun (port=0xa808118) at postmaster.c:3657
+>>
+>> #10 BackendStartup (port=0xa808118) at postmaster.c:3330
+>>
+>> #11 ServerLoop () at postmaster.c:1483
+>>
+>> #12 0x082854d8 in PostmasterMain (argc=3, argv=0xa7ccb58) at
+>> postmaster.c:1144
+>>
+>> #13 0x080cb430 in main (argc=3, argv=0xa7ccb58) at main.c:210
+>>
+>> (gdb)
+>>
+>>
+>>
+>> Tom    :-)
+>>
+>>
+>>
+>>
+>> _______________________________________________
+>> Slony1-general mailing list
+>> Slony1-general at lists.slony.info
+>> http://lists.slony.info/mailman/listinfo/slony1-general
+>>
+>
+
+
+From ajs at crankycanuck.ca  Wed Nov 18 07:21:03 2015
+From: ajs at crankycanuck.ca (Andrew Sullivan)
+Date: Wed, 18 Nov 2015 10:21:03 -0500
+Subject: [Slony1-general] remote listener serializability
+In-Reply-To: <D271E352.42CC8%ttignor@akamai.com>
+References: <D26F49AE.41208%ttignor@akamai.com>
+	<564A203B.9030806@ca.afilias.info>
+	<D271E352.42CC8%ttignor@akamai.com>
+Message-ID: <20151118152103.GS30327@crankycanuck.ca>
+
+For whatever it's worth, when Slony was first designed SERIALIZABLE
+was the only option -- the alternative was READ COMMITTED and IIRC
+there were some corner cases where the data changing in the log tables
+could make a big difference (memory fails, but I think it had to do
+with log switching).  ISTR it was partly a lesson we learned from
+erserver, where some of the basic concepts underlying Slony had been
+worked out.
+
+I'd advocate a lot of caution in making changes, ideally by analysing
+all the kinds of transaction paths Slony could be seeing.  But with
+new isolation levels available, it's probably worth doing some
+analysis.
+
+A
+
+On Wed, Nov 18, 2015 at 02:26:15PM +0000, Tignor, Tom wrote:
+> 	
+> 	Hi Steve,
+> 	Sorry for the delay getting back. Inspired by your questions, I?ve been
+> reading up on SSI, the Cahill paper and slony1 and postgres code. To
+> answer your question, I don?t believe reducing the isolation level for the
+> remote listener can increase pivot conflicts. As I understand pivots, they
+> sit in the middle of a ?dangerous structure,? on either side of an
+> rw-dependency relationship for two other transactions. So a read-only
+> transaction can?t be a pivot. Also, since we?re not changing the data
+> remote listener reads, I don?t believe we?d be creating new
+> rw-dependencies and so making pivots of other transactions.
+> 	For us, I think there is a broader issue. I found the README-SSI in the
+> postgres 9.1.18 package. It seems clear the benefits of SSI in postgres
+> only arrive if all your transactions are serializable.
+> 
+> ??
+>     * Any transaction which is run at a transaction isolation level
+> other than SERIALIZABLE will not be affected by SSI.  If you want to
+> enforce business rules through SSI, all transactions should be run at
+> the SERIALIZABLE transaction isolation level, and that should
+> probably be set as the default.
+> 
+> ??
+> 
+> 	Comments in predicate.c also seem to support the idea.
+> 	I believe all the apps in our DB (other than slony1) are using the
+> default read committed isolation level. As I review our DB-facing procs, I
+> can see listeners have rw-dependencies on the remote worker (via sl_event)
+> and the remote worker has an rw-dependency on any of our clients writing
+> to sl_log_1/2. As I understand SSI, that constitutes a ?dangerous
+> structure,? but we still can?t expect postgres SSI to save us if the
+> clients are non-serializable. Under these conditions, what benefit comes
+> from serializable slony1 transactions?
+> 	Maybe a solution could be to provide a reduced serialization level as a
+> runtime option? Requirements vary between apps. For bank transactions,
+> it?s certainly clear that everything should be bulletproof. Far better to
+> get it done late than to do it wrong. For our notification service,
+> though, timeliness is more important. No ones likes losing data, but the
+> value of the data degrades in minutes (and unaddressed alarms are likely
+> to be regenerated.) It?s far less tolerable to stop replication in its
+> tracks for long periods in order to achieve serializability.
+> 	I see this message has gotten long. Thanks in advance for your time and
+> consideration.
+> 
+> 	Tom    :-)
+> 
+> 
+> 
+> On 11/16/15, 1:28 PM, "Steve Singer" <ssinger at ca.afilias.info> wrote:
+> 
+> >On 11/16/2015 08:52 AM, Tignor, Tom wrote:
+> >>
+> >> Hello slony1 community,
+> >> I?m part of a team at Akamai working on a notification service based on
+> >> postgres. (We call it an Alert Management System.) We?re at the point
+> >> where we need to scale past the single instance DB and so have been
+> >> working with slony1-2.2.4 (and postgresql-9.1.18) to make that happen.
+> >> Most tests in the past few months have been great, but in recent tests
+> >> the reassuring SYNC-event-output-per-two-seconds suddenly disappeared.
+> >> Throughout the day, it returns for a few minutes (normally less than 5,
+> >> never 10) and then re-enters limbo. Vigorous debugging ensued, and the
+> >> problem was proven to be the serializable isolation level set in
+> >> slon/remote_listen.c. Our recent test environment doesn?t have a
+> >> tremendous write rate (measured in KB/s), but it does have 200-400
+> >> clients at any one time, which may be a factor. Below is the stack shown
+> >> in gdb of the postgres server proc (identified via pg_stat_activity)
+> >> while slon is in limbo.
+> >
+> >> What are the thoughts on possible changes to the remote listener
+> >> isolation level and their impact? I?ve tested changes using repeatable
+> >> read instead, and also with serializable but dropping the deferrable
+> >> option. The latter offers little improvement if any, but the former
+> >> seems to return us to healthy replication. In searching around, I found
+> >> Jan W filed Bug 336 last year (link below) which suggests we could relax
+> >> the isolation level here and elsewhere. If it was helpful, I could
+> >> verify an agreed solution and submit it back as a patch. (Not really in
+> >> the slony community yet, just looking at the process now.)
+> >> Thanks in advance,
+> >
+> >The last time we had a change to isolation levels was in response to
+> >this thread
+> >
+> >
+> >http://lists.slony.info/pipermail/slony1-general/2011-November/011939.html
+> >
+> >Also know as bug #255 (http://www.slony.info/bugzilla/show_bug.cgi?id=255)
+> >
+> >I can't recall if anyone figured out if we could reduce the remote
+> >listener isolation level to read committed - read only or not.
+> >
+> >One concern at the back of my mind is if a read only repeatable read
+> >transactions would result in more pivot conflicts than a read only
+> >serializable deferrable transaction where the conflicts are with a
+> >serializable transaction running on the origin by some application
+> >transaction.
+> >
+> >
+> >
+> >
+> >
+> >
+> >>
+> >> http://www.slony.info/bugzilla/show_bug.cgi?id=336
+> >>
+> >>
+> >> (gdb) thread apply all bt
+> >>
+> >>
+> >> Thread 1 (process 13052):
+> >>
+> >> #0  0xffffe430 in __kernel_vsyscall ()
+> >>
+> >> #1  0xf76d2c0f in semop () from /lib32/libc.so.6
+> >>
+> >> #2  0x08275a26 in PGSemaphoreLock (sema=0xf69d6784, interruptOK=1
+> >> '\001') at pg_sema.c:424
+> >>
+> >> #3  0x082b52cb in ProcWaitForSignal () at proc.c:1443
+> >>
+> >> #4  0x082bb57a in GetSafeSnapshot (origSnapshot=<optimized out>) at
+> >> predicate.c:1520
+> >>
+> >> #5  RegisterSerializableTransaction (snapshot=0x88105a0) at
+> >>predicate.c:1580
+> >>
+> >> #6  0x083b3f35 in GetTransactionSnapshot () at snapmgr.c:138
+> >>
+> >> #7  0x082c460a in exec_simple_query (
+> >>
+> >>      query_string=0xa87d248 "select ev_origin, ev_seqno, ev_timestamp,
+> >>        ev_snapshot,
+> >> \"pg_catalog\".txid_snapshot_xmin(ev_snapshot),
+> >> \"pg_catalog\".txid_snapshot_xmax(ev_snapshot),        ev_type,
+> >> ev_data1,"...)
+> >>
+> >>      at postgres.c:948
+> >>
+> >> #8  PostgresMain (argc=1, argv=0xa7cd1e0, dbname=0xa7cd1d0 "ams",
+> >> username=0xa7cd1b8 "ams_slony") at postgres.c:4021
+> >>
+> >> #9  0x08284a58 in BackendRun (port=0xa808118) at postmaster.c:3657
+> >>
+> >> #10 BackendStartup (port=0xa808118) at postmaster.c:3330
+> >>
+> >> #11 ServerLoop () at postmaster.c:1483
+> >>
+> >> #12 0x082854d8 in PostmasterMain (argc=3, argv=0xa7ccb58) at
+> >> postmaster.c:1144
+> >>
+> >> #13 0x080cb430 in main (argc=3, argv=0xa7ccb58) at main.c:210
+> >>
+> >> (gdb)
+> >>
+> >>
+> >>
+> >> Tom    :-)
+> >>
+> >>
+> >>
+> >>
+> >> _______________________________________________
+> >> Slony1-general mailing list
+> >> Slony1-general at lists.slony.info
+> >> http://lists.slony.info/mailman/listinfo/slony1-general
+> >>
+> >
+> 
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+
+-- 
+Andrew Sullivan
+ajs at crankycanuck.ca
+
+From greg at endpoint.com  Wed Nov 18 07:35:49 2015
+From: greg at endpoint.com (Greg Sabino Mullane)
+Date: Wed, 18 Nov 2015 10:35:49 -0500
+Subject: [Slony1-general] remote listener serializability
+In-Reply-To: <D271E352.42CC8%ttignor@akamai.com>
+References: <D26F49AE.41208%ttignor@akamai.com>
+	<564A203B.9030806@ca.afilias.info>
+	<D271E352.42CC8%ttignor@akamai.com>
+Message-ID: <20151118153548.GG31515@localhost.localdomain>
+
+On Wed, Nov 18, 2015 at 02:26:15PM +0000, Tom Tignor wrote:
+...
+> Sorry for the delay getting back. Inspired by your questions, I?ve been
+> reading up on SSI, the Cahill paper and slony1 and postgres code.
+...
+
+It should be pointed out that 9.1 goes EOL (End of Life) in less than 
+a year (Sep 2016), and transaction handling has changed a *lot* since then, 
+so any changes that core Slony makes may not even work for you.
+
+(FWIW, I think dropping the isolation level in this particular 
+instance seems safe, however.)
+
+-- 
+Greg Sabino Mullane greg at endpoint.com
+End Point Corporation
+PGP Key: 0x14964AC8
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: not available
+Type: application/pgp-signature
+Size: 163 bytes
+Desc: not available
+Url : http://lists.slony.info/pipermail/slony1-general/attachments/20151118/98d6ae60/attachment.pgp 
+
