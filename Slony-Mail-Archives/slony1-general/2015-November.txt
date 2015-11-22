@@ -2253,3 +2253,671 @@ On 11/18/15, 10:35 AM, "Greg Sabino Mullane" <greg at endpoint.com> wrote:
 >PGP Key: 0x14964AC8
 
 
+From ssinger at ca.afilias.info  Fri Nov 20 05:45:28 2015
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Fri, 20 Nov 2015 08:45:28 -0500
+Subject: [Slony1-general] remote listener serializability
+In-Reply-To: <D2737725.437DF%ttignor@akamai.com>
+References: <D26F49AE.41208%ttignor@akamai.com>	<564A203B.9030806@ca.afilias.info>
+	<D271E352.42CC8%ttignor@akamai.com>	<20151118153548.GG31515@localhost.localdomain>
+	<D2737725.437DF%ttignor@akamai.com>
+Message-ID: <564F23F8.4010608@ca.afilias.info>
+
+On 11/19/2015 01:09 PM, Tignor, Tom wrote:
+> 	A general question for the group: if we would consider a change like this
+> (as a runtime option or otherwise), what?s the correct way to move it
+> forward? Should I file a bug? Are there specific tests or analysis which
+> should be performed?
+
+I would use bug 336 for this.
+My gut is to make this a runtime option since I am not confident that
+downgrading the isolation level won't impact someones workload, having
+said that I am open to being convinced otherwise.  I would also be
+inclined to leave the default value unchanged for 2.2.x and then maybe
+consider changing the default in 2.3.   If we actually any concrete
+plans for a 2.3 version I would say just leave the change for 2.3 but I
+don't see a 2.3 release happening soon and I don't want to change the
+default behaviour in a minor release.
+
+
+Generally when we make a change like this I try to do lots of runs
+through the disorder/clustertest suite that doesn't cover all types of
+workloads.  Have you tried this change on your workload? Does it
+actually help things?
+
+It would be great if Jan and Chris were to comment on this thread
+
+> 
+> 	Tom    :-)
+> 
+> 
+> On 11/18/15, 10:35 AM, "Greg Sabino Mullane" <greg at endpoint.com> wrote:
+> 
+>> On Wed, Nov 18, 2015 at 02:26:15PM +0000, Tom Tignor wrote:
+>> ...
+>>> Sorry for the delay getting back. Inspired by your questions, I?ve been
+>>> reading up on SSI, the Cahill paper and slony1 and postgres code.
+>> ...
+>>
+>> It should be pointed out that 9.1 goes EOL (End of Life) in less than
+>> a year (Sep 2016), and transaction handling has changed a *lot* since
+>> then,
+>> so any changes that core Slony makes may not even work for you.
+>>
+>> (FWIW, I think dropping the isolation level in this particular
+>> instance seems safe, however.)
+>>
+>> -- 
+>> Greg Sabino Mullane greg at endpoint.com
+>> End Point Corporation
+>> PGP Key: 0x14964AC8
+> 
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+> 
+
+
+From ttignor at akamai.com  Fri Nov 20 06:08:25 2015
+From: ttignor at akamai.com (Tignor, Tom)
+Date: Fri, 20 Nov 2015 14:08:25 +0000
+Subject: [Slony1-general] remote listener serializability
+In-Reply-To: <564F23F8.4010608@ca.afilias.info>
+References: <D26F49AE.41208%ttignor@akamai.com>
+	<564A203B.9030806@ca.afilias.info> <D271E352.42CC8%ttignor@akamai.com>
+	<20151118153548.GG31515@localhost.localdomain>
+	<D2737725.437DF%ttignor@akamai.com> <564F23F8.4010608@ca.afilias.info>
+Message-ID: <D2749205.43937%ttignor@akamai.com>
+
+
+	Yes indeed. With this change, we see replication on all three subscriber
+nodes in the 2-5 secs range per SYNC event. (We?re configured with the
+2-sec default.) Without it, the subscribers spend most of the day
+paralyzed, with sporadic blocks of some minutes of consciousness which
+they use to frenetically catch up.
+	Figure I?ll await others? comments and then post excerpts to bug 336.
+Your point on not impacting others? workloads is very well taken. A
+non-default runtime option seems like the right way forward.
+
+	Tom    :-)
+
+
+On 11/20/15, 8:45 AM, "Steve Singer" <ssinger at ca.afilias.info> wrote:
+
+>On 11/19/2015 01:09 PM, Tignor, Tom wrote:
+>> 	A general question for the group: if we would consider a change like
+>>this
+>> (as a runtime option or otherwise), what?s the correct way to move it
+>> forward? Should I file a bug? Are there specific tests or analysis which
+>> should be performed?
+>
+>I would use bug 336 for this.
+>My gut is to make this a runtime option since I am not confident that
+>downgrading the isolation level won't impact someones workload, having
+>said that I am open to being convinced otherwise.  I would also be
+>inclined to leave the default value unchanged for 2.2.x and then maybe
+>consider changing the default in 2.3.   If we actually any concrete
+>plans for a 2.3 version I would say just leave the change for 2.3 but I
+>don't see a 2.3 release happening soon and I don't want to change the
+>default behaviour in a minor release.
+>
+>
+>Generally when we make a change like this I try to do lots of runs
+>through the disorder/clustertest suite that doesn't cover all types of
+>workloads.  Have you tried this change on your workload? Does it
+>actually help things?
+>
+>It would be great if Jan and Chris were to comment on this thread
+>
+>> 
+>> 	Tom    :-)
+>> 
+>> 
+>> On 11/18/15, 10:35 AM, "Greg Sabino Mullane" <greg at endpoint.com> wrote:
+>> 
+>>> On Wed, Nov 18, 2015 at 02:26:15PM +0000, Tom Tignor wrote:
+>>> ...
+>>>> Sorry for the delay getting back. Inspired by your questions, I?ve
+>>>>been
+>>>> reading up on SSI, the Cahill paper and slony1 and postgres code.
+>>> ...
+>>>
+>>> It should be pointed out that 9.1 goes EOL (End of Life) in less than
+>>> a year (Sep 2016), and transaction handling has changed a *lot* since
+>>> then,
+>>> so any changes that core Slony makes may not even work for you.
+>>>
+>>> (FWIW, I think dropping the isolation level in this particular
+>>> instance seems safe, however.)
+>>>
+>>> -- 
+>>> Greg Sabino Mullane greg at endpoint.com
+>>> End Point Corporation
+>>> PGP Key: 0x14964AC8
+>> 
+>> _______________________________________________
+>> Slony1-general mailing list
+>> Slony1-general at lists.slony.info
+>> http://lists.slony.info/mailman/listinfo/slony1-general
+>> 
+>
+
+
+From jan at wi3ck.info  Fri Nov 20 06:56:01 2015
+From: jan at wi3ck.info (Jan Wieck)
+Date: Fri, 20 Nov 2015 09:56:01 -0500
+Subject: [Slony1-general] remote listener serializability
+In-Reply-To: <564F23F8.4010608@ca.afilias.info>
+References: <D26F49AE.41208%ttignor@akamai.com>
+	<564A203B.9030806@ca.afilias.info> <D271E352.42CC8%ttignor@akamai.com>
+	<20151118153548.GG31515@localhost.localdomain>
+	<D2737725.437DF%ttignor@akamai.com> <564F23F8.4010608@ca.afilias.info>
+Message-ID: <564F3481.9050709@wi3ck.info>
+
+On 11/20/2015 08:45 AM, Steve Singer wrote:
+> On 11/19/2015 01:09 PM, Tignor, Tom wrote:
+>> 	A general question for the group: if we would consider a change like this
+>> (as a runtime option or otherwise), what?s the correct way to move it
+>> forward? Should I file a bug? Are there specific tests or analysis which
+>> should be performed?
+> 
+> I would use bug 336 for this.
+> My gut is to make this a runtime option since I am not confident that
+> downgrading the isolation level won't impact someones workload, having
+> said that I am open to being convinced otherwise.  I would also be
+> inclined to leave the default value unchanged for 2.2.x and then maybe
+> consider changing the default in 2.3.   If we actually any concrete
+> plans for a 2.3 version I would say just leave the change for 2.3 but I
+> don't see a 2.3 release happening soon and I don't want to change the
+> default behaviour in a minor release.
+> 
+> 
+> Generally when we make a change like this I try to do lots of runs
+> through the disorder/clustertest suite that doesn't cover all types of
+> workloads.  Have you tried this change on your workload? Does it
+> actually help things?
+> 
+> It would be great if Jan and Chris were to comment on this thread
+
+Without taking SYNC snapshots in a SERIALIZABLE transaction I believe
+that a Slony-I replica could suffer the same inconsistency dangers that
+a pg_dump without --serializable-deferrable can suffer. Namely a replica
+would not be usable as a source for reporting. From the 9.4 pg_dump docs:
+
+"This option is not beneficial for a dump which is intended only for
+disaster recovery. It could be useful for a dump used to load a copy of
+the database for reporting or other read-only load sharing while the
+original database continues to be updated. Without it the dump may
+reflect a state which is not consistent with any serial execution of the
+transactions eventually committed. For example, if batch processing
+techniques are used, a batch may show as closed in the dump without all
+of the items which are in the batch appearing."
+
+Changing the default isolation levels(s) may therefore change, what a
+replica can safely be used for and I believe that creating reports is
+one of the major use cases. Using options with big, bold, red, flashing
+warnings in the documentation would be the only way to go.
+
+
+Regards, Jan
+
+
+
+> 
+>>
+>> 	Tom    :-)
+>>
+>>
+>> On 11/18/15, 10:35 AM, "Greg Sabino Mullane" <greg at endpoint.com> wrote:
+>>
+>>> On Wed, Nov 18, 2015 at 02:26:15PM +0000, Tom Tignor wrote:
+>>> ...
+>>>> Sorry for the delay getting back. Inspired by your questions, I?ve been
+>>>> reading up on SSI, the Cahill paper and slony1 and postgres code.
+>>> ...
+>>>
+>>> It should be pointed out that 9.1 goes EOL (End of Life) in less than
+>>> a year (Sep 2016), and transaction handling has changed a *lot* since
+>>> then,
+>>> so any changes that core Slony makes may not even work for you.
+>>>
+>>> (FWIW, I think dropping the isolation level in this particular
+>>> instance seems safe, however.)
+>>>
+>>> --
+>>> Greg Sabino Mullane greg at endpoint.com
+>>> End Point Corporation
+>>> PGP Key: 0x14964AC8
+>>
+>> _______________________________________________
+>> Slony1-general mailing list
+>> Slony1-general at lists.slony.info
+>> http://lists.slony.info/mailman/listinfo/slony1-general
+>>
+> 
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+> 
+
+
+-- 
+Jan Wieck
+Senior Software Engineer
+http://slony.info
+
+From ssinger at ca.afilias.info  Fri Nov 20 07:04:08 2015
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Fri, 20 Nov 2015 10:04:08 -0500
+Subject: [Slony1-general] remote listener serializability
+In-Reply-To: <564F3481.9050709@wi3ck.info>
+References: <D26F49AE.41208%ttignor@akamai.com>
+	<564A203B.9030806@ca.afilias.info>
+	<D271E352.42CC8%ttignor@akamai.com>
+	<20151118153548.GG31515@localhost.localdomain>
+	<D2737725.437DF%ttignor@akamai.com>
+	<564F23F8.4010608@ca.afilias.info> <564F3481.9050709@wi3ck.info>
+Message-ID: <564F3668.5040200@ca.afilias.info>
+
+On 11/20/2015 09:56 AM, Jan Wieck wrote:
+> Without taking SYNC snapshots in a SERIALIZABLE transaction I believe
+> that a Slony-I replica could suffer the same inconsistency dangers that
+> a pg_dump without --serializable-deferrable can suffer. Namely a replica
+> would not be usable as a source for reporting. From the 9.4 pg_dump docs:
+
+I was wondering if this is actually possible or not.
+
+The remote slon only selects from  sl_event and sl_log_*.  The remote
+worker is only going to see rows that are covered by a snapshot range in
+the SYNC in sl_event.  Rows in sl_log_* might be visible from a
+transaction point of view but they won't be captured by the where
+conditions for pulling from sl_log.
+
+The snapshot for the event in sl_log is done by the local sync
+connection which is a read-write connection not by a slon remote
+read-only connection.
+
+(I'm ignoring copy_set from the above analysis).
+
+
+> 
+> "This option is not beneficial for a dump which is intended only for
+> disaster recovery. It could be useful for a dump used to load a copy of
+> the database for reporting or other read-only load sharing while the
+> original database continues to be updated. Without it the dump may
+> reflect a state which is not consistent with any serial execution of the
+> transactions eventually committed. For example, if batch processing
+> techniques are used, a batch may show as closed in the dump without all
+> of the items which are in the batch appearing."
+> 
+> Changing the default isolation levels(s) may therefore change, what a
+> replica can safely be used for and I believe that creating reports is
+> one of the major use cases. Using options with big, bold, red, flashing
+> warnings in the documentation would be the only way to go.
+> 
+> 
+> Regards, Jan
+> 
+> 
+> 
+>>
+>>>
+>>> 	Tom    :-)
+>>>
+>>>
+>>> On 11/18/15, 10:35 AM, "Greg Sabino Mullane" <greg at endpoint.com> wrote:
+>>>
+>>>> On Wed, Nov 18, 2015 at 02:26:15PM +0000, Tom Tignor wrote:
+>>>> ...
+>>>>> Sorry for the delay getting back. Inspired by your questions, I?ve been
+>>>>> reading up on SSI, the Cahill paper and slony1 and postgres code.
+>>>> ...
+>>>>
+>>>> It should be pointed out that 9.1 goes EOL (End of Life) in less than
+>>>> a year (Sep 2016), and transaction handling has changed a *lot* since
+>>>> then,
+>>>> so any changes that core Slony makes may not even work for you.
+>>>>
+>>>> (FWIW, I think dropping the isolation level in this particular
+>>>> instance seems safe, however.)
+>>>>
+>>>> --
+>>>> Greg Sabino Mullane greg at endpoint.com
+>>>> End Point Corporation
+>>>> PGP Key: 0x14964AC8
+>>>
+>>> _______________________________________________
+>>> Slony1-general mailing list
+>>> Slony1-general at lists.slony.info
+>>> http://lists.slony.info/mailman/listinfo/slony1-general
+>>>
+>>
+>> _______________________________________________
+>> Slony1-general mailing list
+>> Slony1-general at lists.slony.info
+>> http://lists.slony.info/mailman/listinfo/slony1-general
+>>
+> 
+> 
+
+
+From ttignor at akamai.com  Fri Nov 20 07:18:11 2015
+From: ttignor at akamai.com (Tignor, Tom)
+Date: Fri, 20 Nov 2015 15:18:11 +0000
+Subject: [Slony1-general] remote listener serializability
+In-Reply-To: <564F3668.5040200@ca.afilias.info>
+References: <D26F49AE.41208%ttignor@akamai.com>
+	<564A203B.9030806@ca.afilias.info> <D271E352.42CC8%ttignor@akamai.com>
+	<20151118153548.GG31515@localhost.localdomain>
+	<D2737725.437DF%ttignor@akamai.com> <564F23F8.4010608@ca.afilias.info>
+	<564F3481.9050709@wi3ck.info> <564F3668.5040200@ca.afilias.info>
+Message-ID: <D274A294.4395C%ttignor@akamai.com>
+
+
+	One point to clarify: while a general review of isolation levels could be
+helpful, the problem I saw and addressed was specifically in the remote
+listener. The remedy I?ve been working with is a one-line change. The
+behavior we had without it seems similar to the observation Jan makes in
+the bug 336 description.
+
+
+--- src/slon/remote_listen.c.SAVE	2015-11-12 11:09:06.405693227 -0500
++++ src/slon/remote_listen.c	2015-11-12 11:13:00.157825287 -0500
+@@ -318,7 +318,7 @@
+ 			}
+ 			if (PQserverVersion(dbconn) >= 90100)
+ 			{
+-				slon_mkquery(&query1, "SET SESSION CHARACTERISTICS AS TRANSACTION
+read only isolation level serializable deferrable");
++				slon_mkquery(&query1, "SET SESSION CHARACTERISTICS AS TRANSACTION
+read only isolation level repeatable read");
+ 				res = PQexec(dbconn, dstring_data(&query1));
+ 				if (PQresultStatus(res) != PGRES_COMMAND_OK)
+ 				{
+
+	Tom    :-)
+
+
+
+
+On 11/20/15, 10:04 AM, "Steve Singer" <ssinger at ca.afilias.info> wrote:
+
+>On 11/20/2015 09:56 AM, Jan Wieck wrote:
+>> Without taking SYNC snapshots in a SERIALIZABLE transaction I believe
+>> that a Slony-I replica could suffer the same inconsistency dangers that
+>> a pg_dump without --serializable-deferrable can suffer. Namely a replica
+>> would not be usable as a source for reporting. From the 9.4 pg_dump
+>>docs:
+>
+>I was wondering if this is actually possible or not.
+>
+>The remote slon only selects from  sl_event and sl_log_*.  The remote
+>worker is only going to see rows that are covered by a snapshot range in
+>the SYNC in sl_event.  Rows in sl_log_* might be visible from a
+>transaction point of view but they won't be captured by the where
+>conditions for pulling from sl_log.
+>
+>The snapshot for the event in sl_log is done by the local sync
+>connection which is a read-write connection not by a slon remote
+>read-only connection.
+>
+>(I'm ignoring copy_set from the above analysis).
+>
+>
+>> 
+>> "This option is not beneficial for a dump which is intended only for
+>> disaster recovery. It could be useful for a dump used to load a copy of
+>> the database for reporting or other read-only load sharing while the
+>> original database continues to be updated. Without it the dump may
+>> reflect a state which is not consistent with any serial execution of the
+>> transactions eventually committed. For example, if batch processing
+>> techniques are used, a batch may show as closed in the dump without all
+>> of the items which are in the batch appearing."
+>> 
+>> Changing the default isolation levels(s) may therefore change, what a
+>> replica can safely be used for and I believe that creating reports is
+>> one of the major use cases. Using options with big, bold, red, flashing
+>> warnings in the documentation would be the only way to go.
+>> 
+>> 
+>> Regards, Jan
+>> 
+>> 
+>> 
+>>>
+>>>>
+>>>> 	Tom    :-)
+>>>>
+>>>>
+>>>> On 11/18/15, 10:35 AM, "Greg Sabino Mullane" <greg at endpoint.com>
+>>>>wrote:
+>>>>
+>>>>> On Wed, Nov 18, 2015 at 02:26:15PM +0000, Tom Tignor wrote:
+>>>>> ...
+>>>>>> Sorry for the delay getting back. Inspired by your questions, I?ve
+>>>>>>been
+>>>>>> reading up on SSI, the Cahill paper and slony1 and postgres code.
+>>>>> ...
+>>>>>
+>>>>> It should be pointed out that 9.1 goes EOL (End of Life) in less than
+>>>>> a year (Sep 2016), and transaction handling has changed a *lot* since
+>>>>> then,
+>>>>> so any changes that core Slony makes may not even work for you.
+>>>>>
+>>>>> (FWIW, I think dropping the isolation level in this particular
+>>>>> instance seems safe, however.)
+>>>>>
+>>>>> --
+>>>>> Greg Sabino Mullane greg at endpoint.com
+>>>>> End Point Corporation
+>>>>> PGP Key: 0x14964AC8
+>>>>
+>>>> _______________________________________________
+>>>> Slony1-general mailing list
+>>>> Slony1-general at lists.slony.info
+>>>> http://lists.slony.info/mailman/listinfo/slony1-general
+>>>>
+>>>
+>>> _______________________________________________
+>>> Slony1-general mailing list
+>>> Slony1-general at lists.slony.info
+>>> http://lists.slony.info/mailman/listinfo/slony1-general
+>>>
+>> 
+>> 
+>
+
+
+From glynastill at yahoo.co.uk  Fri Nov 20 08:00:30 2015
+From: glynastill at yahoo.co.uk (Glyn Astill)
+Date: Fri, 20 Nov 2015 16:00:30 +0000 (UTC)
+Subject: [Slony1-general] Slony replication lag with moderate quantity of
+	deletes
+References: <74368944.12953036.1448035230882.JavaMail.yahoo.ref@mail.yahoo.com>
+Message-ID: <74368944.12953036.1448035230882.JavaMail.yahoo@mail.yahoo.com>
+
+Using Slony 2.2.4, Pg 9.4.5 I infrequently see replication lag when deleting a moderately large quantity of records.
+
+I've seen this very infrequently (i.e 3 or so times in a year), but came to a dead end investigating the cause last time (previous thread here http://comments.gmane.org/gmane.comp.db.postgresql.slony1.general/11556).  
+
+I'm hoping someone might be able to nudge me in the right direction this time.
+
+The cause seems to be chunks of deletes on 2 specific tables (within a transaction), although I can't see a reason why these specific tables cause issues other than the tables having pretty poor primary keys and 
+indexes (Table definitions at the bottom).  
+
+Changes to each table are logged by a table_log trigger (https://github.com/glynastill/pg_table_audit), which we admittedly need to move away from, but I can't see a reason for this to be an issue here either.
+
+There is activity from other tables, but I'm pretty certain it's something to do with deletes from these specific tables, although I can't reliably reproduce the behaviour.
+
+In this case deleting around 100,000 records from each table on the origin (taking around 68 seconds), causes the remote worker thread on all the subscribers to take approximately 90 minutes copying into it's sl_log table. E.g:
+
+2015-11-20 12:28:21 GMT [9843]: [5-1] app=slon.remoteWorkerThread_7,user=slony,db=db,host=10.16.10.101 LOG:  duration: 6096341.085 ms  statement: COPY "_replication"."sl_log_2" ( log_origin, log_txid,log_tableid,log_actionseq,log_tablenspname, log_tablerelname, log_cmdtype, log_cmdupdncols,log_cmdargs) FROM STDIN
+
+The hardware on the subscribers is identical to the origin, and the postgres backend on the subscriber is at 100% cpu during this time.  It's not waiting on I/O, and nothing jumps out to me from pg_locks 
+during this time other than the slow deletes:
+
+SELECT pl.*, c.relname FROM pg_locks pl 
+LEFT JOIN pg_class c on pl.relation = c.oid 
+ORDER BY c.relname;
+
+
+locktype    | database  |  relation  | page | tuple | virtualxid  | transactionid | classid | objid | objsubid | virtualtransaction |  pid  |       mode       | granted | fastpath |                 relname 
+---------------+-----------+------------+------+-------+-------------+---------------+---------+-------+----------+--------------------+-------+------------------+---------+----------+------------------------------------------ 
+relation      | 501924233 | 1013283824 |      |       |             |               |         |       |          | 11/764780          | 80081 | RowExclusiveLock | t       | t        | PartInd_main_replication_sl_log_1-node-7 
+relation      | 501924233 |  501930895 |      |       |             |               |         |       |          | 11/764780          | 80081 | RowExclusiveLock | t       | f        | at_seats 
+relation      | 501924233 |  501930899 |      |       |             |               |         |       |          | 11/764780          | 80081 | RowExclusiveLock | t       | t        | at_seats2 
+relation      | 501924233 |  501930902 |      |       |             |               |         |       |          | 11/764780          | 80081 | AccessShareLock  | t       | f        | at_seats2_trigger_id_seq 
+relation      | 501924233 |  501930904 |      |       |             |               |         |       |          | 11/764780          | 80081 | AccessShareLock  | t       | f        | at_seats_trigger_id_seq 
+relation      | 501924233 |       1259 |      |       |             |               |         |       |          | 11/764780          | 80081 | AccessShareLock  | t       | f        | pg_class 
+relation      | 501924233 |       1259 |      |       |             |               |         |       |          | 17/11810762        | 26140 | AccessShareLock  | t       | t        | pg_class 
+relation      | 501924233 |       2662 |      |       |             |               |         |       |          | 11/764780          | 80081 | AccessShareLock  | t       | t        | pg_class_oid_index 
+relation      | 501924233 |       2662 |      |       |             |               |         |       |          | 17/11810762        | 26140 | AccessShareLock  | t       | t        | pg_class_oid_index 
+relation      | 501924233 |       2663 |      |       |             |               |         |       |          | 17/11810762        | 26140 | AccessShareLock  | t       | t        | pg_class_relname_nsp_index 
+relation      | 501924233 |       2663 |      |       |             |               |         |       |          | 11/764780          | 80081 | AccessShareLock  | t       | t        | pg_class_relname_nsp_index 
+relation      | 501924233 |       3455 |      |       |             |               |         |       |          | 17/11810762        | 26140 | AccessShareLock  | t       | t        | pg_class_tblspc_relfilenode_index 
+relation      | 501924233 |       3455 |      |       |             |               |         |       |          | 11/764780          | 80081 | AccessShareLock  | t       | t        | pg_class_tblspc_relfilenode_index 
+relation      | 501924233 |      11187 |      |       |             |               |         |       |          | 17/11810762        | 26140 | AccessShareLock  | t       | t        | pg_locks 
+relation      | 501924233 |       2615 |      |       |             |               |         |       |          | 11/764780          | 80081 | AccessShareLock  | t       | t        | pg_namespace 
+relation      | 501924233 |       2684 |      |       |             |               |         |       |          | 11/764780          | 80081 | AccessShareLock  | t       | t        | pg_namespace_nspname_index 
+relation      | 501924233 |       2685 |      |       |             |               |         |       |          | 11/764780          | 80081 | AccessShareLock  | t       | t        | pg_namespace_oid_index 
+relation      | 501924233 |  501935104 |      |       |             |               |         |       |          | 11/764780          | 80081 | RowExclusiveLock | t       | f        | seats 
+relation      | 501924233 |  501935120 |      |       |             |               |         |       |          | 11/764780          | 80081 | RowExclusiveLock | t       | f        | seats2 
+relation      | 501924233 | 1003806325 |      |       |             |               |         |       |          | 11/764780          | 80081 | RowExclusiveLock | t       | f        | seats2_date1 
+relation      | 501924233 | 1003806324 |      |       |             |               |         |       |          | 11/764780          | 80081 | RowExclusiveLock | t       | f        | seats2_index00 
+relation      | 501924233 |  995705316 |      |       |             |               |         |       |          | 11/764780          | 80081 | RowExclusiveLock | t       | f        | seats2_index01 
+relation      | 501924233 | 1003806326 |      |       |             |               |         |       |          | 11/764780          | 80081 | RowExclusiveLock | t       | f        | seats2_index02 
+relation      | 501924233 | 1003806328 |      |       |             |               |         |       |          | 11/764780          | 80081 | RowExclusiveLock | t       | f        | seats2_index04 
+relation      | 501924233 | 1003806327 |      |       |             |               |         |       |          | 11/764780          | 80081 | RowExclusiveLock | t       | f        | seats2_index05 
+relation      | 501924233 | 1003806283 |      |       |             |               |         |       |          | 11/764780          | 80081 | RowExclusiveLock | t       | f        | seats_index00 
+relation      | 501924233 |  992270676 |      |       |             |               |         |       |          | 11/764780          | 80081 | RowExclusiveLock | t       | f        | seats_index01 
+relation      | 501924233 | 1003806286 |      |       |             |               |         |       |          | 11/764780          | 80081 | RowExclusiveLock | t       | f        | seats_index02 
+relation      | 501924233 | 1003806285 |      |       |             |               |         |       |          | 11/764780          | 80081 | RowExclusiveLock | t       | f        | seats_index03 
+relation      | 501924233 | 1003806284 |      |       |             |               |         |       |          | 11/764780          | 80081 | RowExclusiveLock | t       | f        | seats_index04 
+relation      | 501924233 |  501927863 |      |       |             |               |         |       |          | 11/764780          | 80081 | RowExclusiveLock | t       | f        | sl_apply_stats 
+relation      | 501924233 |  501927907 |      |       |             |               |         |       |          | 11/764780          | 80081 | AccessShareLock  | t       | f        | sl_local_node_id 
+relation      | 501924233 |  501927909 |      |       |             |               |         |       |          | 11/764780          | 80081 | RowExclusiveLock | t       | t        | sl_log_1 
+relation      | 501924233 |  763450577 |      |       |             |               |         |       |          | 11/764780          | 80081 | RowExclusiveLock | t       | t        | sl_log_1_idx1 
+relation      | 501924233 |  501927921 |      |       |             |               |         |       |          | 11/764780          | 80081 | RowExclusiveLock | t       | f        | sl_log_script 
+relation      | 501924233 |  501927927 |      |       |             |               |         |       |          | 11/764780          | 80081 | AccessShareLock  | t       | t        | sl_log_status 
+relation      | 501924233 |  501927956 |      |       |             |               |         |       |          | 11/764780          | 80081 | AccessShareLock  | t       | t        | sl_setsync 
+relation      | 501924233 |  758946419 |      |       |             |               |         |       |          | 11/764780          | 80081 | AccessShareLock  | t       | t        | sl_setsync-pkey 
+relation      | 501924233 |  501927849 |      |       |             |               |         |       |          | 11/764780          | 80081 | AccessShareLock  | t       | f        | sl_subscribe 
+relation      | 501924233 |  755902543 |      |       |             |               |         |       |          | 11/764780          | 80081 | AccessShareLock  | t       | f        | sl_subscribe-pkey 
+relation      | 501924233 |  501927833 |      |       |             |               |         |       |          | 11/764780          | 80081 | AccessShareLock  | t       | t        | sl_table 
+relation      | 501924233 |  760027156 |      |       |             |               |         |       |          | 11/764780          | 80081 | AccessShareLock  | t       | t        | sl_table-pkey 
+relation      | 501924233 |  761881818 |      |       |             |               |         |       |          | 11/764780          | 80081 | AccessShareLock  | t       | t        | sl_table_tab_reloid_key 
+transactionid |           |            |      |       |             |       8795986 |         |       |          | 11/764780          | 80081 | ExclusiveLock    | t       | f        | 
+virtualxid    |           |            |      |       | 17/11810762 |               |         |       |          | 17/11810762        | 26140 | ExclusiveLock    | t       | t        | 
+virtualxid    |           |            |      |       | 11/764780   |               |         |       |          | 11/764780          | 80081 | ExclusiveLock    | t       | t        | 
+(46 rows)  
+
+I'm logging apply stats activity, but don't see anything out of the ordinary there except for the unusually large duration of this copy:
+
+
+as_timestamp        | as_origin | as_num_insert | as_num_update | as_num_delete | as_duration  | as_cache_prepare | as_cache_hit | as_cache_evict | as_cache_prepare_max 
+----------------------------+-----------+---------------+---------------+---------------+--------------+------------------+--------------+----------------+---------------------- 
+2015-11-20 10:47:01.310719 |         7 |           592 |           713 |            41 | 00:00:04.039 |              523 |          823 |              0 |                    0 
+2015-11-20 12:29:01.694959 |         7 |          7312 |         10626 |        200509 | 01:42:16.267 |              605 |       217842 |             77 |                    0 
+2015-11-20 12:30:01.947644 |         7 |          7157 |         21813 |         27925 | 00:01:01.226 |              479 |        56416 |            179 |                    0
+
+I was wondering if this could be anything funny happening in logApply, but don't really know enough about that trigger to investigate. Perhaps next time I'll try and get a few backtraces from the backend, but alas 
+for now I'm non the wiser.
+
+Any hint's would be greatly appreciated.
+
+Glyn
+
+
+Table definitions:
+
+db=> \d seating
+                                                Table "tickets.seating"
+    Column     |            Type             |                               Modifiers
+---------------+-----------------------------+-----------------------------------------------------------------------
+ recnum        | bigint                      | not null default nextval(('"tickets"."seating_dfseq"'::text)::regclass)
+ show          | numeric(8,0)                | not null default 0
+ type          | numeric(4,0)                | not null default 0
+ block         | character varying(8)        | not null default ' '::character varying
+ row           | numeric(14,0)               | not null default 0
+ seat          | numeric(8,0)                | not null default 0
+ flag          | character varying(15)       | not null default ' '::character varying
+ transno       | numeric(8,0)                | not null default 0
+ best          | numeric(4,0)                | not null default 0
+ user          | character varying(15)       | not null default ' '::character varying
+ time          | numeric(10,0)               | not null default 0
+ date          | date                        | not null default '0001-01-01'::date
+ date_reserved | timestamp without time zone | not null default '0001-01-01 00:00:00'::timestamp without time zone
+Indexes:
+    "seating_index01" PRIMARY KEY, btree (show, type, best, block, "row", seat)
+    "seating_index00" UNIQUE, btree (recnum)
+    "seating_index02" UNIQUE, btree (show, type, best, block, flag, "row", seat, recnum)
+    "seating_index03" UNIQUE, btree (show, type, flag, best, block, "row", seat, recnum)
+    "seating_index04" UNIQUE, btree (date_reserved, recnum)
+Triggers:
+   
+_replication_denyaccess BEFORE INSERT OR DELETE OR UPDATE ON seating 
+FOR EACH ROW EXECUTE PROCEDURE _replication.denyaccess('_replication')
+    _replication_truncatedeny BEFORE TRUNCATE ON seating FOR EACH STATEMENT EXECUTE PROCEDURE _replication.deny_truncate()
+Disabled user triggers:
+   
+_replication_logtrigger AFTER INSERT OR DELETE OR UPDATE ON seating FOR
+EACH ROW EXECUTE PROCEDURE _replication.logtrigger('_replication', 
+'813', 'vkkkkkvvk')
+   
+_replication_truncatetrigger BEFORE TRUNCATE ON seating FOR EACH 
+STATEMENT EXECUTE PROCEDURE _replication.log_truncate('813')
+Triggers firing always:
+   
+table_log_trigger AFTER INSERT OR DELETE OR UPDATE ON seating FOR EACH 
+ROW EXECUTE PROCEDURE table_log('at_seating', '1', 'audit')    
+    
+sb=> \d seating2
+                                             Table "tickets.seating2"
+    Column     |         Type          |                               Modifiers
+---------------+-----------------------+------------------------------------------------------------------------
+ recnum        | bigint                | not null default nextval(('"tickets"."seating2_dfseq"'::text)::regclass)
+ show          | numeric(8,0)          | not null default 0
+ type          | numeric(4,0)          | not null default 0
+ block         | character varying(8)  | not null default ' '::character varying
+ row           | numeric(14,0)         | not null default 0
+ seat          | numeric(8,0)          | not null default 0
+ flag          | character varying(15) | not null default ' '::character varying
+ transno       | numeric(8,0)          | not null default 0
+ best          | numeric(4,0)          | not null default 0
+ user          | character varying(15) | not null default ' '::character varying
+ time          | numeric(10,0)         | not null default 0
+ received      | character varying(1)  | not null default ' '::character varying
+ asc1          | character varying(20) | not null default ' '::character varying
+ asc2          | character varying(20) | not null default ' '::character varying
+ num1          | numeric(8,2)          | not null default 0
+ num2          | numeric(8,2)          | not null default 0
+ date1         | date                  | not null default '0001-01-01'::date
+ date2         | date                  | not null default '0001-01-01'::date
+ ever_received | boolean               |
+Indexes:
+    "seating2_index01" PRIMARY KEY, btree (show, type, best, block, "row", seat)
+    "seating2_index00" UNIQUE, btree (recnum)
+    "seating2_index02" UNIQUE, btree (show, type, block, "row", seat)
+    "seating2_index04" UNIQUE, btree (transno, best, block, "row", seat, recnum)
+    "seating2_index05" UNIQUE, btree (show, best, block, "row", seat, recnum)
+    "seating2_date1" btree (date1)
+Triggers:
+   
+_replication_denyaccess BEFORE INSERT OR DELETE OR UPDATE ON seating2 
+FOR EACH ROW EXECUTE PROCEDURE _replication.denyaccess('_replication')
+    _replication_truncatedeny BEFORE TRUNCATE ON seating2 FOR EACH STATEMENT EXECUTE PROCEDURE _replication.deny_truncate()
+Disabled user triggers:
+   
+_replication_logtrigger AFTER INSERT OR DELETE OR UPDATE ON seating2 
+FOR EACH ROW EXECUTE PROCEDURE _replication.logtrigger('_replication', 
+'812', 'vkkkkkvvk')
+   
+_replication_truncatetrigger BEFORE TRUNCATE ON seating2 FOR EACH 
+STATEMENT EXECUTE PROCEDURE _replication.log_truncate('812')
+Triggers firing always:
+   
+table_log_trigger AFTER INSERT OR DELETE OR UPDATE ON seating2 FOR EACH
+ROW EXECUTE PROCEDURE table_log('at_seating2', '1', 'audit')    
+
