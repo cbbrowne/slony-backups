@@ -29,3 +29,402 @@ Size: 163 bytes
 Desc: not available
 Url : http://lists.slony.info/pipermail/slony1-general/attachments/20151204/7049196b/attachment.pgp 
 
+From josh at agliodbs.com  Mon Dec  7 10:56:36 2015
+From: josh at agliodbs.com (Josh Berkus)
+Date: Mon, 7 Dec 2015 10:56:36 -0800
+Subject: [Slony1-general] prepare clone failure
+Message-ID: <5665D664.8030700@agliodbs.com>
+
+Slony folks:
+
+I'm being blocked by an interesting failure of "prepare/finish clone".
+There's a bit of a setup on this one, but the complexity of the cluster
+may be related to the failure, so I want to give you everything.
+
+Versions:
+PostgreSQL 9.2.14
+Slony 2.1.4
+
+4 replication sets
+
+5 nodes:
+	4: origin of sets 1, 2 and 3
+	5: failover for 4, subscribes to 1,2,3
+	6: origin of set 4, subscribes to 2
+	7: failover for 6, subsribes to 2,4
+	10: on AWS, mirror of 6, subscribes to 2,4 from origin
+
+The owner is creating new nodes on AWS which are copies of node 6, for
+expanding capacity and testing purposes.  The fastest way for us to spin
+up new nodes on AWS works like this:
+
+1. create a new EC2 instance
+2. prepare clone of 10
+3. make AWS snapshot copy of 10
+4. bring up PostgreSQL on the new node
+5. finish clone for new node
+6. start slony on the new node
+
+We followed this procedure to bring up nodes in this order:
+
+- original clone on AWS was node 8.
+- created node 9 via prepare clone method
+- dropped node 8 (and shut down instance)
+- created node 10 via prepare clone method
+- dropped node 9 (but did not shut down the instance)
+
+So, the prepare clone method above worked perfectly twice.  But then we
+tried to bring up a new node as a prepared clone from node 11 and things
+went to hell.
+
+At step 6, when we brought up slony, we started to see this in the logs:
+
+2015-12-04 14:40:21 PST ERROR slon_connectdb: PQconnectdb("dbname=prod
+host=192.168.80.32 port=5432 user=slony") failed - FATAL: no pg_hba.conf
+entry for host "172.16.81.31", user "slony", database "prod", SSL off
+2015-12-04 14:40:21 PST WARN remoteListenThread_6: DB connection failed
+- sleep 10 seconds
+2015-12-04 14:40:21 PST CONFIG version for "dbname=prod" is 90214
+2015-12-04 14:40:21 PST CONFIG version for "dbname=prod
+host=dw3.prod.com port=5432 user=slony" is 90214
+2015-12-04 14:40:21 PST ERROR slon_connectdb: PQconnectdb("dbname=prod
+host=192.168.80.33 port=5432 user=slony") failed - FATAL: no pg_hba.conf
+entry for host "172.16.81.31", user "slony", database "prod", SSL off
+2015-12-04 14:40:21 PST WARN remoteListenThread_7: DB connection failed
+- sleep 10 seconds
+2015-12-04 14:40:21 PST CONFIG remoteWorkerThread_10: update provider
+configuration
+2015-12-04 14:40:21 PST CONFIG remoteWorkerThread_7: update provider
+configuration
+2015-12-04 14:40:21 PST ERROR remoteListenThread_10: db_getLocalNodeId()
+returned 12 - wrong database?
+2015-12-04 14:40:21 PST CONFIG version for "dbname=prod
+host=192.168.80.43 port=5432 user=slony" is 90214
+2015-12-04 14:40:21 PST CONFIG version for "dbname=prod
+host=192.168.80.43 port=5432 user=slony" is 90214
+2015-12-04 14:40:21 PST INFO remoteWorkerThread_4: syncing set 2 with
+118 table(s) from provider 5
+2015-12-04 14:40:21 PST INFO remoteWorkerThread_4: SYNC 5009308944 done
+in 0.098 seconds
+2015-12-04 14:40:22 PST CONFIG version for "dbname=prod
+host=192.168.80.42 port=5432 user=slony" is 90214
+2015-12-04 14:40:22 PST ERROR remoteWorkerThread_5: "lock table
+"_replication".sl_config_lock;select "_replication".storePath_int(13, 5,
+'dbname=prod host=172.16.81.31 port=5432 user=slony', 10); insert into
+"_oltp_replication".sl_event (ev_origin, ev_seqno, ev_timestamp,
+ev_snapshot, ev_type , ev_data1, ev_data2, ev_data3, ev_data4 ) values
+('5', '5001941723', '2015-12-04 14:37:48.196237-08',
+'70559671:70559671:', 'STORE_PATH', '13', '5', 'dbname=prod
+host=172.16.81.31 port=5432 user=slony', '10'); insert into
+"_replication".sl_confirm (con_origin, con_received, con_seqno,
+con_timestamp) values (5, 13, '5001941723', now()); commit transaction;"
+PGRES_FATAL_ERROR ERROR: duplicate key value violates unique constraint
+"sl_event-pkey"
+DETAIL: Key (ev_origin, ev_seqno)=(5, 5001941723) already exists.
+2015-12-04 14:40:22 PST CONFIG slon: child terminated signal: 9; pid:
+4539, current worker pid: 4539
+2015-12-04 14:40:22 PST CONFIG slon: restart of worker in 10 seconds
+2015-12-04 14:40:25 PST CONFIG slon: child terminated status: 9; pid:
+-1, current worker pid: 4511 errno: 10
+2015-12-04 14:40:25 PST CONFIG slon: child terminated status: 9; pid:
+-1, current worker pid: 4539 errno: 10
+2015-12-04 14:40:25 PST FATAL slon: wait returned an error pid:-1 errno:10
+2015-12-04 14:40:25 PST FATAL slon: wait returned an error pid:-1 errno:1
+
+This now happens *every time* we try the prepare clone sequence (3 out
+of 3 tries).  Any idea what's going on here?
+
+-- 
+Josh Berkus
+PostgreSQL Experts Inc.
+http://pgexperts.com
+
+From josh at agliodbs.com  Mon Dec  7 11:32:53 2015
+From: josh at agliodbs.com (Josh Berkus)
+Date: Mon, 7 Dec 2015 11:32:53 -0800
+Subject: [Slony1-general] prepare clone failure
+In-Reply-To: <WM!81d85ebcba1de70270b3d059027101ab81a99991a0eb54bdd471f6d5c36af4a4418d0fc70d43b28eff46ad97eab61e31!@asav-3.01.com>
+References: <5665D664.8030700@agliodbs.com>
+	<WM!81d85ebcba1de70270b3d059027101ab81a99991a0eb54bdd471f6d5c36af4a4418d0fc70d43b28eff46ad97eab61e31!@asav-3.01.com>
+Message-ID: <5665DEE5.2080704@agliodbs.com>
+
+On 12/07/2015 10:56 AM, Josh Berkus wrote:
+> So, the prepare clone method above worked perfectly twice.  But then we
+> tried to bring up a new node as a prepared clone from node 11 and things
+> went to hell.
+
+One thing I just realized was different between the first two,
+successful, runs and the failed runs:  the first two times, we didn't
+have pg_hba.conf configured, so when we brought up slony on the new node
+it couldn't connect until we fixed that.
+
+So I'm wondering if there's a timing issue here somewhere.
+
+-- 
+Josh Berkus
+PostgreSQL Experts Inc.
+http://pgexperts.com
+
+From josh at agliodbs.com  Mon Dec  7 18:25:17 2015
+From: josh at agliodbs.com (Josh Berkus)
+Date: Mon, 7 Dec 2015 18:25:17 -0800
+Subject: [Slony1-general] prepare clone failure
+In-Reply-To: <WM!51fab314cebfda919e3cd02362ce67093bedd9db46bf2b04f04dcaef34dd21c5c3fd459d99577e2f7845e3261f999105!@asav-3.01.com>
+References: <5665D664.8030700@agliodbs.com>
+	<WM!81d85ebcba1de70270b3d059027101ab81a99991a0eb54bdd471f6d5c36af4a4418d0fc70d43b28eff46ad97eab61e31!@asav-3.01.com>
+	<5665DEE5.2080704@agliodbs.com>
+	<WM!51fab314cebfda919e3cd02362ce67093bedd9db46bf2b04f04dcaef34dd21c5c3fd459d99577e2f7845e3261f999105!@asav-3.01.com>
+Message-ID: <56663F8D.5070800@agliodbs.com>
+
+On 12/07/2015 11:32 AM, Josh Berkus wrote:
+> On 12/07/2015 10:56 AM, Josh Berkus wrote:
+>> So, the prepare clone method above worked perfectly twice.  But then we
+>> tried to bring up a new node as a prepared clone from node 11 and things
+>> went to hell.
+> 
+> One thing I just realized was different between the first two,
+> successful, runs and the failed runs:  the first two times, we didn't
+> have pg_hba.conf configured, so when we brought up slony on the new node
+> it couldn't connect until we fixed that.
+> 
+> So I'm wondering if there's a timing issue here somewhere.
+
+So, this problem was less interesting than I thought.  As it turns out,
+the sysadmin was handling "make sure slony doesn't start on the server"
+by letting it autostart, then shutting it down.  In the couple minutes
+it was running, though, it did enough to prevent finish clone from working.
+
+-- 
+Josh Berkus
+PostgreSQL Experts Inc.
+http://pgexperts.com
+
+From ssinger at ca.afilias.info  Mon Dec  7 18:48:05 2015
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Mon, 07 Dec 2015 21:48:05 -0500
+Subject: [Slony1-general] prepare clone failure
+In-Reply-To: <56663F8D.5070800@agliodbs.com>
+References: <5665D664.8030700@agliodbs.com>	<WM!81d85ebcba1de70270b3d059027101ab81a99991a0eb54bdd471f6d5c36af4a4418d0fc70d43b28eff46ad97eab61e31!@asav-3.01.com>	<5665DEE5.2080704@agliodbs.com>	<WM!51fab314cebfda919e3cd02362ce67093bedd9db46bf2b04f04dcaef34dd21c5c3fd459d99577e2f7845e3261f999105!@asav-3.01.com>
+	<56663F8D.5070800@agliodbs.com>
+Message-ID: <566644E5.1070806@ca.afilias.info>
+
+On 12/07/2015 09:25 PM, Josh Berkus wrote:
+> On 12/07/2015 11:32 AM, Josh Berkus wrote:
+>> On 12/07/2015 10:56 AM, Josh Berkus wrote:
+>>> So, the prepare clone method above worked perfectly twice.  But then we
+>>> tried to bring up a new node as a prepared clone from node 11 and things
+>>> went to hell.
+>>
+>> One thing I just realized was different between the first two,
+>> successful, runs and the failed runs:  the first two times, we didn't
+>> have pg_hba.conf configured, so when we brought up slony on the new node
+>> it couldn't connect until we fixed that.
+>>
+>> So I'm wondering if there's a timing issue here somewhere.
+>
+> So, this problem was less interesting than I thought.  As it turns out,
+> the sysadmin was handling "make sure slony doesn't start on the server"
+> by letting it autostart, then shutting it down.  In the couple minutes
+> it was running, though, it did enough to prevent finish clone from working.
+>
+
+
+I wonder if there is more going on here
+
+
+In remoteWorker_event
+
+We have
+
+	if (node->last_event >= ev_seqno)
+	{
+		rtcfg_unlock();
+		slon_log(SLON_DEBUG2,
+				 "remoteWorker_event: event %d," INT64_FORMAT
+				 " ignored - duplicate\n",
+				 ev_origin, ev_seqno);
+		return;
+	}
+
+	/*
+	 * We lock the worker threads message queue before bumping the nodes last
+	 * known event sequence to avoid that another listener queues a later
+	 * message before we can insert this one.
+	 */
+	pthread_mutex_lock(&(node->message_lock));
+	node->last_event = ev_seqno;
+	rtcfg_unlock();
+
+
+It seems strange to me that we are obtaining the mutex lock after 
+checking node->last_event.
+Does the rtcfg_lock prevent the race condition making the direct 
+message_lock redundent? If not do we need to obtain the 
+node->message_lock before we do the comparision?
+
+
+The CLONE_NODE handler in remote_worker sets last_event by calling 
+rtcfg_getNodeLastEvent which obtains the rtcfg_lock but not the message 
+lock.
+
+The clone node handler in remote_worker seems to do this
+1. call rtcfg_storeNode (which obtains then releases the config lock)
+2. calls cloneNodePrepare_int()
+3. queries the last event id
+4. calls rtcfg_getNodeLastEvent() which would re-obtain then release the 
+config lock
+
+I wonder if sometime after step 1 but before step 4 a remote listener 
+queries events from the new node and adds them into the queue because 
+the last_event hasn't yet been set.
+
+Maybe cloneNodePrepare needs to obtain the message queue lock at step 1 
+and hold it until step 4 and then remoteWorker_event needs to obtain 
+that lock a bit earlier
+
+
+
+
+From glynastill at yahoo.co.uk  Tue Dec  8 06:04:34 2015
+From: glynastill at yahoo.co.uk (Glyn Astill)
+Date: Tue, 8 Dec 2015 14:04:34 +0000 (UTC)
+Subject: [Slony1-general] prepare clone failure
+In-Reply-To: <56663F8D.5070800@agliodbs.com>
+References: <56663F8D.5070800@agliodbs.com>
+Message-ID: <546498346.28227372.1449583474812.JavaMail.yahoo@mail.yahoo.com>
+
+
+> From: Josh Berkus <josh at agliodbs.com>
+>To: slony1-general at lists.slony.info 
+>Sent: Tuesday, 8 December 2015, 2:25
+>Subject: Re: [Slony1-general] prepare clone failure
+> 
+>
+>On 12/07/2015 11:32 AM, Josh Berkus wrote:
+>> On 12/07/2015 10:56 AM, Josh Berkus wrote:
+>>> So, the prepare clone method above worked perfectly twice.  But then we
+>>> tried to bring up a new node as a prepared clone from node 11 and things
+>>> went to hell.
+>> 
+>> One thing I just realized was different between the first two,
+>> successful, runs and the failed runs:  the first two times, we didn't
+>> have pg_hba.conf configured, so when we brought up slony on the new node
+>> it couldn't connect until we fixed that.
+>> 
+>> So I'm wondering if there's a timing issue here somewhere.
+>
+>So, this problem was less interesting than I thought.  As it turns out,
+>the sysadmin was handling "make sure slony doesn't start on the server"
+>by letting it autostart, then shutting it down.  In the couple minutes
+>it was running, though, it did enough to prevent finish clone from working.
+>
+
+
+I've seen similar before.  I recall being very blas? once and managing to start a slon daemon whilst clone finish was still running, with similar but slightly more subtle behaviour.
+
+From ttignor at akamai.com  Thu Dec 10 11:34:21 2015
+From: ttignor at akamai.com (Tignor, Tom)
+Date: Thu, 10 Dec 2015 19:34:21 +0000
+Subject: [Slony1-general] remote listener serializability
+In-Reply-To: <20151205031142.GH3132@localhost.localdomain>
+References: <D26F49AE.41208%ttignor@akamai.com>
+	<564A203B.9030806@ca.afilias.info> <D271E352.42CC8%ttignor@akamai.com>
+	<20151118153548.GG31515@localhost.localdomain>
+	<D2737725.437DF%ttignor@akamai.com>
+	<20151205031142.GH3132@localhost.localdomain>
+Message-ID: <D28F3CF0.46127%ttignor@akamai.com>
+
+
+	Hello slony1 folks,
+	FYI - I?ve just circled back on this. As advised by Steve S, I?ve updated
+bug 336 with our discussion and ideas for providing a change in an
+upcoming release. Certainly let me know if there are new thoughts or other
+info I can provide. I put myself on the bug cc list, so maybe interested
+folks can comment through Bugzilla.
+	Thanks,
+
+	Tom    :-)
+
+
+
+On 12/4/15, 10:11 PM, "Greg Sabino Mullane" <greg at endpoint.com> wrote:
+
+>On Thu, Nov 19, 2015 at 06:09:54PM +0000, Tignor, Tom wrote:
+>> 	Thanks for the feedback. Greg, can you describe the transaction
+>>handling
+>> changes you?re referring to?
+>
+>Sorry, my bad - I misremembered the serializable overhaul as happening
+>in 9.2, not 9.1.
+>
+>-- 
+>Greg Sabino Mullane greg at endpoint.com
+>End Point Corporation
+>PGP Key: 0x14964AC8
+
+
+From mike.james at clutch.com  Thu Dec 10 13:17:21 2015
+From: mike.james at clutch.com (Mike James)
+Date: Thu, 10 Dec 2015 16:17:21 -0500
+Subject: [Slony1-general] renaming / archiving a table
+Message-ID: <CADeyJsUipCdLnKiYzEZbX43DQe_aGEgRWFbm3wuh=E4DKT4KwA@mail.gmail.com>
+
+One of our devs wants to "archive" a table by renaming it and then
+re-creating a new blank one. Something like this:
+
+rename "loglist" to "loglist-2015"
+create loglist
+
+I don't need to replicate loglist-2015. What effect will this have on the
+replication of the loglist table? Is there a better or best practice to do
+this?
+
+TIA, Mike
+  [image: Clutch Holdings, LLC] <http://www.clutch.com> Mike James |
+Manager of Infrastructure
+267.419.6400, ext 204 | mike.james at clutch.com201 S Maple St. | Suite 250 |
+Ambler, PA 19002
+Clutch.com <http://www.clutch.com> | Twitter
+<https://twitter.com/clutchsuccess> | LinkedIn
+<https://www.linkedin.com/company/2837209> | YouTube
+<https://www.youtube.com/user/clutchsuccess> | Clutch Support Center
+<http://clientsupport.clutch.com/> The only end to end consumer management
+platform that empowers consumer-focused businesses to identify, target,
+message, and engage their best customers.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20151210/2cab3693/attachment.htm 
+
+From ajs at crankycanuck.ca  Thu Dec 10 13:36:09 2015
+From: ajs at crankycanuck.ca (Andrew Sullivan)
+Date: Thu, 10 Dec 2015 16:36:09 -0500
+Subject: [Slony1-general] renaming / archiving a table
+In-Reply-To: <CADeyJsUipCdLnKiYzEZbX43DQe_aGEgRWFbm3wuh=E4DKT4KwA@mail.gmail.com>
+References: <CADeyJsUipCdLnKiYzEZbX43DQe_aGEgRWFbm3wuh=E4DKT4KwA@mail.gmail.com>
+Message-ID: <20151210213609.GF748@anvilwalrusden.com>
+
+On Thu, Dec 10, 2015 at 04:17:21PM -0500, Mike James wrote:
+> One of our devs wants to "archive" a table by renaming it and then
+> re-creating a new blank one. Something like this:
+> 
+> rename "loglist" to "loglist-2015"
+> create loglist
+> 
+> I don't need to replicate loglist-2015. What effect will this have on the
+> replication of the loglist table? Is there a better or best practice to do
+> this?
+
+Your life will probably be better if instead the person does
+
+    CREATE TABLE loglist-2015 AS SELECT * FROM loglist;
+    TRUNCATE loglist;
+
+That assumes you're on post-8.4, but I hope you are!
+
+A
+
+-- 
+Andrew Sullivan
+ajs at anvilwalrusden.com
+
+
