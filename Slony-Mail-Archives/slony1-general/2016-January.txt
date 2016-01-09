@@ -1,0 +1,364 @@
+From tmblue at gmail.com  Thu Jan  7 14:26:44 2016
+From: tmblue at gmail.com (Tory M Blue)
+Date: Thu, 7 Jan 2016 14:26:44 -0800
+Subject: [Slony1-general] Slony-I: log switch to sl_log_2 still in progress
+	- sl_log_1 not truncated
+Message-ID: <CAEaSS0aCUuNmtsekJmG+fgt2EqgA5ArnPnn-Z3ZUT2kza6ixmw@mail.gmail.com>
+
+So I'm backing up in a big way. I know what started it, "adding a new
+insert slave which took 13 hours to complete (indexes etc)".. But now it
+doesn't appear I am able to catch up. I see the slave doing what it's
+suppose to, get a bunch of data, truncate the sl_log files move on. But the
+master is having a hard time.
+
+Postgres 9.4.5 and Slony 2.2.3
+
+All other nodes don't have any errors or issues.
+
+this is Node 1 (the master)
+node 2 is a slave
+node 3-5 are query slaves with only 1 of 3 sets being replicated too.
+
+I have interval at 5 minutes and sync_group_maxsize=50
+
+Any suggestions on where to thump it. At some point this will cause issues
+on my master and when I see that starting, I'll have to drop node 2 again,
+and when i add it, it will take 13+ hours and I'll be back in the same
+position :)
+
+Thanks
+Tory
+
+
+
+Node:  Old Transactions Kept Open
+================================================
+Old Transaction still running with age 01:48:00 > 01:30:00
+
+Query: autovacuum: VACUUM
+
+
+Node: 0 threads seem stuck
+================================================
+Slony-I components have not reported into sl_components in interval 00:05:00
+
+Perhaps slon is not running properly?
+
+Query:
+     select co_actor, co_pid, co_node, co_connection_pid, co_activity,
+co_starttime, now() - co_starttime, co_event, co_eventtype
+     from "_admissioncls".sl_components
+     where  (now() - co_starttime) > '00:05:00'::interval
+     order by co_starttime;
+
+
+
+Node: 1 sl_log_1 tuples = 219700 > 200000
+================================================
+Number of tuples in Slony-I table sl_log_1 is 219700 which
+exceeds 200000.
+
+You may wish to investigate whether or not a node is down, or perhaps
+if sl_confirm entries have not been propagating properly.
+
+
+Node: 1 sl_log_2 tuples = 1.74558e+07 > 200000
+================================================
+Number of tuples in Slony-I table sl_log_2 is 1.74558e+07 which
+exceeds 200000.
+
+You may wish to investigate whether or not a node is down, or perhaps
+if sl_confirm entries have not been propagating properly.
+
+
+Node: 2 sl_log_2 tuples = 440152 > 200000
+================================================
+Number of tuples in Slony-I table sl_log_2 is 440152 which
+exceeds 200000.
+
+You may wish to investigate whether or not a node is down, or perhaps
+if sl_confirm entries have not been propagating properly.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20160107/677d8782/attachment.htm 
+
+From steve at ssinger.info  Thu Jan  7 14:47:04 2016
+From: steve at ssinger.info (Steve Singer)
+Date: Thu, 7 Jan 2016 17:47:04 -0500 (EST)
+Subject: [Slony1-general] Slony-I: log switch to sl_log_2 still in
+ progress - sl_log_1 not truncated
+In-Reply-To: <CAEaSS0aCUuNmtsekJmG+fgt2EqgA5ArnPnn-Z3ZUT2kza6ixmw@mail.gmail.com>
+References: <CAEaSS0aCUuNmtsekJmG+fgt2EqgA5ArnPnn-Z3ZUT2kza6ixmw@mail.gmail.com>
+Message-ID: <alpine.DEB.2.02.1601071743020.11931@mini.atlantida>
+
+On Thu, 7 Jan 2016, Tory M Blue wrote:
+
+> 
+> So I'm backing up in a big way. I know what started it, "adding a new insert slave which took 13 hours to complete (indexes
+> etc)".. But now it doesn't appear I am able to catch up. I see the slave doing what it's suppose to, get a bunch of data,
+> truncate the sl_log files move on. But the master is having a hard time.
+> 
+> Postgres 9.4.5 and Slony 2.2.3
+> 
+> All other nodes don't have any errors or issues.
+> 
+> this is Node 1 (the master)
+> node 2 is a slave
+> node 3-5 are query slaves with only 1 of 3 sets being replicated too.
+> 
+> I have interval at 5 minutes and sync_group_maxsize=50
+> 
+> Any suggestions on where to thump it. At some point this will cause issues on my master and when I see that starting, I'll
+> have to drop node 2 again, and when i add it, it will take 13+ hours and I'll be back in the same position :)
+
+Bump sync_group_maxsize to be much bigger, I'm not saying that will solve 
+the problem but it might help(max allowed is 10,000). I'm also suspect when 
+you say your have a sync_interval of 5 minutes, since I thought 60 seconds was the largest 
+allowed.
+
+
+
+> 
+> Thanks
+> Tory
+> 
+> 
+> 
+> Node: ?Old Transactions Kept Open
+> ================================================
+> Old Transaction still running with age 01:48:00 > 01:30:00
+> 
+> Query: autovacuum: VACUUM
+> 
+> 
+> Node: 0 threads seem stuck
+> ================================================
+> Slony-I components have not reported into sl_components in interval 00:05:00
+> 
+> Perhaps slon is not running properly?
+> 
+> Query:
+> ? ? ?select co_actor, co_pid, co_node, co_connection_pid, co_activity, co_starttime, now() - co_starttime, co_event,
+> co_eventtype
+> ? ? ?from "_admissioncls".sl_components
+> ? ? ?where ?(now() - co_starttime) > '00:05:00'::interval
+> ? ? ?order by co_starttime;
+> ??
+> 
+> 
+> Node: 1 sl_log_1 tuples = 219700 > 200000
+> ================================================
+> Number of tuples in Slony-I table sl_log_1 is 219700 which
+> exceeds 200000.
+> 
+> You may wish to investigate whether or not a node is down, or perhaps
+> if sl_confirm entries have not been propagating properly.
+> 
+> 
+> Node: 1 sl_log_2 tuples = 1.74558e+07 > 200000
+> ================================================
+> Number of tuples in Slony-I table sl_log_2 is 1.74558e+07 which
+> exceeds 200000.
+> 
+> You may wish to investigate whether or not a node is down, or perhaps
+> if sl_confirm entries have not been propagating properly.
+> 
+> 
+> Node: 2 sl_log_2 tuples = 440152 > 200000
+> ================================================
+> Number of tuples in Slony-I table sl_log_2 is 440152 which
+> exceeds 200000.
+> 
+> You may wish to investigate whether or not a node is down, or perhaps
+> if sl_confirm entries have not been propagating properly.
+> 
+> 
+>
+
+From tmblue at gmail.com  Thu Jan  7 14:50:24 2016
+From: tmblue at gmail.com (Tory M Blue)
+Date: Thu, 7 Jan 2016 14:50:24 -0800
+Subject: [Slony1-general] Slony-I: log switch to sl_log_2 still in
+ progress - sl_log_1 not truncated
+In-Reply-To: <alpine.DEB.2.02.1601071743020.11931@mini.atlantida>
+References: <CAEaSS0aCUuNmtsekJmG+fgt2EqgA5ArnPnn-Z3ZUT2kza6ixmw@mail.gmail.com>
+	<alpine.DEB.2.02.1601071743020.11931@mini.atlantida>
+Message-ID: <CAEaSS0ZLoz8pofz9EySn7rZ+U1kXhor+0eNs-f7PF2t-SLvQkw@mail.gmail.com>
+
+On Thu, Jan 7, 2016 at 2:47 PM, Steve Singer <steve at ssinger.info> wrote:
+
+> On Thu, 7 Jan 2016, Tory M Blue wrote:
+>
+>
+>> So I'm backing up in a big way. I know what started it, "adding a new
+>> insert slave which took 13 hours to complete (indexes
+>> etc)".. But now it doesn't appear I am able to catch up. I see the slave
+>> doing what it's suppose to, get a bunch of data,
+>> truncate the sl_log files move on. But the master is having a hard time.
+>>
+>> Postgres 9.4.5 and Slony 2.2.3
+>>
+>> All other nodes don't have any errors or issues.
+>>
+>> this is Node 1 (the master)
+>> node 2 is a slave
+>> node 3-5 are query slaves with only 1 of 3 sets being replicated too.
+>>
+>> I have interval at 5 minutes and sync_group_maxsize=50
+>>
+>> Any suggestions on where to thump it. At some point this will cause
+>> issues on my master and when I see that starting, I'll
+>> have to drop node 2 again, and when i add it, it will take 13+ hours and
+>> I'll be back in the same position :)
+>>
+>
+> Bump sync_group_maxsize to be much bigger, I'm not saying that will solve
+> the problem but it might help(max allowed is 10,000). I'm also suspect when
+> you say your have a sync_interval of 5 minutes, since I thought 60 seconds
+> was the largest allowed.
+>
+> My apologies
+
+cleanup_interval="5 minutes"
+
+my interval is 1000ms
+And sync, group cites 100 is the max
+
+# Range:  [0,100], default: 6
+
+sync_group_maxsize=50
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20160107/81014146/attachment.htm 
+
+From steve at ssinger.info  Thu Jan  7 14:59:52 2016
+From: steve at ssinger.info (Steve Singer)
+Date: Thu, 7 Jan 2016 17:59:52 -0500 (EST)
+Subject: [Slony1-general] Slony-I: log switch to sl_log_2 still in
+ progress - sl_log_1 not truncated
+In-Reply-To: <CAEaSS0ZLoz8pofz9EySn7rZ+U1kXhor+0eNs-f7PF2t-SLvQkw@mail.gmail.com>
+References: <CAEaSS0aCUuNmtsekJmG+fgt2EqgA5ArnPnn-Z3ZUT2kza6ixmw@mail.gmail.com>
+	<alpine.DEB.2.02.1601071743020.11931@mini.atlantida>
+	<CAEaSS0ZLoz8pofz9EySn7rZ+U1kXhor+0eNs-f7PF2t-SLvQkw@mail.gmail.com>
+Message-ID: <alpine.DEB.2.02.1601071754040.11931@mini.atlantida>
+
+On Thu, 7 Jan 2016, Tory M Blue wrote:
+
+>       Bump sync_group_maxsize to be much bigger, I'm not saying that will solve the problem but it might help(max
+>       allowed is 10,000). I'm also suspect when you say your have a sync_interval of 5 minutes, since I thought 60
+>       seconds was the largest allowed.
+> 
+> My apologies
+> 
+> cleanup_interval="5 minutes" ?
+> 
+> my interval is 1000ms
+> 
+> And sync, group cites 100 is the max
+> 
+> # Range:? [0,100], default: 6
+> 
+> sync_group_maxsize=50
+
+Where does that come from?
+http://www.slony.info/documentation/2.2/slon-config-interval.html
+
+says the max is 10,000 and the code looks like it agrees.  Try it and see if 
+you start to catch up.  Also an analyze on your sl_log_1 and sl_log_2 can't 
+hurt.
+
+With a sync_group_size of 20 slon will select the data for at most 20 SYNC's 
+at once and apply them (using a select from sl_log_1 ... union select from 
+sl_log_2 ...)
+
+With a sync_group_size of 10,000 it can in theory select 10,000 sync's at 
+once (but I think it takes a while to work up to that point).
+
+If your bottleneck is the master then it is possible that the selecting from 
+sl_log is causing the problem.
+
+Slon can't truncate a log until all the data in that log has been 
+replicated and there are only 2 logs.
+
+
+
+
+> 
+> 
+> 
+> 
+>
+
+From tmblue at gmail.com  Thu Jan  7 15:13:11 2016
+From: tmblue at gmail.com (Tory M Blue)
+Date: Thu, 7 Jan 2016 15:13:11 -0800
+Subject: [Slony1-general] Slony-I: log switch to sl_log_2 still in
+ progress - sl_log_1 not truncated
+In-Reply-To: <alpine.DEB.2.02.1601071754040.11931@mini.atlantida>
+References: <CAEaSS0aCUuNmtsekJmG+fgt2EqgA5ArnPnn-Z3ZUT2kza6ixmw@mail.gmail.com>
+	<alpine.DEB.2.02.1601071743020.11931@mini.atlantida>
+	<CAEaSS0ZLoz8pofz9EySn7rZ+U1kXhor+0eNs-f7PF2t-SLvQkw@mail.gmail.com>
+	<alpine.DEB.2.02.1601071754040.11931@mini.atlantida>
+Message-ID: <CAEaSS0ZYWr5fqpuw+ihB=Qe8MBvqAi-T_YGB7vUJ2WYrYGhVwA@mail.gmail.com>
+
+On Thu, Jan 7, 2016 at 2:59 PM, Steve Singer <steve at ssinger.info> wrote:
+
+> On Thu, 7 Jan 2016, Tory M Blue wrote:
+>
+>       Bump sync_group_maxsize to be much bigger, I'm not saying that will
+>> solve the problem but it might help(max
+>>       allowed is 10,000). I'm also suspect when you say your have a
+>> sync_interval of 5 minutes, since I thought 60
+>>       seconds was the largest allowed.
+>>
+>> My apologies
+>>
+>> cleanup_interval="5 minutes"
+>>
+>> my interval is 1000ms
+>>
+>> And sync, group cites 100 is the max
+>>
+>> # Range:  [0,100], default: 6
+>>
+>> sync_group_maxsize=50
+>>
+>
+> Where does that come from?
+> http://www.slony.info/documentation/2.2/slon-config-interval.html
+>
+> says the max is 10,000 and the code looks like it agrees.  Try it and see
+> if you start to catch up.  Also an analyze on your sl_log_1 and sl_log_2
+> can't hurt.
+>
+> With a sync_group_size of 20 slon will select the data for at most 20
+> SYNC's at once and apply them (using a select from sl_log_1 ... union
+> select from sl_log_2 ...)
+>
+> With a sync_group_size of 10,000 it can in theory select 10,000 sync's at
+> once (but I think it takes a while to work up to that point).
+>
+> If your bottleneck is the master then it is possible that the selecting
+> from sl_log is causing the problem.
+>
+> Thanks Steve, I had that in my slon.conf, it may have been left over from
+many years 10+ of using slon and a much earlier version :) I'll keep
+incrementing it and see what happens.
+
+Analyze was quick, but I think you are on to something when you cited that
+it may be taking a bit to grab from sl_log1 and thus the snowball.. Can't
+say I've ever had this many records backed up, but the idea of dropping
+node 2, when i know I'll be in the same situation bothers me :)
+
+2016-01-07 15:10:29 PST clsdb postgres [local] 16066 2016-01-07
+15:10:29.128 PSTLOG:  duration: 2096.165 ms  statement: analyze
+_cls.sl_log_2;
+2016-01-07 15:10:36 PST aclsdb postgres [local] 16066 2016-01-07
+15:10:36.162 PSTLOG:  duration: 2426.762 ms  statement: analyze
+_cls.sl_log_1
+
+Tory
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20160107/41df5853/attachment-0001.htm 
+
