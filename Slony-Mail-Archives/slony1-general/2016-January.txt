@@ -362,3 +362,282 @@ Tory
 An HTML attachment was scrubbed...
 URL: http://lists.slony.info/pipermail/slony1-general/attachments/20160107/41df5853/attachment-0001.htm 
 
+From krzysztof.jakowczyk at unity.pl  Tue Jan 12 08:21:57 2016
+From: krzysztof.jakowczyk at unity.pl (Krzysztof Jakowczyk)
+Date: Tue, 12 Jan 2016 17:21:57 +0100
+Subject: [Slony1-general] log insert/update query executed on subscriber
+Message-ID: <56952825.8040801@unity.pl>
+
+Hello,
+
+Is it possible to log query with parameters executed on subscriber node?
+I've tried to add __audit trigger before insert or update, but when
+denyaccess trigger is enabled, nothing is logged. Below is my try for
+table emp:
+
+CREATE SCHEMA
+audit;                                                                                                                                                  
+
+
+CREATE TABLE audit.slon_audit (
+    operation         char(1)   NOT NULL,
+    stamp             timestamp NOT NULL,
+    userid            text      NOT NULL,
+    query             text      NOT NULL
+);
+
+
+CREATE OR REPLACE FUNCTION save_query() RETURNS TRIGGER AS $$
+    BEGIN
+        IF (TG_OP = 'DELETE') THEN
+            INSERT INTO audit.slon_audit SELECT 'D', now(), user, OLD.*;
+            RETURN OLD;
+        ELSIF (TG_OP = 'UPDATE') THEN
+            INSERT INTO audit.slon_audit SELECT 'U', now(), user,
+current_query();
+            RETURN NEW;
+        ELSIF (TG_OP = 'INSERT') THEN
+            INSERT INTO audit.slon_audit SELECT 'I', now(), user,
+current_query();
+            RETURN NEW;
+        END IF;
+        RETURN NULL;
+    END;
+$$ LANGUAGE plpgsql;
+
+
+CREATE TRIGGER __audit
+BEFORE INSERT OR UPDATE OR DELETE ON emp
+    FOR EACH ROW EXECUTE PROCEDURE save_query();
+
+-- 
+Pozdrawiam,
+
+Krzysztof Jakowczyk
+Administrator System?w Unix
+ 
+Grupa Unity | ul. Przedmiejska 6-10, 54-201 Wroc?aw
+ul. Conrada 55B, 31-357 Krak?w | ul. Z?ota 59, 00-120 Warszawa
+
+
+
+
+From steve at ssinger.info  Tue Jan 12 18:43:22 2016
+From: steve at ssinger.info (Steve Singer)
+Date: Tue, 12 Jan 2016 21:43:22 -0500 (EST)
+Subject: [Slony1-general] log insert/update query executed on subscriber
+In-Reply-To: <56952825.8040801@unity.pl>
+References: <56952825.8040801@unity.pl>
+Message-ID: <alpine.DEB.2.02.1601122141490.11931@mini.atlantida>
+
+On Tue, 12 Jan 2016, Krzysztof Jakowczyk wrote:
+
+> Hello,
+>
+> Is it possible to log query with parameters executed on subscriber node?
+> I've tried to add __audit trigger before insert or update, but when
+> denyaccess trigger is enabled, nothing is logged. Below is my try for
+> table emp:
+>
+
+>
+> CREATE TRIGGER __audit
+> BEFORE INSERT OR UPDATE OR DELETE ON emp
+>    FOR EACH ROW EXECUTE PROCEDURE save_query();
+
+Setting the trigger to fire always should work.
+
+ALTER TABLE foo ENABLE ALWAYS TRIGGER __audit;
+
+http://www.postgresql.org/docs/9.1/interactive/sql-altertable.html
+
+
+
+>
+> -- 
+> Pozdrawiam,
+>
+> Krzysztof Jakowczyk
+> Administrator System?w Unix
+> 
+> Grupa Unity | ul. Przedmiejska 6-10, 54-201 Wroc?aw
+> ul. Conrada 55B, 31-357 Krak?w | ul. Z?ota 59, 00-120 Warszawa
+>
+>
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+
+From krzysztof.jakowczyk at unity.pl  Tue Jan 12 22:52:07 2016
+From: krzysztof.jakowczyk at unity.pl (Krzysztof Jakowczyk)
+Date: Wed, 13 Jan 2016 07:52:07 +0100
+Subject: [Slony1-general] log insert/update query executed on subscriber
+In-Reply-To: <alpine.DEB.2.02.1601122141490.11931@mini.atlantida>
+References: <56952825.8040801@unity.pl>
+	<alpine.DEB.2.02.1601122141490.11931@mini.atlantida>
+Message-ID: <5695F417.7020903@unity.pl>
+
+No, it doesn't. Take a look:
+
+# \d emp
+      Table "public.emp"
+ Column  |  Type   | Modifiers
+---------+---------+-----------
+ empname | text    | not null
+ salary  | integer |
+Triggers:
+    _b24v2_denyaccess BEFORE INSERT OR DELETE OR UPDATE ON emp FOR EACH
+ROW EXECUTE PROCEDURE _b24v2.denyaccess('_b24v2')
+Triggers firing always:
+    __audit BEFORE INSERT OR DELETE OR UPDATE ON emp FOR EACH ROW
+EXECUTE PROCEDURE save_query()
+
+
+-- with disabled trigger denyaccess
+# insert into emp values ('TEST dasdasdas',123123);
+INSERT 0 1
+# select * from audit.slon_audit;
+ operation |           stamp            |  userid 
+|                       query                      
+-----------+----------------------------+----------+---------------------------------------------------
+ I         | 2016-01-13 06:46:15.417799 | postgres | insert into emp
+values ('TEST dasdasdas',123123);
+(1 row)
+
+-- enabling trigger denyaccess
+# alter table emp enable trigger _b24v2_denyaccess;
+ALTER TABLE
+# insert into emp values ('test2',31337);
+ERROR:  Slony-I: Table emp is replicated and cannot be modified on a
+subscriber node - role=0
+# select * from audit.slon_audit;
+ operation |           stamp            |  userid 
+|                       query                      
+-----------+----------------------------+----------+---------------------------------------------------
+ I         | 2016-01-13 06:46:15.417799 | postgres | insert into emp
+values ('TEST dasdasdas',123123);
+(1 row)
+
+
+Nothing happend. Any other ideas?
+
+-- 
+Pozdrawiam,
+
+Krzysztof Jakowczyk
+Administrator System?w Unix
+ 
+Grupa Unity | ul. Przedmiejska 6-10, 54-201 Wroc?aw
+ul. Conrada 55B, 31-357 Krak?w | ul. Z?ota 59, 00-120 Warszawa
+
+
+On 13.01.2016 03:43, Steve Singer wrote:
+> On Tue, 12 Jan 2016, Krzysztof Jakowczyk wrote:
+>
+>> Hello,
+>>
+>> Is it possible to log query with parameters executed on subscriber node?
+>> I've tried to add __audit trigger before insert or update, but when
+>> denyaccess trigger is enabled, nothing is logged. Below is my try for
+>> table emp:
+>>
+>
+>>
+>> CREATE TRIGGER __audit
+>> BEFORE INSERT OR UPDATE OR DELETE ON emp
+>>    FOR EACH ROW EXECUTE PROCEDURE save_query();
+>
+> Setting the trigger to fire always should work.
+>
+> ALTER TABLE foo ENABLE ALWAYS TRIGGER __audit;
+>
+> http://www.postgresql.org/docs/9.1/interactive/sql-altertable.html
+>
+>
+>
+>>
+>> -- 
+>> Pozdrawiam,
+>>
+>> Krzysztof Jakowczyk
+>> Administrator System?w Unix
+>>
+>> Grupa Unity | ul. Przedmiejska 6-10, 54-201 Wroc?aw
+>> ul. Conrada 55B, 31-357 Krak?w | ul. Z?ota 59, 00-120 Warszawa
+>>
+>>
+>>
+>> _______________________________________________
+>> Slony1-general mailing list
+>> Slony1-general at lists.slony.info
+>> http://lists.slony.info/mailman/listinfo/slony1-general
+
+
+
+From stephane.schildknecht at postgres.fr  Wed Jan 13 00:17:04 2016
+From: stephane.schildknecht at postgres.fr (=?UTF-8?Q?St=c3=a9phane_Schildknecht?=)
+Date: Wed, 13 Jan 2016 09:17:04 +0100
+Subject: [Slony1-general] log insert/update query executed on subscriber
+In-Reply-To: <5695F417.7020903@unity.pl>
+References: <56952825.8040801@unity.pl>
+	<alpine.DEB.2.02.1601122141490.11931@mini.atlantida>
+	<5695F417.7020903@unity.pl>
+Message-ID: <56960800.8040904@postgres.fr>
+
+On 13/01/2016 07:52, Krzysztof Jakowczyk wrote:
+> No, it doesn't. Take a look:
+> 
+> # \d emp
+>       Table "public.emp"
+>  Column  |  Type   | Modifiers
+> ---------+---------+-----------
+>  empname | text    | not null
+>  salary  | integer |
+> Triggers:
+>     _b24v2_denyaccess BEFORE INSERT OR DELETE OR UPDATE ON emp FOR EACH
+> ROW EXECUTE PROCEDURE _b24v2.denyaccess('_b24v2')
+> Triggers firing always:
+>     __audit BEFORE INSERT OR DELETE OR UPDATE ON emp FOR EACH ROW
+> EXECUTE PROCEDURE save_query()
+> 
+> 
+> -- with disabled trigger denyaccess
+> # insert into emp values ('TEST dasdasdas',123123);
+> INSERT 0 1
+> # select * from audit.slon_audit;
+>  operation |           stamp            |  userid 
+> |                       query                      
+> -----------+----------------------------+----------+---------------------------------------------------
+>  I         | 2016-01-13 06:46:15.417799 | postgres | insert into emp
+> values ('TEST dasdasdas',123123);
+> (1 row)
+> 
+> -- enabling trigger denyaccess
+> # alter table emp enable trigger _b24v2_denyaccess;
+> ALTER TABLE
+> # insert into emp values ('test2',31337);
+> ERROR:  Slony-I: Table emp is replicated and cannot be modified on a
+> subscriber node - role=0
+> # select * from audit.slon_audit;
+>  operation |           stamp            |  userid 
+> |                       query                      
+> -----------+----------------------------+----------+---------------------------------------------------
+>  I         | 2016-01-13 06:46:15.417799 | postgres | insert into emp
+> values ('TEST dasdasdas',123123);
+> (1 row)
+> 
+> 
+> Nothing happend. Any other ideas?
+> 
+
+I guess it is related to the alphabetical order of triggers, as they are both
+BEFORE triggers.
+
+-- 
+St?phane Schildknecht
+Contact r?gional PostgreSQL pour l'Europe francophone
+Loxodata - Conseil, expertise et formations
+06.17.11.37.42
+
