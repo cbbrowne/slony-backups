@@ -641,3 +641,781 @@ Contact r?gional PostgreSQL pour l'Europe francophone
 Loxodata - Conseil, expertise et formations
 06.17.11.37.42
 
+From david at fetter.org  Wed Jan 13 10:43:51 2016
+From: david at fetter.org (David Fetter)
+Date: Wed, 13 Jan 2016 10:43:51 -0800
+Subject: [Slony1-general] Make all slon options actually settable from the
+	command line?
+Message-ID: <20160113184351.GB28070@fetter.org>
+
+Folks,
+
+Is there a reason other than lack of tuits why $Subject is not already
+the case?  If not, I'd like to prepare a patch for the next minor
+release to address it.
+
+Cheers,
+David.
+-- 
+David Fetter <david at fetter.org> http://fetter.org/
+Phone: +1 415 235 3778  AIM: dfetter666  Yahoo!: dfetter
+Skype: davidfetter      XMPP: david.fetter at gmail.com
+
+Remember to vote!
+Consider donating to Postgres: http://www.postgresql.org/about/donate
+
+From cbbrowne at afilias.info  Wed Jan 13 13:33:57 2016
+From: cbbrowne at afilias.info (Christopher Browne)
+Date: Wed, 13 Jan 2016 16:33:57 -0500
+Subject: [Slony1-general] Make all slon options actually settable from
+ the command line?
+In-Reply-To: <20160113184351.GB28070@fetter.org>
+References: <20160113184351.GB28070@fetter.org>
+Message-ID: <CANfbgbZT0w4FjiJQfo9xJvkyxOaQiMsmTTe6pkOGtQW_nti5cA@mail.gmail.com>
+
+On Wed, Jan 13, 2016 at 1:43 PM, David Fetter <david at fetter.org> wrote:
+
+> Folks,
+>
+> Is there a reason other than lack of tuits why $Subject is not already
+> the case?  If not, I'd like to prepare a patch for the next minor
+> release to address it.
+>
+
+The mild contraindication, to my mind, was that when we set up the -f
+option to allow pulling substantially all configuration (save for the -f
+value!)
+from a file, I thought it would be preferable to pull config from files,
+hence meaning there wasn't much reason to put any tuits into the
+matter.
+
+With the bit of "contraindication" that it's traditionally tempting to have
+short option names, hence leading to potential fights over what "-s" stands
+for.
+
+If you're keen on patching in long-ish option names for everything,
+I don't see a big reason to struggle against that.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20160113/0d25661c/attachment.htm 
+
+From ssinger at ca.afilias.info  Wed Jan 13 14:37:24 2016
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Wed, 13 Jan 2016 17:37:24 -0500
+Subject: [Slony1-general] log insert/update query executed on subscriber
+In-Reply-To: <5695F417.7020903@unity.pl>
+References: <56952825.8040801@unity.pl>	<alpine.DEB.2.02.1601122141490.11931@mini.atlantida>
+	<5695F417.7020903@unity.pl>
+Message-ID: <5696D1A4.6010904@ca.afilias.info>
+
+On 01/13/2016 01:52 AM, Krzysztof Jakowczyk wrote:
+> No, it doesn't. Take a look:
+>
+> # \d emp
+>        Table "public.emp"
+>   Column  |  Type   | Modifiers
+> ---------+---------+-----------
+>   empname | text    | not null
+>   salary  | integer |
+> Triggers:
+>      _b24v2_denyaccess BEFORE INSERT OR DELETE OR UPDATE ON emp FOR EACH
+> ROW EXECUTE PROCEDURE _b24v2.denyaccess('_b24v2')
+> Triggers firing always:
+>      __audit BEFORE INSERT OR DELETE OR UPDATE ON emp FOR EACH ROW
+> EXECUTE PROCEDURE save_query()
+>
+>
+> -- with disabled trigger denyaccess
+> # insert into emp values ('TEST dasdasdas',123123);
+> INSERT 0 1
+> # select * from audit.slon_audit;
+>   operation |           stamp            |  userid
+> |                       query
+> -----------+----------------------------+----------+---------------------------------------------------
+>   I         | 2016-01-13 06:46:15.417799 | postgres | insert into emp
+> values ('TEST dasdasdas',123123);
+> (1 row)
+>
+> -- enabling trigger denyaccess
+> # alter table emp enable trigger _b24v2_denyaccess;
+> ALTER TABLE
+> # insert into emp values ('test2',31337);
+> ERROR:  Slony-I: Table emp is replicated and cannot be modified on a
+> subscriber node - role=0
+
+I guess I don't understand what it is your trying to do.
+
+What I thought you were asking was this
+
+You have the table "emp" which has node1 as the origin.
+
+You replicate the table "emp" to node 2.
+
+You have the audit.slon_audit table on both node1 and node2. You want 
+the trigger to fire on both node1 and node2 instead of replicating 
+audit.slon_audit
+
+If that's the case why are you trying your insert on node2?
+You want to perform the insert on node1,and then the audit trigger 
+should run (assuming you configure it as an always trigger) on both 
+node1 and on node2 inserting data into your audit table
+
+
+
+
+
+> # select * from audit.slon_audit;
+>   operation |           stamp            |  userid
+> |                       query
+> -----------+----------------------------+----------+---------------------------------------------------
+>   I         | 2016-01-13 06:46:15.417799 | postgres | insert into emp
+> values ('TEST dasdasdas',123123);
+> (1 row)
+>
+>
+> Nothing happend. Any other ideas?
+>
+
+
+From steve at ssinger.info  Wed Jan 13 14:38:14 2016
+From: steve at ssinger.info (Steve Singer)
+Date: Wed, 13 Jan 2016 17:38:14 -0500
+Subject: [Slony1-general] log insert/update query executed on subscriber
+In-Reply-To: <5695F417.7020903@unity.pl>
+References: <56952825.8040801@unity.pl>	<alpine.DEB.2.02.1601122141490.11931@mini.atlantida>
+	<5695F417.7020903@unity.pl>
+Message-ID: <5696D1D6.6010505@ssinger.info>
+
+On 01/13/2016 01:52 AM, Krzysztof Jakowczyk wrote:
+> No, it doesn't. Take a look:
+>
+> # \d emp
+>        Table "public.emp"
+>   Column  |  Type   | Modifiers
+> ---------+---------+-----------
+>   empname | text    | not null
+>   salary  | integer |
+> Triggers:
+>      _b24v2_denyaccess BEFORE INSERT OR DELETE OR UPDATE ON emp FOR EACH
+> ROW EXECUTE PROCEDURE _b24v2.denyaccess('_b24v2')
+> Triggers firing always:
+>      __audit BEFORE INSERT OR DELETE OR UPDATE ON emp FOR EACH ROW
+> EXECUTE PROCEDURE save_query()
+>
+>
+> -- with disabled trigger denyaccess
+> # insert into emp values ('TEST dasdasdas',123123);
+> INSERT 0 1
+> # select * from audit.slon_audit;
+>   operation |           stamp            |  userid
+> |                       query
+> -----------+----------------------------+----------+---------------------------------------------------
+>   I         | 2016-01-13 06:46:15.417799 | postgres | insert into emp
+> values ('TEST dasdasdas',123123);
+> (1 row)
+>
+> -- enabling trigger denyaccess
+> # alter table emp enable trigger _b24v2_denyaccess;
+> ALTER TABLE
+> # insert into emp values ('test2',31337);
+> ERROR:  Slony-I: Table emp is replicated and cannot be modified on a
+> subscriber node - role=0
+
+I guess I don't understand what it is your trying to do.
+
+What I thought you were asking was this
+
+You have the table "emp" which has node1 as the origin.
+
+You replicate the table "emp" to node 2.
+
+You have the audit.slon_audit table on both node1 and node2. You want 
+the trigger to fire on both node1 and node2 instead of replicating 
+audit.slon_audit
+
+If that's the case why are you trying your insert on node2?
+You want to perform the insert on node1,and then the audit trigger 
+should run (assuming you configure it as an always trigger) on both 
+node1 and on node2 inserting data into your audit table
+
+
+
+
+
+> # select * from audit.slon_audit;
+>   operation |           stamp            |  userid
+> |                       query
+> -----------+----------------------------+----------+---------------------------------------------------
+>   I         | 2016-01-13 06:46:15.417799 | postgres | insert into emp
+> values ('TEST dasdasdas',123123);
+> (1 row)
+>
+>
+> Nothing happend. Any other ideas?
+>
+
+
+From david at fetter.org  Wed Jan 13 15:59:29 2016
+From: david at fetter.org (David Fetter)
+Date: Wed, 13 Jan 2016 15:59:29 -0800
+Subject: [Slony1-general] Make all slon options actually settable from
+ the command line?
+In-Reply-To: <CANfbgbZT0w4FjiJQfo9xJvkyxOaQiMsmTTe6pkOGtQW_nti5cA@mail.gmail.com>
+References: <20160113184351.GB28070@fetter.org>
+	<CANfbgbZT0w4FjiJQfo9xJvkyxOaQiMsmTTe6pkOGtQW_nti5cA@mail.gmail.com>
+Message-ID: <20160113235929.GA11754@fetter.org>
+
+On Wed, Jan 13, 2016 at 04:33:57PM -0500, Christopher Browne wrote:
+> On Wed, Jan 13, 2016 at 1:43 PM, David Fetter <david at fetter.org> wrote:
+> 
+> > Folks,
+> >
+> > Is there a reason other than lack of tuits why $Subject is not already
+> > the case?  If not, I'd like to prepare a patch for the next minor
+> > release to address it.
+> >
+> 
+> The mild contraindication, to my mind, was that when we set up the -f
+> option to allow pulling substantially all configuration (save for the -f
+> value!)
+> from a file, I thought it would be preferable to pull config from files,
+> hence meaning there wasn't much reason to put any tuits into the
+> matter.
+
+The altperl tools, and probably others, are not super fun to operate
+when only some of the options are settable from the command line.
+
+Then there's the consistency issue, although that's mostly aesthetic.
+
+> With the bit of "contraindication" that it's traditionally tempting to have
+> short option names, hence leading to potential fights over what "-s" stands
+> for.
+
+I'm happy to add in some form of getopt_long, which I generally prefer
+for self-documentation purposes.  Do we need to do something special
+the way PostgreSQL does?  I presume simply mandating GNU wouldn't
+work.
+
+> If you're keen on patching in long-ish option names for everything,
+> I don't see a big reason to struggle against that.
+
+I'd be delighted to improve the clarity here.
+
+Cheers,
+David.
+-- 
+David Fetter <david at fetter.org> http://fetter.org/
+Phone: +1 415 235 3778  AIM: dfetter666  Yahoo!: dfetter
+Skype: davidfetter      XMPP: david.fetter at gmail.com
+
+Remember to vote!
+Consider donating to Postgres: http://www.postgresql.org/about/donate
+
+From tmblue at gmail.com  Wed Jan 13 17:23:15 2016
+From: tmblue at gmail.com (Tory M Blue)
+Date: Wed, 13 Jan 2016 17:23:15 -0800
+Subject: [Slony1-general] Slon blocked by an index on a non replicated
+	table?? 2.2.3
+Message-ID: <CAEaSS0aby6Gk868aoUmDUTvuLEQjMc=tHUO1-3CsGegP2ua2Tg@mail.gmail.com>
+
+Postgres 9.4.5 slon 2.2.3 CentOS 6.6
+
+Afternoon
+
+Based on some searching this is not new, but I have failed to find an
+answer for it.. I had an index running on a non replicated table but slon
+would not initialize due to that index, something about set 1 failed due to
+a previous PID.
+
+Now I'm trying to to reindex 2 tables that are not in the slon
+relationship, but slon is backing up, once I stop the reindex, slon
+replicates just fine (immediately). Something is wonky (its a technical
+term, you can look it up!: ) )
+
+So killing the index, I was able to add my host, but now I'm trying to add
+another 2 indexes and it's backing up slon, and or one is holding up the
+other.
+
+So now I'm trying to create 2 indexes concurrently...
+
+These are the 2 i am creating.
+
+One is waiting  on the other. (Waiting is true in pg_stat_Activity)
+
+If I kill the 1st the second starts. Nothing is querying this table.
+
+
+CREATE INDEX CONCURRENTLY idx_impsarchive_psttstamp
+
+  ON torque.impressions_archive
+
+  USING btree
+
+  (timezone('US/Pacific'::text, timezone('UTC'::text, log_tstamp)))
+
+TABLESPACE torquespace;
+
+
+-- Index: torque.idx_impsarchive_system
+
+
+-- DROP INDEX torque.idx_impsarchive_system;
+
+
+CREATE INDEX CONCURRENTLY idx_impsarchive_system
+
+  ON torque.impressions_archive
+
+  USING btree
+
+  (system COLLATE pg_catalog."default")
+
+TABLESPACE torquespace;
+
+
+Also when I had it running non-concurrently they both ran at the same time.
+But slony got backed up. It didn?t explicitly say that it was waiting. But
+after about 45 minutes, data had not replicated. I killed the indices and
+it replicated immediately. This table is not being replicated.
+
+
+I also queried sl_table on the master and this table is not there
+
+
+* tab_id | tab_reloid |     tab_relname     | tab_nspname | tab_set |
+tab_idxname        | tab_altered |        tab*
+
+*_comment         *
+
+*--------+------------+---------------------+-------------+---------+--------------------------+-------------+-----------*
+
+*-----------------*
+
+*    225 |      17959 | variables           | torque      |       2 |
+pk_variables_name        | f           | replicated**table*
+
+*    226 |      17935 | impsbulkimporteven  | torque      |       2 |
+pk_impsbulkimporteven_id | f           | torque.imp**sbulkimporteven*
+
+*    228 |      17947 | impsbulkimportodd   | torque      |       2 |
+pk_impsbulkimportodd_id  | f           | torque.imp**sbulkimportodd*
+
+*    233 |      17919 | impressions_daily | torque      |       2 |
+pk_impsdaily_id        | f           | torque.i**mpressions_daily*
+
+*    235 |      17907 | impressions       | torque      |       2 |
+pk_impressions_id      | f           | torque.i**mpressions*
+
+*(5 rows)*
+
+So I want to create these indexes, they are not being replicated but they
+completely freeze replication. Same thing happened when I added a node,
+slon would not initialize until we killed the same index creation on this
+same non replicated table. I'm not sure what is going on and my apologies i
+deleted the set 1 failed, due to a previous pid message, but if this table
+is not in replication, why is it causing slon to be blocked?
+
+Thanks
+Tory
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20160113/d4dba4d4/attachment-0001.htm 
+
+From steve at ssinger.info  Wed Jan 13 18:30:05 2016
+From: steve at ssinger.info (Steve Singer)
+Date: Wed, 13 Jan 2016 21:30:05 -0500 (EST)
+Subject: [Slony1-general] Slon blocked by an index on a non replicated
+ table?? 2.2.3
+In-Reply-To: <CAEaSS0aby6Gk868aoUmDUTvuLEQjMc=tHUO1-3CsGegP2ua2Tg@mail.gmail.com>
+References: <CAEaSS0aby6Gk868aoUmDUTvuLEQjMc=tHUO1-3CsGegP2ua2Tg@mail.gmail.com>
+Message-ID: <alpine.DEB.2.02.1601132116520.11931@mini.atlantida>
+
+On Wed, 13 Jan 2016, Tory M Blue wrote:
+
+Tory,
+
+You talk about slon 'initializing'.  When subscriptions start it needs to 
+wait until all in progress transactions are committed before starting the 
+copy. Once your cluster is subscribed a create index shouldn't block things.
+
+
+
+
+> Postgres 9.4.5 slon 2.2.3 CentOS 6.6
+> 
+> Afternoon
+> 
+> Based on some searching this is not new, but I have failed to find an answer for it.. I had an index running on a non
+> replicated table but slon would not initialize due to that index, something about set 1 failed due to a previous PID.
+> 
+> Now I'm trying to to reindex 2 tables that are not in the slon relationship, but slon is backing up, once I stop the
+> reindex, slon replicates just fine (immediately). Something is wonky (its a technical term, you can look it up!: ) )
+> 
+> So killing the index, I was able to add my host, but now I'm trying to add another 2 indexes and it's backing up slon, and
+> or one is holding up the other.
+> 
+> So now I'm trying to create 2 indexes concurrently...
+> 
+> These are the 2 i am creating.?
+> 
+> One is waiting ?on the other. (Waiting is true in pg_stat_Activity)
+> 
+> If I kill the 1st the second starts. Nothing is querying this table.
+> 
+> 
+> CREATE INDEX CONCURRENTLY idx_impsarchive_psttstamp
+> 
+> ? ON torque.impressions_archive
+> 
+> ? USING btree
+> 
+> ? (timezone('US/Pacific'::text, timezone('UTC'::text, log_tstamp)))
+> 
+> TABLESPACE torquespace;
+> 
+> 
+> -- Index: torque.idx_impsarchive_system
+> 
+> 
+> -- DROP INDEX torque.idx_impsarchive_system;
+> 
+> 
+> CREATE INDEX CONCURRENTLY idx_impsarchive_system
+> 
+> ? ON torque.impressions_archive
+> 
+> ? USING btree
+> 
+> ? (system COLLATE pg_catalog."default")
+> 
+> TABLESPACE torquespace;
+> 
+> 
+> Also when I had it running non-concurrently they both ran at the same time. But slony got backed up. It didn?t explicitly
+> say that it was waiting. But after about 45 minutes, data had not replicated. I killed the indices and it replicated
+> immediately. This table is not being replicated.?
+> 
+> 
+> I also queried sl_table on the master and this table is not there
+> 
+> 
+> ?tab_id | tab_reloid | ? ? tab_relname ? ? | tab_nspname | tab_set | ? ? ? tab_idxname? ? ? ? | tab_altered |? ? ? ? tab
+> 
+> _comment? ? ? ? ?
+> 
+> --------+------------+---------------------+-------------+---------+--------------------------+-------------+-----------
+> 
+> -----------------
+> 
+> ? ? 225 |? ? ? 17959 | variables ? ? ? ? ? | torque? ? ? | ? ? ? 2 | pk_variables_name? ? ? ? | f ? ? ? ? ? |
+> replicatedtable
+> 
+> ? ? 226 |? ? ? 17935 | impsbulkimporteven? | torque? ? ? | ? ? ? 2 | pk_impsbulkimporteven_id | f ? ? ? ? ? |
+> torque.impsbulkimporteven
+> 
+> ? ? 228 |? ? ? 17947 | impsbulkimportodd ? | torque? ? ? | ? ? ? 2 | pk_impsbulkimportodd_id? | f ? ? ? ? ? |
+> torque.impsbulkimportodd
+> 
+> ? ? 233 |? ? ? 17919 | impressions_daily | torque? ? ? | ? ? ? 2 | pk_impsdaily_id? ? ? ? | f ? ? ? ? ? |
+> torque.impressions_daily
+> 
+> ? ? 235 |? ? ? 17907 | impressions ? ? ? | torque? ? ? | ? ? ? 2 | pk_impressions_id? ? ? | f ? ? ? ? ? | torque.impressions
+> 
+> (5 rows)
+> 
+> 
+> So I want to create these indexes, they are not being replicated but they completely freeze replication. Same thing happened
+> when I added a node, slon would not initialize until we killed the same index creation on this same non replicated table.
+> I'm not sure what is going on and my apologies i deleted the set 1 failed, due to a previous pid message, but if this table
+> is not in replication, why is it causing slon to be blocked?
+> 
+> Thanks
+> Tory
+> 
+> 
+>
+
+From tmblue at gmail.com  Wed Jan 13 18:38:44 2016
+From: tmblue at gmail.com (Tory M Blue)
+Date: Wed, 13 Jan 2016 18:38:44 -0800
+Subject: [Slony1-general] Slon blocked by an index on a non replicated
+ table?? 2.2.3
+In-Reply-To: <alpine.DEB.2.02.1601132116520.11931@mini.atlantida>
+References: <CAEaSS0aby6Gk868aoUmDUTvuLEQjMc=tHUO1-3CsGegP2ua2Tg@mail.gmail.com>
+	<alpine.DEB.2.02.1601132116520.11931@mini.atlantida>
+Message-ID: <CAEaSS0airdGM18FVie0-84ys+Gh+3MFFcxFOhtziAToaJLJA-Q@mail.gmail.com>
+
+On Wed, Jan 13, 2016 at 6:30 PM, Steve Singer <steve at ssinger.info> wrote:
+
+> On Wed, 13 Jan 2016, Tory M Blue wrote:
+>
+> Tory,
+>
+> You talk about slon 'initializing'.  When subscriptions start it needs to
+> wait until all in progress transactions are committed before starting the
+> copy. Once your cluster is subscribed a create index shouldn't block things.
+>
+>
+Ya 2 different issues, sorry. but the Initialization part, even if the
+table being indexed is not part of the set? That rings weird and I really
+wish i could find the other thread that had a discussion on this, as it has
+the correct error etc.
+
+But an index on a table that is not part of any replication set, blocks
+slony from starting the copy?  We are talking table based replication here
+right, so we are not looking at the db level, which I could sort of
+understand. Since slony is replicating tables, if this table is not part of
+any set and thus is not being replicated, why does that hold true?
+
+And while I'm fully replicated now, if I try to index these tables, slon
+backs up and if I kill the index, the replications set happen immediately.
+So something is happening with these tables. These are archive tables,
+nothing is accessing them, they are here purely for historical purposes.
+So I'm at a loss and I don't expect anyone to have an immediate answer, but
+it seems weird and would love to provide any necessary information to help
+frame the question/issue better, if someone can help me do that :)
+
+Thanks again Steve!
+
+Tory
+
+
+
+>>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20160113/c84f610e/attachment.htm 
+
+From krzysztof.jakowczyk at unity.pl  Thu Jan 14 01:48:29 2016
+From: krzysztof.jakowczyk at unity.pl (Krzysztof Jakowczyk)
+Date: Thu, 14 Jan 2016 10:48:29 +0100
+Subject: [Slony1-general] log insert/update query executed on subscriber
+In-Reply-To: <56960800.8040904@postgres.fr>
+References: <56952825.8040801@unity.pl>	<alpine.DEB.2.02.1601122141490.11931@mini.atlantida>	<5695F417.7020903@unity.pl>
+	<56960800.8040904@postgres.fr>
+Message-ID: <56976EED.6000801@unity.pl>
+
+On 13.01.2016 09:17, St?phane Schildknecht wrote:
+> On 13/01/2016 07:52, Krzysztof Jakowczyk wrote:
+>> No, it doesn't. Take a look:
+>>
+>> # \d emp
+>>       Table "public.emp"
+>>  Column  |  Type   | Modifiers
+>> ---------+---------+-----------
+>>  empname | text    | not null
+>>  salary  | integer |
+>> Triggers:
+>>     _b24v2_denyaccess BEFORE INSERT OR DELETE OR UPDATE ON emp FOR EACH
+>> ROW EXECUTE PROCEDURE _b24v2.denyaccess('_b24v2')
+>> Triggers firing always:
+>>     __audit BEFORE INSERT OR DELETE OR UPDATE ON emp FOR EACH ROW
+>> EXECUTE PROCEDURE save_query()
+>>
+>>
+>> -- with disabled trigger denyaccess
+>> # insert into emp values ('TEST dasdasdas',123123);
+>> INSERT 0 1
+>> # select * from audit.slon_audit;
+>>  operation |           stamp            |  userid 
+>> |                       query                      
+>> -----------+----------------------------+----------+---------------------------------------------------
+>>  I         | 2016-01-13 06:46:15.417799 | postgres | insert into emp
+>> values ('TEST dasdasdas',123123);
+>> (1 row)
+>>
+>> -- enabling trigger denyaccess
+>> # alter table emp enable trigger _b24v2_denyaccess;
+>> ALTER TABLE
+>> # insert into emp values ('test2',31337);
+>> ERROR:  Slony-I: Table emp is replicated and cannot be modified on a
+>> subscriber node - role=0
+>> # select * from audit.slon_audit;
+>>  operation |           stamp            |  userid 
+>> |                       query                      
+>> -----------+----------------------------+----------+---------------------------------------------------
+>>  I         | 2016-01-13 06:46:15.417799 | postgres | insert into emp
+>> values ('TEST dasdasdas',123123);
+>> (1 row)
+>>
+>>
+>> Nothing happend. Any other ideas?
+>>
+> I guess it is related to the alphabetical order of triggers, as they are both
+> BEFORE triggers.
+>
+Yes, it's true. Quote from documentation:
+
+
+"If multiple triggers of the same kind are defined for the same event,
+they will be fired in alphabetical order by name".
+
+So I named this trigger __audit. That is first in alphabetical order but
+it seems not working well.
+
+
+
+From krzysztof.jakowczyk at unity.pl  Thu Jan 14 02:04:37 2016
+From: krzysztof.jakowczyk at unity.pl (Krzysztof Jakowczyk)
+Date: Thu, 14 Jan 2016 11:04:37 +0100
+Subject: [Slony1-general] log insert/update query executed on subscriber
+In-Reply-To: <5696D1A4.6010904@ca.afilias.info>
+References: <56952825.8040801@unity.pl>	<alpine.DEB.2.02.1601122141490.11931@mini.atlantida>
+	<5695F417.7020903@unity.pl> <5696D1A4.6010904@ca.afilias.info>
+Message-ID: <569772B5.90409@unity.pl>
+
+Our java aplication have bug and from time to time it's trying to insert
+row on subscriber node (which shouldn't happend). My developers wants to
+have query with parametrs which is executed on subscriber node. Table
+audit.slon_audit is created only on subscriber node to catch "bad"
+INSERT/UPDATE queries. I know that this queries shoud executed only on
+origin. I want to find the cause of this behavior of our aplication.
+
+
+On 13.01.2016 23:37, Steve Singer wrote:
+> On 01/13/2016 01:52 AM, Krzysztof Jakowczyk wrote:
+>> No, it doesn't. Take a look:
+>>
+>> # \d emp
+>>        Table "public.emp"
+>>   Column  |  Type   | Modifiers
+>> ---------+---------+-----------
+>>   empname | text    | not null
+>>   salary  | integer |
+>> Triggers:
+>>      _b24v2_denyaccess BEFORE INSERT OR DELETE OR UPDATE ON emp FOR EACH
+>> ROW EXECUTE PROCEDURE _b24v2.denyaccess('_b24v2')
+>> Triggers firing always:
+>>      __audit BEFORE INSERT OR DELETE OR UPDATE ON emp FOR EACH ROW
+>> EXECUTE PROCEDURE save_query()
+>>
+>>
+>> -- with disabled trigger denyaccess
+>> # insert into emp values ('TEST dasdasdas',123123);
+>> INSERT 0 1
+>> # select * from audit.slon_audit;
+>>   operation |           stamp            |  userid
+>> |                       query
+>> -----------+----------------------------+----------+---------------------------------------------------
+>>
+>>   I         | 2016-01-13 06:46:15.417799 | postgres | insert into emp
+>> values ('TEST dasdasdas',123123);
+>> (1 row)
+>>
+>> -- enabling trigger denyaccess
+>> # alter table emp enable trigger _b24v2_denyaccess;
+>> ALTER TABLE
+>> # insert into emp values ('test2',31337);
+>> ERROR:  Slony-I: Table emp is replicated and cannot be modified on a
+>> subscriber node - role=0
+>
+> I guess I don't understand what it is your trying to do.
+>
+> What I thought you were asking was this
+>
+> You have the table "emp" which has node1 as the origin.
+>
+> You replicate the table "emp" to node 2.
+>
+> You have the audit.slon_audit table on both node1 and node2. You want
+> the trigger to fire on both node1 and node2 instead of replicating
+> audit.slon_audit
+>
+> If that's the case why are you trying your insert on node2?
+> You want to perform the insert on node1,and then the audit trigger
+> should run (assuming you configure it as an always trigger) on both
+> node1 and on node2 inserting data into your audit table
+>
+>
+>
+>
+>
+>> # select * from audit.slon_audit;
+>>   operation |           stamp            |  userid
+>> |                       query
+>> -----------+----------------------------+----------+---------------------------------------------------
+>>
+>>   I         | 2016-01-13 06:46:15.417799 | postgres | insert into emp
+>> values ('TEST dasdasdas',123123);
+>> (1 row)
+>>
+>>
+>> Nothing happend. Any other ideas?
+>>
+>
+> .
+>
+
+
+
+From glynastill at yahoo.co.uk  Thu Jan 14 03:16:40 2016
+From: glynastill at yahoo.co.uk (Glyn Astill)
+Date: Thu, 14 Jan 2016 11:16:40 +0000 (UTC)
+Subject: [Slony1-general] log insert/update query executed on subscriber
+In-Reply-To: <569772B5.90409@unity.pl>
+References: <569772B5.90409@unity.pl>
+Message-ID: <1951480679.7908114.1452770200257.JavaMail.yahoo@mail.yahoo.com>
+
+
+> From: Krzysztof Jakowczyk <krzysztof.jakowczyk at unity.pl>
+>To: Steve Singer <ssinger at ca.afilias.info>; Steve Singer <steve at ssinger.info> 
+>Cc: slony1-general <slony1-general at lists.slony.info>
+>Sent: Thursday, 14 January 2016, 10:04
+>Subject: Re: [Slony1-general] log insert/update query executed on subscriber
+> 
+>
+>Our java aplication have bug and from time to time it's trying to insert
+>row on subscriber node (which shouldn't happend). My developers wants to
+>have query with parametrs which is executed on subscriber node. Table
+>audit.slon_audit is created only on subscriber node to catch "bad"
+>INSERT/UPDATE queries. I know that this queries shoud executed only on
+>origin. I want to find the cause of this behavior of our aplication.
+>
+>
+
+
+In that case why not just set log_min_duration_statement=0 for the user(s) of the java app?
+
+From krzysztof.jakowczyk at unity.pl  Thu Jan 14 03:32:30 2016
+From: krzysztof.jakowczyk at unity.pl (Krzysztof Jakowczyk)
+Date: Thu, 14 Jan 2016 12:32:30 +0100
+Subject: [Slony1-general] log insert/update query executed on subscriber
+In-Reply-To: <1951480679.7908114.1452770200257.JavaMail.yahoo@mail.yahoo.com>
+References: <569772B5.90409@unity.pl>
+	<1951480679.7908114.1452770200257.JavaMail.yahoo@mail.yahoo.com>
+Message-ID: <5697874E.2070907@unity.pl>
+
+Cause databases have huge load and this setting will kill disk array. ;)
+
+-- 
+Pozdrawiam,
+
+Krzysztof Jakowczyk
+Administrator System?w Unix
+ 
+Grupa Unity | ul. Przedmiejska 6-10, 54-201 Wroc?aw
+ul. Conrada 55B, 31-357 Krak?w | ul. Z?ota 59, 00-120 Warszawa
+
+
+On 14.01.2016 12:16, Glyn Astill wrote:
+>> From: Krzysztof Jakowczyk <krzysztof.jakowczyk at unity.pl>
+>> To: Steve Singer <ssinger at ca.afilias.info>; Steve Singer <steve at ssinger.info> 
+>> Cc: slony1-general <slony1-general at lists.slony.info>
+>> Sent: Thursday, 14 January 2016, 10:04
+>> Subject: Re: [Slony1-general] log insert/update query executed on subscriber
+>>
+>>
+>> Our java aplication have bug and from time to time it's trying to insert
+>> row on subscriber node (which shouldn't happend). My developers wants to
+>> have query with parametrs which is executed on subscriber node. Table
+>> audit.slon_audit is created only on subscriber node to catch "bad"
+>> INSERT/UPDATE queries. I know that this queries shoud executed only on
+>> origin. I want to find the cause of this behavior of our aplication.
+>>
+>>
+>
+> In that case why not just set log_min_duration_statement=0 for the user(s) of the java app?
+> .
+>
+
+
