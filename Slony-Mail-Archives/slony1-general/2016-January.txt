@@ -1419,3 +1419,305 @@ On 14.01.2016 12:16, Glyn Astill wrote:
 >
 
 
+From steve at ssinger.info  Thu Jan 14 04:33:39 2016
+From: steve at ssinger.info (Steve Singer)
+Date: Thu, 14 Jan 2016 07:33:39 -0500 (EST)
+Subject: [Slony1-general] log insert/update query executed on subscriber
+In-Reply-To: <569772B5.90409@unity.pl>
+References: <56952825.8040801@unity.pl>
+	<alpine.DEB.2.02.1601122141490.11931@mini.atlantida>
+	<5695F417.7020903@unity.pl> <5696D1A4.6010904@ca.afilias.info>
+	<569772B5.90409@unity.pl>
+Message-ID: <alpine.DEB.2.02.1601140731570.11931@mini.atlantida>
+
+On Thu, 14 Jan 2016, Krzysztof Jakowczyk wrote:
+
+> Our java aplication have bug and from time to time it's trying to insert
+> row on subscriber node (which shouldn't happend). My developers wants to
+> have query with parametrs which is executed on subscriber node. Table
+> audit.slon_audit is created only on subscriber node to catch "bad"
+> INSERT/UPDATE queries. I know that this queries shoud executed only on
+> origin. I want to find the cause of this behavior of our aplication.
+
+Even if the audit trigger fires first the denyAccess trigger will abort the 
+transaction causing any changes added to the audit table to be rolled back.
+
+
+
+>
+>
+> On 13.01.2016 23:37, Steve Singer wrote:
+>> On 01/13/2016 01:52 AM, Krzysztof Jakowczyk wrote:
+>>> No, it doesn't. Take a look:
+>>>
+>>> # \d emp
+>>>        Table "public.emp"
+>>>   Column  |  Type   | Modifiers
+>>> ---------+---------+-----------
+>>>   empname | text    | not null
+>>>   salary  | integer |
+>>> Triggers:
+>>>      _b24v2_denyaccess BEFORE INSERT OR DELETE OR UPDATE ON emp FOR EACH
+>>> ROW EXECUTE PROCEDURE _b24v2.denyaccess('_b24v2')
+>>> Triggers firing always:
+>>>      __audit BEFORE INSERT OR DELETE OR UPDATE ON emp FOR EACH ROW
+>>> EXECUTE PROCEDURE save_query()
+>>>
+>>>
+>>> -- with disabled trigger denyaccess
+>>> # insert into emp values ('TEST dasdasdas',123123);
+>>> INSERT 0 1
+>>> # select * from audit.slon_audit;
+>>>   operation |           stamp            |  userid
+>>> |                       query
+>>> -----------+----------------------------+----------+---------------------------------------------------
+>>>
+>>>   I         | 2016-01-13 06:46:15.417799 | postgres | insert into emp
+>>> values ('TEST dasdasdas',123123);
+>>> (1 row)
+>>>
+>>> -- enabling trigger denyaccess
+>>> # alter table emp enable trigger _b24v2_denyaccess;
+>>> ALTER TABLE
+>>> # insert into emp values ('test2',31337);
+>>> ERROR:  Slony-I: Table emp is replicated and cannot be modified on a
+>>> subscriber node - role=0
+>>
+>> I guess I don't understand what it is your trying to do.
+>>
+>> What I thought you were asking was this
+>>
+>> You have the table "emp" which has node1 as the origin.
+>>
+>> You replicate the table "emp" to node 2.
+>>
+>> You have the audit.slon_audit table on both node1 and node2. You want
+>> the trigger to fire on both node1 and node2 instead of replicating
+>> audit.slon_audit
+>>
+>> If that's the case why are you trying your insert on node2?
+>> You want to perform the insert on node1,and then the audit trigger
+>> should run (assuming you configure it as an always trigger) on both
+>> node1 and on node2 inserting data into your audit table
+>>
+>>
+>>
+>>
+>>
+>>> # select * from audit.slon_audit;
+>>>   operation |           stamp            |  userid
+>>> |                       query
+>>> -----------+----------------------------+----------+---------------------------------------------------
+>>>
+>>>   I         | 2016-01-13 06:46:15.417799 | postgres | insert into emp
+>>> values ('TEST dasdasdas',123123);
+>>> (1 row)
+>>>
+>>>
+>>> Nothing happend. Any other ideas?
+>>>
+>>
+>> .
+>>
+>
+>
+
+
+From glynastill at yahoo.co.uk  Thu Jan 14 05:00:23 2016
+From: glynastill at yahoo.co.uk (Glyn Astill)
+Date: Thu, 14 Jan 2016 13:00:23 +0000 (UTC)
+Subject: [Slony1-general] log insert/update query executed on subscriber
+In-Reply-To: <5697874E.2070907@unity.pl>
+References: <5697874E.2070907@unity.pl>
+Message-ID: <740308734.8086051.1452776423128.JavaMail.yahoo@mail.yahoo.com>
+
+
+
+
+
+----- Original Message -----
+> From: Krzysztof Jakowczyk <krzysztof.jakowczyk at unity.pl>
+> To: Glyn Astill <glynastill at yahoo.co.uk>; Steve Singer <ssinger at ca.afilias.info>; Steve Singer <steve at ssinger.info>
+> Cc: slony1-general <slony1-general at lists.slony.info>
+> Sent: Thursday, 14 January 2016, 11:32
+> Subject: Re: [Slony1-general] log insert/update query executed on subscriber
+> 
+> Cause databases have huge load and this setting will kill disk array. ;)
+
+
+We'll regardless, any action performed by your triggers will roll back.
+
+Perhaps you could log the information you need with a RAISE LOG/NOTICE in your trigger instead of trying to store it in a transactional table?
+
+From steve at ssinger.info  Thu Jan 14 06:47:36 2016
+From: steve at ssinger.info (Steve Singer)
+Date: Thu, 14 Jan 2016 09:47:36 -0500
+Subject: [Slony1-general] Slon blocked by an index on a non replicated
+ table?? 2.2.3
+In-Reply-To: <CAEaSS0airdGM18FVie0-84ys+Gh+3MFFcxFOhtziAToaJLJA-Q@mail.gmail.com>
+References: <CAEaSS0aby6Gk868aoUmDUTvuLEQjMc=tHUO1-3CsGegP2ua2Tg@mail.gmail.com>	<alpine.DEB.2.02.1601132116520.11931@mini.atlantida>
+	<CAEaSS0airdGM18FVie0-84ys+Gh+3MFFcxFOhtziAToaJLJA-Q@mail.gmail.com>
+Message-ID: <5697B508.3090503@ssinger.info>
+
+On 01/13/2016 09:38 PM, Tory M Blue wrote:
+>
+>
+> On Wed, Jan 13, 2016 at 6:30 PM, Steve Singer <steve at ssinger.info
+> <mailto:steve at ssinger.info>> wrote:
+>
+>     On Wed, 13 Jan 2016, Tory M Blue wrote:
+>
+>     Tory,
+>
+>     You talk about slon 'initializing'.  When subscriptions start it
+>     needs to wait until all in progress transactions are committed
+>     before starting the copy. Once your cluster is subscribed a create
+>     index shouldn't block things.
+>
+>
+> Ya 2 different issues, sorry. but the Initialization part, even if the
+> table being indexed is not part of the set? That rings weird and I
+> really wish i could find the other thread that had a discussion on this,
+> as it has the correct error etc.
+>
+> But an index on a table that is not part of any replication set, blocks
+> slony from starting the copy?  We are talking table based replication
+> here right, so we are not looking at the db level, which I could sort of
+> understand. Since slony is replicating tables, if this table is not part
+> of any set and thus is not being replicated, why does that hold true?
+>
+
+ANY in progress transaction on the master blocks the initial copy even 
+if it hasn't yet touched a replicated table.
+
+The comment in the code explains the reason for this and is as follows
+
+
+	/*
+	 * Begin a serialized transaction and verify that the event's snapshot
+	 * xxid is less than the present snapshot. This ensures that all
+	 * transactions that have been in progress when the subscription got
+	 * enabled (which is after the triggers on the tables have been defined),
+	 * have finished. Otherwise a long running open transaction would not have
+	 * the trigger definitions yet, and an insert would not get logged. But if
+	 * it still runs when we start to copy the set, then we don't see the row
+	 * either and it would get lost.
+
+
+
+> And while I'm fully replicated now, if I try to index these tables, slon
+> backs up and if I kill the index, the replications set happen
+> immediately. So something is happening with these tables. These are
+> archive tables, nothing is accessing them, they are here purely for
+> historical purposes.  So I'm at a loss and I don't expect anyone to have
+> an immediate answer, but it seems weird and would love to provide any
+> necessary information to help frame the question/issue better, if
+> someone can help me do that :)
+>
+> Thanks again Steve!
+>
+> Tory
+>
+>
+>
+>
+>
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+>
+
+
+From steve at ssinger.info  Thu Jan 14 07:02:28 2016
+From: steve at ssinger.info (Steve Singer)
+Date: Thu, 14 Jan 2016 10:02:28 -0500
+Subject: [Slony1-general] Make all slon options actually settable from
+ the command line?
+In-Reply-To: <20160113235929.GA11754@fetter.org>
+References: <20160113184351.GB28070@fetter.org>	<CANfbgbZT0w4FjiJQfo9xJvkyxOaQiMsmTTe6pkOGtQW_nti5cA@mail.gmail.com>
+	<20160113235929.GA11754@fetter.org>
+Message-ID: <5697B884.8080902@ssinger.info>
+
+On 01/13/2016 06:59 PM, David Fetter wrote:
+>
+> I'm happy to add in some form of getopt_long, which I generally prefer
+> for self-documentation purposes.  Do we need to do something special
+> the way PostgreSQL does?  I presume simply mandating GNU wouldn't
+> work.
+
+If your hoping to have something that we could add for a 2.2.x then 
+there I wouldn't want to introduce or change any dependencies.
+
+In terms of requiring GNU getopt for 2.3.x I guess it depends on how 
+common that is on other platforms:the bsd's, solaris and AIX.  I don't 
+think slon uses command line options on win32 (but I could be wrong). I 
+do expect slony to build on those platforms without requiring a lot more 
+effort than what would be required to build PG.
+
+My take is adding additional command line options is fine for a dot 
+release as long as we don't change the names of any existing options. If 
+anyone disagrees they should speak up.
+
+
+
+
+>
+>> If you're keen on patching in long-ish option names for everything,
+>> I don't see a big reason to struggle against that.
+>
+> I'd be delighted to improve the clarity here.
+>
+> Cheers,
+> David.
+>
+
+
+From ajs at crankycanuck.ca  Thu Jan 14 07:04:38 2016
+From: ajs at crankycanuck.ca (Andrew Sullivan)
+Date: Thu, 14 Jan 2016 10:04:38 -0500
+Subject: [Slony1-general] Slon blocked by an index on a non replicated
+ table?? 2.2.3
+In-Reply-To: <5697B508.3090503@ssinger.info>
+References: <CAEaSS0aby6Gk868aoUmDUTvuLEQjMc=tHUO1-3CsGegP2ua2Tg@mail.gmail.com>
+	<alpine.DEB.2.02.1601132116520.11931@mini.atlantida>
+	<CAEaSS0airdGM18FVie0-84ys+Gh+3MFFcxFOhtziAToaJLJA-Q@mail.gmail.com>
+	<5697B508.3090503@ssinger.info>
+Message-ID: <20160114150438.GP34398@crankycanuck.ca>
+
+On Thu, Jan 14, 2016 at 09:47:36AM -0500, Steve Singer wrote:
+> ANY in progress transaction on the master blocks the initial copy even 
+> if it hasn't yet touched a replicated table.
+
+FWIW, I dimly recall that this restriction was something we learned
+about by experience (at Afilias) either very early in the Slony work
+or, more likely, with the previous (really broken) eRserver.  Age and
+bitrot may be conflating this with a somewhat-related side effect of a
+different bug, however.
+
+A
+
+-- 
+Andrew Sullivan
+ajs at crankycanuck.ca
+
+From vivek at khera.org  Thu Jan 14 08:29:04 2016
+From: vivek at khera.org (Vick Khera)
+Date: Thu, 14 Jan 2016 11:29:04 -0500
+Subject: [Slony1-general] Make all slon options actually settable from
+ the command line?
+In-Reply-To: <5697B884.8080902@ssinger.info>
+References: <20160113184351.GB28070@fetter.org>
+	<CANfbgbZT0w4FjiJQfo9xJvkyxOaQiMsmTTe6pkOGtQW_nti5cA@mail.gmail.com>
+	<20160113235929.GA11754@fetter.org> <5697B884.8080902@ssinger.info>
+Message-ID: <CALd+dcemdaXG3w_E5Hir_QCQ-5hrm913=S8D0nfi5R44aB=ReA@mail.gmail.com>
+
+On Thu, Jan 14, 2016 at 10:02 AM, Steve Singer <steve at ssinger.info> wrote:
+> My take is adding additional command line options is fine for a dot
+> release as long as we don't change the names of any existing options. If
+> anyone disagrees they should speak up.
+
+Agreed. If there are no new library dependencies and there are no
+changes to existing command line then there is no problem adding more.
+
