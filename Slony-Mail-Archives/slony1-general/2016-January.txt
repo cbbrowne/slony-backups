@@ -1721,3 +1721,177 @@ On Thu, Jan 14, 2016 at 10:02 AM, Steve Singer <steve at ssinger.info> wrote:
 Agreed. If there are no new library dependencies and there are no
 changes to existing command line then there is no problem adding more.
 
+From fmcgeough at gmail.com  Thu Jan 21 07:42:17 2016
+From: fmcgeough at gmail.com (Frank McGeough)
+Date: Thu, 21 Jan 2016 10:42:17 -0500
+Subject: [Slony1-general] duplicate key value violates unique constraint?
+Message-ID: <E096D6E4-78DC-4964-A73D-8BA16498A77E@gmail.com>
+
+I?m having intermittent issues that result in the message "duplicate key value violates unique constraint? in the slony logs. Here is my configuration :
+
+1 master
+2 slaves
+postgresql 9.3.5 on all servers
+slony2.2.2
+
+All the servers are in the same network and running the same Linux o/s with the same file system. The issues just seem to happen randomly. They happen primarily on one table but have occurred on two different tables up to this point (the tables are logically related in the database - one is populated by events on the other one, the one that has most of the issues is the one with the trigger on it that populates the other table). When the error occurs it may occur on one slave or the other. Once on both.
+
+These incidents have happened 6 times in the past week. Prior to this issue we?ve been running the same setup for many months without incident.
+
+What I do to correct this is to actually remove the entry that is causing the duplicate key issue from the sl_log table. Replication picks back up again. When I compare the rows on all servers I see that they are the same. In all cases when the servers are back in sync the row is actually gone from all servers. 
+
+There is no obvious corruption issue on the slave boxes. I?m not sure what else to check at this point. Are there suggestions from the slony developers on how to investigate what is actually going on to cause these issues? Any help is appreciated at this point. 
+
+sample error :
+
+2016-01-21 01:19:01 UTC ERROR  remoteWorkerThread_1_1: error at end of COPY IN: ERROR:  duplicate key value violates unique constraint "device_properties_pkey"
+DETAIL:  Key (device_guid, property_guid, data_index)=(26464008, 39, 0) already exists.
+CONTEXT:  SQL statement "INSERT INTO "device"."device_properties" ("device_guid", "property_guid", "data_index", "property_value", "tran_id", "dt_last_updated", "last_updated_by_userid", "version_id") VALUES ($1, $2, $3, $4, $5, $6, $7, $8);"
+COPY sl_log_1, line 36: "1      6117236903      298     7797340846      device  device_properties       I       0       {device_guid,26464008,property_guid,39,data?"
+
+thanks, 
+Frank
+
+
+
+From steve at ssinger.info  Thu Jan 21 08:50:23 2016
+From: steve at ssinger.info (Steve Singer)
+Date: Thu, 21 Jan 2016 11:50:23 -0500
+Subject: [Slony1-general] duplicate key value violates unique constraint?
+In-Reply-To: <E096D6E4-78DC-4964-A73D-8BA16498A77E@gmail.com>
+References: <E096D6E4-78DC-4964-A73D-8BA16498A77E@gmail.com>
+Message-ID: <56A10C4F.1050200@ssinger.info>
+
+On 01/21/2016 10:42 AM, Frank McGeough wrote:
+> I?m having intermittent issues that result in the message "duplicate key value violates unique constraint? in the slony logs. Here is my configuration :
+>
+> 1 master
+> 2 slaves
+> postgresql 9.3.5 on all servers
+> slony2.2.2
+>
+> All the servers are in the same network and running the same Linux o/s with the same file system. The issues just seem to happen randomly. They happen primarily on one table but have occurred on two different tables up to this point (the tables are logically related in the database - one is populated by events on the other one, the one that has most of the issues is the one with the trigger on it that populates the other table). When the error occurs it may occur on one slave or the other. Once on both.
+>
+> These incidents have happened 6 times in the past week. Prior to this issue we?ve been running the same setup for many months without incident.
+>
+> What I do to correct this is to actually remove the entry that is causing the duplicate key issue from the sl_log table. Replication picks back up again. When I compare the rows on all servers I see that they are the same. In all cases when the servers are back in sync the row is actually gone from all servers.
+>
+> There is no obvious corruption issue on the slave boxes. I?m not sure what else to check at this point. Are there suggestions from the slony developers on how to investigate what is actually going on to cause these issues? Any help is appreciated at this point.
+
+Above you say 'the one with the trigger on it that populates the other 
+table'
+
+You sort of imply you have triggers on tables but don't provide any details.
+
+Do these triggers fire on replicas, the origin, everywhere?
+
+Do the triggers insert data into a replicated table?
+
+The conflicting row, you see the second insert for it in sl_log but do 
+you know where the first instance comes from?  Is the row recently 
+added? (if so you do you see the first insert in sl_log also) or has the 
+row been there a long time.
+
+Is the conflicting row otherwise identical to the existing row or is it 
+only identical with respet to the primary key (ie the last_updated 
+times, do they match?)
+
+
+
+
+>
+> sample error :
+>
+> 2016-01-21 01:19:01 UTC ERROR  remoteWorkerThread_1_1: error at end of COPY IN: ERROR:  duplicate key value violates unique constraint "device_properties_pkey"
+> DETAIL:  Key (device_guid, property_guid, data_index)=(26464008, 39, 0) already exists.
+> CONTEXT:  SQL statement "INSERT INTO "device"."device_properties" ("device_guid", "property_guid", "data_index", "property_value", "tran_id", "dt_last_updated", "last_updated_by_userid", "version_id") VALUES ($1, $2, $3, $4, $5, $6, $7, $8);"
+> COPY sl_log_1, line 36: "1      6117236903      298     7797340846      device  device_properties       I       0       {device_guid,26464008,property_guid,39,data?"
+>
+> thanks,
+> Frank
+>
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+>
+
+
+From fmcgeough at gmail.com  Thu Jan 21 09:04:42 2016
+From: fmcgeough at gmail.com (Frank McGeough)
+Date: Thu, 21 Jan 2016 12:04:42 -0500
+Subject: [Slony1-general] duplicate key value violates unique constraint?
+In-Reply-To: <56A10C4F.1050200@ssinger.info>
+References: <E096D6E4-78DC-4964-A73D-8BA16498A77E@gmail.com>
+	<56A10C4F.1050200@ssinger.info>
+Message-ID: <7B97C8FE-B946-4236-BB2A-7903BBA89693@gmail.com>
+
+ On Jan 21, 2016, at 11:50 AM, Steve Singer <steve at ssinger.info> wrote:
+>  
+> On 01/21/2016 10:42 AM, Frank McGeough wrote:
+>> I?m having intermittent issues that result in the message "duplicate key value violates unique constraint? in the slony logs. Here is my configuration :
+>> 
+>> 1 master
+>> 2 slaves
+>> postgresql 9.3.5 on all servers
+>> slony2.2.2
+>> 
+>> All the servers are in the same network and running the same Linux o/s with the same file system. The issues just seem to happen randomly. They happen primarily on one table but have occurred on two different tables up to this point (the tables are logically related in the database - one is populated by events on the other one, the one that has most of the issues is the one with the trigger on it that populates the other table). When the error occurs it may occur on one slave or the other. Once on both.
+>> 
+>> These incidents have happened 6 times in the past week. Prior to this issue we?ve been running the same setup for many months without incident.
+>> 
+>> What I do to correct this is to actually remove the entry that is causing the duplicate key issue from the sl_log table. Replication picks back up again. When I compare the rows on all servers I see that they are the same. In all cases when the servers are back in sync the row is actually gone from all servers.
+>> 
+>> There is no obvious corruption issue on the slave boxes. I?m not sure what else to check at this point. Are there suggestions from the slony developers on how to investigate what is actually going on to cause these issues? Any help is appreciated at this point.
+> 
+> Above you say 'the one with the trigger on it that populates the other table'
+> 
+> You sort of imply you have triggers on tables but don't provide any details.
+> 
+> Do these triggers fire on replicas, the origin, everywhere?
+> 
+> Do the triggers insert data into a replicated table?
+> 
+> The conflicting row, you see the second insert for it in sl_log but do you know where the first instance comes from?  Is the row recently added? (if so you do you see the first insert in sl_log also) or has the row been there a long time.
+> 
+> Is the conflicting row otherwise identical to the existing row or is it only identical with respet to the primary key (ie the last_updated times, do they match?)
+> 
+> 
+
+the triggers only fire on the origin. The two tables in our system are : device_properties and device_graph. device_properties has a slew of triggers :
+
+device_properties_change_tg AFTER INSERT OR DELETE OR UPDATE ON device.device_properties FOR EACH ROW EXECUTE PROCEDURE device.device_properties_change()
+device_properties_graph_tg AFTER INSERT OR DELETE OR UPDATE ON device.device_properties FOR EACH ROW EXECUTE PROCEDURE device.update_graph()
+device_properties_location_id_change_tg AFTER INSERT OR DELETE OR UPDATE ON device.device_properties FOR EACH ROW EXECUTE PROCEDURE device.device_properties_change_location_id()
+device_properties_tg AFTER INSERT OR DELETE OR UPDATE ON device.device_properties FOR EACH ROW EXECUTE PROCEDURE device.delete_cached_device_properties()
+device_properties_ids_ondelete AFTER DELETE ON device.device_properties FOR EACH ROW EXECUTE PROCEDURE device.process_delete_device_ids()
+fax_email_history_tg AFTER DELETE ON device.device_properties FOR EACH ROW EXECUTE PROCEDURE device.fax_email_history()
+    t_dirty_device_property_sip_credentials AFTER INSERT OR DELETE OR UPDATE ON device.device_properties FOR EACH ROW EXECUTE PROCEDURE device.fn_t_dirty_device_property_sip_credentials()
+
+all of these triggers are potentially writing data into other tables that are also replicated from origin. 
+
+the conflicting row is identical to the existing row. 
+
+> 
+> 
+>> 
+>> sample error :
+>> 
+>> 2016-01-21 01:19:01 UTC ERROR  remoteWorkerThread_1_1: error at end of COPY IN: ERROR:  duplicate key value violates unique constraint "device_properties_pkey"
+>> DETAIL:  Key (device_guid, property_guid, data_index)=(26464008, 39, 0) already exists.
+>> CONTEXT:  SQL statement "INSERT INTO "device"."device_properties" ("device_guid", "property_guid", "data_index", "property_value", "tran_id", "dt_last_updated", "last_updated_by_userid", "version_id") VALUES ($1, $2, $3, $4, $5, $6, $7, $8);"
+>> COPY sl_log_1, line 36: "1      6117236903      298     7797340846      device  device_properties       I       0       {device_guid,26464008,property_guid,39,data?"
+>> 
+>> thanks,
+>> Frank
+>> 
+>> 
+>> _______________________________________________
+>> Slony1-general mailing list
+>> Slony1-general at lists.slony.info <mailto:Slony1-general at lists.slony.info>
+>> http://lists.slony.info/mailman/listinfo/slony1-general <http://lists.slony.info/mailman/listinfo/slony1-general>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20160121/d7aa8173/attachment-0001.htm 
+
