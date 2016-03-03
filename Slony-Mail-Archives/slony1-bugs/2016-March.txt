@@ -1,0 +1,566 @@
+From rob.brucks at rackspace.com  Tue Mar  1 07:13:01 2016
+From: rob.brucks at rackspace.com (Rob Brucks)
+Date: Tue, 1 Mar 2016 15:13:01 +0000
+Subject: [Slony1-bugs] Slon Daemon - no timestamps
+In-Reply-To: <56D502FA.5020603@ca.afilias.info>
+References: <2AD0E316-833F-412A-B4BD-01C44A198471@rackspace.com>
+	<56D489DD.2070307@ca.afilias.info>
+	<3B200A5C-1672-4D1B-8F2B-ED31B942E8A0@rackspace.com>
+	<56D502FA.5020603@ca.afilias.info>
+Message-ID: <0E34C7D0-3B0D-4920-B13D-AB46510D35AC@rackspace.com>
+
+That did the trick!  Just required modification to rsyslog settings.
+
+Thanks Steve!
+
+Still would be better if slony daemon log always had timestamps, it kind of makes SYSLOG=1 useless.
+
+--Rob
+
+
+
+
+On 2/29/16, 8:48 PM, "Steve Singer" <ssinger at ca.afilias.info> wrote:
+
+>On 02/29/2016 03:59 PM, Rob Brucks wrote:
+>> Thanks Steve.  Yes, without a config file I get timestamps.
+>>
+>> And I spent some time today trying to figure out which parameter is causing this behavior.  It seems to only be happening if "SYSLOG" is set to anything other than zero.
+>>
+>> We prefer a SYSLOG setting of 1 because we have a central syslog logging and reporting facility where the messages are sent.  But the DEBUG level messages are important to us too, and they only get sent to the slony log file, but they don't have timestamps (making them far less useful).
+>>
+>>
+>> Which brings up another problem, why don't DEBUG messages get sent to syslog too?  If they were in syslog then we could set SYSLOG=3 and be done with it.
+>>
+>> So, IMHO, two bugs:
+>>
+>> 1) No timestamp in the slon daemon logs when SYSLOG=1
+>> 2) Slon daemon DEBUG messages never get sent to SYSLOG with any setting.
+>>
+>
+>
+>Looking at the logging code in misc.c
+>
+>Yes it will only log timestamps if syslog is disabled, I would guess 
+>that the thinking was that syslog itself would record the timestamp? Ie 
+>if you want the timestamp in your log you have syslog record it.
+>
+>When I log to syslog, I get the following in /var/log/message
+>
+>Feb 29 16:15:08 ssinger-laptop slon[10930]: [1-1] CONFIG main: slon 
+>version 2.3.0 starting up
+>
+>If the message also included the timestamp then the timestamp would show 
+>up twice in /var/log/message
+>
+>
+>Also I am getting debug messages in my syslog debug log
+>
+>tail -f /var/log/debug
+>
+>Feb 29 21:44:49 ssinger-laptop slon[15449]: [43-1] DEBUG2 stack_init() - 
+>initialize stack to size 6
+>Feb 29 21:44:49 ssinger-laptop slon[15449]: [46-1] DEBUG2 stack_init() - 
+>initialize stack to size 6
+>Feb 29 21:44:50 ssinger-laptop slon[15449]: [50-1] DEBUG1 local_monitor 
+>"host=localhost dbname=test2": backend pid = 15457
+>Feb 29 21:44:50 ssinger-laptop slon[15449]: [51-1] DEBUG2 monitorThread: 
+>setup DB conn
+>Feb 29 21:44:50 ssinger-laptop slon[15449]: [54-1] DEBUG1 local_cleanup 
+>"host=localhost dbname=test2": backend pid = 15459
+>Feb 29 21:44:50 ssinger-laptop slon[15449]: [55-1] DEBUG1 cleanupThread: 
+>Cleanup interval is : 600s
+>Feb 29 21:44:50 ssinger-laptop slon[15449]: [57-1] DEBUG1 local_sync 
+>"host=localhost dbname=test2": backend pid = 15458
+>Feb 29 21:44:52 ssinger-laptop slon[15449]: [58-1] DEBUG2 syncThread: 
+>new sl_action_seq 1 - SYNC 5000000011
+>Feb 29 21:44:56 ssinger-laptop slon[15449]: [59-1] DEBUG2 
+>localListenThread: Received event 1,5000000011 SYNC
+>Feb 29 21:45:02 ssinger-laptop slon[15449]: [60-1] DEBUG2 syncThread: 
+>new sl_action_seq 1 - SYNC 5000000012
+>
+>My slon conf is
+>
+>log_level=4
+>syslog=1
+>
+>
+>Maybe you should check your syslog configuration?
+>
+>
+>>
+>> Thanks,
+>> Rob
+>>
+>>
+>> On 2/29/16, 12:11 PM, "Steve Singer" <ssinger at ca.afilias.info> wrote:
+>>
+>>> On 02/26/2016 04:30 PM, Rob Brucks wrote:
+>>>> I have Slony 2.2.4 installed on Centos 6.7 x86_64 from the PGDG 9.3 repo.
+>>>>
+>>>> No matter what settings I set in the slony.conf file, I cannot get the
+>>>> Slon daemon to include timestamps in the slon log output.
+>>>>
+>>>
+>>> What output do you get if you start slon without a config file.
+>>>
+>>> When I start slon  I get
+>>>
+>>> slon  test 'host=localhost port=5432 dbname=test2'
+>>> 2016-02-29 09:24:42 EST CONFIG main: slon version 2.3.0 starting up
+>>> 2016-02-29 09:24:42 EST INFO   slon: watchdog process started
+>>> 2016-02-29 09:24:42 EST CONFIG slon: watchdog ready - pid = 25047
+>>> 2016-02-29 09:24:42 EST CONFIG slon: worker process created - pid = 25048
+>>> 2016-02-29 09:24:42 EST CONFIG main: Integer option vac_frequency = 3
+>>> 2016-02-29 09:24:42 EST CONFIG main: Integer option log_level = 0
+>>> 2016-02-29 09:24:42 EST CONFIG main: Integer option sync_interval = 2000
+>>> 2016-02-29 09:24:42 EST CONFIG main: Integer option
+>>> sync_interval_timeout = 10000
+>>>
+>>>
+>>> the timestamps are printed.
+>>>
+>>>
+>>> What if you leave all of
+>>> log_timestamp, log_timestamp_format out of the config file.
+>>>
+>>>
+>>>
+>>>
+>>>
+>>>> I've tried changing both "log_timestamp" and "log_timestamp_format"
+>>>> settings in various combinations ("true","yes","1", etc.; even "no" in
+>>>> the hopes it was mistakenly coded backwards) without any success.
+>>>>
+>>>> I know that the Slon daemon is using this config file because I have the
+>>>> DB connection set in it and if I change it then it fails to connect.
+>>>>
+>>>> The lack of timestamps makes it incredibly difficult to diagnose
+>>>> problems after they occur.
+>>>>
+>>>> I have tried enabling syslog logging, but the syslog logging doesn't
+>>>> include all the output that goes to the slon log.
+>>>>
+>>>> Any suggestions to get timestamps working would be greatly appreciated!
+>>>>
+>>>> Thanks,
+>>>> Rob
+>>>>
+>>>>
+>>>> _______________________________________________
+>>>> Slony1-bugs mailing list
+>>>> Slony1-bugs at lists.slony.info
+>>>> http://lists.slony.info/mailman/listinfo/slony1-bugs
+>>>>
+>>>
+>
+
+From ssinger at ca.afilias.info  Tue Mar  1 07:17:22 2016
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Tue, 01 Mar 2016 10:17:22 -0500
+Subject: [Slony1-bugs] Slon Daemon - no timestamps
+In-Reply-To: <0E34C7D0-3B0D-4920-B13D-AB46510D35AC@rackspace.com>
+References: <2AD0E316-833F-412A-B4BD-01C44A198471@rackspace.com>
+	<56D489DD.2070307@ca.afilias.info>
+	<3B200A5C-1672-4D1B-8F2B-ED31B942E8A0@rackspace.com>
+	<56D502FA.5020603@ca.afilias.info>
+	<0E34C7D0-3B0D-4920-B13D-AB46510D35AC@rackspace.com>
+Message-ID: <56D5B282.6080907@ca.afilias.info>
+
+On 03/01/2016 10:13 AM, Rob Brucks wrote:
+> That did the trick!  Just required modification to rsyslog settings.
+>
+> Thanks Steve!
+>
+> Still would be better if slony daemon log always had timestamps, it kind of makes SYSLOG=1 useless.
+>
+
+But syslog adds the timestamps to the log entries (assuming your syslog 
+is configured that way)
+
+Otherwise you'd have the timestamp show up twice per log entry.
+
+> --Rob
+>
+>
+>
+>
+> On 2/29/16, 8:48 PM, "Steve Singer" <ssinger at ca.afilias.info> wrote:
+>
+>> On 02/29/2016 03:59 PM, Rob Brucks wrote:
+>>> Thanks Steve.  Yes, without a config file I get timestamps.
+>>>
+>>> And I spent some time today trying to figure out which parameter is causing this behavior.  It seems to only be happening if "SYSLOG" is set to anything other than zero.
+>>>
+>>> We prefer a SYSLOG setting of 1 because we have a central syslog logging and reporting facility where the messages are sent.  But the DEBUG level messages are important to us too, and they only get sent to the slony log file, but they don't have timestamps (making them far less useful).
+>>>
+>>>
+>>> Which brings up another problem, why don't DEBUG messages get sent to syslog too?  If they were in syslog then we could set SYSLOG=3 and be done with it.
+>>>
+>>> So, IMHO, two bugs:
+>>>
+>>> 1) No timestamp in the slon daemon logs when SYSLOG=1
+>>> 2) Slon daemon DEBUG messages never get sent to SYSLOG with any setting.
+>>>
+>>
+>>
+>> Looking at the logging code in misc.c
+>>
+>> Yes it will only log timestamps if syslog is disabled, I would guess
+>> that the thinking was that syslog itself would record the timestamp? Ie
+>> if you want the timestamp in your log you have syslog record it.
+>>
+>> When I log to syslog, I get the following in /var/log/message
+>>
+>> Feb 29 16:15:08 ssinger-laptop slon[10930]: [1-1] CONFIG main: slon
+>> version 2.3.0 starting up
+>>
+>> If the message also included the timestamp then the timestamp would show
+>> up twice in /var/log/message
+>>
+>>
+>> Also I am getting debug messages in my syslog debug log
+>>
+>> tail -f /var/log/debug
+>>
+>> Feb 29 21:44:49 ssinger-laptop slon[15449]: [43-1] DEBUG2 stack_init() -
+>> initialize stack to size 6
+>> Feb 29 21:44:49 ssinger-laptop slon[15449]: [46-1] DEBUG2 stack_init() -
+>> initialize stack to size 6
+>> Feb 29 21:44:50 ssinger-laptop slon[15449]: [50-1] DEBUG1 local_monitor
+>> "host=localhost dbname=test2": backend pid = 15457
+>> Feb 29 21:44:50 ssinger-laptop slon[15449]: [51-1] DEBUG2 monitorThread:
+>> setup DB conn
+>> Feb 29 21:44:50 ssinger-laptop slon[15449]: [54-1] DEBUG1 local_cleanup
+>> "host=localhost dbname=test2": backend pid = 15459
+>> Feb 29 21:44:50 ssinger-laptop slon[15449]: [55-1] DEBUG1 cleanupThread:
+>> Cleanup interval is : 600s
+>> Feb 29 21:44:50 ssinger-laptop slon[15449]: [57-1] DEBUG1 local_sync
+>> "host=localhost dbname=test2": backend pid = 15458
+>> Feb 29 21:44:52 ssinger-laptop slon[15449]: [58-1] DEBUG2 syncThread:
+>> new sl_action_seq 1 - SYNC 5000000011
+>> Feb 29 21:44:56 ssinger-laptop slon[15449]: [59-1] DEBUG2
+>> localListenThread: Received event 1,5000000011 SYNC
+>> Feb 29 21:45:02 ssinger-laptop slon[15449]: [60-1] DEBUG2 syncThread:
+>> new sl_action_seq 1 - SYNC 5000000012
+>>
+>> My slon conf is
+>>
+>> log_level=4
+>> syslog=1
+>>
+>>
+>> Maybe you should check your syslog configuration?
+>>
+>>
+>>>
+>>> Thanks,
+>>> Rob
+>>>
+>>>
+>>> On 2/29/16, 12:11 PM, "Steve Singer" <ssinger at ca.afilias.info> wrote:
+>>>
+>>>> On 02/26/2016 04:30 PM, Rob Brucks wrote:
+>>>>> I have Slony 2.2.4 installed on Centos 6.7 x86_64 from the PGDG 9.3 repo.
+>>>>>
+>>>>> No matter what settings I set in the slony.conf file, I cannot get the
+>>>>> Slon daemon to include timestamps in the slon log output.
+>>>>>
+>>>>
+>>>> What output do you get if you start slon without a config file.
+>>>>
+>>>> When I start slon  I get
+>>>>
+>>>> slon  test 'host=localhost port=5432 dbname=test2'
+>>>> 2016-02-29 09:24:42 EST CONFIG main: slon version 2.3.0 starting up
+>>>> 2016-02-29 09:24:42 EST INFO   slon: watchdog process started
+>>>> 2016-02-29 09:24:42 EST CONFIG slon: watchdog ready - pid = 25047
+>>>> 2016-02-29 09:24:42 EST CONFIG slon: worker process created - pid = 25048
+>>>> 2016-02-29 09:24:42 EST CONFIG main: Integer option vac_frequency = 3
+>>>> 2016-02-29 09:24:42 EST CONFIG main: Integer option log_level = 0
+>>>> 2016-02-29 09:24:42 EST CONFIG main: Integer option sync_interval = 2000
+>>>> 2016-02-29 09:24:42 EST CONFIG main: Integer option
+>>>> sync_interval_timeout = 10000
+>>>>
+>>>>
+>>>> the timestamps are printed.
+>>>>
+>>>>
+>>>> What if you leave all of
+>>>> log_timestamp, log_timestamp_format out of the config file.
+>>>>
+>>>>
+>>>>
+>>>>
+>>>>
+>>>>> I've tried changing both "log_timestamp" and "log_timestamp_format"
+>>>>> settings in various combinations ("true","yes","1", etc.; even "no" in
+>>>>> the hopes it was mistakenly coded backwards) without any success.
+>>>>>
+>>>>> I know that the Slon daemon is using this config file because I have the
+>>>>> DB connection set in it and if I change it then it fails to connect.
+>>>>>
+>>>>> The lack of timestamps makes it incredibly difficult to diagnose
+>>>>> problems after they occur.
+>>>>>
+>>>>> I have tried enabling syslog logging, but the syslog logging doesn't
+>>>>> include all the output that goes to the slon log.
+>>>>>
+>>>>> Any suggestions to get timestamps working would be greatly appreciated!
+>>>>>
+>>>>> Thanks,
+>>>>> Rob
+>>>>>
+>>>>>
+>>>>> _______________________________________________
+>>>>> Slony1-bugs mailing list
+>>>>> Slony1-bugs at lists.slony.info
+>>>>> http://lists.slony.info/mailman/listinfo/slony1-bugs
+>>>>>
+>>>>
+>>
+
+
+From rob.brucks at rackspace.com  Tue Mar  1 07:33:16 2016
+From: rob.brucks at rackspace.com (Rob Brucks)
+Date: Tue, 1 Mar 2016 15:33:16 +0000
+Subject: [Slony1-bugs] Slon Daemon - no timestamps
+In-Reply-To: <56D5B282.6080907@ca.afilias.info>
+References: <2AD0E316-833F-412A-B4BD-01C44A198471@rackspace.com>
+	<56D489DD.2070307@ca.afilias.info>
+	<3B200A5C-1672-4D1B-8F2B-ED31B942E8A0@rackspace.com>
+	<56D502FA.5020603@ca.afilias.info>
+	<0E34C7D0-3B0D-4920-B13D-AB46510D35AC@rackspace.com>
+	<56D5B282.6080907@ca.afilias.info>
+Message-ID: <85E78A52-A9C8-46F3-91D7-B772D6BCB3EB@rackspace.com>
+
+But then why write the slony daemon log file at all?
+
+No timestamps means you have to go look in the syslog file anyway.
+
+
+
+
+On 3/1/16, 9:17 AM, "Steve Singer" <ssinger at ca.afilias.info> wrote:
+
+>On 03/01/2016 10:13 AM, Rob Brucks wrote:
+>> That did the trick!  Just required modification to rsyslog settings.
+>>
+>> Thanks Steve!
+>>
+>> Still would be better if slony daemon log always had timestamps, it kind of makes SYSLOG=1 useless.
+>>
+>
+>But syslog adds the timestamps to the log entries (assuming your syslog 
+>is configured that way)
+>
+>Otherwise you'd have the timestamp show up twice per log entry.
+>
+>> --Rob
+>>
+>>
+>>
+>>
+>> On 2/29/16, 8:48 PM, "Steve Singer" <ssinger at ca.afilias.info> wrote:
+>>
+>>> On 02/29/2016 03:59 PM, Rob Brucks wrote:
+>>>> Thanks Steve.  Yes, without a config file I get timestamps.
+>>>>
+>>>> And I spent some time today trying to figure out which parameter is causing this behavior.  It seems to only be happening if "SYSLOG" is set to anything other than zero.
+>>>>
+>>>> We prefer a SYSLOG setting of 1 because we have a central syslog logging and reporting facility where the messages are sent.  But the DEBUG level messages are important to us too, and they only get sent to the slony log file, but they don't have timestamps (making them far less useful).
+>>>>
+>>>>
+>>>> Which brings up another problem, why don't DEBUG messages get sent to syslog too?  If they were in syslog then we could set SYSLOG=3 and be done with it.
+>>>>
+>>>> So, IMHO, two bugs:
+>>>>
+>>>> 1) No timestamp in the slon daemon logs when SYSLOG=1
+>>>> 2) Slon daemon DEBUG messages never get sent to SYSLOG with any setting.
+>>>>
+>>>
+>>>
+>>> Looking at the logging code in misc.c
+>>>
+>>> Yes it will only log timestamps if syslog is disabled, I would guess
+>>> that the thinking was that syslog itself would record the timestamp? Ie
+>>> if you want the timestamp in your log you have syslog record it.
+>>>
+>>> When I log to syslog, I get the following in /var/log/message
+>>>
+>>> Feb 29 16:15:08 ssinger-laptop slon[10930]: [1-1] CONFIG main: slon
+>>> version 2.3.0 starting up
+>>>
+>>> If the message also included the timestamp then the timestamp would show
+>>> up twice in /var/log/message
+>>>
+>>>
+>>> Also I am getting debug messages in my syslog debug log
+>>>
+>>> tail -f /var/log/debug
+>>>
+>>> Feb 29 21:44:49 ssinger-laptop slon[15449]: [43-1] DEBUG2 stack_init() -
+>>> initialize stack to size 6
+>>> Feb 29 21:44:49 ssinger-laptop slon[15449]: [46-1] DEBUG2 stack_init() -
+>>> initialize stack to size 6
+>>> Feb 29 21:44:50 ssinger-laptop slon[15449]: [50-1] DEBUG1 local_monitor
+>>> "host=localhost dbname=test2": backend pid = 15457
+>>> Feb 29 21:44:50 ssinger-laptop slon[15449]: [51-1] DEBUG2 monitorThread:
+>>> setup DB conn
+>>> Feb 29 21:44:50 ssinger-laptop slon[15449]: [54-1] DEBUG1 local_cleanup
+>>> "host=localhost dbname=test2": backend pid = 15459
+>>> Feb 29 21:44:50 ssinger-laptop slon[15449]: [55-1] DEBUG1 cleanupThread:
+>>> Cleanup interval is : 600s
+>>> Feb 29 21:44:50 ssinger-laptop slon[15449]: [57-1] DEBUG1 local_sync
+>>> "host=localhost dbname=test2": backend pid = 15458
+>>> Feb 29 21:44:52 ssinger-laptop slon[15449]: [58-1] DEBUG2 syncThread:
+>>> new sl_action_seq 1 - SYNC 5000000011
+>>> Feb 29 21:44:56 ssinger-laptop slon[15449]: [59-1] DEBUG2
+>>> localListenThread: Received event 1,5000000011 SYNC
+>>> Feb 29 21:45:02 ssinger-laptop slon[15449]: [60-1] DEBUG2 syncThread:
+>>> new sl_action_seq 1 - SYNC 5000000012
+>>>
+>>> My slon conf is
+>>>
+>>> log_level=4
+>>> syslog=1
+>>>
+>>>
+>>> Maybe you should check your syslog configuration?
+>>>
+>>>
+>>>>
+>>>> Thanks,
+>>>> Rob
+>>>>
+>>>>
+>>>> On 2/29/16, 12:11 PM, "Steve Singer" <ssinger at ca.afilias.info> wrote:
+>>>>
+>>>>> On 02/26/2016 04:30 PM, Rob Brucks wrote:
+>>>>>> I have Slony 2.2.4 installed on Centos 6.7 x86_64 from the PGDG 9.3 repo.
+>>>>>>
+>>>>>> No matter what settings I set in the slony.conf file, I cannot get the
+>>>>>> Slon daemon to include timestamps in the slon log output.
+>>>>>>
+>>>>>
+>>>>> What output do you get if you start slon without a config file.
+>>>>>
+>>>>> When I start slon  I get
+>>>>>
+>>>>> slon  test 'host=localhost port=5432 dbname=test2'
+>>>>> 2016-02-29 09:24:42 EST CONFIG main: slon version 2.3.0 starting up
+>>>>> 2016-02-29 09:24:42 EST INFO   slon: watchdog process started
+>>>>> 2016-02-29 09:24:42 EST CONFIG slon: watchdog ready - pid = 25047
+>>>>> 2016-02-29 09:24:42 EST CONFIG slon: worker process created - pid = 25048
+>>>>> 2016-02-29 09:24:42 EST CONFIG main: Integer option vac_frequency = 3
+>>>>> 2016-02-29 09:24:42 EST CONFIG main: Integer option log_level = 0
+>>>>> 2016-02-29 09:24:42 EST CONFIG main: Integer option sync_interval = 2000
+>>>>> 2016-02-29 09:24:42 EST CONFIG main: Integer option
+>>>>> sync_interval_timeout = 10000
+>>>>>
+>>>>>
+>>>>> the timestamps are printed.
+>>>>>
+>>>>>
+>>>>> What if you leave all of
+>>>>> log_timestamp, log_timestamp_format out of the config file.
+>>>>>
+>>>>>
+>>>>>
+>>>>>
+>>>>>
+>>>>>> I've tried changing both "log_timestamp" and "log_timestamp_format"
+>>>>>> settings in various combinations ("true","yes","1", etc.; even "no" in
+>>>>>> the hopes it was mistakenly coded backwards) without any success.
+>>>>>>
+>>>>>> I know that the Slon daemon is using this config file because I have the
+>>>>>> DB connection set in it and if I change it then it fails to connect.
+>>>>>>
+>>>>>> The lack of timestamps makes it incredibly difficult to diagnose
+>>>>>> problems after they occur.
+>>>>>>
+>>>>>> I have tried enabling syslog logging, but the syslog logging doesn't
+>>>>>> include all the output that goes to the slon log.
+>>>>>>
+>>>>>> Any suggestions to get timestamps working would be greatly appreciated!
+>>>>>>
+>>>>>> Thanks,
+>>>>>> Rob
+>>>>>>
+>>>>>>
+>>>>>> _______________________________________________
+>>>>>> Slony1-bugs mailing list
+>>>>>> Slony1-bugs at lists.slony.info
+>>>>>> http://lists.slony.info/mailman/listinfo/slony1-bugs
+>>>>>>
+>>>>>
+>>>
+>
+
+From rob.brucks at rackspace.com  Tue Mar  1 08:24:49 2016
+From: rob.brucks at rackspace.com (Rob Brucks)
+Date: Tue, 1 Mar 2016 16:24:49 +0000
+Subject: [Slony1-bugs] Slon Daemon - no timestamps
+In-Reply-To: <CANfbgbb2NtNJK0H_GmtAk4SBNDqdubTN9WN3Q_aeq_S4Yx+Gpw@mail.gmail.com>
+References: <2AD0E316-833F-412A-B4BD-01C44A198471@rackspace.com>
+	<56D489DD.2070307@ca.afilias.info>
+	<3B200A5C-1672-4D1B-8F2B-ED31B942E8A0@rackspace.com>
+	<56D502FA.5020603@ca.afilias.info>
+	<0E34C7D0-3B0D-4920-B13D-AB46510D35AC@rackspace.com>
+	<56D5B282.6080907@ca.afilias.info>
+	<85E78A52-A9C8-46F3-91D7-B772D6BCB3EB@rackspace.com>
+	<CANfbgbb2NtNJK0H_GmtAk4SBNDqdubTN9WN3Q_aeq_S4Yx+Gpw@mail.gmail.com>
+Message-ID: <0152DC91-A52C-494F-9AB5-CD9E3C57BC00@rackspace.com>
+
+It was not my intent to stir up controversy.
+
+I only wanted to point out that writing a native log without timestamps was not useful.
+
+We can adjust our syslog logging to capture the debug level statements as needed.
+
+Thanks,
+Rob
+
+From: Christopher Browne <cbbrowne at afilias.info<mailto:cbbrowne at afilias.info>>
+Date: Tuesday, March 1, 2016 at 9:51 AM
+To: Rob Brucks <rob.brucks at rackspace.com<mailto:rob.brucks at rackspace.com>>
+Cc: Steve Singer <ssinger at ca.afilias.info<mailto:ssinger at ca.afilias.info>>, "slony1-bugs at lists.slony.info<mailto:slony1-bugs at lists.slony.info>" <slony1-bugs at lists.slony.info<mailto:slony1-bugs at lists.slony.info>>
+Subject: Re: [Slony1-bugs] Slon Daemon - no timestamps
+
+On Tue, Mar 1, 2016 at 10:33 AM, Rob Brucks <rob.brucks at rackspace.com<mailto:rob.brucks at rackspace.com>> wrote:
+But then why write the slony daemon log file at all?
+
+No timestamps means you have to go look in the syslog file anyway.
+
+I was involved in syslog support, and Steve's thoughts seem
+to fit the intent pretty well.
+
+If you use syslog, it independently captures timestamps, and likely more accurately
+than slon logs would (think of the case of aggregating logs across servers; syslog
+would handle coordinating times and merging into one big log).
+
+As Steve mentioned, you wouldn't want to collect two timestamps in each line,
+much preferable to just have one.
+
+The place where we decided to simplify was to have just one representation to
+control contents of log entries, and thus fewer configuration parameters.  In order
+to have timestamps in slon's STDOUT/STDERR logs, and leave them out for syslog, we'd
+need more configuration parameters, and it is commonly thought that we've
+already got plenty of configuration.
+
+My attitude at the time was that if you decide to request using syslog, then
+that presumably was how you wanted to handle monitoring, and that
+the STDOUT/STDERR logs become of little importance.
+
+If it's of huge importance to have separate formatting of syslog and native
+logging, we could do so.  But my first reaction is to ask why you're keen on
+the native logging when syslog lends so much greater flexibility.
+
+We didn't make them mutually exclusive, because it seemed easy
+enough to provide both in a form.  But if it takes a lot more sophisticated
+configuration to make them useful, well, I'd rather point sophisticated
+configuration attentions at doing fancier things with syslog.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-bugs/attachments/20160301/d512d674/attachment.htm 
+
