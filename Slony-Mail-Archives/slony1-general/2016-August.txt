@@ -1,0 +1,277 @@
+From tmblue at gmail.com  Wed Aug  3 08:14:07 2016
+From: tmblue at gmail.com (Tory M Blue)
+Date: Wed, 3 Aug 2016 08:14:07 -0700
+Subject: [Slony1-general] Slony Tuning, heavy slon backup every AM
+Message-ID: <CAEaSS0YAL=1LDEu2uxM5SAJkwsQzRVLTj3iYoECqemANh+jrAA@mail.gmail.com>
+
+Hey folks
+
+Running into some more issues and i'm not finding a definitive tuning guide
+nor can I tell why i'm backing up and why it takes so long to catch up (so
+long is relative).
+
+Running Slony 2.2.3 (but this has been an issue for a long time).
+
+Image to show you where I am this AM , but this is a constant every AM.  I
+have large updates about 2.5 million between 12am and 4am, the job is done
+but it will take Slon a couple of hours to catch up.
+
+Hardware: big 256GB 32 Proc machines (proc's don't matter here). I see very
+little iowait 2% on the standby, 0% on the primary and I'm seeing a
+whopping 150tps coming to the secondary (I would expect it to be writing
+like crazy!)
+
+idb01 is the primary idb02 is the secondary
+
+
+
+MY configuration settings, or those that I think matter
+
+cleanup_interval="5 minutes"
+
+sync_interval=1000
+
+sync_group_maxsize=5000
+
+#sync_max_rowsize=8192
+
+
+I don't see why my primary backs up so much, I don't see the same backup on
+idb02 (which is replicating to 3 other servers. Those 3 servers  have
+forward=no, so they never have anything stored in sl_log. (meaning the
+graphs for those are flat lined).
+
+I think the only thing to really tune is sync_group_maxsize, or
+sync_max_rowsize maybe. I have lots of RAM, but would really like to figure
+out why I seem to backup, the hardware, network, disk is good, Slony should
+really be performing better, it has lots of resources..
+
+
+Thanks for any ideas or where to look. Logs don't seem to tell me there is
+an issue.
+
+-Tory
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20160803/784de696/attachment.htm 
+
+From edudobay at gmail.com  Wed Aug  3 08:14:15 2016
+From: edudobay at gmail.com (Eduardo Dobay)
+Date: Wed, 03 Aug 2016 15:14:15 +0000
+Subject: [Slony1-general] Configuration with less privileged DB user
+Message-ID: <CAKjxDQAq5A13dJO0kts9VH9F_YWHn3hRKrcFvJ0r+yLmmsvAYw@mail.gmail.com>
+
+Hello :-) I've set up Slony on a pair of test machines, and it worked as
+expected. This was done using database superusers across all parts of the
+configuration. I wanted to lower the privilege requirements, as was deemed
+possible in the Slony documentation, but I'm having trouble with that extra
+part of configuration. The section on security considerations <
+http://www.slony.info/documentation/2.2/security.html> reads:
+
+> The Remote slon connection information is specified in the SLONIK STORE
+PATH command when adding paths. The slon daemon needs to connect to remote
+databases with sufficient permissions to: (...)
+>
+> Note that this role does not have any need to modify data; it purely
+involves SELECT access.
+
+So this seems to be the (only) place where I can use a less privileged
+user, and that seems helpful in the scenario where I run a slon instance on
+each node (instead of running all instances on the master node) ? I
+wouldn't need to open superuser access to other hosts. However this piece
+of documentation above seems to contradict the documentation for STORE PATH
+ <http://www.slony.info/documentation/2.2/stmtstorepath.html>:
+
+> The conninfo string must contain all information to connect to the
+database as the replication superuser.
+
+So I don't know if my understanding is not correct, or maybe if there's
+some problem with the documentation. I tried changing the connection
+parameters in several ways (directly in the slon daemon invocation, or in
+slon_tools.conf, or in STORE PATH?). But it seemed better than solve this
+by trial-and-error to come and ask if anyone has some more pointers on how
+can I set this up :-)
+
+Thanks in advance,
+Eduardo
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20160803/7c227cce/attachment.htm 
+
+From jan at wi3ck.info  Wed Aug  3 12:30:31 2016
+From: jan at wi3ck.info (Jan Wieck)
+Date: Wed, 3 Aug 2016 15:30:31 -0400
+Subject: [Slony1-general] Slony Tuning, heavy slon backup every AM
+In-Reply-To: <CAEaSS0YAL=1LDEu2uxM5SAJkwsQzRVLTj3iYoECqemANh+jrAA@mail.gmail.com>
+References: <CAEaSS0YAL=1LDEu2uxM5SAJkwsQzRVLTj3iYoECqemANh+jrAA@mail.gmail.com>
+Message-ID: <CAGBW59c9JTKT5dSY-j1oRo1a4-YewzAfY_hxk_sxB1i1viNZMA@mail.gmail.com>
+
+On Wed, Aug 3, 2016 at 11:14 AM, Tory M Blue <tmblue at gmail.com> wrote:
+
+> Hey folks
+>
+> Running into some more issues and i'm not finding a definitive tuning
+> guide nor can I tell why i'm backing up and why it takes so long to catch
+> up (so long is relative).
+>
+> Running Slony 2.2.3 (but this has been an issue for a long time).
+>
+> Image to show you where I am this AM , but this is a constant every AM.  I
+> have large updates about 2.5 million between 12am and 4am, the job is done
+> but it will take Slon a couple of hours to catch up.
+>
+
+Are there long running transactions that start around the time, the sl_log
+starts
+growing? Any long running transaction prevents a log switch from finishing.
+
+
+Jan
+
+
+
+>
+> Hardware: big 256GB 32 Proc machines (proc's don't matter here). I see
+> very little iowait 2% on the standby, 0% on the primary and I'm seeing a
+> whopping 150tps coming to the secondary (I would expect it to be writing
+> like crazy!)
+>
+> idb01 is the primary idb02 is the secondary
+>
+>
+>
+> MY configuration settings, or those that I think matter
+>
+> cleanup_interval="5 minutes"
+>
+> sync_interval=1000
+>
+> sync_group_maxsize=5000
+>
+> #sync_max_rowsize=8192
+>
+>
+> I don't see why my primary backs up so much, I don't see the same backup
+> on idb02 (which is replicating to 3 other servers. Those 3 servers  have
+> forward=no, so they never have anything stored in sl_log. (meaning the
+> graphs for those are flat lined).
+>
+> I think the only thing to really tune is sync_group_maxsize, or
+> sync_max_rowsize maybe. I have lots of RAM, but would really like to figure
+> out why I seem to backup, the hardware, network, disk is good, Slony should
+> really be performing better, it has lots of resources..
+>
+>
+> Thanks for any ideas or where to look. Logs don't seem to tell me there is
+> an issue.
+>
+> -Tory
+>
+>
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+>
+>
+
+
+-- 
+Jan Wieck
+Senior Postgres Architect
+http://pgblog.wi3ck.info
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20160803/6a530daa/attachment.htm 
+
+From tmblue at gmail.com  Wed Aug  3 13:45:38 2016
+From: tmblue at gmail.com (Tory M Blue)
+Date: Wed, 3 Aug 2016 13:45:38 -0700
+Subject: [Slony1-general] Slony Tuning, heavy slon backup every AM
+In-Reply-To: <CAGBW59c9JTKT5dSY-j1oRo1a4-YewzAfY_hxk_sxB1i1viNZMA@mail.gmail.com>
+References: <CAEaSS0YAL=1LDEu2uxM5SAJkwsQzRVLTj3iYoECqemANh+jrAA@mail.gmail.com>
+	<CAGBW59c9JTKT5dSY-j1oRo1a4-YewzAfY_hxk_sxB1i1viNZMA@mail.gmail.com>
+Message-ID: <CAEaSS0anKq7W1YhksjxpkRL1QfROQT3j=8zhFsyMzySt+0bHZg@mail.gmail.com>
+
+On Wed, Aug 3, 2016 at 12:30 PM, Jan Wieck <jan at wi3ck.info> wrote:
+
+>
+>
+> On Wed, Aug 3, 2016 at 11:14 AM, Tory M Blue <tmblue at gmail.com> wrote:
+>
+>> Hey folks
+>>
+>> Running into some more issues and i'm not finding a definitive tuning
+>> guide nor can I tell why i'm backing up and why it takes so long to catch
+>> up (so long is relative).
+>>
+>> Running Slony 2.2.3 (but this has been an issue for a long time).
+>>
+>> Image to show you where I am this AM , but this is a constant every AM.
+>> I have large updates about 2.5 million between 12am and 4am, the job is
+>> done but it will take Slon a couple of hours to catch up.
+>>
+>
+> Are there long running transactions that start around the time, the sl_log
+> starts
+> growing? Any long running transaction prevents a log switch from
+> finishing.
+>
+>
+> Jan
+>
+
+Hi Jan,
+
+There are really not many long queries during the big import, but things
+start getting longer when the slon logs have 10m+ rows in them.
+
+I actually log any transaction that takes over a second and there is
+nothing that stands out, nothing that runs all that long. During this
+period, I move my reporting to point to the master, because of the delay in
+the standby, so there are some longer report queries, but the longest is 16
+minutes
+
+duration: 986036.592
+
+So I don't see any really long running queries, but I do see lots of these;
+ *Slony-I: could not lock sl_log_2 - sl_log_2 not truncated*
+
+Looks like the last time it was able to complete was 10:07 but between 1am
+and 10am, I see the earlier error many times, but it's not telling me what
+is holding it up and I don't see a process that is holding it up during
+this time, Backups are done on the standby (schema and stuff from the
+primary, data from the standby, so there is no dump or anything holding it
+up.
+
+The gap between successful log switch is pretty substantial. (and the big
+import Job was done at 5am)
+
+*2016-08-03 01:14:57 PDT clsdb postgres 10.13.200.231(37864) 58874
+2016-08-03 01:14:57.619 PDTNOTICE:  Slony-I: log switch to sl_log_2
+complete - truncate sl_log_1*
+
+*2016-08-03 10:07:08 PDT clsdb postgres 10.13.200.231(37864) 58874
+2016-08-03 10:07:08.924 PDTNOTICE:  Slony-I: log switch to sl_log_1
+complete - truncate sl_log_2*
+
+Also of interest
+
+*2016-08-03 02:15:01 PDT DEBUG2 SYNC Group sizing: prev state: 3 initial
+proposed:2 k:1 maxsize:5000 ultimately proposed n:2*
+
+it's constantly just pushing 2 over, even when I  "believe" it's backed up.
+
+Actually it doesn't go over 4 records n:4 (is the highest I see, but 99% of
+the time it's 2 records being sync'd).
+
+I see nothing in the slon logs
+
+Thanks again Jan!
+
+-Tory
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20160803/5cb6cee0/attachment.htm 
+
