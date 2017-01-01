@@ -1,0 +1,277 @@
+From cbbrowne at gmail.com  Wed Nov  9 10:55:31 2016
+From: cbbrowne at gmail.com (Christopher Browne)
+Date: Wed, 9 Nov 2016 13:55:31 -0500
+Subject: [Slony1-general] Fw: Replication lag
+In-Reply-To: <364573474.258613.1478690635704@mail.yahoo.com>
+References: <1940482236.258269.1478585452372.ref@mail.yahoo.com>
+	<1940482236.258269.1478585452372@mail.yahoo.com>
+	<364573474.258613.1478690635704@mail.yahoo.com>
+Message-ID: <CAFNqd5V=XxGuOfvjrPNXLz_imWzmVaHbcjWhbEp5xmG99XvZUQ@mail.gmail.com>
+
+On 9 November 2016 at 06:23, Nawaz Ahmed <nawazid at yahoo.com> wrote:
+> Hi Christopher,
+>
+> I am currently facing a severity issue for one of our clients using a Slony
+> replication. I sent the email as below yesterday to the mailing list but I
+> have not received a confirmation if it had been posted due to the size of
+> the email limit. Could you please take a look into this and respond.
+>
+>
+>
+> 1) what is the query to get the version of slony running in a configuration,
+> I ran the below but i get an error that it could not find the function
+>
+> SELECT slonyversion();
+
+That function resides in the cluster's schema.
+
+So based on what I see elsewhere, that will likely work better as
+
+select _slony_fesprod.slonyversion();
+
+>
+> 2) I have a situation where a slony replication is lagging by about 17 hours
+> as shown below by the output of queries. I wanted to find out how to monitor
+> the real time progress of the replication.
+>
+> Prod
+>
+> =# Select * from _slony_fesprod.sl_status;
+>  st_origin | st_received | st_last_event |       st_last_event_ts        |
+> st_last_received |      s
+> t_last_received_ts      |   st_last_received_event_ts   | st_lag_num_events
+> |   st_lag_time
+> -----------+-------------+---------------+-------------------------------+------------------+-------
+> ------------------------+-------------------------------+-------------------+-----------------
+>          1 |           2 |    5000029683 | 2016-11-08 16:47:52.115885+11 |
+> 5000002086 | 2016-1
+> 1-08 14:52:13.194869+11 | 2016-11-07 22:52:56.616984+11 |             27597
+> | 17:54:56.977821
+> (1 row)
+>
+>
+> prod=# select con_origin, con_received,
+> prod-# max(ev_seqno) as last_event,
+> prod-# max(con_seqno) as last_replicated,
+> prod-# max(ev_seqno) - max(con_seqno) as behind
+> prod-# from _slony_prod.sl_confirm, _slony_prod.sl_event
+> prod-# where con_origin = ev_origin
+> prod-# and con_origin = _slony_prod.getLocalNodeId('_slony_prod')
+> prod-# group by 1, 2;
+>  con_origin | con_received | last_event | last_replicated | behind
+> ------------+--------------+------------+-----------------+--------
+>           1 |            2 | 5000029688 |      5000002086 |  27602
+> (1 row)
+>
+>
+> Slony replication
+>
+>  prod_read90=# Select * from _slony_fesprod.sl_status;
+>  st_origin | st_received | st_last_event |       st_last_event_ts        |
+> st_last_received |      s
+> t_last_received_ts      |   st_last_received_event_ts   | st_lag_num_events
+> |   st_lag_time
+> -----------+-------------+---------------+-------------------------------+------------------+-------
+> ------------------------+-------------------------------+-------------------+-----------------
+>          2 |           1 |    5000006454 | 2016-11-08 16:48:34.795058+11 |
+> 5000000003 | 2016-1
+> 1-08 14:52:13.213799+11 | 2016-11-07 22:52:52.757921+11 |              6451
+> | 17:55:49.179167
+> (1 row)
+>
+> prod_read90=# select con_origin, con_received,
+> prod_read90-# max(ev_seqno) as last_event,
+> prod_read90-# max(con_seqno) as last_replicated,
+> prod_read90-# max(ev_seqno) - max(con_seqno) as behind
+> prod_read90-# from _slony_fesprod.sl_confirm, _slony_fesprod.sl_event
+> prod_read90-# where con_origin = ev_origin
+> prod_read90-# and con_origin =
+> _slony_fesprod.getLocalNodeId('_slony_fesprod')
+> group by 1, 2;
+> prod_read90-# group by 1, 2;
+>  con_origin | con_received | last_event | last_replicated | behind
+> ------------+--------------+------------+-----------------+--------
+>           2 |            1 | 5000006455 |      5000000003 |   6452
+> (1 row)
+>
+>
+> 3) The below query seems to increase on both sides, does this mean the
+> replication is progressing ?if yes, then why do we still have the lag in
+> sl_status tables.
+>
+> # select max(ev_seqno) from _slony_fesprod.sl_event;
+>
+>
+> 4) The situation in item 2 above has become worse now as shown below, the
+> lag is getting close to 2 days now. Is there any query that I can get to
+> know if the replication is catching up or halted etc.
+>
+>
+> prod_read90=#  select * from  _slony_fesprod.sl_status ;
+> st_origin | st_received | st_last_event |      st_last_event_ts        |
+> st_last_received |      st_last_received_ts      |  st_last_rec
+> eived_event_ts  | st_lag_num_events |      st_lag_time
+> -----------+-------------+---------------+-------------------------------+------------------+-------------------------------+--------------
+> -----------------+-------------------+-----------------------
+>         2 |          1 |    5000016276 | 2016-11-09 20:05:18.993157+11 |
+> 5000000003 | 2016-11-08 14:52:13.213799+11 | 2016-11-07 22
+> :52:52.757921+11 |            16273 | 1 day 21:12:31.769221
+> (1 row)
+>
+>
+> I can send more output from the sl_event and sl_confirm from both the sides
+> if needed.
+>
+>
+> Regards,
+> Nawaz Ahmed
+> +61 414 513 643
+>
+>
+>
+> ----- Forwarded Message -----
+> From: Nawaz Ahmed <nawazid at yahoo.com>
+> To: "slony1-general at lists.slony.info" <slony1-general at lists.slony.info>
+> Sent: Tuesday, November 8, 2016 5:10 PM
+> Subject: Replication lag
+>
+> Hi Team,
+>
+> I have a few queries with respect the monitoring and troubleshooting of
+> slony replication for one of our clients. The questions are listed below.
+>
+> 1) what is the query to get the version of slony running in a configuration,
+> I ran the below but i get an error that it could not find the function
+>
+> SELECT slonyversion();
+>
+>
+> 2) I have a situation where a slony replication is lagging by about 17 hours
+> as shown below by the output of queries. I wanted to find out how to monitor
+> the real time progress of the replication.
+>
+> Prod
+>
+> =# Select * from _slony_fesprod.sl_status;
+>  st_origin | st_received | st_last_event |       st_last_event_ts        |
+> st_last_received |      s
+> t_last_received_ts      |   st_last_received_event_ts   | st_lag_num_events
+> |   st_lag_time
+> -----------+-------------+---------------+-------------------------------+------------------+-------
+> ------------------------+-------------------------------+-------------------+-----------------
+>          1 |           2 |    5000029683 | 2016-11-08 16:47:52.115885+11 |
+> 5000002086 | 2016-1
+> 1-08 14:52:13.194869+11 | 2016-11-07 22:52:56.616984+11 |             27597
+> | 17:54:56.977821
+> (1 row)
+>
+>
+> prod=# select con_origin, con_received,
+> prod-# max(ev_seqno) as last_event,
+> prod-# max(con_seqno) as last_replicated,
+> prod-# max(ev_seqno) - max(con_seqno) as behind
+> prod-# from _slony_prod.sl_confirm, _slony_prod.sl_event
+> prod-# where con_origin = ev_origin
+> prod-# and con_origin = _slony_prod.getLocalNodeId('_slony_prod')
+> prod-# group by 1, 2;
+>  con_origin | con_received | last_event | last_replicated | behind
+> ------------+--------------+------------+-----------------+--------
+>           1 |            2 | 5000029688 |      5000002086 |  27602
+> (1 row)
+>
+>
+> Slony replication
+>
+>  prod_read90=# Select * from _slony_fesprod.sl_status;
+>  st_origin | st_received | st_last_event |       st_last_event_ts        |
+> st_last_received |      s
+> t_last_received_ts      |   st_last_received_event_ts   | st_lag_num_events
+> |   st_lag_time
+> -----------+-------------+---------------+-------------------------------+------------------+-------
+> ------------------------+-------------------------------+-------------------+-----------------
+>          2 |           1 |    5000006454 | 2016-11-08 16:48:34.795058+11 |
+> 5000000003 | 2016-1
+> 1-08 14:52:13.213799+11 | 2016-11-07 22:52:52.757921+11 |              6451
+> | 17:55:49.179167
+> (1 row)
+>
+> prod_read90=# select con_origin, con_received,
+> prod_read90-# max(ev_seqno) as last_event,
+> prod_read90-# max(con_seqno) as last_replicated,
+> prod_read90-# max(ev_seqno) - max(con_seqno) as behind
+> prod_read90-# from _slony_fesprod.sl_confirm, _slony_fesprod.sl_event
+> prod_read90-# where con_origin = ev_origin
+> prod_read90-# and con_origin =
+> _slony_fesprod.getLocalNodeId('_slony_fesprod')
+> group by 1, 2;
+> prod_read90-# group by 1, 2;
+>  con_origin | con_received | last_event | last_replicated | behind
+> ------------+--------------+------------+-----------------+--------
+>           2 |            1 | 5000006455 |      5000000003 |   6452
+> (1 row)
+>
+>
+> 3) The below query seems to increase on both sides, does this mean the
+> replication is progressing ?if yes, then why do we still have the lag in
+> sl_status tables.
+>
+> # select max(ev_seqno) from _slony_fesprod.sl_event;
+
+If replication is successfully running, then you should find that the
+last applied SYNC will be increasing.
+
+It looks as though the last replicated SYNC is 5000002086, which is
+suggestive that some changes are getting applied.
+
+I'd suggest looking at the logs generated by the slon process that is
+managing node #2.
+
+You might need to bump the logging level up to DEBUG1; that generates
+pretty useful output for figuring out what's going on.  That's done by
+having slon run with "-d 2" or having log_level set to 2 in the config
+file (if that's how you're configuring slon)
+
+There is a section in the documentation on this; see particularly 5.5.6.6
+http://slony.info/documentation/2.2/loganalysis.html
+
+Interesting bits of what you should expect to see (particularly with -d 2)
+
+DEBUG1: remoteWorkerThread_%d: SYNC %d processing
+
+This indicates the start of processing of a SYNC
+
+DEBUG2: remoteWorkerThread_%d: syncing set %d with %d table(s) from provider %d
+
+This is declaring the plans for a SYNC: we have a set with some tables
+to process.
+
+DEBUG2: remoteWorkerThread_%d: SYNC %d done in %.3f seconds
+
+This indicates the successful completion of a SYNC. Hurray!
+
+DEBUG1: remoteWorkerThread_%d_d:%.3f seconds delay for first row
+
+This indicates how long it took to get the first row from the LOG
+cursor that pulls in data from the sl_log tables.
+
+DEBUG2: remoteWorkerThread_%d_d:%.3f seconds until close cursor
+
+This indicates how long it took to complete reading data from the LOG
+cursor that pulls in data from the sl_log tables.
+
+DEBUG2: remoteWorkerThread_%d_d: inserts=%d updates=%d deletes=%d
+
+This reports how much activity was recorded in the current SYNC set.
+
+Those are the things you should be hoping to see processing, and if
+replication is well behind, slon should often be processing several
+SYNCs in one group.
+
+If you are encountering ERROR messages, they should be pretty
+suggestive that something terrible is happening to prevent SYNCs from
+completing.
+
+-- 
+When confronted by a difficult problem, solve it by reducing it to the
+question, "How would the Lone Ranger handle this?"
+

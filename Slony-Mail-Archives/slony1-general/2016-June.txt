@@ -460,3 +460,241 @@ Contact r?gional PostgreSQL pour l'Europe francophone
 Loxodata - Conseil, support et formation
 01.79.72.57.75
 
+From ttignor at akamai.com  Tue Jun 28 07:15:36 2016
+From: ttignor at akamai.com (Tignor, Tom)
+Date: Tue, 28 Jun 2016 14:15:36 +0000
+Subject: [Slony1-general] cannot safely MOVE SET, DROP NODE
+Message-ID: <29233BBA-3D6C-45B5-917D-BAF11AF9955F@akamai.com>
+
+
+                Hello slony community,
+                I?m working now on some slony1 failover automation (slony1-2.2.4) and I?m having a lot of trouble getting slony1 to honor MOVE SET commands. Below are the commands I?m using, to my mind pretty simple instructions to move a set and confirm everyone gets the message (wait for event, confirmed by all) before moving on. Shortly after moving on, I?m dropping the former set origin node. I suspect that?s why one of subscribers enters the perpetual ?MOVE_SET not received yet? loop, which I know isn?t a new slony1 problem. Is there any reason this shouldn?t work? The FAILOVER command never does this. In the scenario I?m working on, I would have liked to avoid the heavy hammer, but do I need to use FAILOVER to make this happen reliably?
+                Thanks in advance,
+
+
+--- slonik commands ----
+lock set (id=1, origin=1);
+move set (id=1, old origin=1, new origin=3);
+wait for event (origin=3, confirmed=all,
+                        wait on=3, timeout=60);
+----
+
+---- remote subscriber log ----
+2016-06-28 12:23:26 UTC [19800] INFO   start processing ACCEPT_SET
+2016-06-28 12:23:26 UTC [19800] INFO   ACCEPT: set=1
+2016-06-28 12:23:26 UTC [19800] INFO   ACCEPT: old origin=1
+2016-06-28 12:23:26 UTC [19800] INFO   ACCEPT: new origin=3
+2016-06-28 12:23:26 UTC [19800] INFO   ACCEPT: move set seq=5000000008
+2016-06-28 12:23:26 UTC [19800] INFO   got parms ACCEPT_SET
+2016-06-28 12:23:26 UTC [19800] INFO   ACCEPT_SET - MOVE_SET not received yet - sleep
+2016-06-28 12:23:36 UTC [19800] INFO   ACCEPT_SET - MOVE_SET not received yet - sleep
+2016-06-28 12:23:46 UTC [19800] INFO   ACCEPT_SET - MOVE_SET not received yet - sleep
+2016-06-28 12:23:56 UTC [19800] INFO   ACCEPT_SET - MOVE_SET not received yet - sleep
+2016-06-28 12:24:06 UTC [19800] INFO   ACCEPT_SET - MOVE_SET not received yet - sleep
+2016-06-28 12:24:16 UTC [19800] INFO   ACCEPT_SET - MOVE_SET not received yet ? sleep
+----
+
+
+                Tom    ?
+
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20160628/72cd8eef/attachment.htm 
+
+From steve at ssinger.info  Tue Jun 28 16:55:29 2016
+From: steve at ssinger.info (Steve Singer)
+Date: Tue, 28 Jun 2016 19:55:29 -0400 (EDT)
+Subject: [Slony1-general] cannot safely MOVE SET, DROP NODE
+In-Reply-To: <29233BBA-3D6C-45B5-917D-BAF11AF9955F@akamai.com>
+References: <29233BBA-3D6C-45B5-917D-BAF11AF9955F@akamai.com>
+Message-ID: <alpine.DEB.2.02.1606281952050.26930@mini.atlantida>
+
+On Tue, 28 Jun 2016, Tignor, Tom wrote:
+
+> 
+> ?
+> 
+> ??????????????? Hello slony community,
+> 
+> ??????????????? I?m working now on some slony1 failover automation (slony1-2.2.4) and I?m having a lot of trouble
+> getting slony1 to honor MOVE SET commands. Below are the commands I?m using, to my mind pretty simple instructions to
+> move a set and confirm everyone gets the message (wait for event, confirmed by all) before moving on. Shortly after
+> moving on, I?m dropping the former set origin node. I suspect that?s why one of subscribers enters the perpetual
+> ?MOVE_SET not received yet? loop, which I know isn?t a new slony1 problem. Is there any reason this shouldn?t work?
+> The FAILOVER command never does this. In the scenario I?m working on, I would have liked to avoid the heavy hammer,
+> but do I need to use FAILOVER to make this happen reliably?
+>
+
+Don't drop the old origin until after all the nodes have processed the 
+ACCEPT SET.  Did that slonik script finish?  I would have expected that wait 
+for wouldn't have finished until all the nodes had received the MOVE SET
+
+
+
+
+
+> ??????????????? Thanks in advance,
+> 
+> ?
+> 
+> ?
+> 
+> --- slonik commands ----
+> 
+> lock set (id=1, origin=1);
+> 
+> move set (id=1, old origin=1, new origin=3);
+> 
+> wait for event (origin=3, confirmed=all,
+> 
+> ???? ?????????? ????????wait on=3, timeout=60);
+> 
+> ----
+> 
+> ?
+> 
+> ---- remote subscriber log ----
+> 
+> 2016-06-28 12:23:26 UTC [19800] INFO?? start processing ACCEPT_SET
+> 
+> 2016-06-28 12:23:26 UTC [19800] INFO?? ACCEPT: set=1
+> 
+> 2016-06-28 12:23:26 UTC [19800] INFO?? ACCEPT: old origin=1
+> 
+> 2016-06-28 12:23:26 UTC [19800] INFO?? ACCEPT: new origin=3
+> 
+> 2016-06-28 12:23:26 UTC [19800] INFO?? ACCEPT: move set seq=5000000008
+> 
+> 2016-06-28 12:23:26 UTC [19800] INFO?? got parms ACCEPT_SET
+> 
+> 2016-06-28 12:23:26 UTC [19800] INFO?? ACCEPT_SET - MOVE_SET not received yet - sleep
+> 
+> 2016-06-28 12:23:36 UTC [19800] INFO?? ACCEPT_SET - MOVE_SET not received yet - sleep
+> 
+> 2016-06-28 12:23:46 UTC [19800] INFO?? ACCEPT_SET - MOVE_SET not received yet - sleep
+> 
+> 2016-06-28 12:23:56 UTC [19800] INFO?? ACCEPT_SET - MOVE_SET not received yet - sleep
+> 
+> 2016-06-28 12:24:06 UTC [19800] INFO?? ACCEPT_SET - MOVE_SET not received yet - sleep
+> 
+> 2016-06-28 12:24:16 UTC [19800] INFO?? ACCEPT_SET - MOVE_SET not received yet ? sleep
+> 
+> ----
+> 
+> ?
+> 
+> ?
+> 
+> ??????????????? Tom??? J
+> 
+> ?
+> 
+> ?
+> 
+> 
+>
+
+From ttignor at akamai.com  Wed Jun 29 05:25:36 2016
+From: ttignor at akamai.com (Tignor, Tom)
+Date: Wed, 29 Jun 2016 12:25:36 +0000
+Subject: [Slony1-general] cannot safely MOVE SET, DROP NODE
+In-Reply-To: <alpine.DEB.2.02.1606281952050.26930@mini.atlantida>
+References: <29233BBA-3D6C-45B5-917D-BAF11AF9955F@akamai.com>
+	<alpine.DEB.2.02.1606281952050.26930@mini.atlantida>
+Message-ID: <2E74E257-2286-43BC-83D7-48404577E0FF@akamai.com>
+
+
+	Yes, so would I. ? But the script did finish and apparently didn?t wait long enough. In fact, this seems to happen every time. Any thoughts on how to debug?
+
+	Tom    ?
+
+
+On 6/28/16, 7:55 PM, "Steve Singer" <steve at ssinger.info> wrote:
+
+>On Tue, 28 Jun 2016, Tignor, Tom wrote:
+>
+>> 
+>>  
+>> 
+>>                 Hello slony community,
+>> 
+>>                 I?m working now on some slony1 failover automation (slony1-2.2.4) and I?m having a lot of trouble
+>> getting slony1 to honor MOVE SET commands. Below are the commands I?m using, to my mind pretty simple instructions to
+>> move a set and confirm everyone gets the message (wait for event, confirmed by all) before moving on. Shortly after
+>> moving on, I?m dropping the former set origin node. I suspect that?s why one of subscribers enters the perpetual
+>> ?MOVE_SET not received yet? loop, which I know isn?t a new slony1 problem. Is there any reason this shouldn?t work?
+>> The FAILOVER command never does this. In the scenario I?m working on, I would have liked to avoid the heavy hammer,
+>> but do I need to use FAILOVER to make this happen reliably?
+>>
+>
+>Don't drop the old origin until after all the nodes have processed the 
+>ACCEPT SET.  Did that slonik script finish?  I would have expected that wait 
+>for wouldn't have finished until all the nodes had received the MOVE SET
+>
+>
+>
+>
+>
+>>                 Thanks in advance,
+>> 
+>>  
+>> 
+>>  
+>> 
+>> --- slonik commands ----
+>> 
+>> lock set (id=1, origin=1);
+>> 
+>> move set (id=1, old origin=1, new origin=3);
+>> 
+>> wait for event (origin=3, confirmed=all,
+>> 
+>>                         wait on=3, timeout=60);
+>> 
+>> ----
+>> 
+>>  
+>> 
+>> ---- remote subscriber log ----
+>> 
+>> 2016-06-28 12:23:26 UTC [19800] INFO   start processing ACCEPT_SET
+>> 
+>> 2016-06-28 12:23:26 UTC [19800] INFO   ACCEPT: set=1
+>> 
+>> 2016-06-28 12:23:26 UTC [19800] INFO   ACCEPT: old origin=1
+>> 
+>> 2016-06-28 12:23:26 UTC [19800] INFO   ACCEPT: new origin=3
+>> 
+>> 2016-06-28 12:23:26 UTC [19800] INFO   ACCEPT: move set seq=5000000008
+>> 
+>> 2016-06-28 12:23:26 UTC [19800] INFO   got parms ACCEPT_SET
+>> 
+>> 2016-06-28 12:23:26 UTC [19800] INFO   ACCEPT_SET - MOVE_SET not received yet - sleep
+>> 
+>> 2016-06-28 12:23:36 UTC [19800] INFO   ACCEPT_SET - MOVE_SET not received yet - sleep
+>> 
+>> 2016-06-28 12:23:46 UTC [19800] INFO   ACCEPT_SET - MOVE_SET not received yet - sleep
+>> 
+>> 2016-06-28 12:23:56 UTC [19800] INFO   ACCEPT_SET - MOVE_SET not received yet - sleep
+>> 
+>> 2016-06-28 12:24:06 UTC [19800] INFO   ACCEPT_SET - MOVE_SET not received yet - sleep
+>> 
+>> 2016-06-28 12:24:16 UTC [19800] INFO   ACCEPT_SET - MOVE_SET not received yet ? sleep
+>> 
+>> ----
+>> 
+>>  
+>> 
+>>  
+>> 
+>>                 Tom    J
+>> 
+>>  
+>> 
+>>  
+>> 
+>> 
+>>
+
+

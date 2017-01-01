@@ -275,3 +275,975 @@ Thanks again Jan!
 An HTML attachment was scrubbed...
 URL: http://lists.slony.info/pipermail/slony1-general/attachments/20160803/5cb6cee0/attachment.htm 
 
+From glynastill at yahoo.co.uk  Thu Aug  4 04:52:04 2016
+From: glynastill at yahoo.co.uk (Glyn Astill)
+Date: Thu, 4 Aug 2016 11:52:04 +0000 (UTC)
+Subject: [Slony1-general] Slony Tuning, heavy slon backup every AM
+In-Reply-To: <CAEaSS0anKq7W1YhksjxpkRL1QfROQT3j=8zhFsyMzySt+0bHZg@mail.gmail.com>
+References: <CAEaSS0YAL=1LDEu2uxM5SAJkwsQzRVLTj3iYoECqemANh+jrAA@mail.gmail.com>
+	<CAGBW59c9JTKT5dSY-j1oRo1a4-YewzAfY_hxk_sxB1i1viNZMA@mail.gmail.com>
+	<CAEaSS0anKq7W1YhksjxpkRL1QfROQT3j=8zhFsyMzySt+0bHZg@mail.gmail.com>
+Message-ID: <478514392.16160983.1470311524259.JavaMail.yahoo@mail.yahoo.com>
+
+
+> From: Tory M Blue <tmblue at gmail.com>
+>To: Jan Wieck <jan at wi3ck.info> 
+>Cc: slony <slony1-general at lists.slony.info>
+>Sent: Wednesday, 3 August 2016, 21:45
+>Subject: Re: [Slony1-general] Slony Tuning, heavy slon backup every AM
+> 
+>
+>
+>
+>
+>
+>
+>On Wed, Aug 3, 2016 at 12:30 PM, Jan Wieck <jan at wi3ck.info> wrote:
+>
+>
+>>
+>>
+>>
+>>On Wed, Aug 3, 2016 at 11:14 AM, Tory M Blue <tmblue at gmail.com> wrote:
+>>
+>>Hey folks
+>>>
+>>>Running into some more issues and i'm not finding a definitive tuning guide nor can I tell why i'm backing up and why it takes so long to catch up (so long is relative).
+>>>
+>>>
+>>>Running Slony 2.2.3 (but this has been an issue for a long time).
+>>>
+>>>
+>>>Image to show you where I am this AM , but this is a constant every AM.  I have large updates about 2.5 million between 12am and 4am, the job is done but it will take Slon a couple of hours to catch up.
+>>
+>>
+>>Are there long running transactions that start around the time, the sl_log starts
+>>growing? Any long running transaction prevents a log switch from finishing. 
+>>
+>>
+>>
+>>
+>>Jan
+>
+>
+>Hi Jan,
+>
+>
+>There are really not many long queries during the big import, but things start getting longer when the slon logs have 10m+ rows in them.
+>
+>
+>I actually log any transaction that takes over a second and there is nothing that stands out, nothing that runs all that long. During this period, I move my reporting to point to the master, because of the delay in the standby, so there are some longer report queries, but the longest is 16 minutes 
+>
+
+
+Do you see any long running copy statements from the slon on the subscriber?  If so one avenue to investigate is if there are any replicated tables with sub-optimal indexes on them.
+
+I mention it purely because I've been bitten by this myself and seen very similar symptoms to what you're reporting here.  There's every chance this is way off the mark, but I think it's worth mentioning.
+
+The issue I saw was down to a bunch of pretty ugly indexes created by an application, and the result was inaccurate selectivity estimates causing the planner to choose one of the ugly indexes instead of the primary key when applying the changes on the subscriber.  Multivariate planner statistics that PostgreSQL doesn't yet have might have mitigated this, but that's besides the point.
+
+
+For example I'd see something like 200,000 records getting updated by a single update statement on the origin taking about 20 seconds, but when applied as 200,000 separate update statements on the subscriber it took more like 200 minutes.  An update using an index scan on the ugly index would take 62ms vs 0.1ms on the primary key, but outwardly all I saw until I enabled autoexplain was a long running copy.
+
+Glyn
+
+From jan at wi3ck.info  Thu Aug  4 08:39:29 2016
+From: jan at wi3ck.info (Jan Wieck)
+Date: Thu, 4 Aug 2016 11:39:29 -0400
+Subject: [Slony1-general] Slony Tuning, heavy slon backup every AM
+In-Reply-To: <478514392.16160983.1470311524259.JavaMail.yahoo@mail.yahoo.com>
+References: <CAEaSS0YAL=1LDEu2uxM5SAJkwsQzRVLTj3iYoECqemANh+jrAA@mail.gmail.com>
+	<CAGBW59c9JTKT5dSY-j1oRo1a4-YewzAfY_hxk_sxB1i1viNZMA@mail.gmail.com>
+	<CAEaSS0anKq7W1YhksjxpkRL1QfROQT3j=8zhFsyMzySt+0bHZg@mail.gmail.com>
+	<478514392.16160983.1470311524259.JavaMail.yahoo@mail.yahoo.com>
+Message-ID: <CAGBW59e9QZSRH-cRJ_o=BQZRNz-qEC0zuPnawP=T40ZZYHk40g@mail.gmail.com>
+
+Another problem we recently ran into is that after bulk operations, the
+queries selecting the log data on the data provider can degrade. A
+workaround
+in one case was to ALTER the slony user and set work_mem to 512MB. The
+work_mem of 100MB, used by the application, was causing the scans on
+the sl_log table to become sequential scans.
+
+The problem is amplified if the tables are spread across many sets. Merging
+the sets into few larger ones causes fewer scans.
+
+
+Regards, Jan
+
+
+On Thu, Aug 4, 2016 at 7:52 AM, Glyn Astill <glynastill at yahoo.co.uk> wrote:
+
+>
+> > From: Tory M Blue <tmblue at gmail.com>
+> >To: Jan Wieck <jan at wi3ck.info>
+> >Cc: slony <slony1-general at lists.slony.info>
+> >Sent: Wednesday, 3 August 2016, 21:45
+> >Subject: Re: [Slony1-general] Slony Tuning, heavy slon backup every AM
+> >
+> >
+> >
+> >
+> >
+> >
+> >
+> >On Wed, Aug 3, 2016 at 12:30 PM, Jan Wieck <jan at wi3ck.info> wrote:
+> >
+> >
+> >>
+> >>
+> >>
+> >>On Wed, Aug 3, 2016 at 11:14 AM, Tory M Blue <tmblue at gmail.com> wrote:
+> >>
+> >>Hey folks
+> >>>
+> >>>Running into some more issues and i'm not finding a definitive tuning
+> guide nor can I tell why i'm backing up and why it takes so long to catch
+> up (so long is relative).
+> >>>
+> >>>
+> >>>Running Slony 2.2.3 (but this has been an issue for a long time).
+> >>>
+> >>>
+> >>>Image to show you where I am this AM , but this is a constant every
+> AM.  I have large updates about 2.5 million between 12am and 4am, the job
+> is done but it will take Slon a couple of hours to catch up.
+> >>
+> >>
+> >>Are there long running transactions that start around the time, the
+> sl_log starts
+> >>growing? Any long running transaction prevents a log switch from
+> finishing.
+> >>
+> >>
+> >>
+> >>
+> >>Jan
+> >
+> >
+> >Hi Jan,
+> >
+> >
+> >There are really not many long queries during the big import, but things
+> start getting longer when the slon logs have 10m+ rows in them.
+> >
+> >
+> >I actually log any transaction that takes over a second and there is
+> nothing that stands out, nothing that runs all that long. During this
+> period, I move my reporting to point to the master, because of the delay in
+> the standby, so there are some longer report queries, but the longest is 16
+> minutes
+> >
+>
+>
+> Do you see any long running copy statements from the slon on the
+> subscriber?  If so one avenue to investigate is if there are any replicated
+> tables with sub-optimal indexes on them.
+>
+> I mention it purely because I've been bitten by this myself and seen very
+> similar symptoms to what you're reporting here.  There's every chance this
+> is way off the mark, but I think it's worth mentioning.
+>
+> The issue I saw was down to a bunch of pretty ugly indexes created by an
+> application, and the result was inaccurate selectivity estimates causing
+> the planner to choose one of the ugly indexes instead of the primary key
+> when applying the changes on the subscriber.  Multivariate planner
+> statistics that PostgreSQL doesn't yet have might have mitigated this, but
+> that's besides the point.
+>
+>
+> For example I'd see something like 200,000 records getting updated by a
+> single update statement on the origin taking about 20 seconds, but when
+> applied as 200,000 separate update statements on the subscriber it took
+> more like 200 minutes.  An update using an index scan on the ugly index
+> would take 62ms vs 0.1ms on the primary key, but outwardly all I saw until
+> I enabled autoexplain was a long running copy.
+>
+> Glyn
+>
+
+
+
+-- 
+Jan Wieck
+Senior Postgres Architect
+http://pgblog.wi3ck.info
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20160804/511f97bf/attachment-0001.htm 
+
+From cbbrowne at gmail.com  Thu Aug  4 09:35:47 2016
+From: cbbrowne at gmail.com (Christopher Browne)
+Date: Thu, 4 Aug 2016 12:35:47 -0400
+Subject: [Slony1-general] Slony Tuning, heavy slon backup every AM
+In-Reply-To: <CAGBW59e9QZSRH-cRJ_o=BQZRNz-qEC0zuPnawP=T40ZZYHk40g@mail.gmail.com>
+References: <CAEaSS0YAL=1LDEu2uxM5SAJkwsQzRVLTj3iYoECqemANh+jrAA@mail.gmail.com>
+	<CAGBW59c9JTKT5dSY-j1oRo1a4-YewzAfY_hxk_sxB1i1viNZMA@mail.gmail.com>
+	<CAEaSS0anKq7W1YhksjxpkRL1QfROQT3j=8zhFsyMzySt+0bHZg@mail.gmail.com>
+	<478514392.16160983.1470311524259.JavaMail.yahoo@mail.yahoo.com>
+	<CAGBW59e9QZSRH-cRJ_o=BQZRNz-qEC0zuPnawP=T40ZZYHk40g@mail.gmail.com>
+Message-ID: <CAFNqd5UmBnUHGWxVCEgxBOLq3qbnaYqsRpEY3y_f4wRm5jwFwg@mail.gmail.com>
+
+The observations made already wondering if there are any long-running
+transactions lurking around fit with what I'd wonder, too.  If there's
+something like a pg_dump or some long running report that holds a
+transaction open for a couple hours, that would certainly explain the
+phenomenon, and it's unfortunate that this leads to big growth of
+sl_log_*
+
+I wonder if this is a case that would get helped by BRIN indexes.
+
+Note that this is an experimental proposal I have lurking about...
+
+https://github.com/cbbrowne/slony1-engine/commit/7a02c20cde8c8f3a54914ca6889d392074d51503
+
+The index requests are (with @NAMESPACE@ as a needful schema substitution):
+
+create index sl_log_1_brin_txid on @NAMESPACE at .sl_log_1 using BRIN (log_txid);
+create index sl_log_2_brin_txid on @NAMESPACE at .sl_log_2 using BRIN (log_txid);
+create index sl_log_1_brin_action on @NAMESPACE at .sl_log_1 using BRIN
+(log_actionseq);
+create index sl_log_2_brin_action on @NAMESPACE at .sl_log_2 using BRIN
+(log_actionseq);
+
+It mightn't help, and certainly won't, if the backends aren't on
+versions supporting BRIN (only in PG 9.5+), but on the other hand, it
+might.  (And if it's a big win, that would be REALLY nice to know!
+I'll bet the folks that worked on BRIN indexes would also be happy to
+hear it!)
+
+From tmblue at gmail.com  Thu Aug  4 10:29:55 2016
+From: tmblue at gmail.com (Tory M Blue)
+Date: Thu, 4 Aug 2016 10:29:55 -0700
+Subject: [Slony1-general] Slony Tuning, heavy slon backup every AM
+In-Reply-To: <CAGBW59e9QZSRH-cRJ_o=BQZRNz-qEC0zuPnawP=T40ZZYHk40g@mail.gmail.com>
+References: <CAEaSS0YAL=1LDEu2uxM5SAJkwsQzRVLTj3iYoECqemANh+jrAA@mail.gmail.com>
+	<CAGBW59c9JTKT5dSY-j1oRo1a4-YewzAfY_hxk_sxB1i1viNZMA@mail.gmail.com>
+	<CAEaSS0anKq7W1YhksjxpkRL1QfROQT3j=8zhFsyMzySt+0bHZg@mail.gmail.com>
+	<478514392.16160983.1470311524259.JavaMail.yahoo@mail.yahoo.com>
+	<CAGBW59e9QZSRH-cRJ_o=BQZRNz-qEC0zuPnawP=T40ZZYHk40g@mail.gmail.com>
+Message-ID: <CAEaSS0YQ6NcHfx4XdWmUa2X6bje--r0YwQ3tt+KSSvWD_0TuLg@mail.gmail.com>
+
+On Thu, Aug 4, 2016 at 8:39 AM, Jan Wieck <jan at wi3ck.info> wrote:
+> Another problem we recently ran into is that after bulk operations, the
+> queries selecting the log data on the data provider can degrade. A
+> workaround
+> in one case was to ALTER the slony user and set work_mem to 512MB. The
+> work_mem of 100MB, used by the application, was causing the scans on
+> the sl_log table to become sequential scans.
+>
+> The problem is amplified if the tables are spread across many sets. Merging
+> the sets into few larger ones causes fewer scans.
+>
+>
+> Regards, Jan
+>
+
+Unfortunately, I've never been able to migrate to a slony user, so
+slony runs as postgres and my setting are
+
+work_mem = 2GB
+
+maintenance_work_mem = 2GB
+
+So don't think I can test this theory.
+
+Also of note, we have 3 sets
+
+Same today, just don't see any long running queries where slony has no
+time to truncate the table, so I'm not clear what is preventing the
+slony table from being truncated. ( it really sounds like something
+that Jan has run into before, just a huge table and for some reason
+the truncate can't complete before another job or request comes in?
+Even now the slon table is over 12Million and I expect it to be able
+to truncate/clear in the next 30 minutes or so, but why.. the big bulk
+operation finishes at 5am, not sure why it takes another almost 6
+hours to truncate that table..
+
+Thanks again!
+Tory
+
+From tmblue at gmail.com  Thu Aug  4 11:55:24 2016
+From: tmblue at gmail.com (Tory M Blue)
+Date: Thu, 4 Aug 2016 11:55:24 -0700
+Subject: [Slony1-general] Slony Tuning, heavy slon backup every AM
+In-Reply-To: <CAFNqd5UmBnUHGWxVCEgxBOLq3qbnaYqsRpEY3y_f4wRm5jwFwg@mail.gmail.com>
+References: <CAEaSS0YAL=1LDEu2uxM5SAJkwsQzRVLTj3iYoECqemANh+jrAA@mail.gmail.com>
+	<CAGBW59c9JTKT5dSY-j1oRo1a4-YewzAfY_hxk_sxB1i1viNZMA@mail.gmail.com>
+	<CAEaSS0anKq7W1YhksjxpkRL1QfROQT3j=8zhFsyMzySt+0bHZg@mail.gmail.com>
+	<478514392.16160983.1470311524259.JavaMail.yahoo@mail.yahoo.com>
+	<CAGBW59e9QZSRH-cRJ_o=BQZRNz-qEC0zuPnawP=T40ZZYHk40g@mail.gmail.com>
+	<CAFNqd5UmBnUHGWxVCEgxBOLq3qbnaYqsRpEY3y_f4wRm5jwFwg@mail.gmail.com>
+Message-ID: <CAEaSS0bdFA7BCyqQCYQ-ShLwwmm_6wVCeHRAEMbOoU3+GpLEyA@mail.gmail.com>
+
+On Thu, Aug 4, 2016 at 9:35 AM, Christopher Browne <cbbrowne at gmail.com> wrote:
+> The observations made already wondering if there are any long-running
+> transactions lurking around fit with what I'd wonder, too.  If there's
+> something like a pg_dump or some long running report that holds a
+> transaction open for a couple hours, that would certainly explain the
+> phenomenon, and it's unfortunate that this leads to big growth of
+> sl_log_*
+>
+> I wonder if this is a case that would get helped by BRIN indexes.
+>
+> Note that this is an experimental proposal I have lurking about...
+>
+> https://github.com/cbbrowne/slony1-engine/commit/7a02c20cde8c8f3a54914ca6889d392074d51503
+>
+> The index requests are (with @NAMESPACE@ as a needful schema substitution):
+>
+> create index sl_log_1_brin_txid on @NAMESPACE at .sl_log_1 using BRIN (log_txid);
+> create index sl_log_2_brin_txid on @NAMESPACE at .sl_log_2 using BRIN (log_txid);
+> create index sl_log_1_brin_action on @NAMESPACE at .sl_log_1 using BRIN
+> (log_actionseq);
+> create index sl_log_2_brin_action on @NAMESPACE at .sl_log_2 using BRIN
+> (log_actionseq);
+>
+> It mightn't help, and certainly won't, if the backends aren't on
+> versions supporting BRIN (only in PG 9.5+), but on the other hand, it
+> might.  (And if it's a big win, that would be REALLY nice to know!
+> I'll bet the folks that worked on BRIN indexes would also be happy to
+> hear it!)
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+
+
+thanks Chris
+
+I think we have looked at that, I'll have to get back to you on what
+we may have found, but we won't be able to get to 9.5 for a period of
+time, so we won't be much help, but I think we talked about this
+internally, and again not sure what came of that discussion. We
+brought up a 9.5 server in AWS and was testing there,.
+
+Tory
+
+From tmblue at gmail.com  Thu Aug  4 12:02:58 2016
+From: tmblue at gmail.com (Tory M Blue)
+Date: Thu, 4 Aug 2016 12:02:58 -0700
+Subject: [Slony1-general] Slony Tuning, heavy slon backup every AM
+In-Reply-To: <CAEaSS0YQ6NcHfx4XdWmUa2X6bje--r0YwQ3tt+KSSvWD_0TuLg@mail.gmail.com>
+References: <CAEaSS0YAL=1LDEu2uxM5SAJkwsQzRVLTj3iYoECqemANh+jrAA@mail.gmail.com>
+	<CAGBW59c9JTKT5dSY-j1oRo1a4-YewzAfY_hxk_sxB1i1viNZMA@mail.gmail.com>
+	<CAEaSS0anKq7W1YhksjxpkRL1QfROQT3j=8zhFsyMzySt+0bHZg@mail.gmail.com>
+	<478514392.16160983.1470311524259.JavaMail.yahoo@mail.yahoo.com>
+	<CAGBW59e9QZSRH-cRJ_o=BQZRNz-qEC0zuPnawP=T40ZZYHk40g@mail.gmail.com>
+	<CAEaSS0YQ6NcHfx4XdWmUa2X6bje--r0YwQ3tt+KSSvWD_0TuLg@mail.gmail.com>
+Message-ID: <CAEaSS0aPUeat4jipWXW80HY4LKypuZxoxj2-qAO9_+W+G9hi-g@mail.gmail.com>
+
+On Thu, Aug 4, 2016 at 10:29 AM, Tory M Blue <tmblue at gmail.com> wrote:
+> On Thu, Aug 4, 2016 at 8:39 AM, Jan Wieck <jan at wi3ck.info> wrote:
+>> Another problem we recently ran into is that after bulk operations, the
+>> queries selecting the log data on the data provider can degrade. A
+>> workaround
+>> in one case was to ALTER the slony user and set work_mem to 512MB. The
+>> work_mem of 100MB, used by the application, was causing the scans on
+>> the sl_log table to become sequential scans.
+>>
+>> The problem is amplified if the tables are spread across many sets.
+Merging
+>> the sets into few larger ones causes fewer scans.
+>>
+>>
+>> Regards, Jan
+>>
+>
+> Unfortunately, I've never been able to migrate to a slony user, so
+> slony runs as postgres and my setting are
+>
+> work_mem = 2GB
+>
+> maintenance_work_mem = 2GB
+>
+> So don't think I can test this theory.
+>
+> Also of note, we have 3 sets
+>
+> Same today, just don't see any long running queries where slony has no
+> time to truncate the table, so I'm not clear what is preventing the
+> slony table from being truncated. ( it really sounds like something
+> that Jan has run into before, just a huge table and for some reason
+> the truncate can't complete before another job or request comes in?
+> Even now the slon table is over 12Million and I expect it to be able
+> to truncate/clear in the next 30 minutes or so, but why.. the big bulk
+> operation finishes at 5am, not sure why it takes another almost 6
+> hours to truncate that table..
+>
+> Thanks again!
+> Tory
+
+Also interesting today, is that it's getting worse :) but the same pattern,
+other then it's taking longer and today I saw something really weird.
+
+slon ran a truncate but only cleared 50% of the sl_log1, How is that
+possible, I mean a truncate is a truncate, I have no idea how this table
+went from 14M to 7M
+
+2016-08-04 10:43:03 PDT clsdb postgres 10.13.200.231(37864) 58874
+2016-08-04 10:43:03.237 PDTNOTICE:  Slony-I: could not lock sl_log_2 -
+sl_log_2 not truncated
+
+2016-08-04 10:53:43 PDT clsdb postgres 10.13.200.231(37864) 58874
+2016-08-04 10:53:43.573 PDTNOTICE:  Slony-I: log switch to sl_log_1
+complete - truncate sl_log_2
+
+2016-08-04 11:05:41 PDT clsdb postgres 10.13.200.231(37864) 58874
+2016-08-04 11:05:41.750 PDTNOTICE:  Slony-I: Logswitch to sl_log_2 initiated
+
+*2016-08-04 11:16:54 PDT clsdb postgres 10.13.200.231(37864) 58874
+2016-08-04 11:16:54.783 PDTNOTICE:  Slony-I: log switch to sl_log_2
+complete - truncate sl_log_1   <--- didn't actually "truncate" the table,
+there is still 7.5M rows and yet it's moving ahead with logswitch to
+sl_log_1 (which again was just supposedly truncated, had 14 million rows
+but has 7.5 Million rows still)..*
+
+2016-08-04 11:29:06 PDT clsdb postgres 10.13.200.231(37864) 58874
+2016-08-04 11:29:06.332 PDTNOTICE:  Slony-I: Logswitch to sl_log_1 initiated
+
+2016-08-04 11:40:43 PDT clsdb postgres 10.13.200.231(37864) 58874
+2016-08-04 11:40:43.048 PDTNOTICE:  Slony-I: log switch to sl_log_1
+complete - truncate sl_log_2
+
+2016-08-04 11:51:44 PDT clsdb postgres 10.13.200.231(37864) 58874
+2016-08-04 11:51:44.660 PDTNOTICE:  Slony-I: Logswitch to sl_log_2 initiated
+
+So what I'm also noticing and maybe not related, but my standby node has
+lots of locks and long running reports, I'm wondering if it's causing some
+of the backup seen on the master.  So many questions still :))
+
+Thanks for listening and being my wall to bounce stuff off of
+
+Tory
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20160804/6d429798/attachment.htm 
+
+From tmblue at gmail.com  Thu Aug  4 12:04:34 2016
+From: tmblue at gmail.com (Tory M Blue)
+Date: Thu, 4 Aug 2016 12:04:34 -0700
+Subject: [Slony1-general] Slony Tuning, heavy slon backup every AM
+In-Reply-To: <CAEaSS0aPUeat4jipWXW80HY4LKypuZxoxj2-qAO9_+W+G9hi-g@mail.gmail.com>
+References: <CAEaSS0YAL=1LDEu2uxM5SAJkwsQzRVLTj3iYoECqemANh+jrAA@mail.gmail.com>
+	<CAGBW59c9JTKT5dSY-j1oRo1a4-YewzAfY_hxk_sxB1i1viNZMA@mail.gmail.com>
+	<CAEaSS0anKq7W1YhksjxpkRL1QfROQT3j=8zhFsyMzySt+0bHZg@mail.gmail.com>
+	<478514392.16160983.1470311524259.JavaMail.yahoo@mail.yahoo.com>
+	<CAGBW59e9QZSRH-cRJ_o=BQZRNz-qEC0zuPnawP=T40ZZYHk40g@mail.gmail.com>
+	<CAEaSS0YQ6NcHfx4XdWmUa2X6bje--r0YwQ3tt+KSSvWD_0TuLg@mail.gmail.com>
+	<CAEaSS0aPUeat4jipWXW80HY4LKypuZxoxj2-qAO9_+W+G9hi-g@mail.gmail.com>
+Message-ID: <CAEaSS0YKuDMXJsrr0Rm0v9caOjwm-Pat8g7nHMMusDu_DL3+kQ@mail.gmail.com>
+
+On Thu, Aug 4, 2016 at 12:02 PM, Tory M Blue <tmblue at gmail.com> wrote:
+
+>
+>
+> On Thu, Aug 4, 2016 at 10:29 AM, Tory M Blue <tmblue at gmail.com> wrote:
+> > On Thu, Aug 4, 2016 at 8:39 AM, Jan Wieck <jan at wi3ck.info> wrote:
+> >> Another problem we recently ran into is that after bulk operations, the
+> >> queries selecting the log data on the data provider can degrade. A
+> >> workaround
+> >> in one case was to ALTER the slony user and set work_mem to 512MB. The
+> >> work_mem of 100MB, used by the application, was causing the scans on
+> >> the sl_log table to become sequential scans.
+> >>
+> >> The problem is amplified if the tables are spread across many sets.
+> Merging
+> >> the sets into few larger ones causes fewer scans.
+> >>
+> >>
+> >> Regards, Jan
+> >>
+> >
+> > Unfortunately, I've never been able to migrate to a slony user, so
+> > slony runs as postgres and my setting are
+> >
+> > work_mem = 2GB
+> >
+> > maintenance_work_mem = 2GB
+> >
+> > So don't think I can test this theory.
+> >
+> > Also of note, we have 3 sets
+> >
+> > Same today, just don't see any long running queries where slony has no
+> > time to truncate the table, so I'm not clear what is preventing the
+> > slony table from being truncated. ( it really sounds like something
+> > that Jan has run into before, just a huge table and for some reason
+> > the truncate can't complete before another job or request comes in?
+> > Even now the slon table is over 12Million and I expect it to be able
+> > to truncate/clear in the next 30 minutes or so, but why.. the big bulk
+> > operation finishes at 5am, not sure why it takes another almost 6
+> > hours to truncate that table..
+> >
+> > Thanks again!
+> > Tory
+>
+> Also interesting today, is that it's getting worse :) but the same
+> pattern, other then it's taking longer and today I saw something really
+> weird.
+>
+> slon ran a truncate but only cleared 50% of the sl_log1, How is that
+> possible, I mean a truncate is a truncate, I have no idea how this table
+> went from 14M to 7M
+>
+> 2016-08-04 10:43:03 PDT clsdb postgres 10.13.200.231(37864) 58874
+> 2016-08-04 10:43:03.237 PDTNOTICE:  Slony-I: could not lock sl_log_2 -
+> sl_log_2 not truncated
+>
+> 2016-08-04 10:53:43 PDT clsdb postgres 10.13.200.231(37864) 58874
+> 2016-08-04 10:53:43.573 PDTNOTICE:  Slony-I: log switch to sl_log_1
+> complete - truncate sl_log_2
+>
+> 2016-08-04 11:05:41 PDT clsdb postgres 10.13.200.231(37864) 58874
+> 2016-08-04 11:05:41.750 PDTNOTICE:  Slony-I: Logswitch to sl_log_2 initiated
+>
+> *2016-08-04 11:16:54 PDT clsdb postgres 10.13.200.231(37864) 58874
+> 2016-08-04 11:16:54.783 PDTNOTICE:  Slony-I: log switch to sl_log_2
+> complete - truncate sl_log_1   <--- didn't actually "truncate" the table,
+> there is still 7.5M rows and yet it's moving ahead with logswitch to
+> sl_log_1 (which again was just supposedly truncated, had 14 million rows
+> but has 7.5 Million rows still)..*
+>
+> 2016-08-04 11:29:06 PDT clsdb postgres 10.13.200.231(37864) 58874
+> 2016-08-04 11:29:06.332 PDTNOTICE:  Slony-I: Logswitch to sl_log_1 initiated
+>
+> 2016-08-04 11:40:43 PDT clsdb postgres 10.13.200.231(37864) 58874
+> 2016-08-04 11:40:43.048 PDTNOTICE:  Slony-I: log switch to sl_log_1
+> complete - truncate sl_log_2
+>
+> 2016-08-04 11:51:44 PDT clsdb postgres 10.13.200.231(37864) 58874
+> 2016-08-04 11:51:44.660 PDTNOTICE:  Slony-I: Logswitch to sl_log_2 initiated
+>
+> So what I'm also noticing and maybe not related, but my standby node has
+> lots of locks and long running reports, I'm wondering if it's causing some
+> of the backup seen on the master.  So many questions still :))
+>
+> Thanks for listening and being my wall to bounce stuff off of
+>
+> Tory
+>
+> Sent to soon
+
+2016-08-04 12:02:50 PDT clsdb postgres 10.13.200.231(37864) 58874
+2016-08-04 12:02:50.556 PDTNOTICE:  Slony-I: log switch to sl_log_2
+complete - truncate sl_log_1
+*(This truncate actually removed the 7.5 Million remaining rows), *
+
+*I'm confused how can a truncate leave rows?!*
+
+
+Tory
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20160804/13b910c6/attachment.htm 
+
+From jan at wi3ck.info  Sat Aug  6 06:16:57 2016
+From: jan at wi3ck.info (Jan Wieck)
+Date: Sat, 6 Aug 2016 09:16:57 -0400
+Subject: [Slony1-general] Slony Tuning, heavy slon backup every AM
+In-Reply-To: <CAEaSS0YKuDMXJsrr0Rm0v9caOjwm-Pat8g7nHMMusDu_DL3+kQ@mail.gmail.com>
+References: <CAEaSS0YAL=1LDEu2uxM5SAJkwsQzRVLTj3iYoECqemANh+jrAA@mail.gmail.com>
+	<CAGBW59c9JTKT5dSY-j1oRo1a4-YewzAfY_hxk_sxB1i1viNZMA@mail.gmail.com>
+	<CAEaSS0anKq7W1YhksjxpkRL1QfROQT3j=8zhFsyMzySt+0bHZg@mail.gmail.com>
+	<478514392.16160983.1470311524259.JavaMail.yahoo@mail.yahoo.com>
+	<CAGBW59e9QZSRH-cRJ_o=BQZRNz-qEC0zuPnawP=T40ZZYHk40g@mail.gmail.com>
+	<CAEaSS0YQ6NcHfx4XdWmUa2X6bje--r0YwQ3tt+KSSvWD_0TuLg@mail.gmail.com>
+	<CAEaSS0aPUeat4jipWXW80HY4LKypuZxoxj2-qAO9_+W+G9hi-g@mail.gmail.com>
+	<CAEaSS0YKuDMXJsrr0Rm0v9caOjwm-Pat8g7nHMMusDu_DL3+kQ@mail.gmail.com>
+Message-ID: <CAGBW59dy6+V=Mb2kPdc93yeNhHfxgY1wYJSpqDJ_PjMyRZB7rA@mail.gmail.com>
+
+How are you monitoring the number of rows in the sl_log_* tables?
+
+
+Jan
+
+On Thu, Aug 4, 2016 at 3:04 PM, Tory M Blue <tmblue at gmail.com> wrote:
+
+>
+>
+> On Thu, Aug 4, 2016 at 12:02 PM, Tory M Blue <tmblue at gmail.com> wrote:
+>
+>>
+>>
+>> On Thu, Aug 4, 2016 at 10:29 AM, Tory M Blue <tmblue at gmail.com> wrote:
+>> > On Thu, Aug 4, 2016 at 8:39 AM, Jan Wieck <jan at wi3ck.info> wrote:
+>> >> Another problem we recently ran into is that after bulk operations, the
+>> >> queries selecting the log data on the data provider can degrade. A
+>> >> workaround
+>> >> in one case was to ALTER the slony user and set work_mem to 512MB. The
+>> >> work_mem of 100MB, used by the application, was causing the scans on
+>> >> the sl_log table to become sequential scans.
+>> >>
+>> >> The problem is amplified if the tables are spread across many sets.
+>> Merging
+>> >> the sets into few larger ones causes fewer scans.
+>> >>
+>> >>
+>> >> Regards, Jan
+>> >>
+>> >
+>> > Unfortunately, I've never been able to migrate to a slony user, so
+>> > slony runs as postgres and my setting are
+>> >
+>> > work_mem = 2GB
+>> >
+>> > maintenance_work_mem = 2GB
+>> >
+>> > So don't think I can test this theory.
+>> >
+>> > Also of note, we have 3 sets
+>> >
+>> > Same today, just don't see any long running queries where slony has no
+>> > time to truncate the table, so I'm not clear what is preventing the
+>> > slony table from being truncated. ( it really sounds like something
+>> > that Jan has run into before, just a huge table and for some reason
+>> > the truncate can't complete before another job or request comes in?
+>> > Even now the slon table is over 12Million and I expect it to be able
+>> > to truncate/clear in the next 30 minutes or so, but why.. the big bulk
+>> > operation finishes at 5am, not sure why it takes another almost 6
+>> > hours to truncate that table..
+>> >
+>> > Thanks again!
+>> > Tory
+>>
+>> Also interesting today, is that it's getting worse :) but the same
+>> pattern, other then it's taking longer and today I saw something really
+>> weird.
+>>
+>> slon ran a truncate but only cleared 50% of the sl_log1, How is that
+>> possible, I mean a truncate is a truncate, I have no idea how this table
+>> went from 14M to 7M
+>>
+>> 2016-08-04 10:43:03 PDT clsdb postgres 10.13.200.231(37864) 58874
+>> 2016-08-04 10:43:03.237 PDTNOTICE:  Slony-I: could not lock sl_log_2 -
+>> sl_log_2 not truncated
+>>
+>> 2016-08-04 10:53:43 PDT clsdb postgres 10.13.200.231(37864) 58874
+>> 2016-08-04 10:53:43.573 PDTNOTICE:  Slony-I: log switch to sl_log_1
+>> complete - truncate sl_log_2
+>>
+>> 2016-08-04 11:05:41 PDT clsdb postgres 10.13.200.231(37864) 58874
+>> 2016-08-04 11:05:41.750 PDTNOTICE:  Slony-I: Logswitch to sl_log_2 initiated
+>>
+>> *2016-08-04 11:16:54 PDT clsdb postgres 10.13.200.231(37864) 58874
+>> 2016-08-04 11:16:54.783 PDTNOTICE:  Slony-I: log switch to sl_log_2
+>> complete - truncate sl_log_1   <--- didn't actually "truncate" the table,
+>> there is still 7.5M rows and yet it's moving ahead with logswitch to
+>> sl_log_1 (which again was just supposedly truncated, had 14 million rows
+>> but has 7.5 Million rows still)..*
+>>
+>> 2016-08-04 11:29:06 PDT clsdb postgres 10.13.200.231(37864) 58874
+>> 2016-08-04 11:29:06.332 PDTNOTICE:  Slony-I: Logswitch to sl_log_1 initiated
+>>
+>> 2016-08-04 11:40:43 PDT clsdb postgres 10.13.200.231(37864) 58874
+>> 2016-08-04 11:40:43.048 PDTNOTICE:  Slony-I: log switch to sl_log_1
+>> complete - truncate sl_log_2
+>>
+>> 2016-08-04 11:51:44 PDT clsdb postgres 10.13.200.231(37864) 58874
+>> 2016-08-04 11:51:44.660 PDTNOTICE:  Slony-I: Logswitch to sl_log_2 initiated
+>>
+>> So what I'm also noticing and maybe not related, but my standby node has
+>> lots of locks and long running reports, I'm wondering if it's causing some
+>> of the backup seen on the master.  So many questions still :))
+>>
+>> Thanks for listening and being my wall to bounce stuff off of
+>>
+>> Tory
+>>
+>> Sent to soon
+>
+> 2016-08-04 12:02:50 PDT clsdb postgres 10.13.200.231(37864) 58874
+> 2016-08-04 12:02:50.556 PDTNOTICE:  Slony-I: log switch to sl_log_2
+> complete - truncate sl_log_1
+> *(This truncate actually removed the 7.5 Million remaining rows), *
+>
+> *I'm confused how can a truncate leave rows?!*
+>
+>
+> Tory
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+>
+>
+
+
+-- 
+Jan Wieck
+Senior Postgres Architect
+http://pgblog.wi3ck.info
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20160806/22ca79c7/attachment.htm 
+
+From vivek at khera.org  Sat Aug  6 09:24:55 2016
+From: vivek at khera.org (Vick Khera)
+Date: Sat, 6 Aug 2016 12:24:55 -0400
+Subject: [Slony1-general] Slony Tuning, heavy slon backup every AM
+In-Reply-To: <CAGBW59dy6+V=Mb2kPdc93yeNhHfxgY1wYJSpqDJ_PjMyRZB7rA@mail.gmail.com>
+References: <CAEaSS0YAL=1LDEu2uxM5SAJkwsQzRVLTj3iYoECqemANh+jrAA@mail.gmail.com>
+	<CAGBW59c9JTKT5dSY-j1oRo1a4-YewzAfY_hxk_sxB1i1viNZMA@mail.gmail.com>
+	<CAEaSS0anKq7W1YhksjxpkRL1QfROQT3j=8zhFsyMzySt+0bHZg@mail.gmail.com>
+	<478514392.16160983.1470311524259.JavaMail.yahoo@mail.yahoo.com>
+	<CAGBW59e9QZSRH-cRJ_o=BQZRNz-qEC0zuPnawP=T40ZZYHk40g@mail.gmail.com>
+	<CAEaSS0YQ6NcHfx4XdWmUa2X6bje--r0YwQ3tt+KSSvWD_0TuLg@mail.gmail.com>
+	<CAEaSS0aPUeat4jipWXW80HY4LKypuZxoxj2-qAO9_+W+G9hi-g@mail.gmail.com>
+	<CAEaSS0YKuDMXJsrr0Rm0v9caOjwm-Pat8g7nHMMusDu_DL3+kQ@mail.gmail.com>
+	<CAGBW59dy6+V=Mb2kPdc93yeNhHfxgY1wYJSpqDJ_PjMyRZB7rA@mail.gmail.com>
+Message-ID: <CALd+dcf1o5+C5bGSmQ553GiJe3C7-Htqu_KSuwVVJQLbnEbW4w@mail.gmail.com>
+
+On Sat, Aug 6, 2016 at 9:16 AM, Jan Wieck <jan at wi3ck.info> wrote:
+> How are you monitoring the number of rows in the sl_log_* tables?
+
+Also, are you saturating your disk I/O? How do those graphs look?
+
+From tmblue at gmail.com  Tue Aug  9 09:36:16 2016
+From: tmblue at gmail.com (Tory M Blue)
+Date: Tue, 9 Aug 2016 09:36:16 -0700
+Subject: [Slony1-general] Slony Tuning, heavy slon backup every AM
+In-Reply-To: <CAGBW59dy6+V=Mb2kPdc93yeNhHfxgY1wYJSpqDJ_PjMyRZB7rA@mail.gmail.com>
+References: <CAEaSS0YAL=1LDEu2uxM5SAJkwsQzRVLTj3iYoECqemANh+jrAA@mail.gmail.com>
+	<CAGBW59c9JTKT5dSY-j1oRo1a4-YewzAfY_hxk_sxB1i1viNZMA@mail.gmail.com>
+	<CAEaSS0anKq7W1YhksjxpkRL1QfROQT3j=8zhFsyMzySt+0bHZg@mail.gmail.com>
+	<478514392.16160983.1470311524259.JavaMail.yahoo@mail.yahoo.com>
+	<CAGBW59e9QZSRH-cRJ_o=BQZRNz-qEC0zuPnawP=T40ZZYHk40g@mail.gmail.com>
+	<CAEaSS0YQ6NcHfx4XdWmUa2X6bje--r0YwQ3tt+KSSvWD_0TuLg@mail.gmail.com>
+	<CAEaSS0aPUeat4jipWXW80HY4LKypuZxoxj2-qAO9_+W+G9hi-g@mail.gmail.com>
+	<CAEaSS0YKuDMXJsrr0Rm0v9caOjwm-Pat8g7nHMMusDu_DL3+kQ@mail.gmail.com>
+	<CAGBW59dy6+V=Mb2kPdc93yeNhHfxgY1wYJSpqDJ_PjMyRZB7rA@mail.gmail.com>
+Message-ID: <CAEaSS0YFxu_W=UWRApuT9Z1ripeYRTeJZfiRa2P5UpeEgFqtSg@mail.gmail.com>
+
+On Sat, Aug 6, 2016 at 6:16 AM, Jan Wieck <jan at wi3ck.info> wrote:
+
+> How are you monitoring the number of rows in the sl_log_* tables?
+>
+>
+> Jan
+>
+>
+I've got a couple of updates but first let me answer the question.
+
+    max     => "SHOW max_connections",
+
+    cur     => "SELECT COUNT(*) FROM pg_stat_activity",
+
+    log1    => "SELECT COUNT(*) FROM _cls.sl_log_1",
+
+    log2    => "SELECT COUNT(*) FROM _cls.sl_log_2",
+
+    siz1    => "SELECT (relpages*8) FROM pg_class where relname='sl_log_1'",
+    siz2    => "SELECT (relpages*8) FROM pg_class where relname='sl_log_2'"
+
+We have a script that runs and monitors a few things in the dB, one is the
+count of sl_log_1 and 2. This is added as an RRD
+and graphed.
+
+Now the update, graph above , is what we have been seeing, logs grow  up
+until 10:50am or so when the truncate is allowed (now backups are complete
+at 4am and all heavy lifting is finished at 5am)
+
+
+[image: idb01.gc - slonyTables]
+
+
+I disabled the full backup on the standby unit last night.
+[image: idb01.gc - slonyTables]
+
+
+I still get some peeks and valleys, but the system is not backed up for 10
+hours. So this tells me that the backup on the standby is causing a
+situation where slon is blocked because tables are locked on the standby
+unit. This is still not ideal but it's a big improvement from before where
+the sl_log_? would grow to 14million rows from about 2am to 10:45am..
+
+So I need to figure out how to reduce the overhead of the backup, I figured
+it was better to run it on the standby but at this point that is not
+looking like a great option..
+
+Thanks for working on this with me!
+
+Tory
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20160809/ee9ad69a/attachment.htm 
+
+From jan at wi3ck.info  Tue Aug  9 17:50:33 2016
+From: jan at wi3ck.info (Jan Wieck)
+Date: Tue, 9 Aug 2016 20:50:33 -0400
+Subject: [Slony1-general] Slony Tuning, heavy slon backup every AM
+In-Reply-To: <CAEaSS0YFxu_W=UWRApuT9Z1ripeYRTeJZfiRa2P5UpeEgFqtSg@mail.gmail.com>
+References: <CAEaSS0YAL=1LDEu2uxM5SAJkwsQzRVLTj3iYoECqemANh+jrAA@mail.gmail.com>
+	<CAGBW59c9JTKT5dSY-j1oRo1a4-YewzAfY_hxk_sxB1i1viNZMA@mail.gmail.com>
+	<CAEaSS0anKq7W1YhksjxpkRL1QfROQT3j=8zhFsyMzySt+0bHZg@mail.gmail.com>
+	<478514392.16160983.1470311524259.JavaMail.yahoo@mail.yahoo.com>
+	<CAGBW59e9QZSRH-cRJ_o=BQZRNz-qEC0zuPnawP=T40ZZYHk40g@mail.gmail.com>
+	<CAEaSS0YQ6NcHfx4XdWmUa2X6bje--r0YwQ3tt+KSSvWD_0TuLg@mail.gmail.com>
+	<CAEaSS0aPUeat4jipWXW80HY4LKypuZxoxj2-qAO9_+W+G9hi-g@mail.gmail.com>
+	<CAEaSS0YKuDMXJsrr0Rm0v9caOjwm-Pat8g7nHMMusDu_DL3+kQ@mail.gmail.com>
+	<CAGBW59dy6+V=Mb2kPdc93yeNhHfxgY1wYJSpqDJ_PjMyRZB7rA@mail.gmail.com>
+	<CAEaSS0YFxu_W=UWRApuT9Z1ripeYRTeJZfiRa2P5UpeEgFqtSg@mail.gmail.com>
+Message-ID: <CAGBW59dSF7q-A0vwaDsiWf4BFZDE0NDDUsLu9ir3pyzjirvrwg@mail.gmail.com>
+
+Getting a 404 on those images.
+
+On Tue, Aug 9, 2016 at 12:36 PM, Tory M Blue <tmblue at gmail.com> wrote:
+
+>
+>
+> On Sat, Aug 6, 2016 at 6:16 AM, Jan Wieck <jan at wi3ck.info> wrote:
+>
+>> How are you monitoring the number of rows in the sl_log_* tables?
+>>
+>>
+>> Jan
+>>
+>>
+> I've got a couple of updates but first let me answer the question.
+>
+>     max     => "SHOW max_connections",
+>
+>     cur     => "SELECT COUNT(*) FROM pg_stat_activity",
+>
+>     log1    => "SELECT COUNT(*) FROM _cls.sl_log_1",
+>
+>     log2    => "SELECT COUNT(*) FROM _cls.sl_log_2",
+>
+>     siz1    => "SELECT (relpages*8) FROM pg_class where relname='sl_log
+> _1'",
+>     siz2    => "SELECT (relpages*8) FROM pg_class where relname='sl_log
+> _2'"
+>
+> We have a script that runs and monitors a few things in the dB, one is the
+> count of sl_log_1 and 2. This is added as an RRD
+> and graphed.
+>
+> Now the update, graph above , is what we have been seeing, logs grow  up
+> until 10:50am or so when the truncate is allowed (now backups are complete
+> at 4am and all heavy lifting is finished at 5am)
+>
+>
+> [image: idb01.gc - slonyTables]
+>
+>
+> I disabled the full backup on the standby unit last night.
+> [image: idb01.gc - slonyTables]
+>
+>
+> I still get some peeks and valleys, but the system is not backed up for 10
+> hours. So this tells me that the backup on the standby is causing a
+> situation where slon is blocked because tables are locked on the standby
+> unit. This is still not ideal but it's a big improvement from before where
+> the sl_log_? would grow to 14million rows from about 2am to 10:45am..
+>
+> So I need to figure out how to reduce the overhead of the backup, I
+> figured it was better to run it on the standby but at this point that is
+> not looking like a great option..
+>
+> Thanks for working on this with me!
+>
+> Tory
+>
+
+
+
+-- 
+Jan Wieck
+Senior Postgres Architect
+http://pgblog.wi3ck.info
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20160809/5bbca7a5/attachment.htm 
+
+From tmblue at gmail.com  Tue Aug  9 18:19:31 2016
+From: tmblue at gmail.com (Tory M Blue)
+Date: Tue, 9 Aug 2016 18:19:31 -0700
+Subject: [Slony1-general] Slony Tuning, heavy slon backup every AM
+In-Reply-To: <CAGBW59dSF7q-A0vwaDsiWf4BFZDE0NDDUsLu9ir3pyzjirvrwg@mail.gmail.com>
+References: <CAEaSS0YAL=1LDEu2uxM5SAJkwsQzRVLTj3iYoECqemANh+jrAA@mail.gmail.com>
+	<CAGBW59c9JTKT5dSY-j1oRo1a4-YewzAfY_hxk_sxB1i1viNZMA@mail.gmail.com>
+	<CAEaSS0anKq7W1YhksjxpkRL1QfROQT3j=8zhFsyMzySt+0bHZg@mail.gmail.com>
+	<478514392.16160983.1470311524259.JavaMail.yahoo@mail.yahoo.com>
+	<CAGBW59e9QZSRH-cRJ_o=BQZRNz-qEC0zuPnawP=T40ZZYHk40g@mail.gmail.com>
+	<CAEaSS0YQ6NcHfx4XdWmUa2X6bje--r0YwQ3tt+KSSvWD_0TuLg@mail.gmail.com>
+	<CAEaSS0aPUeat4jipWXW80HY4LKypuZxoxj2-qAO9_+W+G9hi-g@mail.gmail.com>
+	<CAEaSS0YKuDMXJsrr0Rm0v9caOjwm-Pat8g7nHMMusDu_DL3+kQ@mail.gmail.com>
+	<CAGBW59dy6+V=Mb2kPdc93yeNhHfxgY1wYJSpqDJ_PjMyRZB7rA@mail.gmail.com>
+	<CAEaSS0YFxu_W=UWRApuT9Z1ripeYRTeJZfiRa2P5UpeEgFqtSg@mail.gmail.com>
+	<CAGBW59dSF7q-A0vwaDsiWf4BFZDE0NDDUsLu9ir3pyzjirvrwg@mail.gmail.com>
+Message-ID: <CAEaSS0aipStNk4vJCuAwr8K-eoctxT_Z16u6XoyUdytsim96DQ@mail.gmail.com>
+
+Fixed sorry about that!
+
+On Tue, Aug 9, 2016 at 5:50 PM, Jan Wieck <jan at wi3ck.info> wrote:
+
+> Getting a 404 on those images.
+>
+> On Tue, Aug 9, 2016 at 12:36 PM, Tory M Blue <tmblue at gmail.com> wrote:
+>
+>>
+>>
+>> On Sat, Aug 6, 2016 at 6:16 AM, Jan Wieck <jan at wi3ck.info> wrote:
+>>
+>>> How are you monitoring the number of rows in the sl_log_* tables?
+>>>
+>>>
+>>> Jan
+>>>
+>>>
+>> I've got a couple of updates but first let me answer the question.
+>>
+>>     max     => "SHOW max_connections",
+>>
+>>     cur     => "SELECT COUNT(*) FROM pg_stat_activity",
+>>
+>>     log1    => "SELECT COUNT(*) FROM _cls.sl_log_1",
+>>
+>>     log2    => "SELECT COUNT(*) FROM _cls.sl_log_2",
+>>
+>>     siz1    => "SELECT (relpages*8) FROM pg_class where relname='sl_log
+>> _1'",
+>>     siz2    => "SELECT (relpages*8) FROM pg_class where relname='sl_log
+>> _2'"
+>>
+>> We have a script that runs and monitors a few things in the dB, one is
+>> the count of sl_log_1 and 2. This is added as an RRD
+>> and graphed.
+>>
+>> Now the update, graph above , is what we have been seeing, logs grow  up
+>> until 10:50am or so when the truncate is allowed (now backups are complete
+>> at 4am and all heavy lifting is finished at 5am)
+>>
+>>
+>>
+>> I disabled the full backup on the standby unit last night.
+>>
+>>
+>> I still get some peeks and valleys, but the system is not backed up for
+>> 10 hours. So this tells me that the backup on the standby is causing a
+>> situation where slon is blocked because tables are locked on the standby
+>> unit. This is still not ideal but it's a big improvement from before where
+>> the sl_log_? would grow to 14million rows from about 2am to 10:45am..
+>>
+>> So I need to figure out how to reduce the overhead of the backup, I
+>> figured it was better to run it on the standby but at this point that is
+>> not looking like a great option..
+>>
+>> Thanks for working on this with me!
+>>
+>> Tory
+>>
+>
+>
+>
+> --
+> Jan Wieck
+> Senior Postgres Architect
+> http://pgblog.wi3ck.info
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20160809/b5e3d4c3/attachment.htm 
+

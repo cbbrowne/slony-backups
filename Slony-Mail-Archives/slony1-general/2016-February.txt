@@ -3731,3 +3731,899 @@ rebooted.
 An HTML attachment was scrubbed...
 URL: http://lists.slony.info/pipermail/slony1-general/attachments/20160211/06dc0fe8/attachment.htm 
 
+From rob.brucks at rackspace.com  Fri Feb 26 12:51:14 2016
+From: rob.brucks at rackspace.com (Rob Brucks)
+Date: Fri, 26 Feb 2016 20:51:14 +0000
+Subject: [Slony1-general] Replication Lag?
+Message-ID: <D12F03E4-5350-4B86-A75F-3B88012BB6B9@rackspace.com>
+
+I have a fairly simple test cluster, three PG instances running on different ports:  a master and two slave DBs both subscribed to the master.  Everything is running on the same server (it's a playground), so I have three PG instances (ports 5432, 5433, 5434; connecting via sockets in /tmp) and a slony daemon for each instance.
+
+I'm running Postgres 9.3.9 and slony1 2.2.4 on Centos 6.7 x86_64.  Both postgres and slony were installed via yum using the PGDG repo.
+
+I used the config below to initialize a very simple replication setup of only one table and one sequence.
+
+My problem is that if I shut down just one slave postgres instance then sl_status on the master instance shows replication stalling on both slave DBs, instead of just one.
+
+But, if I insert some test data into the master DB, I see the data show up on the remaining active slave.  So replication to the remaining slave DB is obviously working.
+
+We use sl_status to monitor replication so we need it to accurately report lag if there's an issue.  The Slony 1.2 version we used before did not behave this way, it accurately reported which slave was not replicating.
+
+Why does sl_status report lag on the active slave even though replication appears to be working fine?
+
+Do I have a misconfiguration somewhere?
+
+Thanks,
+Rob
+
+
+Here's my slony config:
+
+
+      CLUSTER NAME = slony;
+      NODE 1 ADMIN CONNINFO = 'dbname=test_db host=/tmp port=5432 user=slony';
+      NODE 2 ADMIN CONNINFO = 'dbname=test_db host=/tmp port=5433 user=slony';
+      NODE 3 ADMIN CONNINFO = 'dbname=test_db host=/tmp port=5434 user=slony';
+
+############ CLUSTERS
+
+      INIT CLUSTER (ID = 1, COMMENT = 'Master');
+
+
+############ NODES
+
+      STORE NODE (ID = 2, COMMENT = 'Slave1', EVENT NODE = 1);
+      STORE NODE (ID = 3, COMMENT = 'Slave2', EVENT NODE = 1);
+
+
+############ PATHS
+
+      STORE PATH (SERVER = 1, CLIENT = 2, CONNINFO = 'dbname=test_db host=/tmp port=5432 user=slony');
+      STORE PATH (SERVER = 1, CLIENT = 3, CONNINFO = 'dbname=test_db host=/tmp port=5432 user=slony');
+      STORE PATH (SERVER = 2, CLIENT = 1, CONNINFO = 'dbname=test_db host=/tmp port=5433 user=slony');
+      STORE PATH (SERVER = 2, CLIENT = 3, CONNINFO = 'dbname=test_db host=/tmp port=5433 user=slony');
+      STORE PATH (SERVER = 3, CLIENT = 1, CONNINFO = 'dbname=test_db host=/tmp port=5434 user=slony');
+      STORE PATH (SERVER = 3, CLIENT = 2, CONNINFO = 'dbname=test_db host=/tmp port=5434 user=slony');
+
+
+############ SETS
+
+      CREATE SET (ID = 1, ORIGIN = 1, COMMENT = 'TEST Set 1');
+
+############ SEQUENCES
+
+      SET ADD SEQUENCE (SET ID = 1, ORIGIN = 1, ID = 1, FULLY QUALIFIED NAME = '"public"."test_seq"');
+
+############ TABLES
+
+      SET ADD TABLE (SET ID = 1, ORIGIN = 1, ID = 2, FULLY QUALIFIED NAME = '"public"."test"');
+
+############ SUBSCRIPTIONS
+
+      SUBSCRIBE SET (ID = 1, PROVIDER = 1, RECEIVER = 2, FORWARD = YES);
+      SUBSCRIBE SET (ID = 1, PROVIDER = 1, RECEIVER = 3, FORWARD = YES);
+
+
+
+From melvin6925 at yahoo.com  Fri Feb 26 18:19:34 2016
+From: melvin6925 at yahoo.com (Melvin Davidson)
+Date: Sat, 27 Feb 2016 02:19:34 +0000 (UTC)
+Subject: [Slony1-general] Replication Lag?
+In-Reply-To: <D12F03E4-5350-4B86-A75F-3B88012BB6B9@rackspace.com>
+References: <D12F03E4-5350-4B86-A75F-3B88012BB6B9@rackspace.com>
+Message-ID: <1081050347.118265.1456539574996.JavaMail.yahoo@mail.yahoo.com>
+
+
+
+
+      From: Rob Brucks <rob.brucks at rackspace.com>
+ To: "slony1-general at lists.slony.info" <slony1-general at lists.slony.info> 
+ Sent: Friday, February 26, 2016 3:51 PM
+ Subject: [Slony1-general] Replication Lag?
+   
+I have a fairly simple test cluster, three PG instances running on different ports:? a master and two slave DBs both subscribed to the master.? Everything is running on the same server (it's a playground), so I have three PG instances (ports 5432, 5433, 5434; connecting via sockets in /tmp) and a slony daemon for each instance.
+
+I'm running Postgres 9.3.9 and slony1 2.2.4 on Centos 6.7 x86_64.? Both postgres and slony were installed via yum using the PGDG repo.
+
+I used the config below to initialize a very simple replication setup of only one table and one sequence.
+
+My problem is that if I shut down just one slave postgres instance then sl_status on the master instance shows replication stalling on both slave DBs, instead of just one.
+
+But, if I insert some test data into the master DB, I see the data show up on the remaining active slave.? So replication to the remaining slave DB is obviously working.
+
+We use sl_status to monitor replication so we need it to accurately report lag if there's an issue.? The Slony 1.2 version we used before did not behave this way, it accurately reported which slave was not replicating.
+
+Why does sl_status report lag on the active slave even though replication appears to be working fine?
+
+Do I have a misconfiguration somewhere?
+
+Thanks,
+Rob
+
+
+Here's my slony config:
+
+
+? ? ? CLUSTER NAME = slony;
+? ? ? NODE 1 ADMIN CONNINFO = 'dbname=test_db host=/tmp port=5432 user=slony';
+? ? ? NODE 2 ADMIN CONNINFO = 'dbname=test_db host=/tmp port=5433 user=slony';
+? ? ? NODE 3 ADMIN CONNINFO = 'dbname=test_db host=/tmp port=5434 user=slony';
+
+############ CLUSTERS
+
+? ? ? INIT CLUSTER (ID = 1, COMMENT = 'Master');
+
+
+############ NODES
+
+? ? ? STORE NODE (ID = 2, COMMENT = 'Slave1', EVENT NODE = 1);
+? ? ? STORE NODE (ID = 3, COMMENT = 'Slave2', EVENT NODE = 1);
+
+
+############ PATHS
+
+? ? ? STORE PATH (SERVER = 1, CLIENT = 2, CONNINFO = 'dbname=test_db host=/tmp port=5432 user=slony');
+? ? ? STORE PATH (SERVER = 1, CLIENT = 3, CONNINFO = 'dbname=test_db host=/tmp port=5432 user=slony');
+? ? ? STORE PATH (SERVER = 2, CLIENT = 1, CONNINFO = 'dbname=test_db host=/tmp port=5433 user=slony');
+? ? ? STORE PATH (SERVER = 2, CLIENT = 3, CONNINFO = 'dbname=test_db host=/tmp port=5433 user=slony');
+? ? ? STORE PATH (SERVER = 3, CLIENT = 1, CONNINFO = 'dbname=test_db host=/tmp port=5434 user=slony');
+? ? ? STORE PATH (SERVER = 3, CLIENT = 2, CONNINFO = 'dbname=test_db host=/tmp port=5434 user=slony');
+
+
+############ SETS
+
+? ? ? CREATE SET (ID = 1, ORIGIN = 1, COMMENT = 'TEST Set 1');
+
+############ SEQUENCES
+
+? ? ? SET ADD SEQUENCE (SET ID = 1, ORIGIN = 1, ID = 1, FULLY QUALIFIED NAME = '"public"."test_seq"');
+
+############ TABLES
+
+? ? ? SET ADD TABLE (SET ID = 1, ORIGIN = 1, ID = 2, FULLY QUALIFIED NAME = '"public"."test"');
+
+############ SUBSCRIPTIONS
+
+? ? ? SUBSCRIBE SET (ID = 1, PROVIDER = 1, RECEIVER = 2, FORWARD = YES);
+? ? ? SUBSCRIBE SET (ID = 1, PROVIDER = 1, RECEIVER = 3, FORWARD = YES);
+
+_______________________________________________
+Slony1-general mailing list
+Slony1-general at lists.slony.info
+http://lists.slony.info/mailman/listinfo/slony1-general
+
+
+========================================================================================================The config looks good.On which server are you running the slon process?
+What does your query for sl_status look like?
+
+Melvin Davidson 
+  ??? Cell 720-320-0155 
+
+I reserve the right to fantasize.? Whether or not you 
+ wish to share my fantasy is entirely up to you. 
+www.youtube.com/unusedhero
+ Folk Alley - All Folk - 24 Hours a day 
+www.folkalley.com
+
+
+  
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20160227/bc81f671/attachment.htm 
+
+From steve at ssinger.info  Fri Feb 26 18:38:55 2016
+From: steve at ssinger.info (Steve Singer)
+Date: Fri, 26 Feb 2016 21:38:55 -0500 (EST)
+Subject: [Slony1-general] Replication Lag?
+In-Reply-To: <D12F03E4-5350-4B86-A75F-3B88012BB6B9@rackspace.com>
+References: <D12F03E4-5350-4B86-A75F-3B88012BB6B9@rackspace.com>
+Message-ID: <alpine.DEB.2.02.1602262135270.4720@mini.atlantida>
+
+On Fri, 26 Feb 2016, Rob Brucks wrote:
+
+>
+> But, if I insert some test data into the master DB, I see the data show up 
+> on the remaining active slave.  So replication to the remaining slave DB 
+> is obviously working.
+
+Replication with slony has two parts
+
+1. Does the data replicate from the origin to the subscriber. When this 
+happens a row is added to the subscriber's sl_event table with 
+ev_origin=$origin_node and a confirm is added to the subscribers sl_confirm 
+table with con_origin=$origin_node and con_received=$subscriber_node
+
+2. The sl_confirm row mentioned above needs to then get picked up by the 
+slon for the origin node and brought back from the subscriber to the origin.
+
+Are your confirms making it back?
+
+
+>
+> We use sl_status to monitor replication so we need it to accurately report lag if there's an issue.  The Slony 1.2 version we used before did not behave this way, it accurately reported which slave was not replicating.
+>
+> Why does sl_status report lag on the active slave even though replication appears to be working fine?
+>
+> Do I have a misconfiguration somewhere?
+>
+> Thanks,
+> Rob
+>
+>
+> Here's my slony config:
+>
+>
+>      CLUSTER NAME = slony;
+>      NODE 1 ADMIN CONNINFO = 'dbname=test_db host=/tmp port=5432 user=slony';
+>      NODE 2 ADMIN CONNINFO = 'dbname=test_db host=/tmp port=5433 user=slony';
+>      NODE 3 ADMIN CONNINFO = 'dbname=test_db host=/tmp port=5434 user=slony';
+>
+> ############ CLUSTERS
+>
+>      INIT CLUSTER (ID = 1, COMMENT = 'Master');
+>
+>
+> ############ NODES
+>
+>      STORE NODE (ID = 2, COMMENT = 'Slave1', EVENT NODE = 1);
+>      STORE NODE (ID = 3, COMMENT = 'Slave2', EVENT NODE = 1);
+>
+>
+> ############ PATHS
+>
+>      STORE PATH (SERVER = 1, CLIENT = 2, CONNINFO = 'dbname=test_db host=/tmp port=5432 user=slony');
+>      STORE PATH (SERVER = 1, CLIENT = 3, CONNINFO = 'dbname=test_db host=/tmp port=5432 user=slony');
+>      STORE PATH (SERVER = 2, CLIENT = 1, CONNINFO = 'dbname=test_db host=/tmp port=5433 user=slony');
+>      STORE PATH (SERVER = 2, CLIENT = 3, CONNINFO = 'dbname=test_db host=/tmp port=5433 user=slony');
+>      STORE PATH (SERVER = 3, CLIENT = 1, CONNINFO = 'dbname=test_db host=/tmp port=5434 user=slony');
+>      STORE PATH (SERVER = 3, CLIENT = 2, CONNINFO = 'dbname=test_db host=/tmp port=5434 user=slony');
+>
+>
+> ############ SETS
+>
+>      CREATE SET (ID = 1, ORIGIN = 1, COMMENT = 'TEST Set 1');
+>
+> ############ SEQUENCES
+>
+>      SET ADD SEQUENCE (SET ID = 1, ORIGIN = 1, ID = 1, FULLY QUALIFIED NAME = '"public"."test_seq"');
+>
+> ############ TABLES
+>
+>      SET ADD TABLE (SET ID = 1, ORIGIN = 1, ID = 2, FULLY QUALIFIED NAME = '"public"."test"');
+>
+> ############ SUBSCRIPTIONS
+>
+>      SUBSCRIBE SET (ID = 1, PROVIDER = 1, RECEIVER = 2, FORWARD = YES);
+>      SUBSCRIBE SET (ID = 1, PROVIDER = 1, RECEIVER = 3, FORWARD = YES);
+>
+>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+>
+
+
+From rob.brucks at rackspace.com  Mon Feb 29 07:49:47 2016
+From: rob.brucks at rackspace.com (Rob Brucks)
+Date: Mon, 29 Feb 2016 15:49:47 +0000
+Subject: [Slony1-general] Replication Lag?
+In-Reply-To: <alpine.DEB.2.02.1602262135270.4720@mini.atlantida>
+References: <D12F03E4-5350-4B86-A75F-3B88012BB6B9@rackspace.com>
+	<alpine.DEB.2.02.1602262135270.4720@mini.atlantida>
+Message-ID: <73E68821-04FC-432E-8D10-CAE3B568B573@rackspace.com>
+
+1. Yes, the sl_confirm data is showing up on the subscriber.
+
+2. No, the origin node is not getting back the sl_confirm data from the active subscriber.
+
+
+Thanks,
+Rob
+
+
+
+On 2/26/16, 8:38 PM, "Steve Singer" <steve at ssinger.info> wrote:
+
+>On Fri, 26 Feb 2016, Rob Brucks wrote:
+>
+>>
+>> But, if I insert some test data into the master DB, I see the data show up 
+>> on the remaining active slave.  So replication to the remaining slave DB 
+>> is obviously working.
+>
+>Replication with slony has two parts
+>
+>1. Does the data replicate from the origin to the subscriber. When this 
+>happens a row is added to the subscriber's sl_event table with 
+>ev_origin=$origin_node and a confirm is added to the subscribers sl_confirm 
+>table with con_origin=$origin_node and con_received=$subscriber_node
+>
+>2. The sl_confirm row mentioned above needs to then get picked up by the 
+>slon for the origin node and brought back from the subscriber to the origin.
+>
+>Are your confirms making it back?
+>
+>
+>>
+>> We use sl_status to monitor replication so we need it to accurately report lag if there's an issue.  The Slony 1.2 version we used before did not behave this way, it accurately reported which slave was not replicating.
+>>
+>> Why does sl_status report lag on the active slave even though replication appears to be working fine?
+>>
+>> Do I have a misconfiguration somewhere?
+>>
+>> Thanks,
+>> Rob
+>>
+>>
+>> Here's my slony config:
+>>
+>>
+>>      CLUSTER NAME = slony;
+>>      NODE 1 ADMIN CONNINFO = 'dbname=test_db host=/tmp port=5432 user=slony';
+>>      NODE 2 ADMIN CONNINFO = 'dbname=test_db host=/tmp port=5433 user=slony';
+>>      NODE 3 ADMIN CONNINFO = 'dbname=test_db host=/tmp port=5434 user=slony';
+>>
+>> ############ CLUSTERS
+>>
+>>      INIT CLUSTER (ID = 1, COMMENT = 'Master');
+>>
+>>
+>> ############ NODES
+>>
+>>      STORE NODE (ID = 2, COMMENT = 'Slave1', EVENT NODE = 1);
+>>      STORE NODE (ID = 3, COMMENT = 'Slave2', EVENT NODE = 1);
+>>
+>>
+>> ############ PATHS
+>>
+>>      STORE PATH (SERVER = 1, CLIENT = 2, CONNINFO = 'dbname=test_db host=/tmp port=5432 user=slony');
+>>      STORE PATH (SERVER = 1, CLIENT = 3, CONNINFO = 'dbname=test_db host=/tmp port=5432 user=slony');
+>>      STORE PATH (SERVER = 2, CLIENT = 1, CONNINFO = 'dbname=test_db host=/tmp port=5433 user=slony');
+>>      STORE PATH (SERVER = 2, CLIENT = 3, CONNINFO = 'dbname=test_db host=/tmp port=5433 user=slony');
+>>      STORE PATH (SERVER = 3, CLIENT = 1, CONNINFO = 'dbname=test_db host=/tmp port=5434 user=slony');
+>>      STORE PATH (SERVER = 3, CLIENT = 2, CONNINFO = 'dbname=test_db host=/tmp port=5434 user=slony');
+>>
+>>
+>> ############ SETS
+>>
+>>      CREATE SET (ID = 1, ORIGIN = 1, COMMENT = 'TEST Set 1');
+>>
+>> ############ SEQUENCES
+>>
+>>      SET ADD SEQUENCE (SET ID = 1, ORIGIN = 1, ID = 1, FULLY QUALIFIED NAME = '"public"."test_seq"');
+>>
+>> ############ TABLES
+>>
+>>      SET ADD TABLE (SET ID = 1, ORIGIN = 1, ID = 2, FULLY QUALIFIED NAME = '"public"."test"');
+>>
+>> ############ SUBSCRIPTIONS
+>>
+>>      SUBSCRIBE SET (ID = 1, PROVIDER = 1, RECEIVER = 2, FORWARD = YES);
+>>      SUBSCRIBE SET (ID = 1, PROVIDER = 1, RECEIVER = 3, FORWARD = YES);
+>>
+>>
+>> _______________________________________________
+>> Slony1-general mailing list
+>> Slony1-general at lists.slony.info
+>> http://lists.slony.info/mailman/listinfo/slony1-general
+>>
+>
+
+From rob.brucks at rackspace.com  Mon Feb 29 08:00:43 2016
+From: rob.brucks at rackspace.com (Rob Brucks)
+Date: Mon, 29 Feb 2016 16:00:43 +0000
+Subject: [Slony1-general] Replication Lag?
+In-Reply-To: <1081050347.118265.1456539574996.JavaMail.yahoo@mail.yahoo.com>
+References: <D12F03E4-5350-4B86-A75F-3B88012BB6B9@rackspace.com>
+	<1081050347.118265.1456539574996.JavaMail.yahoo@mail.yahoo.com>
+Message-ID: <B2EAC7C7-B044-4E61-A418-E32937D558D7@rackspace.com>
+
+Everything is running on the same server.  One subscriber instance has been shut down.
+
+test_db=# select * from _sloncluster.sl_status;
+-[ RECORD 1 ]-------------+------------------------------
+st_origin                 | 1
+st_received               | 3
+st_last_event             | 5000000264
+st_last_event_ts          | 2016-02-29 09:58:24.455544-06
+st_last_received          | 5000000175
+st_last_received_ts       | 2016-02-29 09:43:47.461217-06
+st_last_received_event_ts | 2016-02-29 09:43:38.254386-06
+st_lag_num_events         | 89
+st_lag_time               | 00:14:55.35601
+-[ RECORD 2 ]-------------+------------------------------
+st_origin                 | 1
+st_received               | 2
+st_last_event             | 5000000264
+st_last_event_ts          | 2016-02-29 09:58:24.455544-06
+st_last_received          | 5000000176
+st_last_received_ts       | 2016-02-29 09:43:52.284371-06
+st_last_received_event_ts | 2016-02-29 09:43:48.258894-06
+st_lag_num_events         | 88
+st_lag_time               | 00:14:45.351502
+
+Thanks,
+--Rob
+
+From: Melvin Davidson <melvin6925 at yahoo.com<mailto:melvin6925 at yahoo.com>>
+Reply-To: Melvin Davidson <melvin6925 at yahoo.com<mailto:melvin6925 at yahoo.com>>
+Date: Friday, February 26, 2016 at 8:19 PM
+To: Rob Brucks <rob.brucks at rackspace.com<mailto:rob.brucks at rackspace.com>>, "slony1-general at lists.slony.info<mailto:slony1-general at lists.slony.info>" <slony1-general at lists.slony.info<mailto:slony1-general at lists.slony.info>>
+Subject: Re: [Slony1-general] Replication Lag?
+
+
+
+
+________________________________
+From: Rob Brucks <rob.brucks at rackspace.com<mailto:rob.brucks at rackspace.com>>
+To: "slony1-general at lists.slony.info<mailto:slony1-general at lists.slony.info>" <slony1-general at lists.slony.info<mailto:slony1-general at lists.slony.info>>
+Sent: Friday, February 26, 2016 3:51 PM
+Subject: [Slony1-general] Replication Lag?
+
+I have a fairly simple test cluster, three PG instances running on different ports:  a master and two slave DBs both subscribed to the master.  Everything is running on the same server (it's a playground), so I have three PG instances (ports 5432, 5433, 5434; connecting via sockets in /tmp) and a slony daemon for each instance.
+
+I'm running Postgres 9.3.9 and slony1 2.2.4 on Centos 6.7 x86_64.  Both postgres and slony were installed via yum using the PGDG repo.
+
+I used the config below to initialize a very simple replication setup of only one table and one sequence.
+
+My problem is that if I shut down just one slave postgres instance then sl_status on the master instance shows replication stalling on both slave DBs, instead of just one.
+
+But, if I insert some test data into the master DB, I see the data show up on the remaining active slave.  So replication to the remaining slave DB is obviously working.
+
+We use sl_status to monitor replication so we need it to accurately report lag if there's an issue.  The Slony 1.2 version we used before did not behave this way, it accurately reported which slave was not replicating.
+
+Why does sl_status report lag on the active slave even though replication appears to be working fine?
+
+Do I have a misconfiguration somewhere?
+
+Thanks,
+Rob
+
+
+Here's my slony config:
+
+
+      CLUSTER NAME = slony;
+      NODE 1 ADMIN CONNINFO = 'dbname=test_db host=/tmp port=5432 user=slony';
+      NODE 2 ADMIN CONNINFO = 'dbname=test_db host=/tmp port=5433 user=slony';
+      NODE 3 ADMIN CONNINFO = 'dbname=test_db host=/tmp port=5434 user=slony';
+
+############ CLUSTERS
+
+      INIT CLUSTER (ID = 1, COMMENT = 'Master');
+
+
+############ NODES
+
+      STORE NODE (ID = 2, COMMENT = 'Slave1', EVENT NODE = 1);
+      STORE NODE (ID = 3, COMMENT = 'Slave2', EVENT NODE = 1);
+
+
+############ PATHS
+
+      STORE PATH (SERVER = 1, CLIENT = 2, CONNINFO = 'dbname=test_db host=/tmp port=5432 user=slony');
+      STORE PATH (SERVER = 1, CLIENT = 3, CONNINFO = 'dbname=test_db host=/tmp port=5432 user=slony');
+      STORE PATH (SERVER = 2, CLIENT = 1, CONNINFO = 'dbname=test_db host=/tmp port=5433 user=slony');
+      STORE PATH (SERVER = 2, CLIENT = 3, CONNINFO = 'dbname=test_db host=/tmp port=5433 user=slony');
+      STORE PATH (SERVER = 3, CLIENT = 1, CONNINFO = 'dbname=test_db host=/tmp port=5434 user=slony');
+      STORE PATH (SERVER = 3, CLIENT = 2, CONNINFO = 'dbname=test_db host=/tmp port=5434 user=slony');
+
+
+############ SETS
+
+      CREATE SET (ID = 1, ORIGIN = 1, COMMENT = 'TEST Set 1');
+
+############ SEQUENCES
+
+      SET ADD SEQUENCE (SET ID = 1, ORIGIN = 1, ID = 1, FULLY QUALIFIED NAME = '"public"."test_seq"');
+
+############ TABLES
+
+      SET ADD TABLE (SET ID = 1, ORIGIN = 1, ID = 2, FULLY QUALIFIED NAME = '"public"."test"');
+
+############ SUBSCRIPTIONS
+
+      SUBSCRIBE SET (ID = 1, PROVIDER = 1, RECEIVER = 2, FORWARD = YES);
+      SUBSCRIBE SET (ID = 1, PROVIDER = 1, RECEIVER = 3, FORWARD = YES);
+
+_______________________________________________
+Slony1-general mailing list
+Slony1-general at lists.slony.info<mailto:Slony1-general at lists.slony.info>
+http://lists.slony.info/mailman/listinfo/slony1-general
+
+
+========================================================================================================
+The config looks good.
+On which server are you running the slon process?
+What does your query for sl_status look like?
+
+Melvin Davidson
+    Cell 720-320-0155
+
+I reserve the right to fantasize.  Whether or not you
+wish to share my fantasy is entirely up to you. [http://us.i1.yimg.com/us.yimg.com/i/mesg/tsmileys2/01.gif]
+www.youtube.com/unusedhero
+Folk Alley - All Folk - 24 Hours a day
+www.folkalley.com
+
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20160229/d81b69d7/attachment.htm 
+
+From jan at wi3ck.info  Mon Feb 29 08:25:36 2016
+From: jan at wi3ck.info (Jan Wieck)
+Date: Mon, 29 Feb 2016 11:25:36 -0500
+Subject: [Slony1-general] Replication Lag?
+In-Reply-To: <73E68821-04FC-432E-8D10-CAE3B568B573@rackspace.com>
+References: <D12F03E4-5350-4B86-A75F-3B88012BB6B9@rackspace.com>
+	<alpine.DEB.2.02.1602262135270.4720@mini.atlantida>
+	<73E68821-04FC-432E-8D10-CAE3B568B573@rackspace.com>
+Message-ID: <56D47100.2080206@wi3ck.info>
+
+On 02/29/2016 10:49 AM, Rob Brucks wrote:
+> 1. Yes, the sl_confirm data is showing up on the subscriber.
+>
+> 2. No, the origin node is not getting back the sl_confirm data from the active subscriber.
+
+Does the origin node log any errors that it cannot connect to that 
+subscriber node?
+
+
+Jan
+
+
+
+>
+>
+> Thanks,
+> Rob
+>
+>
+>
+> On 2/26/16, 8:38 PM, "Steve Singer" <steve at ssinger.info> wrote:
+>
+>>On Fri, 26 Feb 2016, Rob Brucks wrote:
+>>
+>>>
+>>> But, if I insert some test data into the master DB, I see the data show up
+>>> on the remaining active slave.  So replication to the remaining slave DB
+>>> is obviously working.
+>>
+>>Replication with slony has two parts
+>>
+>>1. Does the data replicate from the origin to the subscriber. When this
+>>happens a row is added to the subscriber's sl_event table with
+>>ev_origin=$origin_node and a confirm is added to the subscribers sl_confirm
+>>table with con_origin=$origin_node and con_received=$subscriber_node
+>>
+>>2. The sl_confirm row mentioned above needs to then get picked up by the
+>>slon for the origin node and brought back from the subscriber to the origin.
+>>
+>>Are your confirms making it back?
+>>
+>>
+>>>
+>>> We use sl_status to monitor replication so we need it to accurately report lag if there's an issue.  The Slony 1.2 version we used before did not behave this way, it accurately reported which slave was not replicating.
+>>>
+>>> Why does sl_status report lag on the active slave even though replication appears to be working fine?
+>>>
+>>> Do I have a misconfiguration somewhere?
+>>>
+>>> Thanks,
+>>> Rob
+>>>
+>>>
+>>> Here's my slony config:
+>>>
+>>>
+>>>      CLUSTER NAME = slony;
+>>>      NODE 1 ADMIN CONNINFO = 'dbname=test_db host=/tmp port=5432 user=slony';
+>>>      NODE 2 ADMIN CONNINFO = 'dbname=test_db host=/tmp port=5433 user=slony';
+>>>      NODE 3 ADMIN CONNINFO = 'dbname=test_db host=/tmp port=5434 user=slony';
+>>>
+>>> ############ CLUSTERS
+>>>
+>>>      INIT CLUSTER (ID = 1, COMMENT = 'Master');
+>>>
+>>>
+>>> ############ NODES
+>>>
+>>>      STORE NODE (ID = 2, COMMENT = 'Slave1', EVENT NODE = 1);
+>>>      STORE NODE (ID = 3, COMMENT = 'Slave2', EVENT NODE = 1);
+>>>
+>>>
+>>> ############ PATHS
+>>>
+>>>      STORE PATH (SERVER = 1, CLIENT = 2, CONNINFO = 'dbname=test_db host=/tmp port=5432 user=slony');
+>>>      STORE PATH (SERVER = 1, CLIENT = 3, CONNINFO = 'dbname=test_db host=/tmp port=5432 user=slony');
+>>>      STORE PATH (SERVER = 2, CLIENT = 1, CONNINFO = 'dbname=test_db host=/tmp port=5433 user=slony');
+>>>      STORE PATH (SERVER = 2, CLIENT = 3, CONNINFO = 'dbname=test_db host=/tmp port=5433 user=slony');
+>>>      STORE PATH (SERVER = 3, CLIENT = 1, CONNINFO = 'dbname=test_db host=/tmp port=5434 user=slony');
+>>>      STORE PATH (SERVER = 3, CLIENT = 2, CONNINFO = 'dbname=test_db host=/tmp port=5434 user=slony');
+>>>
+>>>
+>>> ############ SETS
+>>>
+>>>      CREATE SET (ID = 1, ORIGIN = 1, COMMENT = 'TEST Set 1');
+>>>
+>>> ############ SEQUENCES
+>>>
+>>>      SET ADD SEQUENCE (SET ID = 1, ORIGIN = 1, ID = 1, FULLY QUALIFIED NAME = '"public"."test_seq"');
+>>>
+>>> ############ TABLES
+>>>
+>>>      SET ADD TABLE (SET ID = 1, ORIGIN = 1, ID = 2, FULLY QUALIFIED NAME = '"public"."test"');
+>>>
+>>> ############ SUBSCRIPTIONS
+>>>
+>>>      SUBSCRIBE SET (ID = 1, PROVIDER = 1, RECEIVER = 2, FORWARD = YES);
+>>>      SUBSCRIBE SET (ID = 1, PROVIDER = 1, RECEIVER = 3, FORWARD = YES);
+>>>
+>>>
+>>> _______________________________________________
+>>> Slony1-general mailing list
+>>> Slony1-general at lists.slony.info
+>>> http://lists.slony.info/mailman/listinfo/slony1-general
+>>>
+>>
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+>
+
+
+-- 
+Jan Wieck
+Database Architect
+
+From rob.brucks at rackspace.com  Mon Feb 29 08:28:23 2016
+From: rob.brucks at rackspace.com (Rob Brucks)
+Date: Mon, 29 Feb 2016 16:28:23 +0000
+Subject: [Slony1-general] Replication Lag?
+In-Reply-To: <56D47100.2080206@wi3ck.info>
+References: <D12F03E4-5350-4B86-A75F-3B88012BB6B9@rackspace.com>
+	<alpine.DEB.2.02.1602262135270.4720@mini.atlantida>
+	<73E68821-04FC-432E-8D10-CAE3B568B573@rackspace.com>
+	<56D47100.2080206@wi3ck.info>
+Message-ID: <FAB4ADE0-A904-4246-9937-812CBDFB0592@rackspace.com>
+
+Only errors connecting to the node I intentionally brought down as part of the test.
+
+No errors in the origin daemon connecting to the subscriber that is still up and running.  If I check pg_stat_activity I see connections from both daemons on both DB instances.
+
+Thanks,
+Rob
+
+
+
+
+On 2/29/16, 10:25 AM, "Jan Wieck" <jan at wi3ck.info> wrote:
+
+>On 02/29/2016 10:49 AM, Rob Brucks wrote:
+>> 1. Yes, the sl_confirm data is showing up on the subscriber.
+>>
+>> 2. No, the origin node is not getting back the sl_confirm data from the active subscriber.
+>
+>Does the origin node log any errors that it cannot connect to that 
+>subscriber node?
+>
+>
+>Jan
+>
+>
+>
+>>
+>>
+>> Thanks,
+>> Rob
+>>
+>>
+>>
+>> On 2/26/16, 8:38 PM, "Steve Singer" <steve at ssinger.info> wrote:
+>>
+>>>On Fri, 26 Feb 2016, Rob Brucks wrote:
+>>>
+>>>>
+>>>> But, if I insert some test data into the master DB, I see the data show up
+>>>> on the remaining active slave.  So replication to the remaining slave DB
+>>>> is obviously working.
+>>>
+>>>Replication with slony has two parts
+>>>
+>>>1. Does the data replicate from the origin to the subscriber. When this
+>>>happens a row is added to the subscriber's sl_event table with
+>>>ev_origin=$origin_node and a confirm is added to the subscribers sl_confirm
+>>>table with con_origin=$origin_node and con_received=$subscriber_node
+>>>
+>>>2. The sl_confirm row mentioned above needs to then get picked up by the
+>>>slon for the origin node and brought back from the subscriber to the origin.
+>>>
+>>>Are your confirms making it back?
+>>>
+>>>
+>>>>
+>>>> We use sl_status to monitor replication so we need it to accurately report lag if there's an issue.  The Slony 1.2 version we used before did not behave this way, it accurately reported which slave was not replicating.
+>>>>
+>>>> Why does sl_status report lag on the active slave even though replication appears to be working fine?
+>>>>
+>>>> Do I have a misconfiguration somewhere?
+>>>>
+>>>> Thanks,
+>>>> Rob
+>>>>
+>>>>
+>>>> Here's my slony config:
+>>>>
+>>>>
+>>>>      CLUSTER NAME = slony;
+>>>>      NODE 1 ADMIN CONNINFO = 'dbname=test_db host=/tmp port=5432 user=slony';
+>>>>      NODE 2 ADMIN CONNINFO = 'dbname=test_db host=/tmp port=5433 user=slony';
+>>>>      NODE 3 ADMIN CONNINFO = 'dbname=test_db host=/tmp port=5434 user=slony';
+>>>>
+>>>> ############ CLUSTERS
+>>>>
+>>>>      INIT CLUSTER (ID = 1, COMMENT = 'Master');
+>>>>
+>>>>
+>>>> ############ NODES
+>>>>
+>>>>      STORE NODE (ID = 2, COMMENT = 'Slave1', EVENT NODE = 1);
+>>>>      STORE NODE (ID = 3, COMMENT = 'Slave2', EVENT NODE = 1);
+>>>>
+>>>>
+>>>> ############ PATHS
+>>>>
+>>>>      STORE PATH (SERVER = 1, CLIENT = 2, CONNINFO = 'dbname=test_db host=/tmp port=5432 user=slony');
+>>>>      STORE PATH (SERVER = 1, CLIENT = 3, CONNINFO = 'dbname=test_db host=/tmp port=5432 user=slony');
+>>>>      STORE PATH (SERVER = 2, CLIENT = 1, CONNINFO = 'dbname=test_db host=/tmp port=5433 user=slony');
+>>>>      STORE PATH (SERVER = 2, CLIENT = 3, CONNINFO = 'dbname=test_db host=/tmp port=5433 user=slony');
+>>>>      STORE PATH (SERVER = 3, CLIENT = 1, CONNINFO = 'dbname=test_db host=/tmp port=5434 user=slony');
+>>>>      STORE PATH (SERVER = 3, CLIENT = 2, CONNINFO = 'dbname=test_db host=/tmp port=5434 user=slony');
+>>>>
+>>>>
+>>>> ############ SETS
+>>>>
+>>>>      CREATE SET (ID = 1, ORIGIN = 1, COMMENT = 'TEST Set 1');
+>>>>
+>>>> ############ SEQUENCES
+>>>>
+>>>>      SET ADD SEQUENCE (SET ID = 1, ORIGIN = 1, ID = 1, FULLY QUALIFIED NAME = '"public"."test_seq"');
+>>>>
+>>>> ############ TABLES
+>>>>
+>>>>      SET ADD TABLE (SET ID = 1, ORIGIN = 1, ID = 2, FULLY QUALIFIED NAME = '"public"."test"');
+>>>>
+>>>> ############ SUBSCRIPTIONS
+>>>>
+>>>>      SUBSCRIBE SET (ID = 1, PROVIDER = 1, RECEIVER = 2, FORWARD = YES);
+>>>>      SUBSCRIBE SET (ID = 1, PROVIDER = 1, RECEIVER = 3, FORWARD = YES);
+>>>>
+>>>>
+>>>> _______________________________________________
+>>>> Slony1-general mailing list
+>>>> Slony1-general at lists.slony.info
+>>>> http://lists.slony.info/mailman/listinfo/slony1-general
+>>>>
+>>>
+>> _______________________________________________
+>> Slony1-general mailing list
+>> Slony1-general at lists.slony.info
+>> http://lists.slony.info/mailman/listinfo/slony1-general
+>>
+>
+>
+>-- 
+>Jan Wieck
+>Database Architect
+
+From melvin6925 at yahoo.com  Mon Feb 29 08:32:31 2016
+From: melvin6925 at yahoo.com (Melvin Davidson)
+Date: Mon, 29 Feb 2016 16:32:31 +0000 (UTC)
+Subject: [Slony1-general] Replication Lag?
+In-Reply-To: <B2EAC7C7-B044-4E61-A418-E32937D558D7@rackspace.com>
+References: <B2EAC7C7-B044-4E61-A418-E32937D558D7@rackspace.com>
+Message-ID: <342046034.1053143.1456763551176.JavaMail.yahoo@mail.yahoo.com>
+
+Which server are you executing the query on?If you are executing on the master, then this definitely looks like a bug.Otherwise, if you are executing on a slave, then I would say that is the source of the problem.
+?Melvin Davidson 
+  ??? Cell 720-320-0155 
+
+I reserve the right to fantasize.? Whether or not you 
+ wish to share my fantasy is entirely up to you. 
+www.youtube.com/unusedhero
+ Folk Alley - All Folk - 24 Hours a day 
+www.folkalley.com
+
+
+
+
+      From: Rob Brucks <rob.brucks at rackspace.com>
+ To: Melvin Davidson <melvin6925 at yahoo.com>; "slony1-general at lists.slony.info" <slony1-general at lists.slony.info> 
+ Sent: Monday, February 29, 2016 11:00 AM
+ Subject: Re: [Slony1-general] Replication Lag?
+   
+Everything is running on the same server. ?One subscriber instance has been shut down.
+test_db=# select * from _sloncluster.sl_status;-[ RECORD 1 ]-------------+------------------------------st_origin ? ? ? ? ? ? ? ? | 1st_received ? ? ? ? ? ? ? | 3st_last_event ? ? ? ? ? ? | 5000000264st_last_event_ts ? ? ? ? ?| 2016-02-29 09:58:24.455544-06st_last_received ? ? ? ? ?| 5000000175st_last_received_ts ? ? ? | 2016-02-29 09:43:47.461217-06st_last_received_event_ts | 2016-02-29 09:43:38.254386-06st_lag_num_events ? ? ? ? | 89st_lag_time ? ? ? ? ? ? ? | 00:14:55.35601-[ RECORD 2 ]-------------+------------------------------st_origin ? ? ? ? ? ? ? ? | 1st_received ? ? ? ? ? ? ? | 2st_last_event ? ? ? ? ? ? | 5000000264st_last_event_ts ? ? ? ? ?| 2016-02-29 09:58:24.455544-06st_last_received ? ? ? ? ?| 5000000176st_last_received_ts ? ? ? | 2016-02-29 09:43:52.284371-06st_last_received_event_ts | 2016-02-29 09:43:48.258894-06st_lag_num_events ? ? ? ? | 88st_lag_time ? ? ? ? ? ? ? | 00:14:45.351502
+Thanks,--Rob
+
+  
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20160229/2a01ae0c/attachment.htm 
+
+From rob.brucks at rackspace.com  Mon Feb 29 08:36:32 2016
+From: rob.brucks at rackspace.com (Rob Brucks)
+Date: Mon, 29 Feb 2016 16:36:32 +0000
+Subject: [Slony1-general] Replication Lag?
+In-Reply-To: <342046034.1053143.1456763551176.JavaMail.yahoo@mail.yahoo.com>
+References: <B2EAC7C7-B044-4E61-A418-E32937D558D7@rackspace.com>
+	<342046034.1053143.1456763551176.JavaMail.yahoo@mail.yahoo.com>
+Message-ID: <5C4EEC36-97DF-417A-AD92-FFCA135ECE91@rackspace.com>
+
+No, this is on the master.
+
+--Rob
+
+From: Melvin Davidson <melvin6925 at yahoo.com<mailto:melvin6925 at yahoo.com>>
+Reply-To: Melvin Davidson <melvin6925 at yahoo.com<mailto:melvin6925 at yahoo.com>>
+Date: Monday, February 29, 2016 at 10:32 AM
+To: Rob Brucks <rob.brucks at rackspace.com<mailto:rob.brucks at rackspace.com>>, "slony1-general at lists.slony.info<mailto:slony1-general at lists.slony.info>" <slony1-general at lists.slony.info<mailto:slony1-general at lists.slony.info>>
+Subject: Re: [Slony1-general] Replication Lag?
+
+Which server are you executing the query on?
+If you are executing on the master, then this definitely looks like a bug.
+Otherwise, if you are executing on a slave, then I would say that is the source of the problem.
+
+Melvin Davidson
+    Cell 720-320-0155
+
+I reserve the right to fantasize.  Whether or not you
+wish to share my fantasy is entirely up to you. [http://us.i1.yimg.com/us.yimg.com/i/mesg/tsmileys2/01.gif]
+www.youtube.com/unusedhero
+Folk Alley - All Folk - 24 Hours a day
+www.folkalley.com
+
+
+
+
+________________________________
+From: Rob Brucks <rob.brucks at rackspace.com<mailto:rob.brucks at rackspace.com>>
+To: Melvin Davidson <melvin6925 at yahoo.com<mailto:melvin6925 at yahoo.com>>; "slony1-general at lists.slony.info<mailto:slony1-general at lists.slony.info>" <slony1-general at lists.slony.info<mailto:slony1-general at lists.slony.info>>
+Sent: Monday, February 29, 2016 11:00 AM
+Subject: Re: [Slony1-general] Replication Lag?
+
+Everything is running on the same server.  One subscriber instance has been shut down.
+
+test_db=# select * from _sloncluster.sl_status;
+-[ RECORD 1 ]-------------+------------------------------
+st_origin                 | 1
+st_received               | 3
+st_last_event             | 5000000264
+st_last_event_ts          | 2016-02-29 09:58:24.455544-06
+st_last_received          | 5000000175
+st_last_received_ts       | 2016-02-29 09:43:47.461217-06
+st_last_received_event_ts | 2016-02-29 09:43:38.254386-06
+st_lag_num_events         | 89
+st_lag_time               | 00:14:55.35601
+-[ RECORD 2 ]-------------+------------------------------
+st_origin                 | 1
+st_received               | 2
+st_last_event             | 5000000264
+st_last_event_ts          | 2016-02-29 09:58:24.455544-06
+st_last_received          | 5000000176
+st_last_received_ts       | 2016-02-29 09:43:52.284371-06
+st_last_received_event_ts | 2016-02-29 09:43:48.258894-06
+st_lag_num_events         | 88
+st_lag_time               | 00:14:45.351502
+
+Thanks,
+--Rob
+
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20160229/c8808de9/attachment-0001.htm 
+
