@@ -34,7 +34,7 @@ for list in bugs commit general hackers patches; do
     zcat ${listdir}/latest.gz > ${listdir}/${currentfile}
     git add ${listdir}/${currentfile}
 
-    pull_all_years ${list}
+    #pull_all_years ${list}
 done
 
 git commit -m "Check in mail archive updates - run of scripts/Slony-Archive-Mail.sh"
