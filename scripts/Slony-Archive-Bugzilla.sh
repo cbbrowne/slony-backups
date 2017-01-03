@@ -11,7 +11,7 @@ git add ${BUGHOME}/bugs-not-closed.html
 git add ${BUGHOME}/bugs-closed.html
 
 mkdir -p ${BUGHOME}/individual-bugs
-for i in `seq 275`; do
+for i in `seq 500`; do
     wget -O ${BUGHOME}/individual-bugs/${i}.html "http://www.slony.info/bugzilla/show_bug.cgi?id=${i}"
     git add ${BUGHOME}/individual-bugs/${i}.html
 done
