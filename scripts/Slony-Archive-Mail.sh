@@ -12,7 +12,7 @@ pull_all_years () {
     listdir=${ARCHIVEHOME}/${listname}
     mkdir -p ${listdir}
     #for year in 2007 2008 2009 2010 2011 2012 2013 2014 2015 2016 2017; do
-    for year in 2018 2019; do
+    for year in 2019 2020; do
      	for month in January February March April May June July August September October November December; do
      	    currenturl=`date +"http://lists.slony.info/pipermail/${listname}/${year}-${month}.txt.gz"`
      	    currentfile=${year}-${month}.txt
