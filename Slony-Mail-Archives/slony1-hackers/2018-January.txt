@@ -1,0 +1,400 @@
+From ttignor at akamai.com  Wed Jan 10 05:51:00 2018
+From: ttignor at akamai.com (Tignor, Tom)
+Date: Wed, 10 Jan 2018 13:51:00 +0000
+Subject: [Slony1-hackers] Akamai AMS patches
+Message-ID: <EC6E34A7-DBC0-44DF-91B4-9B6CC87E8B13@akamai.com>
+
+
+                Hello slony1-hackers,
+                Here at Akamai we have been using Slony-I to scale out read capacity for our Alert Management System (AMS). Along the way we?ve needed to make a number of customizations. I?m submitting those now to consider for inclusion in the Slony-I code base. Please find the patches attached and meta info below which would be appropriate to use with code commits. Please take a look when time allows and let me know if there are any questions or other changes to consider.
+                Thanks in advance,
+
+                Patch: compatibility_v2.2.patch
+                Summary: Allows version 2.2.x slon daemons to operate in any Slony-I version 2.2.x DB schema. Copyright (C) 2017 - Akamai Technologies, Inc
+
+                Patch: pg_home_share_path.patch
+                Summary: Allows the slonik configuration utility to discover the postgresql installation share path via the PG_HOME environment variable. Copyright (C) 2017 - Akamai Technologies, Inc
+
+                Patch: remote_listen_serial_option.patch
+                Summary: Provides a configuration option to allow slon daemon remote listeners to operate with either ?repeatable read? or ?serializable? transaction isolation. Copyright (C) 2017 - Akamai Technologies, Inc
+
+
+                Tom     ?
+
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-hackers/attachments/20180110/3403c3b7/attachment.htm 
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: compatibility_v2.2.patch
+Type: application/octet-stream
+Size: 1010 bytes
+Desc: compatibility_v2.2.patch
+Url : http://lists.slony.info/pipermail/slony1-hackers/attachments/20180110/3403c3b7/attachment.obj 
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: pg_home_share_path.patch
+Type: application/octet-stream
+Size: 787 bytes
+Desc: pg_home_share_path.patch
+Url : http://lists.slony.info/pipermail/slony1-hackers/attachments/20180110/3403c3b7/attachment-0001.obj 
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: remote_listen_serial_option.patch
+Type: application/octet-stream
+Size: 3641 bytes
+Desc: remote_listen_serial_option.patch
+Url : http://lists.slony.info/pipermail/slony1-hackers/attachments/20180110/3403c3b7/attachment-0002.obj 
+
+From steve at ssinger.info  Tue Jan 16 19:34:35 2018
+From: steve at ssinger.info (Steve Singer)
+Date: Tue, 16 Jan 2018 22:34:35 -0500 (EST)
+Subject: [Slony1-hackers] Akamai AMS patches
+In-Reply-To: <EC6E34A7-DBC0-44DF-91B4-9B6CC87E8B13@akamai.com>
+References: <EC6E34A7-DBC0-44DF-91B4-9B6CC87E8B13@akamai.com>
+Message-ID: <alpine.DEB.2.11.1801162210240.25962@opti.atlantida>
+
+On Wed, 10 Jan 2018, Tignor, Tom wrote:
+
+Thank you for your submissions.
+
+I will try to look at the patches individually.
+
+compatibility_v2.2.patch
+
+My understanding of this patch is so that you slon for any 2.2.x version to 
+be able to connect and replicate against a backend database with any other 
+2.2.y version (where x and y can be, but are not required to be equal).
+
+This is something that we've resisted doing in the past. I think the reason 
+why we've resisted doing this in the past is that the we've never wanted 
+prevent ourselves from making an incompatible change, such as changing the 
+signature of an internal stored function between minor versions.  I think 
+we've also not wanted to have to take on the burden of testing all the 
+combinations.
+
+I guess my question to the wider list (and Jan and Chris in particular) is 
+how do we feel about such a 'policy' change.
+
+My gut is that I'd prefer a solution where we can say that certain ranges of 
+minor versions are compatible without having to say that any 2.2.x versions 
+are compatible.
+
+I would be surprised if there wasn't a change somewhere in the 2.1.x 
+lifecycle that broke compatibility.
+
+Without looking closely I'm not prepared to even say that failovers between 
+2.2.1 and 2.2.6 would work(because failover logic did change in this range).
+
+A few things on the specific patch
+
++++ slony1-2.2.6/src/slon/dbutils.c     2017-12-22 08:08:33.027322631 -0500
+@@ -5,6 +5,7 @@
+   *
+   *     Copyright (c) 2003-2009, PostgreSQL Global Development Group
+   *     Author: Jan Wieck, Afilias USA INC.
++ *      Copyright (C) 2017 - Akamai Technologies, Inc
+   *
+   *
+   * ----------------------------------------------------------------------
+@@ -418,7 +419,8 @@
+
+We don't normally list contributors in the copyright section. The copyright 
+to PostgreSQL global development group is intended to cover all 
+contributors.
+
+@@ -418,7 +419,8 @@
+         /*
+          * Check the version string of the schema
+          */
+-       if (strcmp(PQgetvalue(res, 0, 0), SLONY_I_VERSION_STRING) != 0)
++       if (strncmp(PQgetvalue(res, 0, 0), SLONY_I_VERSION_STRING,
++                   strlen("2.2.")) != 0)
+
+If I am reading the above code correctly
+
+2.2.1 and 2.2.9 would be compatible
+
+2.10.1 and 2.10.2 would not be compatible
+
+Would we be better off calling slonyVersionMajor() , slonyVersionMinor() and 
+comparing the major/minor numbers directly to each other?
+
+
+
+Steve
+
+
+> 
+> ?
+> 
+> ??????????????? Hello slony1-hackers,
+> 
+> ??????????????? Here at Akamai we have been using Slony-I to scale out read capacity for our Alert Management
+> System (AMS). Along the way we?ve needed to make a number of customizations. I?m submitting those now to consider
+> for inclusion in the Slony-I code base. Please find the patches attached and meta info below which would be
+> appropriate to use with code commits. Please take a look when time allows and let me know if there are any
+> questions or other changes to consider.
+> 
+> ??????????????? Thanks in advance,
+> 
+> ?
+> 
+> ??????????????? Patch: compatibility_v2.2.patch
+> 
+> ??????????????? Summary: Allows version 2.2.x slon daemons to operate in any Slony-I version 2.2.x DB schema.
+> Copyright (C) 2017 - Akamai Technologies, Inc
+> 
+> ?
+> 
+> ??????????????? Patch: pg_home_share_path.patch
+> 
+> ??????????????? Summary: Allows the slonik configuration utility to discover the postgresql installation share
+> path via the PG_HOME environment variable. Copyright (C) 2017 - Akamai Technologies, Inc
+> 
+> ?
+> 
+> ??????????????? Patch: remote_listen_serial_option.patch
+> 
+> ??????????????? Summary: Provides a configuration option to allow slon daemon remote listeners to operate with
+> either ?repeatable read? or ?serializable? transaction isolation. Copyright (C) 2017 - Akamai Technologies, Inc
+> 
+> ?
+> 
+> ?
+> 
+> ??????????????? Tom???? ?
+> 
+> ?
+> 
+> ?
+> 
+> 
+>
+
+From steve at ssinger.info  Sat Jan 20 13:29:08 2018
+From: steve at ssinger.info (Steve Singer)
+Date: Sat, 20 Jan 2018 16:29:08 -0500 (EST)
+Subject: [Slony1-hackers] Akamai AMS patches
+In-Reply-To: <EC6E34A7-DBC0-44DF-91B4-9B6CC87E8B13@akamai.com>
+References: <EC6E34A7-DBC0-44DF-91B4-9B6CC87E8B13@akamai.com>
+Message-ID: <alpine.DEB.2.11.1801201623492.25962@opti.atlantida>
+
+On Wed, 10 Jan 2018, Tignor, Tom wrote:
+
+So for the pg_home patch.
+
+The original code is
+
+#ifdef HAVE_PGPORT
+         /*
+          * We need to find a share directory like PostgreSQL.
+          */
+         if (find_my_exec(argv[0],myfull_path) < 0)
+         {
+                 strcpy(share_path, PGSHARE);
+         }
+         else
+         {
+                 get_share_path(myfull_path, share_path);
+         }
+#else
+         strcpy(share_path, PGSHARE);
+
+And you are replacing it with the following.
+
+
+
+
+  #else
++       char *pgHome = getenv("PG_HOME");
++       if (pgHome) {
++         strncpy(share_path, pgHome, MAXPGPATH-1);
++         share_path[MAXPGPATH-1] = '\0';
++         strncat(share_path, "/share", MAXPGPATH-1-strlen(pgHome));
++       } else {
+         strcpy(share_path, PGSHARE);
++       }
+
+
+The above code only gets compiled in if PGPORT is not defined/present at 
+build time.  Is that your intention,  or do you want PG_HOME to take 
+precendence even if pgport is present?
+
+snprintf(share_path,"%s/share",pgHome,MAXPGPATH-1);
+
+Would the above code be clearer? (I haven't tested/tried to compile above)
+but trying to do this in one line?
+
+
+
+
+> 
+> ?
+> 
+> ??????????????? Hello slony1-hackers,
+> 
+> ??????????????? Here at Akamai we have been using Slony-I to scale out read capacity for our Alert Management
+> System (AMS). Along the way we?ve needed to make a number of customizations. I?m submitting those now to consider
+> for inclusion in the Slony-I code base. Please find the patches attached and meta info below which would be
+> appropriate to use with code commits. Please take a look when time allows and let me know if there are any
+> questions or other changes to consider.
+> 
+> ??????????????? Thanks in advance,
+> 
+> ?
+> 
+> ??????????????? Patch: compatibility_v2.2.patch
+> 
+> ??????????????? Summary: Allows version 2.2.x slon daemons to operate in any Slony-I version 2.2.x DB schema.
+> Copyright (C) 2017 - Akamai Technologies, Inc
+> 
+> ?
+> 
+> ??????????????? Patch: pg_home_share_path.patch
+> 
+> ??????????????? Summary: Allows the slonik configuration utility to discover the postgresql installation share
+> path via the PG_HOME environment variable. Copyright (C) 2017 - Akamai Technologies, Inc
+> 
+> ?
+> 
+> ??????????????? Patch: remote_listen_serial_option.patch
+> 
+> ??????????????? Summary: Provides a configuration option to allow slon daemon remote listeners to operate with
+> either ?repeatable read? or ?serializable? transaction isolation. Copyright (C) 2017 - Akamai Technologies, Inc
+> 
+> ?
+> 
+> ?
+> 
+> ??????????????? Tom???? ?
+> 
+> ?
+> 
+> ?
+> 
+> 
+>
+
+From steve at ssinger.info  Sun Jan 28 18:49:29 2018
+From: steve at ssinger.info (Steve Singer)
+Date: Sun, 28 Jan 2018 21:49:29 -0500 (EST)
+Subject: [Slony1-hackers] Akamai AMS patches
+In-Reply-To: <498038FB-7965-478D-BFC0-1CCADF8B87D4@akamai.com>
+References: <EC6E34A7-DBC0-44DF-91B4-9B6CC87E8B13@akamai.com>
+	<alpine.DEB.2.11.1801162210240.25962@opti.atlantida>
+	<498038FB-7965-478D-BFC0-1CCADF8B87D4@akamai.com>
+Message-ID: <alpine.DEB.2.11.1801282135070.5802@opti.atlantida>
+
+On Tue, 23 Jan 2018, Tignor, Tom wrote:
+
+>    @@ -418,7 +419,8 @@
+>
+>    We don't normally list contributors in the copyright section. The copyright
+>    to PostgreSQL global development group is intended to cover all
+>    contributors.
+>
+> ttignor ? I?ve gone a few rounds on this with our opensource group. As I 
+> understand the issues, there is a choice to either maintain or assign away 
+> the Akamai copyright for the code I wrote.  Per our previous discussion, 
+> we?re maintaining the Akamai copyright. This is accomplished by header 
+> comments and/or some meta-data in the patch. If the header comment is a 
+> problem, then the patch meta-data becomes essential. If slony1-hackers can 
+> agree on exactly what copyright changes are needed, I can take them back 
+> to Akamai opensource. --------
+
+I am not exactly sure what you mean by meta-data. Can you explain?
+We can provide credit in the commit comments and release notes.
+
+Slony follows the same principal as the main postgresql source code.
+This is sort of discussed at 
+https://wiki.postgresql.org/wiki/Developer_FAQ#Do_I_need_to_sign_a_copyright_assignment.3F
+
+Slony contributors maintain the copyright to their contributions.  The 
+credit at "Copyright (c) 2003-2009, PostgreSQL Global Development Group"
+As I understand it, the 'PostgreSQL Global Development Group" does not exist 
+as a legal entity.  By contributing your code to slony you share in the 
+copyright with all the other contributors.  You become one of the rights 
+holders (in effect part of PGDG).
+
+I am not a lawyer or copyright expert. The above is just my attempt 
+paraphrase things and should not be taken with any legal significance.
+
+I wouldn't have a problem with changing the date in the copyright notice 
+from 2003-2009 to 2003-2018. The issue is with listing each contributor 
+in each file.
+
+Steve
+
+
+
+
+
+
+From ttignor at akamai.com  Mon Jan 29 05:01:26 2018
+From: ttignor at akamai.com (Tignor, Tom)
+Date: Mon, 29 Jan 2018 13:01:26 +0000
+Subject: [Slony1-hackers] Akamai AMS patches
+In-Reply-To: <alpine.DEB.2.11.1801282135070.5802@opti.atlantida>
+References: <EC6E34A7-DBC0-44DF-91B4-9B6CC87E8B13@akamai.com>
+	<alpine.DEB.2.11.1801162210240.25962@opti.atlantida>
+	<498038FB-7965-478D-BFC0-1CCADF8B87D4@akamai.com>
+	<alpine.DEB.2.11.1801282135070.5802@opti.atlantida>
+Message-ID: <9B2B7495-3B8E-4CDE-B225-3EEFADA5822E@akamai.com>
+
+
+	Yes, by ?meta-data? in this case  I meant the commit comments. I provided those with my original patch message and can send them again if needed. So would it work to remove the Akamai header lines and maintain the ?meta data? I provided in the commit comments and release notes?
+
+	Tom    (
+
+
+On 1/28/18, 9:52 PM, "Steve Singer" <steve at ssinger.info> wrote:
+
+    On Tue, 23 Jan 2018, Tignor, Tom wrote:
+    
+    >    @@ -418,7 +419,8 @@
+    >
+    >    We don't normally list contributors in the copyright section. The copyright
+    >    to PostgreSQL global development group is intended to cover all
+    >    contributors.
+    >
+    > ttignor ? I?ve gone a few rounds on this with our opensource group. As I 
+    > understand the issues, there is a choice to either maintain or assign away 
+    > the Akamai copyright for the code I wrote.  Per our previous discussion, 
+    > we?re maintaining the Akamai copyright. This is accomplished by header 
+    > comments and/or some meta-data in the patch. If the header comment is a 
+    > problem, then the patch meta-data becomes essential. If slony1-hackers can 
+    > agree on exactly what copyright changes are needed, I can take them back 
+    > to Akamai opensource. --------
+    
+    I am not exactly sure what you mean by meta-data. Can you explain?
+    We can provide credit in the commit comments and release notes.
+    
+    Slony follows the same principal as the main postgresql source code.
+    This is sort of discussed at 
+    https://wiki.postgresql.org/wiki/Developer_FAQ#Do_I_need_to_sign_a_copyright_assignment.3F
+    
+    Slony contributors maintain the copyright to their contributions.  The 
+    credit at "Copyright (c) 2003-2009, PostgreSQL Global Development Group"
+    As I understand it, the 'PostgreSQL Global Development Group" does not exist 
+    as a legal entity.  By contributing your code to slony you share in the 
+    copyright with all the other contributors.  You become one of the rights 
+    holders (in effect part of PGDG).
+    
+    I am not a lawyer or copyright expert. The above is just my attempt 
+    paraphrase things and should not be taken with any legal significance.
+    
+    I wouldn't have a problem with changing the date in the copyright notice 
+    from 2003-2009 to 2003-2018. The issue is with listing each contributor 
+    in each file.
+    
+    Steve
+    
+    
+    
+    
+    
+    
+
+

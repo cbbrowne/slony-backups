@@ -1,0 +1,395 @@
+From ttignor at akamai.com  Fri Mar  2 06:55:08 2018
+From: ttignor at akamai.com (Tignor, Tom)
+Date: Fri, 2 Mar 2018 14:55:08 +0000
+Subject: [Slony1-general] slony1 drop node failure
+In-Reply-To: <alpine.DEB.2.11.1802282216430.14809@opti.atlantida>
+References: <45A09441-A5F0-48DF-9EFB-9BBF7F4C5F43@akamai.com>
+	<alpine.DEB.2.11.1802221720080.14809@opti.atlantida>
+	<499EBAE0-FEAA-4188-83C2-A0DE7CF2E8F6@akamai.com>
+	<alpine.DEB.2.11.1802261059200.14809@opti.atlantida>
+	<A3993CAB-639D-4028-91FF-40907187E52C@akamai.com>
+	<alpine.DEB.2.11.1802261133090.14809@opti.atlantida>
+	<89D3AEFD-20A5-4C96-B584-425C71F2315B@akamai.com>
+	<alpine.DEB.2.11.1802282216430.14809@opti.atlantida>
+Message-ID: <6ADB1192-4DF3-4482-B7E1-6451C4AFA155@akamai.com>
+
+
+	Checked the logs for our other replicas. Details below. With a 6-7 sec gap, it?s less clear how the problem would have come from those.
+	Reproducing this would probably be hard. This is the first time it?s ever happened for us. On the theory there is a race condition, one way to reproduce would be to hack the code to delay the SYNC processing thread at just the wrong time so it doesn?t land until disableNode processing is complete.
+
+
+018-02-21 19:19:47 UTC [32652] INFO   remoteWorkerThread_8: SYNC 5002075962 done in 0.479 seconds
+...
+2018-02-21 19:19:50 UTC [32652] CONFIG disableNode: no_id=8
+
+2018-02-21 19:19:46 UTC [9360] INFO   remoteWorkerThread_8: SYNC 5002075962 done in 3.979 seconds
+...
+2018-02-21 19:19:52 UTC [9360] CONFIG disableNode: no_id=8
+
+2018-02-21 19:19:48 UTC [7420] INFO   remoteWorkerThread_8: SYNC 5002075962 done in 2.445 seconds
+...
+2018-02-21 19:19:55 UTC [7420] CONFIG disableNode: no_id=8
+
+	
+	Tom    (
+
+
+On 2/28/18, 10:28 PM, "Steve Singer" <steve at ssinger.info> wrote:
+
+    On Mon, 26 Feb 2018, Tignor, Tom wrote:
+    
+    >
+    > 	In the slony1 log of our primary host (the same one which later showed the bug) we had:
+    >
+    > 2018-02-21 19:19:49 UTC [22582] INFO   remoteWorkerThread_8: SYNC 5002075962 done in 1.725 seconds
+    > 2018-02-21 19:19:50 UTC [22582] CONFIG disableNode: no_id=8
+    >
+    > 	The timestamp of the problem event was somewhat earlier: 2018-02-21 
+    > 19:19:41.
+    > 	To me it looks like there is a race condition and despite the order 
+    > of the log events, the DROP NODE was processed first and the SYNC was 
+    > accepted later, and thus created an sl_event record. Of course, that?s 
+    > simply a guess.
+    
+    This might be possible.
+    
+    If the drop being droped is 8, and the event node from the drop is 4.
+    Some third node say 3 might have a sequence like this
+    
+    remoteWorkerThread_8: Starts processing SYNC
+    remoteWorkerThread_4: process drop node. Updates runtime config
+    remoteWorkerThread_8: finishes processing sync COMMITS
+    
+    I'd feel more comfortable if we had a way of reproducing this though.
+    
+    One option might be to have the remoteWorkerThread recheck the runtime 
+    config before the COMMIT to make sure that the node is still active.
+    
+    
+    
+    
+    >
+    > 	Tom    (
+    >
+    >
+    > On 2/26/18, 12:01 PM, "Steve Singer" <steve at ssinger.info> wrote:
+    >
+    >    On Mon, 26 Feb 2018, Tignor, Tom wrote:
+    >
+    >    >
+    >    > 	Thanks. I see the deletes added for sl_seqlog and sl_log_script. The
+    >    > constraint violation appearing in the errors was for sl_event. Do we
+    >    > expect these changes fully remove all state, including sl_event? The
+    >    > checkNodeDeleted function doesn?t look at sl_event.
+    >
+    >    It could be that this is a different issue then.
+    >    That function (the dropNode_int) should have removed the rows from sl_event.
+    >    The question the becomes did it not remove them for some reason, or did they
+    >    get added back later, and if so how?
+    >
+    >
+    >    > 	Tom    (
+    >    >
+    >    >
+    >    > On 2/26/18, 11:03 AM, "Steve Singer" <steve at ssinger.info> wrote:
+    >    >
+    >    >    On Mon, 26 Feb 2018, Tignor, Tom wrote:
+    >    >
+    >    >    You can get it from the github branch (latest commit) at
+    >    >    https://github.com/ssinger/slony1-engine/tree/bug375
+    >    >
+    >    >
+    >    >
+    >    >
+    >    >    >
+    >    >    > 	Steve,
+    >    >    > 	The patch link actually goes to a page which says ?Bugzilla is down for maintenance.? Is there a way to see the patch currently? Does it exist or is it scheduled in some Slony-I release?
+    >    >    >
+    >    >    > 	Tom    (
+    >    >    >
+    >    >    >
+    >    >    > On 2/22/18, 6:06 PM, "Steve Singer" <steve at ssinger.info> wrote:
+    >    >    >
+    >    >    >    On Thu, 22 Feb 2018, Tignor, Tom wrote:
+    >    >    >
+    >    >    >    Looks like?
+    >    >    >    http://lists.slony.info/pipermail/slony1-general/2016-September/013331.html
+    >    >    >
+    >    >    >    I can't remember if that was what prompted
+    >    >    >    http://lists.slony.info/pipermail/slony1-hackers/2016-December/000560.html
+    >    >    >
+    >    >    >
+    >    >    >    https://github.com/ssinger/slony1-engine/tree/bug375
+    >    >    >
+    >    >    >    I can't seem to find a reason why this wasn't committed.
+    >    >    >
+    >    >    >
+    >    >    >    >
+    >    >    >    >
+    >    >    >    >
+    >    >    >    >                 Hello slony1 community,
+    >    >    >    >
+    >    >    >    >                 We have a head scratcher here. It appears a DROP NODE command was not fully processed. The
+    >    >    >    > command was issued and confirmed on all our nodes at approximately 2018-02-21 19:19:50 UTC. When we went to
+    >    >    >    > restore it over two hours later, all replication stopped on an sl_event constraint violation. Investigation
+    >    >    >    > showed a SYNC event for the dropped node with a timestamp of just a few seconds before the drop. I believe this
+    >    >    >    > is a first for us. The DROP NODE command is supposed to remove all state for the dropped node. Is that right? Is
+    >    >    >    > there a potential race condition somewhere which could leave behind state?
+    >    >    >    >
+    >    >    >    >                 Thanks in advance,
+    >    >    >    >
+    >    >    >    >
+    >    >    >    >
+    >    >    >    > ---- master log replication freeze error ----
+    >    >    >    >
+    >    >    >    > 2018-02-21 21:38:52 UTC [5775] ERROR  remoteWorkerThread_8: "insert into "_ams_cluster".sl_event     (ev_origin,
+    >    >    >    > ev_seqno, ev_timestamp,      ev_snapshot, ev\
+    >    >    >    >
+    >    >    >    > _type     ) values ('8', '5002075962', '2018-02-21 19:19:41.958719+00', '87044110:87044110:', 'SYNC'); insert
+    >    >    >    > into "_ams_cluster".sl_confirm       (con_origi\
+    >    >    >    >
+    >    >    >    > n, con_received, con_seqno, con_timestamp)    values (8, 1, '5002075962', now()); select
+    >    >    >    > "_ams_cluster".logApplySaveStats('_ams_cluster', 8, '0.139 s'::inter\
+    >    >    >    >
+    >    >    >    > val); commit transaction;" PGRES_FATAL_ERROR ERROR:  duplicate key value violates unique constraint
+    >    >    >    > "sl_event-pkey"
+    >    >    >    >
+    >    >    >    > DETAIL:  Key (ev_origin, ev_seqno)=(8, 5002075962) already exists.
+    >    >    >    >
+    >    >    >    > 2018-02-21 21:38:52 UTC [13649] CONFIG slon: child terminated signal: 9; pid: 5775, current worker pid: 5775
+    >    >    >    >
+    >    >    >    > 2018-02-21 21:38:52 UTC [13649] CONFIG slon: restart of worker in 10 seconds
+    >    >    >    >
+    >    >    >    > ---- master log replication freeze error ----
+    >    >    >    >
+    >    >    >    >
+    >    >    >    >
+    >    >    >    >
+    >    >    >    >
+    >    >    >    > ---- master DB leftover event ----
+    >    >    >    >
+    >    >    >    > ams at ams6.cmb.netmgmt:~$ psql -U akamai -d ams
+    >    >    >    >
+    >    >    >    > psql (9.1.24)
+    >    >    >    >
+    >    >    >    > Type "help" for help.
+    >    >    >    >
+    >    >    >    >
+    >    >    >    >
+    >    >    >    > ams=# select * from sl_event_bak;
+    >    >    >    >
+    >    >    >    >  ev_origin |  ev_seqno  |         ev_timestamp          |    ev_snapshot     | ev_type | ev_data1 | ev_data2 |
+    >    >    >    > ev_data3 | ev_data4 | ev_data5 | ev_data6 | ev_
+    >    >    >    >
+    >    >    >    > data7 | ev_data8
+    >    >    >    >
+    >    >    >    > -----------+------------+-------------------------------+--------------------+---------+----------+----------+-
+    >    >    >    > ---------+----------+----------+----------+----
+    >    >    >    >
+    >    >    >    > ------+----------
+    >    >    >    >
+    >    >    >    >          8 | 5002075962 | 2018-02-21 19:19:41.958719+00 | 87044110:87044110: | SYNC    |          |          |
+    >    >    >    >         |          |          |          |
+    >    >    >    >
+    >    >    >    >       |
+    >    >    >    >
+    >    >    >    > (1 row)
+    >    >    >    >
+    >    >    >    >
+    >    >    >    >
+    >    >    >    > ams=#
+    >    >    >    >
+    >    >    >    > ---- master DB leftover event ----
+    >    >    >    >
+    >    >    >    >
+    >    >    >    >
+    >    >    >    > ---- master log drop node record ----
+    >    >    >    >
+    >    >    >    > 2018-02-21 19:19:50 UTC [22582] CONFIG disableNode: no_id=8
+    >    >    >    >
+    >    >    >    > 2018-02-21 19:19:50 UTC [22582] CONFIG storeListen: li_origin=4 li_receiver=1 li_provider=4
+    >    >    >    >
+    >    >    >    > 2018-02-21 19:19:50 UTC [22582] CONFIG storeListen: li_origin=7 li_receiver=1 li_provider=7
+    >    >    >    >
+    >    >    >    > 2018-02-21 19:19:50 UTC [22582] CONFIG storeListen: li_origin=3 li_receiver=1 li_provider=3
+    >    >    >    >
+    >    >    >    > 2018-02-21 19:19:50 UTC [22582] CONFIG remoteWorkerThread_4: update provider configuration
+    >    >    >    >
+    >    >    >    > 2018-02-21 19:19:50 UTC [22582] CONFIG remoteWorkerThread_4: connection for provider 4 terminated
+    >    >    >    >
+    >    >    >    > 2018-02-21 19:19:50 UTC [22582] CONFIG remoteWorkerThread_4: disconnecting from data provider 4
+    >    >    >    >
+    >    >    >    > 2018-02-21 19:19:50 UTC [22582] CONFIG remoteWorkerThread_4: connection for provider 7 terminated
+    >    >    >    >
+    >    >    >    > ---- master log drop node record ----
+    >    >    >    >
+    >    >    >    >
+    >    >    >    >
+    >    >    >    > ---- replica log drop node record ----
+    >    >    >    >
+    >    >    >    > 2018-02-21 19:19:51 UTC [22650] WARN   remoteWorkerThread_1: got DROP NODE for local node ID
+    >    >    >    >
+    >    >    >    > NOTICE:  Slony-I: Please drop schema "_ams_cluster"
+    >    >    >    >
+    >    >    >    > 2018-02-21 19:19:53 UTC [22650] INFO   remoteWorkerThread_7: SYNC 5001868819 done in 2.153 seconds
+    >    >    >    >
+    >    >    >    > NOTICE:  drop cascades to 243 other objects
+    >    >    >    >
+    >    >    >    > DETAIL:  drop cascades to table _ams_cluster.sl_node
+    >    >    >    >
+    >    >    >    > drop cascades to table _ams_cluster.sl_nodelock
+    >    >    >    >
+    >    >    >    > drop cascades to table _ams_cluster.sl_set
+    >    >    >    >
+    >    >    >    > drop cascades to table _ams_cluster.sl_setsync
+    >    >    >    >
+    >    >    >    > drop cascades to table _ams_cluster.sl_table
+    >    >    >    >
+    >    >    >    > drop cascades to table _ams_cluster.sl_sequence
+    >    >    >    >
+    >    >    >    > ---- replica log drop node record ----
+    >    >    >    >
+    >    >    >    >
+    >    >    >    >
+    >    >    >    >
+    >    >    >    >
+    >    >    >    >                 Tom    ?
+    >    >    >    >
+    >    >    >    >
+    >    >    >    >
+    >    >    >    >
+    >    >    >    >
+    >    >    >    >
+    >    >    >    >
+    >    >    >
+    >    >    >
+    >    >    >
+    >    >
+    >    >
+    >    >
+    >
+    >
+    >
+    
+
+
+From ttignor at akamai.com  Fri Mar  2 06:58:18 2018
+From: ttignor at akamai.com (Tignor, Tom)
+Date: Fri, 2 Mar 2018 14:58:18 +0000
+Subject: [Slony1-general] SYNC content question
+Message-ID: <7062D034-58C7-4BA7-8108-A5F3DC0ABD68@akamai.com>
+
+
+                Hello slony1 community,
+                We?re trying to devise a means to distinguish SYNCs with actual data changes vs. SYNCs which are simple heartbeats. Is there some convenient way to do this? Have looked at the sl_event and sl_log_* tables but nothing jumps out.
+
+                Tom    ?
+
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20180302/4e23c4c7/attachment.htm 
+
+From jgdr at dalibo.com  Mon Mar 19 08:26:26 2018
+From: jgdr at dalibo.com (Jehan-Guillaume de Rorthais)
+Date: Mon, 19 Mar 2018 16:26:26 +0100
+Subject: [Slony1-general] Useless warning for pg 10 support
+Message-ID: <20180319162626.2e650233@firost>
+
+Hi all,
+
+Sorry for writing on -general about a bug report, but -bugs seems spammed
+according to the archives.
+
+Despite support for PostgreSQL 10, while working with Slony 2.2.6 and
+PostgreSQL v10.3, I hit the following (common and mainly painless) warning
+message:
+
+?
+ Possible unsupported PostgreSQL version (100300) 10.3, defaulting to 8.4
+ support 
+?
+
+It seems to me the check in slonik.c might be wrong:
+
+https://git.postgresql.org/gitweb/?p=slony1-engine.git;a=blob;f=src/slonik/slonik.c;h=a30616129018c15f15eea60c73ffcb8c1489c4e2;hb=5aced469e8859174e84ccde031c28eaf7b30b127#l2079
+
+I suppose:
+
+  ((adminfo->pg_version >= 90000) && (adminfo->pg_version < 100000)) /* 10 */
+
+Should be:
+
+  ((adminfo->pg_version >= 90000) && (adminfo->pg_version < 110000)) /* 10 */
+
+Or maybe (considering we will not have more than 99 minor release for 10):
+
+  ((adminfo->pg_version >= 90000) && (adminfo->pg_version < 100100)) /* 10 */
+
+Indeed, 10 is 100000 and 10.3 is 100003, so (adminfo->pg_version < 100000) is
+always false for v10.x.
+
+I was volunteering to make a pull request on github, but I couldn't find up to
+date sources for 2.2.6. Last patch on REL_2_2_STABLE is almost 2 years ago:
+
+https://github.com/ssinger/slony1-engine/blob/REL_2_2_STABLE/src/slonik/slonik.c
+
+Cheers,
+
+From steve at ssinger.info  Fri Mar 23 19:40:08 2018
+From: steve at ssinger.info (Steve Singer)
+Date: Fri, 23 Mar 2018 22:40:08 -0400 (EDT)
+Subject: [Slony1-general] Useless warning for pg 10 support
+In-Reply-To: <20180319162626.2e650233@firost>
+References: <20180319162626.2e650233@firost>
+Message-ID: <alpine.DEB.2.11.1803232238250.4482@opti.atlantida>
+
+On Mon, 19 Mar 2018, Jehan-Guillaume de Rorthais wrote:
+
+Thanks.
+I've pushed this change.
+
+> Hi all,
+>
+> Sorry for writing on -general about a bug report, but -bugs seems spammed
+> according to the archives.
+>
+> Despite support for PostgreSQL 10, while working with Slony 2.2.6 and
+> PostgreSQL v10.3, I hit the following (common and mainly painless) warning
+> message:
+>
+> ?
+> Possible unsupported PostgreSQL version (100300) 10.3, defaulting to 8.4
+> support 
+> ?
+>
+> It seems to me the check in slonik.c might be wrong:
+>
+> https://git.postgresql.org/gitweb/?p=slony1-engine.git;a=blob;f=src/slonik/slonik.c;h=a30616129018c15f15eea60c73ffcb8c1489c4e2;hb=5aced469e8859174e84ccde031c28eaf7b30b127#l2079
+>
+> I suppose:
+>
+>  ((adminfo->pg_version >= 90000) && (adminfo->pg_version < 100000)) /* 10 */
+>
+> Should be:
+>
+>  ((adminfo->pg_version >= 90000) && (adminfo->pg_version < 110000)) /* 10 */
+>
+> Or maybe (considering we will not have more than 99 minor release for 10):
+>
+>  ((adminfo->pg_version >= 90000) && (adminfo->pg_version < 100100)) /* 10 */
+>
+> Indeed, 10 is 100000 and 10.3 is 100003, so (adminfo->pg_version < 100000) is
+> always false for v10.x.
+>
+> I was volunteering to make a pull request on github, but I couldn't find up to
+> date sources for 2.2.6. Last patch on REL_2_2_STABLE is almost 2 years ago:
+>
+> https://github.com/ssinger/slony1-engine/blob/REL_2_2_STABLE/src/slonik/slonik.c
+>
+> Cheers,
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+

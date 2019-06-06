@@ -1,0 +1,309 @@
+From kacey.holston at pgexperts.com  Mon Oct  8 14:18:31 2018
+From: kacey.holston at pgexperts.com (Kacey Holston)
+Date: Mon, 8 Oct 2018 14:18:31 -0700
+Subject: [Slony1-general] Understanding resubscribe
+Message-ID: <6092486F-B62E-455A-AF7B-BC51007A0541@pgexperts.com>
+
+I have not had to use the resubscribe command since migrating to 2.2 and I am not quite understanding the docs. I am hoping someone can clarify how to use the call for me. 
+
+I have 4 nodes
+
+A is replicating to B and C and C is replicating to D.
+
+I would like to resubscribe B so it is a receiver from C so A is the provider to C and C is the provider to B and D.
+
+Would I run:
+
+RESUBSCRIBE NODE  (
+   ORIGIN = A,
+   PROVIDER = C,
+   RECEIVER = B
+);
+And it will resubscribe all the sets? What id I wanted to only resubscribe some sets? There does not seem to be an option for this like there was with using subscribe set(). I see the function for reshapesubscription which seems to be more in line with what I want but it does not seem to be a callable.
+
+Any guidance would be greatly appreciated.
+
+? Kacey
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20181008/3973a2ba/attachment.htm 
+
+From steve at ssinger.info  Mon Oct  8 14:47:04 2018
+From: steve at ssinger.info (Steve Singer)
+Date: Mon, 8 Oct 2018 17:47:04 -0400 (EDT)
+Subject: [Slony1-general] Understanding resubscribe
+In-Reply-To: <6092486F-B62E-455A-AF7B-BC51007A0541@pgexperts.com>
+References: <6092486F-B62E-455A-AF7B-BC51007A0541@pgexperts.com>
+Message-ID: <alpine.DEB.2.11.1810081744400.8719@opti.atlantida>
+
+On Mon, 8 Oct 2018, Kacey Holston wrote:
+
+> I have not had to use the resubscribe command since migrating to 2.2 and I am not quite understanding the
+> docs. I am hoping someone can clarify how to use the call for me.?
+> I have 4 nodes
+> 
+> A is replicating to B and C and C is replicating to D.
+> 
+> I would like to resubscribe B so it is a receiver from C so A is the provider to C and C is the provider to
+> B and D.
+> 
+> Would I run:
+> 
+> RESUBSCRIBE NODE  (
+>    ORIGIN = A,
+>    PROVIDER = C,
+>    RECEIVER = B
+> );
+> And it will resubscribe all the sets? What id I wanted to only resubscribe some sets? There does not seem to
+> be an option for this like there was with using subscribe set(). I see the function for reshapesubscription
+> which seems to be more in line with what I want but it does not seem to be a callable.
+
+I think you would first need to do
+
+RESUBSCRIBE NODE  (
+     ORIGIN = A,
+     PROVIDER = A,
+     RECEIVER = C
+  );
+
+So C is receiving the data from A directly
+
+then you could do
+
+RESUBSCRIBE NODE  (
+     ORIGIN = A,
+     PROVIDER = C,
+     RECEIVER = B
+  );
+
+to point B at C.
+
+If all your sets have A as the origin then they must all take the same route
+to each subscriber.  You can't have some sets from A reach C through B and 
+other sets from A reach C directly.
+
+
+
+> 
+> Any guidance would be greatly appreciated.
+> 
+> ? Kacey
+> 
+>
+
+From kacey.holston at pgexperts.com  Tue Oct  9 12:15:27 2018
+From: kacey.holston at pgexperts.com (Kacey Holston)
+Date: Tue, 9 Oct 2018 12:15:27 -0700
+Subject: [Slony1-general] Understanding resubscribe
+In-Reply-To: <alpine.DEB.2.11.1810081744400.8719@opti.atlantida>
+References: <6092486F-B62E-455A-AF7B-BC51007A0541@pgexperts.com>
+	<alpine.DEB.2.11.1810081744400.8719@opti.atlantida>
+Message-ID: <0665C3B6-CA2F-4A5D-8C4E-0640495DFC7F@pgexperts.com>
+
+Thank you for your reply, I want to make sure I am absolutely clear before using the call on a production system so I have two questions.
+
+1. Currently C is a receiver of A, do I still need to use 
+
+RESUBSCRIBE NODE  (
+   ORIGIN = A,
+   PROVIDER = A,
+   RECEIVER = C
+);
+
+Current:
+A ------?> B 
+        \__> C ??>D
+
+Desired:
+
+A ????>C ????>D
+			   \_____>B
+
+
+2. Calling resubscribe node as below will only change B?s provider on all sets and leave all other nodes as they are, is that correct?
+
+RESUBSCRIBE NODE  (
+   ORIGIN = A,
+   PROVIDER = C,
+   RECEIVER = B
+);
+
+Thank you,
+
+Kacey
+
+> On Oct 8, 2018, at 2:47 PM, Steve Singer <steve at ssinger.info> wrote:
+> 
+> On Mon, 8 Oct 2018, Kacey Holston wrote:
+> 
+>> I have not had to use the resubscribe command since migrating to 2.2 and I am not quite understanding the
+>> docs. I am hoping someone can clarify how to use the call for me. 
+>> I have 4 nodes
+>> A is replicating to B and C and C is replicating to D.
+>> I would like to resubscribe B so it is a receiver from C so A is the provider to C and C is the provider to
+>> B and D.
+>> Would I run:
+>> RESUBSCRIBE NODE  (
+>>   ORIGIN = A,
+>>   PROVIDER = C,
+>>   RECEIVER = B
+>> );
+>> And it will resubscribe all the sets? What id I wanted to only resubscribe some sets? There does not seem to
+>> be an option for this like there was with using subscribe set(). I see the function for reshapesubscription
+>> which seems to be more in line with what I want but it does not seem to be a callable.
+> 
+> I think you would first need to do
+> 
+> RESUBSCRIBE NODE  (
+>    ORIGIN = A,
+>    PROVIDER = A,
+>    RECEIVER = C
+> );
+> 
+> So C is receiving the data from A directly
+> 
+> then you could do
+> 
+> RESUBSCRIBE NODE  (
+>    ORIGIN = A,
+>    PROVIDER = C,
+>    RECEIVER = B
+> );
+> 
+> to point B at C.
+> 
+> If all your sets have A as the origin then they must all take the same route
+> to each subscriber.  You can't have some sets from A reach C through B and other sets from A reach C directly.
+> 
+> 
+> 
+>> Any guidance would be greatly appreciated.
+>> ? Kacey
+>> 
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info <mailto:Slony1-general at lists.slony.info>
+> http://lists.slony.info/mailman/listinfo/slony1-general <http://lists.slony.info/mailman/listinfo/slony1-general>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20181009/39b1c682/attachment.htm 
+
+From steve at ssinger.info  Tue Oct  9 17:07:19 2018
+From: steve at ssinger.info (Steve Singer)
+Date: Tue, 9 Oct 2018 20:07:19 -0400 (EDT)
+Subject: [Slony1-general] Understanding resubscribe
+In-Reply-To: <0665C3B6-CA2F-4A5D-8C4E-0640495DFC7F@pgexperts.com>
+References: <6092486F-B62E-455A-AF7B-BC51007A0541@pgexperts.com>
+	<alpine.DEB.2.11.1810081744400.8719@opti.atlantida>
+	<0665C3B6-CA2F-4A5D-8C4E-0640495DFC7F@pgexperts.com>
+Message-ID: <alpine.DEB.2.11.1810092001290.8719@opti.atlantida>
+
+On Tue, 9 Oct 2018, Kacey Holston wrote:
+
+> Thank you for your reply, I want to make sure I am absolutely clear before using the call on a production
+> system so I have two questions.
+> 1. Currently C is a receiver of A, do I still need to use?
+> 
+> RESUBSCRIBE NODE ?(
+> ???ORIGIN = A,
+> ???PROVIDER = A,
+> ???RECEIVER = C
+> );
+> 
+> Current:
+> A ------?> B?
+> ? ? ? ? \__> C ??>D
+> 
+> Desired:
+> 
+> A ????>C ????>D
+> ? ?\_____>B
+>
+
+If C is already a direct subscriber to A then you don't need the above 
+command.
+> 
+> 2. Calling resubscribe node as below will only change B?s provider on all sets and leave all other nodes as
+> they are, is that correct?
+> 
+> RESUBSCRIBE NODE ?(
+> ???ORIGIN = A,
+> ???PROVIDER = C,
+> ???RECEIVER = B
+> );
+>
+
+Yes this should only change B's provider.
+
+I encourage you to test this out on a test cluster with the same set 
+and node topology as you'll be doing before trying this on production.
+
+
+
+> Thank you,
+> 
+> Kacey
+>
+>       On Oct 8, 2018, at 2:47 PM, Steve Singer <steve at ssinger.info> wrote:
+> 
+> On Mon, 8 Oct 2018, Kacey Holston wrote:
+>
+>       I have not had to use the resubscribe command since migrating to 2.2 and I am not quite
+>       understanding the
+>       docs. I am hoping someone can clarify how to use the call for me.?
+>       I have 4 nodes
+>       A is replicating to B and C and C is replicating to D.
+>       I would like to resubscribe B so it is a receiver from C so A is the provider to C and C
+>       is the provider to
+>       B and D.
+>       Would I run:
+>       RESUBSCRIBE NODE ?(
+>       ??ORIGIN = A,
+>       ??PROVIDER = C,
+>       ??RECEIVER = B
+>       );
+>       And it will resubscribe all the sets? What id I wanted to only resubscribe some sets?
+>       There does not seem to
+>       be an option for this like there was with using subscribe set(). I see the function for
+>       reshapesubscription
+>       which seems to be more in line with what I want but it does not seem to be a callable.
+> 
+> 
+> I think you would first need to do
+> 
+> RESUBSCRIBE NODE ?(
+> ???ORIGIN = A,
+> ???PROVIDER = A,
+> ???RECEIVER = C
+> );
+> 
+> So C is receiving the data from A directly
+> 
+> then you could do
+> 
+> RESUBSCRIBE NODE ?(
+> ???ORIGIN = A,
+> ???PROVIDER = C,
+> ???RECEIVER = B
+> );
+> 
+> to point B at C.
+> 
+> If all your sets have A as the origin then they must all take the same route
+> to each subscriber. ?You can't have some sets from A reach C through B and other sets from A reach C
+> directly.
+> 
+> 
+>
+>       Any guidance would be greatly appreciated.
+>       ? Kacey
+> 
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-general
+> 
+> 
+> 
+>
+
