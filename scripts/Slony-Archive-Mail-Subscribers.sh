@@ -6,11 +6,12 @@ git fetch origin
 git pull origin master
 
 # Set up password for Mailman
-MAILMANPASSFILE=${MAILMANPASSFILE:-"${HOME}/GitHome/InitFiles/Slony/slony-mailman-password"}
-
+MAILMANPASSFILE=${MAILMANPASSFILE:-"${HOME}/GitConfig/InitFiles/Slony/slony-mailman-password"}
 MAILMANSUBTOOL=${MAILMANSUBTOOL:-"${HOME}/GitStuff/mailman-subscribers/mailman-subscribers.py"}
 
-GPGKEYS=${GPGKEYS:-"6AA6A713 5E1E4739"}
+GPGKEYS=${GPGKEYS:-"--recipient 6aa6a713 --recipient 5e1e4739 "}
+
+# another was ... --recipient 5E1E4739"}
 
 for list in bugs commit general hackers patches; do
     listname=slony1-${list}
@@ -19,7 +20,7 @@ for list in bugs commit general hackers patches; do
     echo "Grabbing subscribers of Slony list ${listname} into data file: [${templocation}]"
     python ${MAILMANSUBTOOL} -o ${templocation} --password-file=${MAILMANPASSFILE} lists.slony.info ${listname} 
     echo "Encrypt [${templocation}] into [${listfile}] for GPG user list ${GPGKEYS}"
-    gpg --encrypt --armor -r "${GPGKEYS}" --batch --yes --trust-model always -o ${listfile} ${templocation}
+    gpg --encrypt --armor  `echo ${GPGKEYS}` --batch --yes --trust-model always -o ${listfile} ${templocation}
     rm -f ${templocation}
     git add ${listfile}
 done
