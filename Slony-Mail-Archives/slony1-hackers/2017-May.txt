@@ -1,0 +1,165 @@
+From cedric.perotto at yahoo.fr  Sat May  6 13:14:53 2017
+From: cedric.perotto at yahoo.fr (=?UTF-8?Q?Perotto_C=C3=A9dric?=)
+Date: Sat, 6 May 2017 20:14:53 +0000 (UTC)
+Subject: [Slony1-hackers] Activate logTrigger during logApply trigger in
+ Slony 2.2
+In-Reply-To: <58F16A4B.9080704@ssinger.info>
+References: <903047246.15122599.1491236343815.ref@mail.yahoo.com>
+	<903047246.15122599.1491236343815@mail.yahoo.com>
+	<58E2A935.20404@ssinger.info>
+	<1519342075.15585198.1491251239973@mail.yahoo.com>
+	<58F16A4B.9080704@ssinger.info>
+Message-ID: <1967110222.1665996.1494101693255@mail.yahoo.com>
+
+We have tested the patch, it fixed the issue.
+Thanks,
+Cedric.
+ 
+
+    Le Samedi 15 avril 2017 2h33, Steve Singer <steve at ssinger.info> a ?crit :
+ 
+
+ On 04/03/2017 04:27 PM, Perotto C?dric wrote:
+> Sorry for the wrong terminology, I was talking about 'Applciation
+> Events'? (with the call stack slon->logApply->my_trigger->logTrigger and
+> the logTrigger not doing anything).
+>
+> Thanks for the quick answer and inform me when you have produced a patch.
+>
+> Cedric.
+>
+>
+>
+
+The attached pathces (0001 should be the same patch I sent out earlier, 
+0002 modifies it) should fix the issue.
+
+Let me know if it does.
+
+
+
+>
+>
+> Le Lundi 3 avril 2017 21h57, Steve Singer <steve at ssinger.info> a ?crit :
+>
+>
+> On 04/03/2017 12:19 PM, Perotto C?dric wrote:
+>? > Hello and sorry for the direct emails but the bug tracker and the
+>? > mailing list @lists.slony.info appear to be down (mailer-daemon message
+>? > No mx record found for domain=lists.slony.info).
+>
+> The message did make it to the list
+> (http://lists.slony.info/pipermail/slony1-hackers/2017-April/000563.html).
+>? ? Some of the mailing list issues might be related to yahoo and DMARC
+> issues. In the past other yahoo users have had issues.
+>
+>
+>
+>
+>? >
+>? > So I expose directly my problem with Slony 2.2 again :
+>? >
+>? > In my company we use Slony not only for replication but also as a queue
+>? > management system.
+>? > We implement tables representing event queues, each node is master on an
+>? > event queue to post messages.
+>? > We place triggers on the event queues which are activated only on slave
+>? > nodes (with a function checking the? set_origin of the table and the
+>? > local node id).
+>? > In the trigger we change locally the session_replication_role (to
+>? > origin) to do updates in the target node (but only on master tables of
+>? > this node)
+>? > and get back? the session_replication_role to replica at the end of the
+>? > trigger.
+>
+> I am a bit confused about your usage of the word 'event', for clarity
+> and so others aren't confused.
+>
+> For purposes of below I am going to qualify 'event' as either
+> 'Application Event' or 'Slony event'.
+>
+> When I say 'Slony event' I mean something corresponding to a row in
+> sl_event.
+>
+> By 'Application Event' I am refering to what I think your describing as
+> this:
+>
+> * You have a table that you have created named something like
+> 'myapp_event_queue'
+> * Your application does an 'INSERT INTO myapp_event_queue (....')
+> * On the replica you have a trigger that fires always on
+> myapp_event_queue.? This trigger then changes session_replication_role
+> and does stuff
+>
+>
+> I am of the opinion that the only way 'Slony events' should be created
+> is either from slonik or slon.? I strongly discourage users from
+> calling the slony stored functions to create slony events outside of
+> slonik.? I originally thought that this was what you were doing but now
+> I think maybe not.
+>
+>
+>
+> I think the issue here in this case might be that the call stack when
+> you replicate your 'Applciation Events' is
+>
+> slon->logApply->your_trigger->logTrigger
+>
+> The logTrigger is being called underneath the log apply.? The log Apply
+> sets currentXid but doesn't initialize the variables needed by
+> logTrigger.? What your doing should be safe and we can fix the
+> logTrigger to later initialize the plans.
+>
+> The potentially unsafe bits are when people generate their own 'Slony
+> events' in the same transaction as data.
+>
+> I'll try to produce a new patch later this week
+>
+>
+>
+>
+>
+>
+>
+>
+>? >
+>? > That way data changed during the execution of the trigger should be
+>? > logged to slony (through the logTrigger) then replicated back to the
+>? > original node.
+>? >
+>? > Everything was fine up to Slony 2.1 but the 2.2 version didn't work any
+>? > more.
+>? > The logTrigger was triggered during the logApply trigger but didn't do
+>? > any insertion in sl_log tables.
+>? >
+>? > In src/backend/slony1_funcs.c, the cluster status doesn't have the
+>? > plan_insert_logs initialized in the context of the logApply trigger.
+>? > I tested the existence of plan_active_log to recreate it if needed in
+>? > the logTrigger C code, and apparently this works...
+>? >
+>? > Is it a bug or a feature we used for years without any warranties ?
+>? >
+>? > I can give you a full SQL example and the correction in slony1_funcs.c
+>? > if needed.
+>? >
+>? > Regards,
+>? > C?dric.
+>? >
+>
+>
+>
+>
+>
+> _______________________________________________
+> Slony1-hackers mailing list
+> Slony1-hackers at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-hackers
+>
+
+
+
+   
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-hackers/attachments/20170506/32a754ba/attachment.htm 
+

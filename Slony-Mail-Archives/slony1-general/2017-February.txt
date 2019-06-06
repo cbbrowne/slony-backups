@@ -1,0 +1,223 @@
+From zarko.aleksic at hotmail.com  Wed Feb 22 09:30:43 2017
+From: zarko.aleksic at hotmail.com (Zarko Aleksic)
+Date: Wed, 22 Feb 2017 17:30:43 +0000
+Subject: [Slony1-general] Slony and streaming replication combo
+Message-ID: <BN3PR0401MB1560F28C4F5B0CC0EC8920069A500@BN3PR0401MB1560.namprd04.prod.outlook.com>
+
+Greetings everyone,
+
+
+We've recently started considering Slony for purpose of migrating PostgreSQL from old physical server to a new virtualized and "updated" platform. So far, all our tests worked quite well. However, I'm having trouble finding any documentation to prove or disprove that the following scenario is supported and/or will work properly (initial testing was positive though).
+
+
+We would like to setup streaming replication between future Slony subscriber and our DR site beforehand, ie. before we introduce Slony. This would save us time and additional work post migration.
+
+
+It would look something like this:
+
+"New B" (disaster recovery site)   <---- Streaming replication ----  "New A" <--------Slony replication ----- "Old A"  ------ existing SR ------> "Old B" (DR site)
+
+  *   Streaming replication between "New A" and "New B" would be setup first
+  *   Then we would setup Slony replication between "Old A" and "New A"
+  *   Slony replication Set would be moved from "Old A" to "New A"
+  *   Slon process would be stopped and Slony Schema would be removed
+
+Has anyone done something similar? Are there potential downsides to this idea?
+
+We are using slony1-91-II-2.1.4 and Postgres 9.1 on RHEL 6, later we will most likely do the same type of migration from 9.1 to 9.5.
+
+Any response is greatly appreciated.
+Thanks!
+Zarko
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20170222/94860d5b/attachment.htm 
+
+From steve at ssinger.info  Wed Feb 22 18:52:23 2017
+From: steve at ssinger.info (Steve Singer)
+Date: Thu, 23 Feb 2017 02:52:23 GMT
+Subject: [Slony1-general] Slony and streaming replication combo
+References: <BN3PR0401MB1560F28C4F5B0CC0EC8920069A500@BN3PR0401MB1560.namprd04.prod.outlook.com>
+Message-ID: <1487818344139.d6b5e7caa12158@mozgaia>
+
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20170223/c7b36de7/attachment.htm 
+
+From jeff at pgexperts.com  Wed Feb 22 18:58:35 2017
+From: jeff at pgexperts.com (Jeff Frost)
+Date: Wed, 22 Feb 2017 18:58:35 -0800
+Subject: [Slony1-general] Slony and streaming replication combo
+In-Reply-To: <1487818344139.d6b5e7caa12158@mozgaia>
+References: <BN3PR0401MB1560F28C4F5B0CC0EC8920069A500@BN3PR0401MB1560.namprd04.prod.outlook.com>
+	<1487818344139.d6b5e7caa12158@mozgaia>
+Message-ID: <3F87AE39-3174-460E-A3AD-A6281A028BA2@pgexperts.com>
+
+I've done this. It works fine.
+
+Make sure you install the slony extensions on Old B and New B in the event you need to fail over to one of the B nodes.
+
+
+> On Feb 22, 2017, at 6:52 PM, Steve Singer <steve at ssinger.info> wrote:
+> 
+> I can't think why it wouldn't work. You should be able to do streaming replication from a slony subscriber.
+> 
+> I have not tried a similar setup myself
+> 
+> Zarko Aleksic wrote:
+>> Greetings everyone,
+>> 
+>> We've recently started considering Slony for purpose of migrating PostgreSQL from old physical server to a new virtualized and "updated" platform. So far, all our tests worked quite well. However, I'm having trouble finding any documentation to prove or disprove that the following scenario is supported and/or will work properly (initial testing was positive though).
+>> 
+>> We would like to setup streaming replication between future Slony subscriber and our DR site beforehand, ie. before we introduce Slony. This would save us time and additional work post migration. 
+>> 
+>> It would look something like this:
+>> "New B" (disaster recovery site)   <---- Streaming replication ----  "New A" <--------Slony replication ----- "Old A"  ------ existing SR ------> "Old B" (DR site)
+>> Streaming replication between "New A" and "New B" would be setup first
+>> Then we would setup Slony replication between "Old A" and "New A"
+>> Slony replication Set would be moved from "Old A" to "New A"
+>> Slon process would be stopped and Slony Schema would be removed 
+>> Has anyone done something similar? Are there potential downsides to this idea? 
+>> 
+>> We are using slony1-91-II-2.1.4 and Postgres 9.1 on RHEL 6, later we will most likely do the same type of migration from 9.1 to 9.5. 
+>> 
+>> Any response is greatly appreciated.
+>> Thanks!
+>> Zarko
+>> 
+> Sent Using Firefox OS
+> _______________________________________________
+> Slony1-general mailing list
+> Slony1-general at lists.slony.info <mailto:Slony1-general at lists.slony.info>
+> http://lists.slony.info/mailman/listinfo/slony1-general <http://lists.slony.info/mailman/listinfo/slony1-general>
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20170222/170cfbdc/attachment.htm 
+
+From david at fetter.org  Thu Feb 23 17:00:25 2017
+From: david at fetter.org (David Fetter)
+Date: Thu, 23 Feb 2017 17:00:25 -0800
+Subject: [Slony1-general] Slony and streaming replication combo
+In-Reply-To: <BN3PR0401MB1560F28C4F5B0CC0EC8920069A500@BN3PR0401MB1560.namprd04.prod.outlook.com>
+References: <BN3PR0401MB1560F28C4F5B0CC0EC8920069A500@BN3PR0401MB1560.namprd04.prod.outlook.com>
+Message-ID: <20170224010025.GB15217@fetter.org>
+
+On Wed, Feb 22, 2017 at 05:30:43PM +0000, Zarko Aleksic wrote:
+> Greetings everyone,
+> 
+> We've recently started considering Slony for purpose of migrating
+> PostgreSQL from old physical server to a new virtualized and
+> "updated" platform. So far, all our tests worked quite well.
+> However, I'm having trouble finding any documentation to prove or
+> disprove that the following scenario is supported and/or will work
+> properly (initial testing was positive though).
+
+> "New B" (disaster recovery site)   <---- Streaming replication ----  "New A" <--------Slony replication ----- "Old A"  ------ existing SR ------> "Old B" (DR site)
+
+I can see no reason it wouldn't work.  Slony does things that are
+pretty much disjoint from what streaming replication does, so they
+won't be able to ste on each others' toes.
+
+> We are using slony1-91-II-2.1.4 and Postgres 9.1 on RHEL 6, later we
+> will most likely do the same type of migration from 9.1 to 9.5.
+
+If you're using Slony, you might as well go to 9.6.latest while you're
+at it.  You won't save time by replicating yet again to another
+virtual server, and the chances that going to 9.6 will break something
+are much smaller than the chances that staying on the now-defunct 9.1
+will.  There have already been data loss bugs that were fixed since
+9.1 went out of support, i.e. 9.1 didn't get those fixes applied.
+
+That setup will work nicely with what I hope will become a routine
+operation, namely upgrading major versions. :)
+
+Best,
+David.
+-- 
+David Fetter <david(at)fetter(dot)org> http://fetter.org/
+Phone: +1 415 235 3778  AIM: dfetter666  Yahoo!: dfetter
+Skype: davidfetter      XMPP: david(dot)fetter(at)gmail(dot)com
+
+Remember to vote!
+Consider donating to Postgres: http://www.postgresql.org/about/donate
+
+From zarko.aleksic at hotmail.com  Fri Feb 24 14:48:31 2017
+From: zarko.aleksic at hotmail.com (Zarko Aleksic)
+Date: Fri, 24 Feb 2017 22:48:31 +0000
+Subject: [Slony1-general] Slony and streaming replication combo
+In-Reply-To: <20170224010025.GB15217@fetter.org>
+References: <BN3PR0401MB1560F28C4F5B0CC0EC8920069A500@BN3PR0401MB1560.namprd04.prod.outlook.com>,
+	<20170224010025.GB15217@fetter.org>
+Message-ID: <BLUPR0401MB1556F789F118FF2068C6FE499A520@BLUPR0401MB1556.namprd04.prod.outlook.com>
+
+Thank you all for the answers. We'll proceed with this approach most likely.
+
+> If you're using Slony, you might as well go to 9.6.latest while you're
+at it.
+
+Unfortunately, we won't be able to upgrade straight away. We have to take this environment one step at the time.
+Though, now that you mentioned data loss bugs  we might speed it up and look into specifics more.
+
+Thanks again!
+Zarko
+
+
+________________________________
+From: slony1-general-bounces at lists.slony.info <slony1-general-bounces at lists.slony.info> on behalf of David Fetter <david at fetter.org>
+Sent: Thursday, February 23, 2017 7:00 PM
+To: slony1-general at lists.slony.info
+Subject: Re: [Slony1-general] Slony and streaming replication combo
+
+On Wed, Feb 22, 2017 at 05:30:43PM +0000, Zarko Aleksic wrote:
+> Greetings everyone,
+>
+> We've recently started considering Slony for purpose of migrating
+> PostgreSQL from old physical server to a new virtualized and
+> "updated" platform. So far, all our tests worked quite well.
+> However, I'm having trouble finding any documentation to prove or
+> disprove that the following scenario is supported and/or will work
+> properly (initial testing was positive though).
+
+> "New B" (disaster recovery site)   <---- Streaming replication ----  "New A" <--------Slony replication ----- "Old A"  ------ existing SR ------> "Old B" (DR site)
+
+I can see no reason it wouldn't work.  Slony does things that are
+pretty much disjoint from what streaming replication does, so they
+won't be able to ste on each others' toes.
+
+> We are using slony1-91-II-2.1.4 and Postgres 9.1 on RHEL 6, later we
+> will most likely do the same type of migration from 9.1 to 9.5.
+
+If you're using Slony, you might as well go to 9.6.latest while you're
+at it.  You won't save time by replicating yet again to another
+virtual server, and the chances that going to 9.6 will break something
+are much smaller than the chances that staying on the now-defunct 9.1
+will.  There have already been data loss bugs that were fixed since
+9.1 went out of support, i.e. 9.1 didn't get those fixes applied.
+
+That setup will work nicely with what I hope will become a routine
+operation, namely upgrading major versions. :)
+
+Best,
+David.
+--
+David Fetter <david(at)fetter(dot)org> http://fetter.org/
+David Fetter's Resume<http://fetter.org/>
+fetter.org
+DAVID FETTER. 3250 West St Oakland, CA 94608-4330 phone: 415-235-3778 e-mail: david at fetter.org TripIt Calendar Feed. Computer Skills. Database Development and ...
+
+
+
+Phone: +1 415 235 3778  AIM: dfetter666  Yahoo!: dfetter
+Skype: davidfetter      XMPP: david(dot)fetter(at)gmail(dot)com
+
+Remember to vote!
+Consider donating to Postgres: http://www.postgresql.org/about/donate
+_______________________________________________
+Slony1-general mailing list
+Slony1-general at lists.slony.info
+http://lists.slony.info/mailman/listinfo/slony1-general
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20170224/df440289/attachment.htm 
+

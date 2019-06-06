@@ -1,0 +1,1025 @@
+From cedric.perotto at yahoo.fr  Mon Apr  3 09:19:03 2017
+From: cedric.perotto at yahoo.fr (=?UTF-8?Q?Perotto_C=C3=A9dric?=)
+Date: Mon, 3 Apr 2017 16:19:03 +0000 (UTC)
+Subject: [Slony1-hackers] Activate logTrigger during logApply trigger in
+	Slony 2.2
+References: <903047246.15122599.1491236343815.ref@mail.yahoo.com>
+Message-ID: <903047246.15122599.1491236343815@mail.yahoo.com>
+
+Hello and sorry for the direct emails but the bug tracker and the mailing list @lists.slony.info appear to be down (mailer-daemon message No mx record found for domain=lists.slony.info).
+So I expose directly my problem with Slony 2.2 again :
+
+In my company we use Slony not only for replication but also as a queue management system. We implement tables representing event queues, each node is master on an event queue to post messages.
+We place triggers on the event queues which are activated only on slave nodes (with a function checking the? set_origin of the table and the local node id). 
+In the trigger we change locally the session_replication_role (to origin)? to do updates in the target node (but only on master tables of this node) 
+and get back? the session_replication_role to replica at the end of the trigger. 
+
+That way data changed during the execution of the trigger should be logged to slony (through the logTrigger) then replicated back to the original node.
+
+Everything was fine up to Slony 2.1 but the 2.2 version didn't work any more. 
+The logTrigger was triggered during the logApply trigger but didn't do any insertion in sl_log tables. 
+
+In src/backend/slony1_funcs.c, the cluster status doesn't have the plan_insert_logs initialized in the context of the logApply trigger.
+I tested the existence of plan_active_log to recreate it if needed in the logTrigger C code, and apparently this works... 
+
+Is it a bug or a feature we used for years without any warranties ? 
+
+I can give you a full SQL example and the correction in slony1_funcs.c if needed. 
+
+Regards,C?dric.
+ 
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-hackers/attachments/20170403/14a123bd/attachment.htm 
+
+From steve at ssinger.info  Mon Apr  3 12:57:41 2017
+From: steve at ssinger.info (Steve Singer)
+Date: Mon, 03 Apr 2017 15:57:41 -0400
+Subject: [Slony1-hackers] Activate logTrigger during logApply trigger in
+	Slony 2.2
+In-Reply-To: <903047246.15122599.1491236343815@mail.yahoo.com>
+References: <903047246.15122599.1491236343815.ref@mail.yahoo.com>
+	<903047246.15122599.1491236343815@mail.yahoo.com>
+Message-ID: <58E2A935.20404@ssinger.info>
+
+On 04/03/2017 12:19 PM, Perotto C?dric wrote:
+> Hello and sorry for the direct emails but the bug tracker and the
+> mailing list @lists.slony.info appear to be down (mailer-daemon message
+> No mx record found for domain=lists.slony.info).
+
+The message did make it to the list 
+(http://lists.slony.info/pipermail/slony1-hackers/2017-April/000563.html). 
+   Some of the mailing list issues might be related to yahoo and DMARC 
+issues. In the past other yahoo users have had issues.
+
+
+
+
+>
+> So I expose directly my problem with Slony 2.2 again :
+>
+> In my company we use Slony not only for replication but also as a queue
+> management system.
+> We implement tables representing event queues, each node is master on an
+> event queue to post messages.
+> We place triggers on the event queues which are activated only on slave
+> nodes (with a function checking the  set_origin of the table and the
+> local node id).
+> In the trigger we change locally the session_replication_role (to
+> origin) to do updates in the target node (but only on master tables of
+> this node)
+> and get back  the session_replication_role to replica at the end of the
+> trigger.
+
+I am a bit confused about your usage of the word 'event', for clarity 
+and so others aren't confused.
+
+For purposes of below I am going to qualify 'event' as either 
+'Application Event' or 'Slony event'.
+
+When I say 'Slony event' I mean something corresponding to a row in 
+sl_event.
+
+By 'Application Event' I am refering to what I think your describing as 
+this:
+
+* You have a table that you have created named something like 
+'myapp_event_queue'
+* Your application does an 'INSERT INTO myapp_event_queue (....')
+* On the replica you have a trigger that fires always on 
+myapp_event_queue.  This trigger then changes session_replication_role 
+and does stuff
+
+
+I am of the opinion that the only way 'Slony events' should be created 
+is either from slonik or slon.   I strongly discourage users from 
+calling the slony stored functions to create slony events outside of 
+slonik.  I originally thought that this was what you were doing but now 
+I think maybe not.
+
+
+
+I think the issue here in this case might be that the call stack when 
+you replicate your 'Applciation Events' is
+
+slon->logApply->your_trigger->logTrigger
+
+The logTrigger is being called underneath the log apply.  The log Apply 
+sets currentXid but doesn't initialize the variables needed by 
+logTrigger.  What your doing should be safe and we can fix the 
+logTrigger to later initialize the plans.
+
+The potentially unsafe bits are when people generate their own 'Slony 
+events' in the same transaction as data.
+
+I'll try to produce a new patch later this week
+
+
+
+
+
+
+
+>
+> That way data changed during the execution of the trigger should be
+> logged to slony (through the logTrigger) then replicated back to the
+> original node.
+>
+> Everything was fine up to Slony 2.1 but the 2.2 version didn't work any
+> more.
+> The logTrigger was triggered during the logApply trigger but didn't do
+> any insertion in sl_log tables.
+>
+> In src/backend/slony1_funcs.c, the cluster status doesn't have the
+> plan_insert_logs initialized in the context of the logApply trigger.
+> I tested the existence of plan_active_log to recreate it if needed in
+> the logTrigger C code, and apparently this works...
+>
+> Is it a bug or a feature we used for years without any warranties ?
+>
+> I can give you a full SQL example and the correction in slony1_funcs.c
+> if needed.
+>
+> Regards,
+> C?dric.
+>
+
+
+From cedric.perotto at yahoo.fr  Mon Apr  3 13:27:19 2017
+From: cedric.perotto at yahoo.fr (=?UTF-8?Q?Perotto_C=C3=A9dric?=)
+Date: Mon, 3 Apr 2017 20:27:19 +0000 (UTC)
+Subject: [Slony1-hackers] Activate logTrigger during logApply trigger in
+	Slony 2.2
+In-Reply-To: <58E2A935.20404@ssinger.info>
+References: <903047246.15122599.1491236343815.ref@mail.yahoo.com>
+	<903047246.15122599.1491236343815@mail.yahoo.com>
+	<58E2A935.20404@ssinger.info>
+Message-ID: <1519342075.15585198.1491251239973@mail.yahoo.com>
+
+Sorry for the wrong terminology, I was talking about 'Applciation Events'? (with the call stack slon->logApply->my_trigger->logTrigger and the logTrigger not doing anything).
+Thanks for the quick answer and inform me when you have produced a patch.
+Cedric.
+
+
+
+ 
+
+    Le Lundi 3 avril 2017 21h57, Steve Singer <steve at ssinger.info> a ?crit :
+ 
+
+ On 04/03/2017 12:19 PM, Perotto C?dric wrote:
+> Hello and sorry for the direct emails but the bug tracker and the
+> mailing list @lists.slony.info appear to be down (mailer-daemon message
+> No mx record found for domain=lists.slony.info).
+
+The message did make it to the list 
+(http://lists.slony.info/pipermail/slony1-hackers/2017-April/000563.html). 
+? Some of the mailing list issues might be related to yahoo and DMARC 
+issues. In the past other yahoo users have had issues.
+
+
+
+
+>
+> So I expose directly my problem with Slony 2.2 again :
+>
+> In my company we use Slony not only for replication but also as a queue
+> management system.
+> We implement tables representing event queues, each node is master on an
+> event queue to post messages.
+> We place triggers on the event queues which are activated only on slave
+> nodes (with a function checking the? set_origin of the table and the
+> local node id).
+> In the trigger we change locally the session_replication_role (to
+> origin) to do updates in the target node (but only on master tables of
+> this node)
+> and get back? the session_replication_role to replica at the end of the
+> trigger.
+
+I am a bit confused about your usage of the word 'event', for clarity 
+and so others aren't confused.
+
+For purposes of below I am going to qualify 'event' as either 
+'Application Event' or 'Slony event'.
+
+When I say 'Slony event' I mean something corresponding to a row in 
+sl_event.
+
+By 'Application Event' I am refering to what I think your describing as 
+this:
+
+* You have a table that you have created named something like 
+'myapp_event_queue'
+* Your application does an 'INSERT INTO myapp_event_queue (....')
+* On the replica you have a trigger that fires always on 
+myapp_event_queue.? This trigger then changes session_replication_role 
+and does stuff
+
+
+I am of the opinion that the only way 'Slony events' should be created 
+is either from slonik or slon.? I strongly discourage users from 
+calling the slony stored functions to create slony events outside of 
+slonik.? I originally thought that this was what you were doing but now 
+I think maybe not.
+
+
+
+I think the issue here in this case might be that the call stack when 
+you replicate your 'Applciation Events' is
+
+slon->logApply->your_trigger->logTrigger
+
+The logTrigger is being called underneath the log apply.? The log Apply 
+sets currentXid but doesn't initialize the variables needed by 
+logTrigger.? What your doing should be safe and we can fix the 
+logTrigger to later initialize the plans.
+
+The potentially unsafe bits are when people generate their own 'Slony 
+events' in the same transaction as data.
+
+I'll try to produce a new patch later this week
+
+
+
+
+
+
+
+>
+> That way data changed during the execution of the trigger should be
+> logged to slony (through the logTrigger) then replicated back to the
+> original node.
+>
+> Everything was fine up to Slony 2.1 but the 2.2 version didn't work any
+> more.
+> The logTrigger was triggered during the logApply trigger but didn't do
+> any insertion in sl_log tables.
+>
+> In src/backend/slony1_funcs.c, the cluster status doesn't have the
+> plan_insert_logs initialized in the context of the logApply trigger.
+> I tested the existence of plan_active_log to recreate it if needed in
+> the logTrigger C code, and apparently this works...
+>
+> Is it a bug or a feature we used for years without any warranties ?
+>
+> I can give you a full SQL example and the correction in slony1_funcs.c
+> if needed.
+>
+> Regards,
+> C?dric.
+>
+
+
+
+   
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-hackers/attachments/20170403/461e951f/attachment.htm 
+
+From ssinger at ca.afilias.info  Mon Apr 10 06:44:13 2017
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Mon, 10 Apr 2017 09:44:13 -0400
+Subject: [Slony1-hackers] Failover issues patches
+Message-ID: <58EB8C2D.60503@ca.afilias.info>
+
+Attached are some patches to fix a failover issue that people noticed.
+
+In a cascaded configuration with multiple nodes failing at once it was 
+possible to have a self-subscription in sl_subscribe.
+
+This is fixed, also we were not reloading set origin information after a 
+FAILOVER event in slon.
+
+I think this fixes the issues.
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: 0002-Add-unit-test-for-multi-node-failover-cascaded-issue.patch
+Type: text/x-diff
+Size: 0 bytes
+Desc: not available
+Url : http://lists.slony.info/pipermail/slony1-hackers/attachments/20170410/e76fc67a/attachment.patch 
+
+From ssinger at ca.afilias.info  Mon Apr 10 06:40:41 2017
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Mon, 10 Apr 2017 09:40:41 -0400
+Subject: [PATCH 2/2] Add unit test for multi-node failover (cascaded) issues
+Message-ID: <mailman.2.1491831592.4520.slony1-hackers@lists.slony.info>
+
+---
+ .../disorder/tests/MultinodeCascadeFailover.js     | 119 +++++++++++++++++++++
+ clustertest/disorder/tests/disorder_tests.js       |   7 +-
+ 2 files changed, 124 insertions(+), 2 deletions(-)
+ create mode 100644 clustertest/disorder/tests/MultinodeCascadeFailover.js
+
+diff --git a/clustertest/disorder/tests/MultinodeCascadeFailover.js b/clustertest/disorder/tests/MultinodeCascadeFailover.js
+new file mode 100644
+index 0000000..8d1599e
+--- /dev/null
++++ b/clustertest/disorder/tests/MultinodeCascadeFailover.js
+@@ -0,0 +1,119 @@
++
++
++coordinator.includeFile('disorder/tests/FailNodeTest.js');
++
++MultinodeCascadeFailover = function(coordinator, testResults) {
++	Failover.call(this, coordinator, testResults);
++	this.testDescription='Test the FAILOVER command.  This test will try FAILOVER'
++		+' with multiple nodes failing and cascading';
++	this.compareQueryList.push(['select i_id,comments from disorder.do_item_review order by i_id','i_id']);
++	this.nodeCount=5;
++}
++MultinodeCascadeFailover.prototype = new Failover();
++MultinodeCascadeFailover.prototype.constructor = MultinodeCascadeFailover;
++
++/**
++ * Returns the number of nodes used in the test.
++ */
++MultinodeCascadeFailover.prototype.getNodeCount = function() {
++	return this.nodeCount;
++}
++
++MultinodeCascadeFailover.prototype.runTest = function() {
++    this.coordinator.log("MultinodeCascadeFailover.prototype.runTest - begin");
++	this.testResults.newGroup("Multinode Cascade Fail Over Test");
++	this.prepareDb(['db6']);
++	this.setupReplication();
++
++	this.addCompletePaths();
++	/**
++	 * Start the slons.
++	 */
++	this.slonArray = [];
++	for ( var idx = 1; idx <= this.getNodeCount(); idx++) {
++		this.slonArray[idx - 1] = this.coordinator.createSlonLauncher('db' + idx);
++		this.slonArray[idx - 1].run();
++	}
++	this.addCompletePaths();
++	/**
++	 * Add some tables to replication.
++	 * 
++	 */
++	this.addTables();
++
++	/**
++	 * Subscribe the first node.
++	 *           1
++	 *       2   3   4
++	 *           |
++	 *       5      6
++	 */
++	this.subscribeSet(1,1, 1, [ 2, 3,4 ]);
++	this.subscribeSet(1,1, 3, [ 5, 6 ]);
++	this.slonikSync(1,1);
++	var load = this.generateLoad();
++	java.lang.Thread.sleep(10*1000);
++	this.slonikSync(1,1);
++	//stop slon 3, to make sure
++	//3 and 5,6 aren't ahead of 2
++	//If that happens nodes 5 might get unsubscribed
++	//
++	this.slonArray[3-1].stop();
++	this.coordinator.join(this.slonArray[3-1]);
++	this.failover(1,2,3,5);
++	/**
++	 * At the end of this we should have
++	 *   2-->5-->6
++	 *   |
++	 *   4
++	 */
++	load.stop();
++	this.coordinator.join(load);
++	this.slonikSync(1,2);
++	this.currentOrigin='db2';
++	load=this.generateLoad();
++	java.lang.Thread.sleep(1000*10);
++	load.stop();	
++	this.coordinator.join(load);
++	this.slonikSync(1,2);
++	this.compareDb('db2','db5');
++	this.compareDb('db2','db6');
++	this.compareDb('db2','db4');
++	for ( var idx = 1; idx <= this.getNodeCount(); idx++) {
++		this.slonArray[idx - 1].stop();
++		this.coordinator.join(this.slonArray[idx - 1]);		
++	}
++	this.dropDb(['db6']);
++
++	
++}
++
++MultinodeCascadeFailover.prototype.failover=function(originA,backupA,originB,backupB) 
++{
++	var slonikPreamble = this.getSlonikPreamble();
++	var slonikScript = 'echo \'MultinodeCascadeFailover.prototype.failover\';\n';
++	slonikScript += 'FAILOVER( node=(id='  + originA  + ',backup node=' + backupA +')'
++	+ ', node=(id=' + originB + ',backup node=' + backupB + '));\n';
++	var slonik=this.coordinator.createSlonik('failover',slonikPreamble,slonikScript);
++	slonik.run();
++	this.coordinator.join(slonik);
++	this.testResults.assertCheck('failover passes',slonik.getReturnCode(),0);	
++
++}
++
++	MultinodeCascadeFailover.prototype.dropTwoNodes=function(node1,node2,event_node)
++{
++	var slonikPreamble = this.getSlonikPreamble();
++	var slonikScript = 'echo \'MultinodeCascadeFailover.prototype.dropTwoNodes\';\n';
++	slonikScript+= 'drop node(id=\'' + node1 + ',' + node2 + '\',event node = ' + event_node + ');\nuninstall node(id='+node1+');\nuninstall node(id='+node2+');\n'
++
++	var slonik=this.coordinator.createSlonik('drop node',slonikPreamble,slonikScript);
++	slonik.run();
++	this.coordinator.join(slonik);
++	this.testResults.assertCheck('drop 2 nodes passes',slonik.getReturnCode(),0);	
++
++}
++
++MultinodeCascadeFailover.prototype.getNodeCount = function() {
++	return 6;
++}
+diff --git a/clustertest/disorder/tests/disorder_tests.js b/clustertest/disorder/tests/disorder_tests.js
+index 4f2f363..a93aea7 100644
+--- a/clustertest/disorder/tests/disorder_tests.js
++++ b/clustertest/disorder/tests/disorder_tests.js
+@@ -26,6 +26,7 @@ coordinator.includeFile('disorder/tests/MergeSet.js');
+ coordinator.includeFile('disorder/tests/BulkAddingTest.js');
+ coordinator.includeFile('disorder/tests/WaitForTest.js');
+ coordinator.includeFile('disorder/tests/MultinodeFailover.js');
++coordinator.includeFile('disorder/tests/MultinodeCascadeFailover.js');
+ coordinator.includeFile('disorder/tests/Resubscribe.js');
+ coordinator.includeFile('disorder/tests/SiteFailover.js');
+ coordinator.includeFile('disorder/tests/DropNode.js');
+@@ -57,6 +58,7 @@ var tests =
+      ,new BulkAddingTest(coordinator,results)
+ 	 ,new WaitForTest(coordinator,results)
+ 	 ,new MultinodeFailover(coordinator,results)
++	 ,new MultinodeCascadeFailover(coordinator,results)
+ 	 ,new Resubscribe(coordinator,results)
+ 	 ,new SiteFailover(coordinator,results)
+ 	 ,new DropNode(coordinator,results)
+@@ -67,8 +69,9 @@ var tests =
+      //,new CleanupTest(coordinator,results) //cleanup_interval does not (yet) do what the test wants
+     ];
+ 
+-//tests=[new Failover(coordinator,results),
+-//	   new MultinodeFailover(coordinator,results)
++//tests=[//new Failover(coordinator,results),
++//	new MultinodeCascadeFailover(coordinator,results)
++//];
+ //	   ,new SiteFailover(coordinator,results)];
+ 
+ var basicTest = new BasicTest(coordinator,results);
+-- 
+2.1.4
+
+
+--------------000002000709080200040908
+Content-Type: text/x-diff;
+ name="0001-Fix-issues-with-FAILOVER.patch"
+Content-Transfer-Encoding: 7bit
+Content-Disposition: attachment;
+ filename="0001-Fix-issues-with-FAILOVER.patch"
+
+
+From ssinger at ca.afilias.info  Mon Apr 10 06:38:15 2017
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Mon, 10 Apr 2017 09:38:15 -0400
+Subject: [PATCH 1/2] Fix issues with FAILOVER In particular it is possible
+ when doing a multi-node failover with a cascaded node for the result after
+ the failover to have nodes with a self subscription, a row in sl_subscribe
+ with the provider and receiver equal.
+Message-ID: <mailman.3.1491831592.4520.slony1-hackers@lists.slony.info>
+
+In fixing that issue we also discovered that slon was not
+reloading the set origin's into memory following a FAILOVER
+command.  This could mean that we were processing SYNC events
+from a node which without realizing that node now is the origin
+for a set.
+---
+ src/backend/slony1_funcs.sql | 17 +++++++++++++---
+ src/slon/remote_worker.c     | 15 +++++++++++++-
+ src/slon/runtime_config.c    | 48 ++++++++++++++++++++++++++++++++++++++++++++
+ src/slon/slon.h              |  1 +
+ 4 files changed, 77 insertions(+), 4 deletions(-)
+
+diff --git a/src/backend/slony1_funcs.sql b/src/backend/slony1_funcs.sql
+index a47e89d..46d9017 100644
+--- a/src/backend/slony1_funcs.sql
++++ b/src/backend/slony1_funcs.sql
+@@ -793,7 +793,7 @@ $$ language plpgsql
+ 
+ comment on function @NAMESPACE at .storeNode(p_no_id int4, p_no_comment text) is
+ 'no_id - Node ID #
+-no_comment - Human-oriented comment
++no_comment - Human-oriented commentb
+ 
+ Generate the STORE_NODE event for node no_id';
+ 
+@@ -1526,13 +1526,24 @@ begin
+ 	-- provider for all subscriptions served
+ 	-- by the failed node. (otherwise it
+ 	-- wouldn't be a allowable backup node).
++--	delete from @NAMESPACE at .sl_subscribe
++--		   where sub_receiver=p_backup_node;
++		   
+ 	update @NAMESPACE at .sl_subscribe	       
+ 	       set sub_provider=p_backup_node
+ 	       from @NAMESPACE at .sl_node
+ 	       where sub_provider=p_failed_node
+ 	       and sl_node.no_id=sub_receiver
+-	       and sl_node.no_failed=false;	
+-
++	       and sl_node.no_failed=false
++		   and sub_receiver<>p_backup_node;
++		   
++	update @NAMESPACE at .sl_subscribe	       
++	       set sub_provider=(select set_origin from
++		   	   @NAMESPACE at .sl_set where set_id=
++			   sub_set)
++			where sub_provider=p_failed_node
++			and sub_receiver=p_backup_node;
++		   
+ 	update @NAMESPACE at .sl_node
+ 		   set no_active=false WHERE 
+ 		   no_id=p_failed_node;
+diff --git a/src/slon/remote_worker.c b/src/slon/remote_worker.c
+index cde16db..f1c360b 100644
+--- a/src/slon/remote_worker.c
++++ b/src/slon/remote_worker.c
+@@ -301,6 +301,8 @@ remoteWorkerThread_main(void *cdata)
+ 	char		seqbuf[64];
+ 	bool		event_ok;
+ 	bool		need_reloadListen = false;
++	bool		need_reloadSets = false;
++	
+ 	char		conn_symname[32];
+ 
+ 	SlonSyncStatus sync_status = SYNC_INITIAL;
+@@ -1276,8 +1278,14 @@ remoteWorkerThread_main(void *cdata)
+ 								 rtcfg_namespace,
+ 								 rtcfg_namespace,
+ 								 failed_node, node->no_id, seq_no_c);
+-
++				slon_log(SLON_INFO, "remoteWorkerThread_%d FAILOVER_NODE finished %d\n"
++							 ,node->no_id,
++							 failed_node);
++				/**
++				 * The list of set origins has now changed.
++				 */
+ 				need_reloadListen = true;
++				need_reloadSets = true;
+ 			}
+ 			else if (strcmp(event->ev_type, "SUBSCRIBE_SET") == 0)
+ 			{
+@@ -1516,6 +1524,11 @@ remoteWorkerThread_main(void *cdata)
+ 				rtcfg_reloadListen(local_dbconn);
+ 				need_reloadListen = false;
+ 			}
++			if(need_reloadSets)
++			{
++				rtcfg_reloadSets(local_dbconn);
++				need_reloadSets = true;
++			}
+ 		}
+ 
+ #ifdef SLON_MEMDEBUG
+diff --git a/src/slon/runtime_config.c b/src/slon/runtime_config.c
+index 566d5ac..8877f9d 100644
+--- a/src/slon/runtime_config.c
++++ b/src/slon/runtime_config.c
+@@ -772,6 +772,54 @@ rtcfg_dropSet(int set_id)
+ 	rtcfg_unlock();
+ }
+ 
++/* ------
++ * rtcfg_reloadSets
++ */
++void rtcfg_reloadSets(PGconn * db)
++{
++	SlonDString query;
++	PGresult   *res;
++	int			i,
++				n;
++	SlonSet    *set;
++	
++	rtcfg_lock();
++	
++	/*
++	 * Read configuration table sl_set
++	 */
++	slon_mkquery(&query,
++				 "select set_id, set_origin, set_comment "
++				 "from %s.sl_set",
++				 rtcfg_namespace);
++	res = PQexec(db, dstring_data(&query));
++	if (PQresultStatus(res) != PGRES_TUPLES_OK)
++	{
++		slon_log(SLON_FATAL, "main: Cannot get set config - %s\n",
++				 PQresultErrorMessage(res));
++		PQclear(res);
++		dstring_free(&query);
++		slon_retry();
++	}
++	for (i = 0, n = PQntuples(res); i < n; i++)
++	{
++		int			set_id = (int) strtol(PQgetvalue(res, i, 0), NULL, 10);
++		int			set_origin = (int) strtol(PQgetvalue(res, i, 1), NULL, 10);
++		for (set = rtcfg_set_list_head; set; set = set->next)
++		{
++			if (set->set_id == set_id)
++			{
++				set->set_origin=set_origin;				
++			}
++		}/*for set in array*/
++	}/*for tuple*/
++	PQclear(res);
++	rtcfg_unlock();
++}
++
++
++
++
+ /* ----------
+  * rtcfg_moveSet
+  * ----------
+diff --git a/src/slon/slon.h b/src/slon/slon.h
+index c0adf6e..cdc68e4 100644
+--- a/src/slon/slon.h
++++ b/src/slon/slon.h
+@@ -478,6 +478,7 @@ extern void rtcfg_storeSet(int set_id, int set_origin, char *set_comment);
+ extern void rtcfg_dropSet(int set_id);
+ extern void rtcfg_moveSet(int set_id, int old_origin, int new_origin,
+ 			  int sub_provider);
++extern void rtcfg_reloadSets(PGconn *db);
+ 
+ extern void rtcfg_storeSubscribe(int sub_set, int sub_provider,
+ 					 char *sub_forward);
+-- 
+2.1.4
+
+
+--------------000002000709080200040908--
+
+From steve at ssinger.info  Fri Apr 14 17:33:15 2017
+From: steve at ssinger.info (Steve Singer)
+Date: Fri, 14 Apr 2017 20:33:15 -0400
+Subject: [Slony1-hackers] Activate logTrigger during logApply trigger in
+ Slony 2.2
+In-Reply-To: <1519342075.15585198.1491251239973@mail.yahoo.com>
+References: <903047246.15122599.1491236343815.ref@mail.yahoo.com>	<903047246.15122599.1491236343815@mail.yahoo.com>	<58E2A935.20404@ssinger.info>
+	<1519342075.15585198.1491251239973@mail.yahoo.com>
+Message-ID: <58F16A4B.9080704@ssinger.info>
+
+On 04/03/2017 04:27 PM, Perotto C?dric wrote:
+> Sorry for the wrong terminology, I was talking about 'Applciation
+> Events'  (with the call stack slon->logApply->my_trigger->logTrigger and
+> the logTrigger not doing anything).
+>
+> Thanks for the quick answer and inform me when you have produced a patch.
+>
+> Cedric.
+>
+>
+>
+
+The attached pathces (0001 should be the same patch I sent out earlier, 
+0002 modifies it) should fix the issue.
+
+Let me know if it does.
+
+
+
+>
+>
+> Le Lundi 3 avril 2017 21h57, Steve Singer <steve at ssinger.info> a ?crit :
+>
+>
+> On 04/03/2017 12:19 PM, Perotto C?dric wrote:
+>  > Hello and sorry for the direct emails but the bug tracker and the
+>  > mailing list @lists.slony.info appear to be down (mailer-daemon message
+>  > No mx record found for domain=lists.slony.info).
+>
+> The message did make it to the list
+> (http://lists.slony.info/pipermail/slony1-hackers/2017-April/000563.html).
+>    Some of the mailing list issues might be related to yahoo and DMARC
+> issues. In the past other yahoo users have had issues.
+>
+>
+>
+>
+>  >
+>  > So I expose directly my problem with Slony 2.2 again :
+>  >
+>  > In my company we use Slony not only for replication but also as a queue
+>  > management system.
+>  > We implement tables representing event queues, each node is master on an
+>  > event queue to post messages.
+>  > We place triggers on the event queues which are activated only on slave
+>  > nodes (with a function checking the  set_origin of the table and the
+>  > local node id).
+>  > In the trigger we change locally the session_replication_role (to
+>  > origin) to do updates in the target node (but only on master tables of
+>  > this node)
+>  > and get back  the session_replication_role to replica at the end of the
+>  > trigger.
+>
+> I am a bit confused about your usage of the word 'event', for clarity
+> and so others aren't confused.
+>
+> For purposes of below I am going to qualify 'event' as either
+> 'Application Event' or 'Slony event'.
+>
+> When I say 'Slony event' I mean something corresponding to a row in
+> sl_event.
+>
+> By 'Application Event' I am refering to what I think your describing as
+> this:
+>
+> * You have a table that you have created named something like
+> 'myapp_event_queue'
+> * Your application does an 'INSERT INTO myapp_event_queue (....')
+> * On the replica you have a trigger that fires always on
+> myapp_event_queue.  This trigger then changes session_replication_role
+> and does stuff
+>
+>
+> I am of the opinion that the only way 'Slony events' should be created
+> is either from slonik or slon.  I strongly discourage users from
+> calling the slony stored functions to create slony events outside of
+> slonik.  I originally thought that this was what you were doing but now
+> I think maybe not.
+>
+>
+>
+> I think the issue here in this case might be that the call stack when
+> you replicate your 'Applciation Events' is
+>
+> slon->logApply->your_trigger->logTrigger
+>
+> The logTrigger is being called underneath the log apply.  The log Apply
+> sets currentXid but doesn't initialize the variables needed by
+> logTrigger.  What your doing should be safe and we can fix the
+> logTrigger to later initialize the plans.
+>
+> The potentially unsafe bits are when people generate their own 'Slony
+> events' in the same transaction as data.
+>
+> I'll try to produce a new patch later this week
+>
+>
+>
+>
+>
+>
+>
+>
+>  >
+>  > That way data changed during the execution of the trigger should be
+>  > logged to slony (through the logTrigger) then replicated back to the
+>  > original node.
+>  >
+>  > Everything was fine up to Slony 2.1 but the 2.2 version didn't work any
+>  > more.
+>  > The logTrigger was triggered during the logApply trigger but didn't do
+>  > any insertion in sl_log tables.
+>  >
+>  > In src/backend/slony1_funcs.c, the cluster status doesn't have the
+>  > plan_insert_logs initialized in the context of the logApply trigger.
+>  > I tested the existence of plan_active_log to recreate it if needed in
+>  > the logTrigger C code, and apparently this works...
+>  >
+>  > Is it a bug or a feature we used for years without any warranties ?
+>  >
+>  > I can give you a full SQL example and the correction in slony1_funcs.c
+>  > if needed.
+>  >
+>  > Regards,
+>  > C?dric.
+>  >
+>
+>
+>
+>
+>
+> _______________________________________________
+> Slony1-hackers mailing list
+> Slony1-hackers at lists.slony.info
+> http://lists.slony.info/mailman/listinfo/slony1-hackers
+>
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: 0002-Further-changes-related-to-Explicitly-disallow-creat.patch
+Type: text/x-diff
+Size: 0 bytes
+Desc: not available
+Url : http://lists.slony.info/pipermail/slony1-hackers/attachments/20170414/abfd31f3/attachment.patch 
+
+From ssinger at ca.afilias.info  Fri Apr 14 17:28:58 2017
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Fri, 14 Apr 2017 20:28:58 -0400
+Subject: [PATCH 2/2] Further changes related to 'Explicitly disallow
+ createEvent and data changes in the same transaction'
+Message-ID: <mailman.4.1492216137.4520.slony1-hackers@lists.slony.info>
+
+Add in support where the logApply trigger inserst data into a table that has  trigger
+,which runs on the replica,that then inserts data into another replicated table.
+
+The logApply trigger might have already been called in this transaction but the
+logTrigger is then called in the same transaction.  We then need to setup
+the plans for inserting data into sl_log_1 or sl_log_2
+---
+ src/backend/slony1_funcs.c | 58 +++++++++++++++++++++++++++++++++++++++-------
+ 1 file changed, 49 insertions(+), 9 deletions(-)
+
+diff --git a/src/backend/slony1_funcs.c b/src/backend/slony1_funcs.c
+index 657589e..f4db2d8 100644
+--- a/src/backend/slony1_funcs.c
++++ b/src/backend/slony1_funcs.c
+@@ -151,7 +151,9 @@ typedef struct slony_I_cluster_status
+ 	text	   *cmdtype_I;
+ 	text	   *cmdtype_U;
+ 	text	   *cmdtype_D;
+-	bool	   event_txn;
++	bool		event_txn;
++	bool		apply_init;
++	bool		log_init;
+ 	
+ 	struct slony_I_cluster_status *next;
+ }	Slony_I_ClusterStatus;
+@@ -255,10 +257,19 @@ versionFunc(createEvent) (PG_FUNCTION_ARGS)
+ 	/*
+ 	 * Do the following only once per transaction.
+ 	 */
+-	if (!TransactionIdEquals(cs->currentXid, newXid))
++	if (!TransactionIdEquals(cs->currentXid, newXid)  )
+ 	{
+ 		cs->currentXid = newXid;
+ 		cs->event_txn = true;
++		cs->apply_init = false;
++		cs->log_init = false;
++	}
++	else if (!cs->log_init)
++	{
++		/**
++		 * This transaction has been setup for apply but not logging.
++		 */
++		cs->event_txn = true;
+ 	}
+ 
+ 	if(!cs->event_txn)
+@@ -436,10 +447,28 @@ versionFunc(logTrigger) (PG_FUNCTION_ARGS)
+ 	 */
+ 	cs = getClusterStatus(cluster_name, PLAN_INSERT_LOG_STATUS);
+ 
++	bool initRequired = false;
++	if(!TransactionIdEquals(cs->currentXid, newXid))
++	{
++		initRequired = true;
++		cs->apply_init = false;
++		cs->event_txn=false;
++		cs->log_init = true;
++	}
++	else if (!cs->log_init)
++	{
++		initRequired = true;
++	}
++
++	if(cs->event_txn)
++	{
++		elog(ERROR,"Slony-I: log trigger called in an event transaction");
++	}
++	
+ 	/*
+ 	 * Do the following only once per transaction.
+ 	 */
+-	if (!TransactionIdEquals(cs->currentXid, newXid))
++	if (initRequired)
+ 	{
+ 		int32		log_status;
+ 		bool		isnull;
+@@ -474,13 +503,11 @@ versionFunc(logTrigger) (PG_FUNCTION_ARGS)
+ 		}
+ 
+ 		cs->currentXid = newXid;
+-		cs->event_txn=false;
++		cs->event_txn = false;
++		cs->log_init = true;
+ 	}
+ 
+-	if(cs->event_txn)
+-	{
+-		elog(ERROR,"Slony-I: log trigger called in an event transaction");
+-	}
++
+ 	/*
+ 	 * Save the current datestyle setting and switch to ISO (if not already)
+ 	 */
+@@ -931,7 +958,19 @@ versionFunc(logApply) (PG_FUNCTION_ARGS)
+ 	/*
+ 	 * Do the following only once per transaction.
+ 	 */
+-	if (!TransactionIdEquals(cs->currentXid, newXid))
++	bool planInitRequired = false;
++	if(!TransactionIdEquals(cs->currentXid, newXid))
++	{
++		planInitRequired = true;
++		cs->log_init = false;
++		cs->event_txn=false;
++	}
++	else if (!cs->apply_init)
++	{
++		planInitRequired = true;
++	}
++	
++	if (planInitRequired)
+ 	{
+ 		HASHCTL		hctl;
+ 
+@@ -992,6 +1031,7 @@ versionFunc(logApply) (PG_FUNCTION_ARGS)
+ 		apply_num_evict = 0;
+ 
+ 		cs->currentXid = newXid;
++		cs->apply_init = true;
+ 	}
+ 
+ 	/*
+-- 
+2.1.4
+
+
+--------------060106080008080705060703
+Content-Type: text/x-diff;
+ name="0001-Explicitly-disallow-createEvent-and-data-changes-in-.patch"
+Content-Transfer-Encoding: 7bit
+Content-Disposition: attachment;
+ filename*0="0001-Explicitly-disallow-createEvent-and-data-changes-in-.pa";
+ filename*1="tch"
+
+
+From ssinger at ca.afilias.info  Tue Apr 25 19:18:14 2017
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Tue, 25 Apr 2017 22:18:14 -0400
+Subject: [Slony1-hackers] Failover issues patches
+In-Reply-To: <58EB8C2D.60503@ca.afilias.info>
+References: <58EB8C2D.60503@ca.afilias.info>
+Message-ID: <59000366.2030200@ca.afilias.info>
+
+On 04/10/2017 09:44 AM, Steve Singer wrote:
+> Attached are some patches to fix a failover issue that people noticed.
+>
+> In a cascaded configuration with multiple nodes failing at once it was
+> possible to have a self-subscription in sl_subscribe.
+>
+> This is fixed, also we were not reloading set origin information after a
+> FAILOVER event in slon.
+>
+> I think this fixes the issues.
+
+These patches had a bug.
+The attached patch (to be applied on top) fixes it
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: 0001-Fix-segfault-introduced-by-the-previous-failover.patch
+Type: text/x-diff
+Size: 0 bytes
+Desc: not available
+Url : http://lists.slony.info/pipermail/slony1-hackers/attachments/20170425/b460f2c1/attachment.patch 
+
+From ssinger at ca.afilias.info  Tue Apr 25 05:14:50 2017
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Tue, 25 Apr 2017 08:14:50 -0400
+Subject: [PATCH 1/2] Fix segfault introduced by the previous failover fixes
+Message-ID: <mailman.6.1493172793.4520.slony1-hackers@lists.slony.info>
+
+---
+ src/slon/runtime_config.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/src/slon/runtime_config.c b/src/slon/runtime_config.c
+index 8877f9d..a9b0739 100644
+--- a/src/slon/runtime_config.c
++++ b/src/slon/runtime_config.c
+@@ -784,7 +784,7 @@ void rtcfg_reloadSets(PGconn * db)
+ 	SlonSet    *set;
+ 	
+ 	rtcfg_lock();
+-	
++	dstring_init(&query);	
+ 	/*
+ 	 * Read configuration table sl_set
+ 	 */
+@@ -815,6 +815,7 @@ void rtcfg_reloadSets(PGconn * db)
+ 	}/*for tuple*/
+ 	PQclear(res);
+ 	rtcfg_unlock();
++	dstring_free(&query);
+ }
+ 
+ 
+-- 
+2.1.4
+
+
+--------------070506030002050801040709--
+

@@ -1,0 +1,161 @@
+From steve at ssinger.info  Sun Mar 26 10:03:22 2017
+From: steve at ssinger.info (Steve Singer)
+Date: Sun, 26 Mar 2017 13:03:22 -0400
+Subject: [Slony1-hackers] disallow createEvent and logTrigger in the same
+	transaction
+Message-ID: <58D7F45A.1020002@ssinger.info>
+
+Someone reported an issue to me though email (Slony Bugzilla was 
+shutdown and no one seems interested in having it fixed)
+
+They creating events though the stored functions API directly and 
+noticing that if they also did data change actions in the same 
+transaction the plan for the log trigger could be wrong.
+
+The logTrigger sets up cs->plan_active_log  on a   new transaction but 
+createEvent doesn't.  If the logTrigger is then invoked later in that 
+transaction it doesn't touch cs_plan_active_log since the transaction 
+isn't 'new'.
+
+I think the correct fix is to disallow logTrigger and createEvent in the 
+same tranaction.  Slonik would never do this, and for a lot of event 
+types (ie non SYNC events) I'm not sure the data in the log trigger will 
+be sent in the proper order.
+
+I propose the attached patch
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: 0001-Explicitly-disallow-createEvent-and-data-changes-in-.patch
+Type: text/x-diff
+Size: 0 bytes
+Desc: not available
+Url : http://lists.slony.info/pipermail/slony1-hackers/attachments/20170326/772eaacb/attachment.patch 
+
+From ssinger at ca.afilias.info  Sun Mar 26 09:54:46 2017
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Sun, 26 Mar 2017 12:54:46 -0400
+Subject: [PATCH] Explicitly disallow createEvent and data changes in the same
+ transaction.
+Message-ID: <mailman.1.1490547581.4520.slony1-hackers@lists.slony.info>
+
+The same transaction should not have both a row in sl_event and log data
+to sl_log_1 or sl_log_2 with the logTrigger.  This is not something slonik
+would ever do, and the data changes that the logTrigger logs might not get
+replicated as part of the event processing(ie for many non SYNC events).
+it is also unclear what order the data should be applied in with respect to
+the actions of the non-SYNC event.
+---
+ src/backend/slony1_funcs.c | 14 +++++++++++++-
+ 1 file changed, 13 insertions(+), 1 deletion(-)
+
+diff --git a/src/backend/slony1_funcs.c b/src/backend/slony1_funcs.c
+index 2d8891b..657589e 100644
+--- a/src/backend/slony1_funcs.c
++++ b/src/backend/slony1_funcs.c
+@@ -151,7 +151,8 @@ typedef struct slony_I_cluster_status
+ 	text	   *cmdtype_I;
+ 	text	   *cmdtype_U;
+ 	text	   *cmdtype_D;
+-
++	bool	   event_txn;
++	
+ 	struct slony_I_cluster_status *next;
+ }	Slony_I_ClusterStatus;
+ 
+@@ -257,6 +258,12 @@ versionFunc(createEvent) (PG_FUNCTION_ARGS)
+ 	if (!TransactionIdEquals(cs->currentXid, newXid))
+ 	{
+ 		cs->currentXid = newXid;
++		cs->event_txn = true;
++	}
++
++	if(!cs->event_txn)
++	{
++		elog(ERROR,"createEvent called in a data transaction");
+ 	}
+ 
+ 	/*
+@@ -467,8 +474,13 @@ versionFunc(logTrigger) (PG_FUNCTION_ARGS)
+ 		}
+ 
+ 		cs->currentXid = newXid;
++		cs->event_txn=false;
+ 	}
+ 
++	if(cs->event_txn)
++	{
++		elog(ERROR,"Slony-I: log trigger called in an event transaction");
++	}
+ 	/*
+ 	 * Save the current datestyle setting and switch to ISO (if not already)
+ 	 */
+-- 
+2.1.4
+
+
+--------------080604070207020307040604--
+
+From ssinger at ca.afilias.info  Sun Mar 26 09:54:46 2017
+From: ssinger at ca.afilias.info (Steve Singer)
+Date: Sun, 26 Mar 2017 12:54:46 -0400
+Subject: [PATCH 1/2] Explicitly disallow createEvent and data changes in the
+ same transaction.
+Message-ID: <mailman.5.1492216137.4520.slony1-hackers@lists.slony.info>
+
+The same transaction should not have both a row in sl_event and log data
+to sl_log_1 or sl_log_2 with the logTrigger.  This is not something slonik
+would ever do, and the data changes that the logTrigger logs might not get
+replicated as part of the event processing(ie for many non SYNC events).
+it is also unclear what order the data should be applied in with respect to
+the actions of the non-SYNC event.
+---
+ src/backend/slony1_funcs.c | 14 +++++++++++++-
+ 1 file changed, 13 insertions(+), 1 deletion(-)
+
+diff --git a/src/backend/slony1_funcs.c b/src/backend/slony1_funcs.c
+index 2d8891b..657589e 100644
+--- a/src/backend/slony1_funcs.c
++++ b/src/backend/slony1_funcs.c
+@@ -151,7 +151,8 @@ typedef struct slony_I_cluster_status
+ 	text	   *cmdtype_I;
+ 	text	   *cmdtype_U;
+ 	text	   *cmdtype_D;
+-
++	bool	   event_txn;
++	
+ 	struct slony_I_cluster_status *next;
+ }	Slony_I_ClusterStatus;
+ 
+@@ -257,6 +258,12 @@ versionFunc(createEvent) (PG_FUNCTION_ARGS)
+ 	if (!TransactionIdEquals(cs->currentXid, newXid))
+ 	{
+ 		cs->currentXid = newXid;
++		cs->event_txn = true;
++	}
++
++	if(!cs->event_txn)
++	{
++		elog(ERROR,"createEvent called in a data transaction");
+ 	}
+ 
+ 	/*
+@@ -467,8 +474,13 @@ versionFunc(logTrigger) (PG_FUNCTION_ARGS)
+ 		}
+ 
+ 		cs->currentXid = newXid;
++		cs->event_txn=false;
+ 	}
+ 
++	if(cs->event_txn)
++	{
++		elog(ERROR,"Slony-I: log trigger called in an event transaction");
++	}
+ 	/*
+ 	 * Save the current datestyle setting and switch to ISO (if not already)
+ 	 */
+-- 
+2.1.4
+
+
+--------------060106080008080705060703--
+

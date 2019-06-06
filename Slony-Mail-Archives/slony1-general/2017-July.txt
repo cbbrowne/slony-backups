@@ -1,0 +1,1834 @@
+From steve at ssinger.info  Sun Jul  2 18:30:12 2017
+From: steve at ssinger.info (Steve Singer)
+Date: Sun, 2 Jul 2017 21:30:12 -0400 (EDT)
+Subject: [Slony1-general] failover failure and mysterious missing paths
+In-Reply-To: <56F25BE0-F9A2-4FCF-A391-110E6605947D@akamai.com>
+References: <42E59DE1-0BE4-4421-8EC2-95801454E580@akamai.com>
+	<5952C843.4020802@ssinger.info>
+	<56F25BE0-F9A2-4FCF-A391-110E6605947D@akamai.com>
+Message-ID: <alpine.DEB.2.11.1707022128540.23552@opti.atlantida>
+
+On Wed, 28 Jun 2017, Tignor, Tom wrote:
+
+>
+> 	Hi Steve,
+> 	Thanks for the info. I was able to repro this problem in testing and saw as soon as I added the missing path back the still-in-process failover op continued on and completed successfully.
+> 	We do issue DROP NODEs in the event we need to restore a replica from scratch, which did occur. However, the restore workflow also should issue store paths to/from the new replica node and every other node. Still investigating this.
+> 	What still confuses me is the recurring ?remoteWorkerThread_X: SYNC? output, despite the fact of not having a configured path. If the path is missing, how does slon continue to get SYNC events?
+
+Slon can get events including SYNC from nodes other than the event origin if 
+it has a path to that node.   However a slon can only replicate the data 
+from a node it has a path to.
+
+
+Steve
+
+
+
+>
+> 	Tom    (
+>
+>
+> On 6/27/17, 5:04 PM, "Steve Singer" <steve at ssinger.info> wrote:
+>
+>    On 06/27/2017 11:59 AM, Tignor, Tom wrote:
+>
+>
+>    The disableNode() in the makes it look like someone did a DROP NODE
+>
+>    If the only issue is that your missing active paths in sl_path you can
+>    add/update the paths with slonik.
+>
+>
+>
+>
+>    > **
+>    >
+>    > **Hello Slony-I community,
+>    >
+>    >              Hoping someone can advise on a strange and serious problem.
+>    > We performed a slony service failover yesterday. For the first time
+>    > ever, our slony service FAILOVER op errored out. We recently expanded
+>    > our cluster to 7 consumers from a single provider. There are no load
+>    > issues during normal operations. As the error output below shows,
+>    > though, our node 4 and node 5 consumers never got the events they
+>    > needed. Here?s where it gets weird: closer inspection has shown that
+>    > node 2->4 and node 2->5 path data went missing out of the service at
+>    > some point. It seems clear that?s the main issue, but in spite of that,
+>    > both node 4 and node 5 continued to find and process node 2 SYNC events
+>    > for a full week! The logs show this happened in spite of multiple restarts.
+>    >
+>    > How can this happen? If missing path data stymies the failover, wouldn?t
+>    > it also prevent normal SYNC processing?
+>    >
+>    > In the case where a failover is begun with inadequate path data, what?s
+>    > the best resolution? Can path data be quickly applied to allow failover
+>    > to succeed?
+>    >
+>    >              Thanks in advance for any insights.
+>    >
+>    > ---- failover error ----
+>    >
+>    > /tmp/ams-tool/ams-slony1-fastfailover-1-FR_80.67.75.105.slk:56: NOTICE:
+>    > calling restart node 1
+>    >
+>    > /tmp/ams-tool/ams-slony1-fastfailover-1-FR_80.67.75.105.slk:55:
+>    > 2017-06-26 18:33:02
+>    >
+>    > executing preFailover(1,1) on 2
+>    >
+>    > executing preFailover(1,1) on 3
+>    >
+>    > executing preFailover(1,1) on 4
+>    >
+>    > executing preFailover(1,1) on 5
+>    >
+>    > executing preFailover(1,1) on 6
+>    >
+>    > executing preFailover(1,1) on 7
+>    >
+>    > executing preFailover(1,1) on 8
+>    >
+>    > NOTICE: executing "_ams_cluster".failedNode2 on node 2
+>    >
+>    > /tmp/ams-tool/ams-slony1-fastfailover-1-FR_80.67.75.105.slk:56: waiting
+>    > for event (2,5000061664).  node 8 only on event 5000061654, node 4 only
+>    > on event 5000061654, node 5 only on event 5000061655, node 3 only on
+>    > event 5000061662, node 6\
+>    >
+>    >   only on event 5000061654, node 7 only on event 5000061656
+>    >
+>    > /tmp/ams-tool/ams-slony1-fastfailover-1-FR_80.67.75.105.slk:56: waiting
+>    > for event (2,5000061664).  node 4 only on event 5000061657, node 5 only
+>    > on event 5000061663, node 3 only on event 5000061663, node 6 only on
+>    > event 5000061663
+>    >
+>    > /tmp/ams-tool/ams-slony1-fastfailover-1-FR_80.67.75.105.slk:56: waiting
+>    > for event (2,5000061664).  node 4 only on event 5000061663, node 5 only
+>    > on event 5000061663, node 6 only on event 5000061663
+>    >
+>    > /tmp/ams-tool/ams-slony1-fastfailover-1-FR_80.67.75.105.slk:56: waiting
+>    > for event (2,5000061664).  node 4 only on event 5000061663, node 5 only
+>    > on event 5000061663
+>    >
+>    > /tmp/ams-tool/ams-slony1-fastfailover-1-FR_80.67.75.105.slk:56: waiting
+>    > for event (2,5000061664).  node 4 only on event 5000061663, node 5 only
+>    > on event 5000061663
+>    >
+>    > /tmp/ams-tool/ams-slony1-fastfailover-1-FR_80.67.75.105.slk:56: waiting
+>    > for event (2,5000061664).  node 4 only on event 5000061663, node 5 only
+>    > on event 5000061663
+>    >
+>    > /tmp/ams-tool/ams-slony1-fastfailover-1-FR_80.67.75.105.slk:56: waiting
+>    > for event (2,5000061664).  node 4 only on event 5000061663, node 5 only
+>    > on event 5000061663
+>    >
+>    > /tmp/ams-tool/ams-slony1-fastfailover-1-FR_80.67.75.105.slk:56: waiting
+>    > for event (2,5000061664).  node 4 only on event 5000061663, node 5 only
+>    > on event 5000061663
+>    >
+>    > /tmp/ams-tool/ams-slony1-fastfailover-1-FR_80.67.75.105.slk:56: waiting
+>    > for event (2,5000061664).  node 4 only on event 5000061663, node 5 only
+>    > on event 5000061663
+>    >
+>    > /tmp/ams-tool/ams-slony1-fastfailover-1-FR_80.67.75.105.slk:56: waiting
+>    > for event (2,5000061664).  node 4 only on event 5000061663, node 5 only
+>    > on event 5000061663
+>    >
+>    > /tmp/ams-tool/ams-slony1-fastfailover-1-FR_80.67.75.105.slk:56: waiting
+>    > for event (2,5000061664).  node 4 only on event 5000061663, node 5 only
+>    > on event 5000061663
+>    >
+>    > /tmp/ams-tool/ams-slony1-fastfailover-1-FR_80.67.75.105.slk:56: waiting
+>    > for event (2,5000061664).  node 4 only on event 5000061663, node 5 only
+>    > on event 5000061663
+>    >
+>    > /tmp/ams-tool/ams-slony1-fastfailover-1-FR_80.67.75.105.slk:56: waiting
+>    > for event (2,5000061664).  node 4 only on event 5000061663, node 5 only
+>    > on event 5000061663
+>    >
+>    > /tmp/ams-tool/ams-slony1-fastfailover-1-FR_80.67.75.105.slk:56: waiting
+>    > for event (2,5000061664).  node 4 only on event 5000061663, node 5 only
+>    > on event 5000061663
+>    >
+>    > ---- node 4 log archive ----
+>    >
+>    > bos-mpt5c:odin-9353 ttignor$ egrep 'disableNode: no_id=2|storePath:
+>    > pa_server=2 pa_client=4|restart notification' prod4/node4-pathconfig.out
+>    >
+>    > 2017-06-15 15:14:00 UTC [5688] INFO   localListenThread: got restart
+>    > notification
+>    >
+>    > 2017-06-15 15:14:10 UTC [8431] CONFIG storePath: pa_server=2 pa_client=4
+>    > pa_conninfo="dbname=ams
+>    >
+>    > 2017-06-15 15:53:00 UTC [8431] INFO   localListenThread: got restart
+>    > notification
+>    >
+>    > 2017-06-15 15:53:10 UTC [23701] CONFIG storePath: pa_server=2
+>    > pa_client=4 pa_conninfo="dbname=ams
+>    >
+>    > 2017-06-16 17:29:13 UTC [10253] CONFIG storePath: pa_server=2
+>    > pa_client=4 pa_conninfo="dbname=ams
+>    >
+>    > 2017-06-16 20:43:42 UTC [2707] CONFIG storePath: pa_server=2 pa_client=4
+>    > pa_conninfo="dbname=ams
+>    >
+>    > 2017-06-19 15:11:45 UTC [2707] CONFIG disableNode: no_id=2
+>    >
+>    > 2017-06-19 15:11:45 UTC [2707] INFO   localListenThread: got restart
+>    > notification
+>    >
+>    > 2017-06-20 18:40:15 UTC [31224] INFO   localListenThread: got restart
+>    > notification
+>    >
+>    > 2017-06-21 14:31:42 UTC [6253] INFO   localListenThread: got restart
+>    > notification
+>    >
+>    > 2017-06-21 14:35:26 UTC [32367] INFO   localListenThread: got restart
+>    > notification
+>    >
+>    > 2017-06-26 18:21:25 UTC [9278] INFO   localListenThread: got restart
+>    > notification
+>    >
+>    > 2017-06-26 18:33:04 UTC [28839] INFO   localListenThread: got restart
+>    > notification
+>    >
+>    > 2017-06-26 18:33:30 UTC [1785] INFO   localListenThread: got restart
+>    > notification
+>    >
+>    > bos-mpt5c:odin-9353 ttignor$
+>    >
+>    > ---- node 5 log archive ----
+>    >
+>    > bos-mpt5c:odin-9353 ttignor$ egrep 'disableNode: no_id=2|storePath:
+>    > pa_server=2 pa_client=5|restart notification' prod5/node5-pathconfig.out
+>    >
+>    > 2017-06-15 15:13:56 UTC [20700] INFO   localListenThread: got restart
+>    > notification
+>    >
+>    > 2017-06-15 15:14:06 UTC [20374] CONFIG storePath: pa_server=2
+>    > pa_client=5 pa_conninfo="dbname=ams
+>    >
+>    > 2017-06-15 15:53:01 UTC [20374] INFO   localListenThread: got restart
+>    > notification
+>    >
+>    > 2017-06-15 15:53:11 UTC [2859] CONFIG storePath: pa_server=2 pa_client=5
+>    > pa_conninfo="dbname=ams
+>    >
+>    > 2017-06-16 17:28:19 UTC [2859] INFO   localListenThread: got restart
+>    > notification
+>    >
+>    > 2017-06-16 17:28:29 UTC [10753] CONFIG storePath: pa_server=2
+>    > pa_client=5 pa_conninfo="dbname=ams
+>    >
+>    > 2017-06-19 15:11:40 UTC [10753] CONFIG disableNode: no_id=2
+>    >
+>    > 2017-06-19 15:11:40 UTC [10753] INFO   localListenThread: got restart
+>    > notification
+>    >
+>    > 2017-06-20 18:40:11 UTC [450] INFO   localListenThread: got restart
+>    > notification
+>    >
+>    > 2017-06-21 14:31:41 UTC [22300] INFO   localListenThread: got restart
+>    > notification
+>    >
+>    > 2017-06-21 14:35:28 UTC [26777] INFO   localListenThread: got restart
+>    > notification
+>    >
+>    > 2017-06-26 18:21:27 UTC [28366] INFO   localListenThread: got restart
+>    > notification
+>    >
+>    > 2017-06-26 18:33:04 UTC [29345] INFO   localListenThread: got restart
+>    > notification
+>    >
+>    > 2017-06-26 18:33:27 UTC [1299] INFO   localListenThread: got restart
+>    > notification
+>    >
+>    > bos-mpt5c:odin-9353 ttignor$
+>    >
+>    >              Tom ?
+>    >
+>    >
+>    >
+>    > _______________________________________________
+>    > Slony1-general mailing list
+>    > Slony1-general at lists.slony.info
+>    > http://lists.slony.info/mailman/listinfo/slony1-general
+>    >
+>
+>
+>
+>
+
+From nawazid at yahoo.com  Mon Jul  3 20:57:12 2017
+From: nawazid at yahoo.com (Nawaz Ahmed)
+Date: Tue, 4 Jul 2017 03:57:12 +0000 (UTC)
+Subject: [Slony1-general] replication of tables of same name to different
+	schema
+References: <1059362188.3956242.1499140632270.ref@mail.yahoo.com>
+Message-ID: <1059362188.3956242.1499140632270@mail.yahoo.com>
+
+Hi Folks,
+I have a question regarding the replication of tables between PostgreSQL 9.1 to PostgreSQL 9.5.
+Is it possible to replicate tables of same name but with different schema names ?. I am trying to replicate appl.table(s) from PostgreSQL 9.1 to user1.table(s) of PostgreSQL 9.5 and all I could see is below
+Could not find table "appl"."pgbench_accounts" on subscriber
+I have a set of tables under the "appl" schema in PG9.1 and the same tables have been created under the "user1" schema in PG9.5. I went through the documentation of "set add table" and came across a TABLES argument but even that uses the schema_name to qualify a table name.
+1) Is it a requirement for the tables to be created under same schema names ? or is there an alternative around it ? 
+2) And, where is the step of "start of replication" supposed to be executed: at master or at slave ?. I inadvertently executed it on slave and the child process of slon deamon crashed and tried to come up every 10 seconds while there were messages in the slon redirection log that the child process was kill with 9 and trying to come up after 10 seconds.
+
+Please find below the commands that I have used.
+Init cluster / Create set / Store path
+export CLUSTERNAME=pg_upg
+export MASTERDBNAME=db1
+export SLAVEDBNAME=db1_repl
+export MASTERHOST=node1
+export SLAVEHOST=node2
+export MAS_REPLICATIONUSER=appl
+export SLV_REPLICATIONUSER=user1
+export MAS_PAS=appl
+export SLV_PAS=user1
+export MAS_PORT=5432
+export SLV_PORT=5632
+
+
+ slonik <<EOF
+????????cluster name = $CLUSTERNAME;
+????????node 1 admin conninfo = 'dbname=$MASTERDBNAME host=$MASTERHOST user=$MAS_REPLICATIONUSER password=$MAS_PAS port=$MAS_PORT';
+????????node 2 admin conninfo = 'dbname=$SLAVEDBNAME host=$SLAVEHOST user=$SLV_REPLICATIONUSER password=$SLV_PAS port=$SLV_PORT';
+????????init cluster ( id=1, comment = 'Master Node');
+????????create set (id=1, origin=1, comment='All pgbench tables');
+????????set add table (set id=1, origin=1, id=1, fully qualified name = 'appl.pgbench_accounts', comment='accounts table');
+????????set add table (set id=1, origin=1, id=2, fully qualified name = 'appl.pgbench_branches', comment='branches table');
+????????set add table (set id=1, origin=1, id=3, fully qualified name = 'appl.pgbench_tellers', comment='tellers table');
+????????set add table (set id=1, origin=1, id=4, fully qualified name = 'appl.pgbench_history', comment='history table');
+??????? create set (id=2, origin=1, comment='All T* tables');
+????????### set add table (set id=2, origin=1, id=1, fully qualified name = 'appl.t1', comment='t1 table');
+????????set add table (set id=2, origin=1, id=5, fully qualified name = 'appl.tab1', comment='tab1 table');
+????????store node (id=2, comment = 'Slave node', event node=1);
+????????store path (server = 1, client = 2, conninfo='dbname=$MASTERDBNAME host=$MASTERHOST user=$MAS_REPLICATIONUSER password=$MAS_PAS port=$MAS_PORT');
+????????store path (server = 2, client = 1, conninfo='dbname=$SLAVEDBNAME host=$SLAVEHOST user=$SLV_REPLICATIONUSER password=$SLV_PAS port=$SLV_PORT');
+EOF
+
+starting slon deamons
+slon $CLUSTERNAME "dbname=$MASTERDBNAME user=$MAS_REPLICATIONUSER host=$MASTERHOST port=$MAS_PORT" -d2 >>master.log
+slon $CLUSTERNAME "dbname=$SLAVEDBNAME user=$SLV_REPLICATIONUSER host=$SLAVEHOST port=$SLV_PORT" -d2 >>slave.log
+start of replication
+slonik <<_EOF_
+???????? cluster name = $CLUSTERNAME;
+???????? #
+???????? node 1 admin conninfo = 'dbname=$MASTERDBNAME host=$MASTERHOST user=$MAS_REPLICATIONUSER password=$MAS_PAS port=$MAS_PORT';
+???????? node 2 admin conninfo = 'dbname=$SLAVEDBNAME host=$SLAVEHOST user=$SLV_REPLICATIONUSER password=$SLV_PAS port=$SLV_PORT';
+???????? subscribe set ( id = 1, provider = 1, receiver = 2, forward = no);
+???????? subscribe set ( id = 2, provider = 1, receiver = 2, forward = no);_EOF_
+
+Regards,?Nawaz Ahmed?
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20170704/94d58075/attachment.htm 
+
+From ttignor at akamai.com  Wed Jul  5 06:04:39 2017
+From: ttignor at akamai.com (Tignor, Tom)
+Date: Wed, 5 Jul 2017 13:04:39 +0000
+Subject: [Slony1-general] failover failure and mysterious missing paths
+In-Reply-To: <alpine.DEB.2.11.1707022128540.23552@opti.atlantida>
+References: <42E59DE1-0BE4-4421-8EC2-95801454E580@akamai.com>
+	<5952C843.4020802@ssinger.info>
+	<56F25BE0-F9A2-4FCF-A391-110E6605947D@akamai.com>
+	<alpine.DEB.2.11.1707022128540.23552@opti.atlantida>
+Message-ID: <A08EBB58-FB5A-4A30-85D4-9AAEA47DA59B@akamai.com>
+
+
+	Interesting. Of course the behavior evident on inspection indicated something like this must be happening. 
+	It seems the doc could be improved on the subject of required paths. I recall some sections indicate it is not harmful to have a path from each node to each other node. What seems not to be spelled out is that for the service to be highly available, to have the ability to failover, each node is *required* to have a path to each other node. 
+	On a related point, it would be a lot more convenient if we could give each node a default path instead of re-specifying the same IP for each new subscriber, and a new line of conninfo for every slonik script. 
+	Would either of these items be worth writing up in bug tracking and/or providing the solution? If so, could I get that link?
+
+	Tom    (
+
+
+On 7/2/17, 9:30 PM, "Steve Singer" <steve at ssinger.info> wrote:
+
+    On Wed, 28 Jun 2017, Tignor, Tom wrote:
+    
+    >
+    > 	Hi Steve,
+    > 	Thanks for the info. I was able to repro this problem in testing and saw as soon as I added the missing path back the still-in-process failover op continued on and completed successfully.
+    > 	We do issue DROP NODEs in the event we need to restore a replica from scratch, which did occur. However, the restore workflow also should issue store paths to/from the new replica node and every other node. Still investigating this.
+    > 	What still confuses me is the recurring ?remoteWorkerThread_X: SYNC? output, despite the fact of not having a configured path. If the path is missing, how does slon continue to get SYNC events?
+    
+    Slon can get events including SYNC from nodes other than the event origin if 
+    it has a path to that node.   However a slon can only replicate the data 
+    from a node it has a path to.
+    
+    
+    Steve
+    
+    
+    
+    >
+    > 	Tom    (
+    >
+    >
+    > On 6/27/17, 5:04 PM, "Steve Singer" <steve at ssinger.info> wrote:
+    >
+    >    On 06/27/2017 11:59 AM, Tignor, Tom wrote:
+    >
+    >
+    >    The disableNode() in the makes it look like someone did a DROP NODE
+    >
+    >    If the only issue is that your missing active paths in sl_path you can
+    >    add/update the paths with slonik.
+    >
+    >
+    >
+    >
+    >    > **
+    >    >
+    >    > **Hello Slony-I community,
+    >    >
+    >    >              Hoping someone can advise on a strange and serious problem.
+    >    > We performed a slony service failover yesterday. For the first time
+    >    > ever, our slony service FAILOVER op errored out. We recently expanded
+    >    > our cluster to 7 consumers from a single provider. There are no load
+    >    > issues during normal operations. As the error output below shows,
+    >    > though, our node 4 and node 5 consumers never got the events they
+    >    > needed. Here?s where it gets weird: closer inspection has shown that
+    >    > node 2->4 and node 2->5 path data went missing out of the service at
+    >    > some point. It seems clear that?s the main issue, but in spite of that,
+    >    > both node 4 and node 5 continued to find and process node 2 SYNC events
+    >    > for a full week! The logs show this happened in spite of multiple restarts.
+    >    >
+    >    > How can this happen? If missing path data stymies the failover, wouldn?t
+    >    > it also prevent normal SYNC processing?
+    >    >
+    >    > In the case where a failover is begun with inadequate path data, what?s
+    >    > the best resolution? Can path data be quickly applied to allow failover
+    >    > to succeed?
+    >    >
+    >    >              Thanks in advance for any insights.
+    >    >
+    >    > ---- failover error ----
+    >    >
+    >    > /tmp/ams-tool/ams-slony1-fastfailover-1-FR_80.67.75.105.slk:56: NOTICE:
+    >    > calling restart node 1
+    >    >
+    >    > /tmp/ams-tool/ams-slony1-fastfailover-1-FR_80.67.75.105.slk:55:
+    >    > 2017-06-26 18:33:02
+    >    >
+    >    > executing preFailover(1,1) on 2
+    >    >
+    >    > executing preFailover(1,1) on 3
+    >    >
+    >    > executing preFailover(1,1) on 4
+    >    >
+    >    > executing preFailover(1,1) on 5
+    >    >
+    >    > executing preFailover(1,1) on 6
+    >    >
+    >    > executing preFailover(1,1) on 7
+    >    >
+    >    > executing preFailover(1,1) on 8
+    >    >
+    >    > NOTICE: executing "_ams_cluster".failedNode2 on node 2
+    >    >
+    >    > /tmp/ams-tool/ams-slony1-fastfailover-1-FR_80.67.75.105.slk:56: waiting
+    >    > for event (2,5000061664).  node 8 only on event 5000061654, node 4 only
+    >    > on event 5000061654, node 5 only on event 5000061655, node 3 only on
+    >    > event 5000061662, node 6\
+    >    >
+    >    >   only on event 5000061654, node 7 only on event 5000061656
+    >    >
+    >    > /tmp/ams-tool/ams-slony1-fastfailover-1-FR_80.67.75.105.slk:56: waiting
+    >    > for event (2,5000061664).  node 4 only on event 5000061657, node 5 only
+    >    > on event 5000061663, node 3 only on event 5000061663, node 6 only on
+    >    > event 5000061663
+    >    >
+    >    > /tmp/ams-tool/ams-slony1-fastfailover-1-FR_80.67.75.105.slk:56: waiting
+    >    > for event (2,5000061664).  node 4 only on event 5000061663, node 5 only
+    >    > on event 5000061663, node 6 only on event 5000061663
+    >    >
+    >    > /tmp/ams-tool/ams-slony1-fastfailover-1-FR_80.67.75.105.slk:56: waiting
+    >    > for event (2,5000061664).  node 4 only on event 5000061663, node 5 only
+    >    > on event 5000061663
+    >    >
+    >    > /tmp/ams-tool/ams-slony1-fastfailover-1-FR_80.67.75.105.slk:56: waiting
+    >    > for event (2,5000061664).  node 4 only on event 5000061663, node 5 only
+    >    > on event 5000061663
+    >    >
+    >    > /tmp/ams-tool/ams-slony1-fastfailover-1-FR_80.67.75.105.slk:56: waiting
+    >    > for event (2,5000061664).  node 4 only on event 5000061663, node 5 only
+    >    > on event 5000061663
+    >    >
+    >    > /tmp/ams-tool/ams-slony1-fastfailover-1-FR_80.67.75.105.slk:56: waiting
+    >    > for event (2,5000061664).  node 4 only on event 5000061663, node 5 only
+    >    > on event 5000061663
+    >    >
+    >    > /tmp/ams-tool/ams-slony1-fastfailover-1-FR_80.67.75.105.slk:56: waiting
+    >    > for event (2,5000061664).  node 4 only on event 5000061663, node 5 only
+    >    > on event 5000061663
+    >    >
+    >    > /tmp/ams-tool/ams-slony1-fastfailover-1-FR_80.67.75.105.slk:56: waiting
+    >    > for event (2,5000061664).  node 4 only on event 5000061663, node 5 only
+    >    > on event 5000061663
+    >    >
+    >    > /tmp/ams-tool/ams-slony1-fastfailover-1-FR_80.67.75.105.slk:56: waiting
+    >    > for event (2,5000061664).  node 4 only on event 5000061663, node 5 only
+    >    > on event 5000061663
+    >    >
+    >    > /tmp/ams-tool/ams-slony1-fastfailover-1-FR_80.67.75.105.slk:56: waiting
+    >    > for event (2,5000061664).  node 4 only on event 5000061663, node 5 only
+    >    > on event 5000061663
+    >    >
+    >    > /tmp/ams-tool/ams-slony1-fastfailover-1-FR_80.67.75.105.slk:56: waiting
+    >    > for event (2,5000061664).  node 4 only on event 5000061663, node 5 only
+    >    > on event 5000061663
+    >    >
+    >    > /tmp/ams-tool/ams-slony1-fastfailover-1-FR_80.67.75.105.slk:56: waiting
+    >    > for event (2,5000061664).  node 4 only on event 5000061663, node 5 only
+    >    > on event 5000061663
+    >    >
+    >    > /tmp/ams-tool/ams-slony1-fastfailover-1-FR_80.67.75.105.slk:56: waiting
+    >    > for event (2,5000061664).  node 4 only on event 5000061663, node 5 only
+    >    > on event 5000061663
+    >    >
+    >    > ---- node 4 log archive ----
+    >    >
+    >    > bos-mpt5c:odin-9353 ttignor$ egrep 'disableNode: no_id=2|storePath:
+    >    > pa_server=2 pa_client=4|restart notification' prod4/node4-pathconfig.out
+    >    >
+    >    > 2017-06-15 15:14:00 UTC [5688] INFO   localListenThread: got restart
+    >    > notification
+    >    >
+    >    > 2017-06-15 15:14:10 UTC [8431] CONFIG storePath: pa_server=2 pa_client=4
+    >    > pa_conninfo="dbname=ams
+    >    >
+    >    > 2017-06-15 15:53:00 UTC [8431] INFO   localListenThread: got restart
+    >    > notification
+    >    >
+    >    > 2017-06-15 15:53:10 UTC [23701] CONFIG storePath: pa_server=2
+    >    > pa_client=4 pa_conninfo="dbname=ams
+    >    >
+    >    > 2017-06-16 17:29:13 UTC [10253] CONFIG storePath: pa_server=2
+    >    > pa_client=4 pa_conninfo="dbname=ams
+    >    >
+    >    > 2017-06-16 20:43:42 UTC [2707] CONFIG storePath: pa_server=2 pa_client=4
+    >    > pa_conninfo="dbname=ams
+    >    >
+    >    > 2017-06-19 15:11:45 UTC [2707] CONFIG disableNode: no_id=2
+    >    >
+    >    > 2017-06-19 15:11:45 UTC [2707] INFO   localListenThread: got restart
+    >    > notification
+    >    >
+    >    > 2017-06-20 18:40:15 UTC [31224] INFO   localListenThread: got restart
+    >    > notification
+    >    >
+    >    > 2017-06-21 14:31:42 UTC [6253] INFO   localListenThread: got restart
+    >    > notification
+    >    >
+    >    > 2017-06-21 14:35:26 UTC [32367] INFO   localListenThread: got restart
+    >    > notification
+    >    >
+    >    > 2017-06-26 18:21:25 UTC [9278] INFO   localListenThread: got restart
+    >    > notification
+    >    >
+    >    > 2017-06-26 18:33:04 UTC [28839] INFO   localListenThread: got restart
+    >    > notification
+    >    >
+    >    > 2017-06-26 18:33:30 UTC [1785] INFO   localListenThread: got restart
+    >    > notification
+    >    >
+    >    > bos-mpt5c:odin-9353 ttignor$
+    >    >
+    >    > ---- node 5 log archive ----
+    >    >
+    >    > bos-mpt5c:odin-9353 ttignor$ egrep 'disableNode: no_id=2|storePath:
+    >    > pa_server=2 pa_client=5|restart notification' prod5/node5-pathconfig.out
+    >    >
+    >    > 2017-06-15 15:13:56 UTC [20700] INFO   localListenThread: got restart
+    >    > notification
+    >    >
+    >    > 2017-06-15 15:14:06 UTC [20374] CONFIG storePath: pa_server=2
+    >    > pa_client=5 pa_conninfo="dbname=ams
+    >    >
+    >    > 2017-06-15 15:53:01 UTC [20374] INFO   localListenThread: got restart
+    >    > notification
+    >    >
+    >    > 2017-06-15 15:53:11 UTC [2859] CONFIG storePath: pa_server=2 pa_client=5
+    >    > pa_conninfo="dbname=ams
+    >    >
+    >    > 2017-06-16 17:28:19 UTC [2859] INFO   localListenThread: got restart
+    >    > notification
+    >    >
+    >    > 2017-06-16 17:28:29 UTC [10753] CONFIG storePath: pa_server=2
+    >    > pa_client=5 pa_conninfo="dbname=ams
+    >    >
+    >    > 2017-06-19 15:11:40 UTC [10753] CONFIG disableNode: no_id=2
+    >    >
+    >    > 2017-06-19 15:11:40 UTC [10753] INFO   localListenThread: got restart
+    >    > notification
+    >    >
+    >    > 2017-06-20 18:40:11 UTC [450] INFO   localListenThread: got restart
+    >    > notification
+    >    >
+    >    > 2017-06-21 14:31:41 UTC [22300] INFO   localListenThread: got restart
+    >    > notification
+    >    >
+    >    > 2017-06-21 14:35:28 UTC [26777] INFO   localListenThread: got restart
+    >    > notification
+    >    >
+    >    > 2017-06-26 18:21:27 UTC [28366] INFO   localListenThread: got restart
+    >    > notification
+    >    >
+    >    > 2017-06-26 18:33:04 UTC [29345] INFO   localListenThread: got restart
+    >    > notification
+    >    >
+    >    > 2017-06-26 18:33:27 UTC [1299] INFO   localListenThread: got restart
+    >    > notification
+    >    >
+    >    > bos-mpt5c:odin-9353 ttignor$
+    >    >
+    >    >              Tom ?
+    >    >
+    >    >
+    >    >
+    >    > _______________________________________________
+    >    > Slony1-general mailing list
+    >    > Slony1-general at lists.slony.info
+    >    > http://lists.slony.info/mailman/listinfo/slony1-general
+    >    >
+    >
+    >
+    >
+    >
+    
+
+
+From steve at ssinger.info  Wed Jul  5 18:53:41 2017
+From: steve at ssinger.info (Steve Singer)
+Date: Wed, 5 Jul 2017 21:53:41 -0400 (EDT)
+Subject: [Slony1-general] failover failure and mysterious missing paths
+In-Reply-To: <A08EBB58-FB5A-4A30-85D4-9AAEA47DA59B@akamai.com>
+References: <42E59DE1-0BE4-4421-8EC2-95801454E580@akamai.com>
+	<5952C843.4020802@ssinger.info>
+	<56F25BE0-F9A2-4FCF-A391-110E6605947D@akamai.com>
+	<alpine.DEB.2.11.1707022128540.23552@opti.atlantida>
+	<A08EBB58-FB5A-4A30-85D4-9AAEA47DA59B@akamai.com>
+Message-ID: <alpine.DEB.2.11.1707052147540.23552@opti.atlantida>
+
+On Wed, 5 Jul 2017, Tignor, Tom wrote:
+
+>
+> 	Interesting. Of course the behavior evident on inspection indicated something like this must be happening.
+> 	It seems the doc could be improved on the subject of required paths. I recall some sections indicate it is not harmful to have a path from each node to each other node. What seems not to be spelled out is that for the service to be highly available, to have the ability to failover, each node is *required* to have a path to each other node.
+> 	On a related point, it would be a lot more convenient if we could give each node a default path instead of re-specifying the same IP for each new subscriber, and a new line of conninfo for every slonik script.
+> 	Would either of these items be worth writing up in bug tracking and/or providing the solution? If so, could I get that link?
+
+You don't need a path to EVERY other node, you just need a path to nodes 
+that might be the providers as part of the failover.
+
+For example
+
+1-->2-->3
+     |
+     V
+     4
+
+If that is the direction of the replication flow, and the paths (plus back 
+paths).  Node 2 is the only viable failover candidate for node 1.  There 
+isn't a reason why node 3 and 4 need to have paths between each other.
+
+However
+
+1--->2
+|\
+V \
+3  4
+
+means that any of the nodes 2,3,4 might be failover candidates and if node 3 
+becomes the new origin then there would need to be paths between 3 and 2,4
+
+I tried to capture a lot of these rules in the sl_failover_targets view.
+
+
+We had to take the slony bugzilla instance offline because of excesive spam.
+
+
+Steve
+
+
+> 	Tom    (
+>
+>
+> On 7/2/17, 9:30 PM, "Steve Singer" <steve at ssinger.info> wrote:
+>
+>    On Wed, 28 Jun 2017, Tignor, Tom wrote:
+>
+>    >
+>    > 	Hi Steve,
+>    > 	Thanks for the info. I was able to repro this problem in testing and saw as soon as I added the missing path back the still-in-process failover op continued on and completed successfully.
+>    > 	We do issue DROP NODEs in the event we need to restore a replica from scratch, which did occur. However, the restore workflow also should issue store paths to/from the new replica node and every other node. Still investigating this.
+>    > 	What still confuses me is the recurring ?remoteWorkerThread_X: SYNC? output, despite the fact of not having a configured path. If the path is missing, how does slon continue to get SYNC events?
+>
+>    Slon can get events including SYNC from nodes other than the event origin if
+>    it has a path to that node.   However a slon can only replicate the data
+>    from a node it has a path to.
+>
+>
+>    Steve
+>
+>
+>
+>    >
+>    > 	Tom    (
+>    >
+>    >
+>    > On 6/27/17, 5:04 PM, "Steve Singer" <steve at ssinger.info> wrote:
+>    >
+>    >    On 06/27/2017 11:59 AM, Tignor, Tom wrote:
+>    >
+>    >
+>    >    The disableNode() in the makes it look like someone did a DROP NODE
+>    >
+>    >    If the only issue is that your missing active paths in sl_path you can
+>    >    add/update the paths with slonik.
+>    >
+>    >
+>    >
+>    >
+>    >    > **
+>    >    >
+>    >    > **Hello Slony-I community,
+>    >    >
+>    >    >              Hoping someone can advise on a strange and serious problem.
+>    >    > We performed a slony service failover yesterday. For the first time
+>    >    > ever, our slony service FAILOVER op errored out. We recently expanded
+>    >    > our cluster to 7 consumers from a single provider. There are no load
+>    >    > issues during normal operations. As the error output below shows,
+>    >    > though, our node 4 and node 5 consumers never got the events they
+>    >    > needed. Here?s where it gets weird: closer inspection has shown that
+>    >    > node 2->4 and node 2->5 path data went missing out of the service at
+>    >    > some point. It seems clear that?s the main issue, but in spite of that,
+>    >    > both node 4 and node 5 continued to find and process node 2 SYNC events
+>    >    > for a full week! The logs show this happened in spite of multiple restarts.
+>    >    >
+>    >    > How can this happen? If missing path data stymies the failover, wouldn?t
+>    >    > it also prevent normal SYNC processing?
+>    >    >
+>    >    > In the case where a failover is begun with inadequate path data, what?s
+>    >    > the best resolution? Can path data be quickly applied to allow failover
+>    >    > to succeed?
+>    >    >
+>    >    >              Thanks in advance for any insights.
+>    >    >
+>    >    > ---- failover error ----
+>    >    >
+>    >    > /tmp/ams-tool/ams-slony1-fastfailover-1-FR_80.67.75.105.slk:56: NOTICE:
+>    >    > calling restart node 1
+>    >    >
+>    >    > /tmp/ams-tool/ams-slony1-fastfailover-1-FR_80.67.75.105.slk:55:
+>    >    > 2017-06-26 18:33:02
+>    >    >
+>    >    > executing preFailover(1,1) on 2
+>    >    >
+>    >    > executing preFailover(1,1) on 3
+>    >    >
+>    >    > executing preFailover(1,1) on 4
+>    >    >
+>    >    > executing preFailover(1,1) on 5
+>    >    >
+>    >    > executing preFailover(1,1) on 6
+>    >    >
+>    >    > executing preFailover(1,1) on 7
+>    >    >
+>    >    > executing preFailover(1,1) on 8
+>    >    >
+>    >    > NOTICE: executing "_ams_cluster".failedNode2 on node 2
+>    >    >
+>    >    > /tmp/ams-tool/ams-slony1-fastfailover-1-FR_80.67.75.105.slk:56: waiting
+>    >    > for event (2,5000061664).  node 8 only on event 5000061654, node 4 only
+>    >    > on event 5000061654, node 5 only on event 5000061655, node 3 only on
+>    >    > event 5000061662, node 6\
+>    >    >
+>    >    >   only on event 5000061654, node 7 only on event 5000061656
+>    >    >
+>    >    > /tmp/ams-tool/ams-slony1-fastfailover-1-FR_80.67.75.105.slk:56: waiting
+>    >    > for event (2,5000061664).  node 4 only on event 5000061657, node 5 only
+>    >    > on event 5000061663, node 3 only on event 5000061663, node 6 only on
+>    >    > event 5000061663
+>    >    >
+>    >    > /tmp/ams-tool/ams-slony1-fastfailover-1-FR_80.67.75.105.slk:56: waiting
+>    >    > for event (2,5000061664).  node 4 only on event 5000061663, node 5 only
+>    >    > on event 5000061663, node 6 only on event 5000061663
+>    >    >
+>    >    > /tmp/ams-tool/ams-slony1-fastfailover-1-FR_80.67.75.105.slk:56: waiting
+>    >    > for event (2,5000061664).  node 4 only on event 5000061663, node 5 only
+>    >    > on event 5000061663
+>    >    >
+>    >    > /tmp/ams-tool/ams-slony1-fastfailover-1-FR_80.67.75.105.slk:56: waiting
+>    >    > for event (2,5000061664).  node 4 only on event 5000061663, node 5 only
+>    >    > on event 5000061663
+>    >    >
+>    >    > /tmp/ams-tool/ams-slony1-fastfailover-1-FR_80.67.75.105.slk:56: waiting
+>    >    > for event (2,5000061664).  node 4 only on event 5000061663, node 5 only
+>    >    > on event 5000061663
+>    >    >
+>    >    > /tmp/ams-tool/ams-slony1-fastfailover-1-FR_80.67.75.105.slk:56: waiting
+>    >    > for event (2,5000061664).  node 4 only on event 5000061663, node 5 only
+>    >    > on event 5000061663
+>    >    >
+>    >    > /tmp/ams-tool/ams-slony1-fastfailover-1-FR_80.67.75.105.slk:56: waiting
+>    >    > for event (2,5000061664).  node 4 only on event 5000061663, node 5 only
+>    >    > on event 5000061663
+>    >    >
+>    >    > /tmp/ams-tool/ams-slony1-fastfailover-1-FR_80.67.75.105.slk:56: waiting
+>    >    > for event (2,5000061664).  node 4 only on event 5000061663, node 5 only
+>    >    > on event 5000061663
+>    >    >
+>    >    > /tmp/ams-tool/ams-slony1-fastfailover-1-FR_80.67.75.105.slk:56: waiting
+>    >    > for event (2,5000061664).  node 4 only on event 5000061663, node 5 only
+>    >    > on event 5000061663
+>    >    >
+>    >    > /tmp/ams-tool/ams-slony1-fastfailover-1-FR_80.67.75.105.slk:56: waiting
+>    >    > for event (2,5000061664).  node 4 only on event 5000061663, node 5 only
+>    >    > on event 5000061663
+>    >    >
+>    >    > /tmp/ams-tool/ams-slony1-fastfailover-1-FR_80.67.75.105.slk:56: waiting
+>    >    > for event (2,5000061664).  node 4 only on event 5000061663, node 5 only
+>    >    > on event 5000061663
+>    >    >
+>    >    > /tmp/ams-tool/ams-slony1-fastfailover-1-FR_80.67.75.105.slk:56: waiting
+>    >    > for event (2,5000061664).  node 4 only on event 5000061663, node 5 only
+>    >    > on event 5000061663
+>    >    >
+>    >    > /tmp/ams-tool/ams-slony1-fastfailover-1-FR_80.67.75.105.slk:56: waiting
+>    >    > for event (2,5000061664).  node 4 only on event 5000061663, node 5 only
+>    >    > on event 5000061663
+>    >    >
+>    >    > ---- node 4 log archive ----
+>    >    >
+>    >    > bos-mpt5c:odin-9353 ttignor$ egrep 'disableNode: no_id=2|storePath:
+>    >    > pa_server=2 pa_client=4|restart notification' prod4/node4-pathconfig.out
+>    >    >
+>    >    > 2017-06-15 15:14:00 UTC [5688] INFO   localListenThread: got restart
+>    >    > notification
+>    >    >
+>    >    > 2017-06-15 15:14:10 UTC [8431] CONFIG storePath: pa_server=2 pa_client=4
+>    >    > pa_conninfo="dbname=ams
+>    >    >
+>    >    > 2017-06-15 15:53:00 UTC [8431] INFO   localListenThread: got restart
+>    >    > notification
+>    >    >
+>    >    > 2017-06-15 15:53:10 UTC [23701] CONFIG storePath: pa_server=2
+>    >    > pa_client=4 pa_conninfo="dbname=ams
+>    >    >
+>    >    > 2017-06-16 17:29:13 UTC [10253] CONFIG storePath: pa_server=2
+>    >    > pa_client=4 pa_conninfo="dbname=ams
+>    >    >
+>    >    > 2017-06-16 20:43:42 UTC [2707] CONFIG storePath: pa_server=2 pa_client=4
+>    >    > pa_conninfo="dbname=ams
+>    >    >
+>    >    > 2017-06-19 15:11:45 UTC [2707] CONFIG disableNode: no_id=2
+>    >    >
+>    >    > 2017-06-19 15:11:45 UTC [2707] INFO   localListenThread: got restart
+>    >    > notification
+>    >    >
+>    >    > 2017-06-20 18:40:15 UTC [31224] INFO   localListenThread: got restart
+>    >    > notification
+>    >    >
+>    >    > 2017-06-21 14:31:42 UTC [6253] INFO   localListenThread: got restart
+>    >    > notification
+>    >    >
+>    >    > 2017-06-21 14:35:26 UTC [32367] INFO   localListenThread: got restart
+>    >    > notification
+>    >    >
+>    >    > 2017-06-26 18:21:25 UTC [9278] INFO   localListenThread: got restart
+>    >    > notification
+>    >    >
+>    >    > 2017-06-26 18:33:04 UTC [28839] INFO   localListenThread: got restart
+>    >    > notification
+>    >    >
+>    >    > 2017-06-26 18:33:30 UTC [1785] INFO   localListenThread: got restart
+>    >    > notification
+>    >    >
+>    >    > bos-mpt5c:odin-9353 ttignor$
+>    >    >
+>    >    > ---- node 5 log archive ----
+>    >    >
+>    >    > bos-mpt5c:odin-9353 ttignor$ egrep 'disableNode: no_id=2|storePath:
+>    >    > pa_server=2 pa_client=5|restart notification' prod5/node5-pathconfig.out
+>    >    >
+>    >    > 2017-06-15 15:13:56 UTC [20700] INFO   localListenThread: got restart
+>    >    > notification
+>    >    >
+>    >    > 2017-06-15 15:14:06 UTC [20374] CONFIG storePath: pa_server=2
+>    >    > pa_client=5 pa_conninfo="dbname=ams
+>    >    >
+>    >    > 2017-06-15 15:53:01 UTC [20374] INFO   localListenThread: got restart
+>    >    > notification
+>    >    >
+>    >    > 2017-06-15 15:53:11 UTC [2859] CONFIG storePath: pa_server=2 pa_client=5
+>    >    > pa_conninfo="dbname=ams
+>    >    >
+>    >    > 2017-06-16 17:28:19 UTC [2859] INFO   localListenThread: got restart
+>    >    > notification
+>    >    >
+>    >    > 2017-06-16 17:28:29 UTC [10753] CONFIG storePath: pa_server=2
+>    >    > pa_client=5 pa_conninfo="dbname=ams
+>    >    >
+>    >    > 2017-06-19 15:11:40 UTC [10753] CONFIG disableNode: no_id=2
+>    >    >
+>    >    > 2017-06-19 15:11:40 UTC [10753] INFO   localListenThread: got restart
+>    >    > notification
+>    >    >
+>    >    > 2017-06-20 18:40:11 UTC [450] INFO   localListenThread: got restart
+>    >    > notification
+>    >    >
+>    >    > 2017-06-21 14:31:41 UTC [22300] INFO   localListenThread: got restart
+>    >    > notification
+>    >    >
+>    >    > 2017-06-21 14:35:28 UTC [26777] INFO   localListenThread: got restart
+>    >    > notification
+>    >    >
+>    >    > 2017-06-26 18:21:27 UTC [28366] INFO   localListenThread: got restart
+>    >    > notification
+>    >    >
+>    >    > 2017-06-26 18:33:04 UTC [29345] INFO   localListenThread: got restart
+>    >    > notification
+>    >    >
+>    >    > 2017-06-26 18:33:27 UTC [1299] INFO   localListenThread: got restart
+>    >    > notification
+>    >    >
+>    >    > bos-mpt5c:odin-9353 ttignor$
+>    >    >
+>    >    >              Tom ?
+>    >    >
+>    >    >
+>    >    >
+>    >    > _______________________________________________
+>    >    > Slony1-general mailing list
+>    >    > Slony1-general at lists.slony.info
+>    >    > http://lists.slony.info/mailman/listinfo/slony1-general
+>    >    >
+>    >
+>    >
+>    >
+>    >
+>
+>
+>
+
+From ttignor at akamai.com  Thu Jul  6 05:38:32 2017
+From: ttignor at akamai.com (Tignor, Tom)
+Date: Thu, 6 Jul 2017 12:38:32 +0000
+Subject: [Slony1-general] failover failure and mysterious missing paths
+In-Reply-To: <alpine.DEB.2.11.1707052147540.23552@opti.atlantida>
+References: <42E59DE1-0BE4-4421-8EC2-95801454E580@akamai.com>
+	<5952C843.4020802@ssinger.info>
+	<56F25BE0-F9A2-4FCF-A391-110E6605947D@akamai.com>
+	<alpine.DEB.2.11.1707022128540.23552@opti.atlantida>
+	<A08EBB58-FB5A-4A30-85D4-9AAEA47DA59B@akamai.com>
+	<alpine.DEB.2.11.1707052147540.23552@opti.atlantida>
+Message-ID: <D50B029F-AA2E-4102-8790-0FBD90081E48@akamai.com>
+
+
+	Hi Steve,
+	Your diagrams and description would make sense. In our failover, though, we selected node 3 (?failover (id=1, backup node=3)?). The output I provided (see below) seems to show we failed because we were missing paths 2<->4 and 2<->5. With slony1-2.2.4, I can actually reproduce this by deleting those paths, and sometimes (not always) the failover will self-correct if I add them back after a prolonged delay. It seems in the problem case, 2 is farthest ahead at failover time, and while I might have hoped 2 would only have to feed 3, it seems to have to feed everybody.
+	Sorry to hear about the Bugzilla spam. We are pretty well invested in slony1 at this point, so if there is a way I can contribute for this or other efforts, certainly let me know.
+	Thanks,
+
+	Tom    (
+
+
+On 7/5/17, 9:53 PM, "Steve Singer" <steve at ssinger.info> wrote:
+
+    On Wed, 5 Jul 2017, Tignor, Tom wrote:
+    
+    >
+    > 	Interesting. Of course the behavior evident on inspection indicated something like this must be happening.
+    > 	It seems the doc could be improved on the subject of required paths. I recall some sections indicate it is not harmful to have a path from each node to each other node. What seems not to be spelled out is that for the service to be highly available, to have the ability to failover, each node is *required* to have a path to each other node.
+    > 	On a related point, it would be a lot more convenient if we could give each node a default path instead of re-specifying the same IP for each new subscriber, and a new line of conninfo for every slonik script.
+    > 	Would either of these items be worth writing up in bug tracking and/or providing the solution? If so, could I get that link?
+    
+    You don't need a path to EVERY other node, you just need a path to nodes 
+    that might be the providers as part of the failover.
+    
+    For example
+    
+    1-->2-->3
+         |
+         V
+         4
+    
+    If that is the direction of the replication flow, and the paths (plus back 
+    paths).  Node 2 is the only viable failover candidate for node 1.  There 
+    isn't a reason why node 3 and 4 need to have paths between each other.
+    
+    However
+    
+    1--->2
+    |\
+    V \
+    3  4
+    
+    means that any of the nodes 2,3,4 might be failover candidates and if node 3 
+    becomes the new origin then there would need to be paths between 3 and 2,4
+    
+    I tried to capture a lot of these rules in the sl_failover_targets view.
+    
+    
+    We had to take the slony bugzilla instance offline because of excesive spam.
+    
+    
+    Steve
+    
+    
+    > 	Tom    (
+    >
+    >
+    > On 7/2/17, 9:30 PM, "Steve Singer" <steve at ssinger.info> wrote:
+    >
+    >    On Wed, 28 Jun 2017, Tignor, Tom wrote:
+    >
+    >    >
+    >    > 	Hi Steve,
+    >    > 	Thanks for the info. I was able to repro this problem in testing and saw as soon as I added the missing path back the still-in-process failover op continued on and completed successfully.
+    >    > 	We do issue DROP NODEs in the event we need to restore a replica from scratch, which did occur. However, the restore workflow also should issue store paths to/from the new replica node and every other node. Still investigating this.
+    >    > 	What still confuses me is the recurring ?remoteWorkerThread_X: SYNC? output, despite the fact of not having a configured path. If the path is missing, how does slon continue to get SYNC events?
+    >
+    >    Slon can get events including SYNC from nodes other than the event origin if
+    >    it has a path to that node.   However a slon can only replicate the data
+    >    from a node it has a path to.
+    >
+    >
+    >    Steve
+    >
+    >
+    >
+    >    >
+    >    > 	Tom    (
+    >    >
+    >    >
+    >    > On 6/27/17, 5:04 PM, "Steve Singer" <steve at ssinger.info> wrote:
+    >    >
+    >    >    On 06/27/2017 11:59 AM, Tignor, Tom wrote:
+    >    >
+    >    >
+    >    >    The disableNode() in the makes it look like someone did a DROP NODE
+    >    >
+    >    >    If the only issue is that your missing active paths in sl_path you can
+    >    >    add/update the paths with slonik.
+    >    >
+    >    >
+    >    >
+    >    >
+    >    >    > **
+    >    >    >
+    >    >    > **Hello Slony-I community,
+    >    >    >
+    >    >    >              Hoping someone can advise on a strange and serious problem.
+    >    >    > We performed a slony service failover yesterday. For the first time
+    >    >    > ever, our slony service FAILOVER op errored out. We recently expanded
+    >    >    > our cluster to 7 consumers from a single provider. There are no load
+    >    >    > issues during normal operations. As the error output below shows,
+    >    >    > though, our node 4 and node 5 consumers never got the events they
+    >    >    > needed. Here?s where it gets weird: closer inspection has shown that
+    >    >    > node 2->4 and node 2->5 path data went missing out of the service at
+    >    >    > some point. It seems clear that?s the main issue, but in spite of that,
+    >    >    > both node 4 and node 5 continued to find and process node 2 SYNC events
+    >    >    > for a full week! The logs show this happened in spite of multiple restarts.
+    >    >    >
+    >    >    > How can this happen? If missing path data stymies the failover, wouldn?t
+    >    >    > it also prevent normal SYNC processing?
+    >    >    >
+    >    >    > In the case where a failover is begun with inadequate path data, what?s
+    >    >    > the best resolution? Can path data be quickly applied to allow failover
+    >    >    > to succeed?
+    >    >    >
+    >    >    >              Thanks in advance for any insights.
+    >    >    >
+    >    >    > ---- failover error ----
+    >    >    >
+    >    >    > /tmp/ams-tool/ams-slony1-fastfailover-1-FR_80.67.75.105.slk:56: NOTICE:
+    >    >    > calling restart node 1
+    >    >    >
+    >    >    > /tmp/ams-tool/ams-slony1-fastfailover-1-FR_80.67.75.105.slk:55:
+    >    >    > 2017-06-26 18:33:02
+    >    >    >
+    >    >    > executing preFailover(1,1) on 2
+    >    >    >
+    >    >    > executing preFailover(1,1) on 3
+    >    >    >
+    >    >    > executing preFailover(1,1) on 4
+    >    >    >
+    >    >    > executing preFailover(1,1) on 5
+    >    >    >
+    >    >    > executing preFailover(1,1) on 6
+    >    >    >
+    >    >    > executing preFailover(1,1) on 7
+    >    >    >
+    >    >    > executing preFailover(1,1) on 8
+    >    >    >
+    >    >    > NOTICE: executing "_ams_cluster".failedNode2 on node 2
+    >    >    >
+    >    >    > /tmp/ams-tool/ams-slony1-fastfailover-1-FR_80.67.75.105.slk:56: waiting
+    >    >    > for event (2,5000061664).  node 8 only on event 5000061654, node 4 only
+    >    >    > on event 5000061654, node 5 only on event 5000061655, node 3 only on
+    >    >    > event 5000061662, node 6\
+    >    >    >
+    >    >    >   only on event 5000061654, node 7 only on event 5000061656
+    >    >    >
+    >    >    > /tmp/ams-tool/ams-slony1-fastfailover-1-FR_80.67.75.105.slk:56: waiting
+    >    >    > for event (2,5000061664).  node 4 only on event 5000061657, node 5 only
+    >    >    > on event 5000061663, node 3 only on event 5000061663, node 6 only on
+    >    >    > event 5000061663
+    >    >    >
+    >    >    > /tmp/ams-tool/ams-slony1-fastfailover-1-FR_80.67.75.105.slk:56: waiting
+    >    >    > for event (2,5000061664).  node 4 only on event 5000061663, node 5 only
+    >    >    > on event 5000061663, node 6 only on event 5000061663
+    >    >    >
+    >    >    > /tmp/ams-tool/ams-slony1-fastfailover-1-FR_80.67.75.105.slk:56: waiting
+    >    >    > for event (2,5000061664).  node 4 only on event 5000061663, node 5 only
+    >    >    > on event 5000061663
+    >    >    >
+    >    >    > /tmp/ams-tool/ams-slony1-fastfailover-1-FR_80.67.75.105.slk:56: waiting
+    >    >    > for event (2,5000061664).  node 4 only on event 5000061663, node 5 only
+    >    >    > on event 5000061663
+    >    >    >
+    >    >    > /tmp/ams-tool/ams-slony1-fastfailover-1-FR_80.67.75.105.slk:56: waiting
+    >    >    > for event (2,5000061664).  node 4 only on event 5000061663, node 5 only
+    >    >    > on event 5000061663
+    >    >    >
+    >    >    > /tmp/ams-tool/ams-slony1-fastfailover-1-FR_80.67.75.105.slk:56: waiting
+    >    >    > for event (2,5000061664).  node 4 only on event 5000061663, node 5 only
+    >    >    > on event 5000061663
+    >    >    >
+    >    >    > /tmp/ams-tool/ams-slony1-fastfailover-1-FR_80.67.75.105.slk:56: waiting
+    >    >    > for event (2,5000061664).  node 4 only on event 5000061663, node 5 only
+    >    >    > on event 5000061663
+    >    >    >
+    >    >    > /tmp/ams-tool/ams-slony1-fastfailover-1-FR_80.67.75.105.slk:56: waiting
+    >    >    > for event (2,5000061664).  node 4 only on event 5000061663, node 5 only
+    >    >    > on event 5000061663
+    >    >    >
+    >    >    > /tmp/ams-tool/ams-slony1-fastfailover-1-FR_80.67.75.105.slk:56: waiting
+    >    >    > for event (2,5000061664).  node 4 only on event 5000061663, node 5 only
+    >    >    > on event 5000061663
+    >    >    >
+    >    >    > /tmp/ams-tool/ams-slony1-fastfailover-1-FR_80.67.75.105.slk:56: waiting
+    >    >    > for event (2,5000061664).  node 4 only on event 5000061663, node 5 only
+    >    >    > on event 5000061663
+    >    >    >
+    >    >    > /tmp/ams-tool/ams-slony1-fastfailover-1-FR_80.67.75.105.slk:56: waiting
+    >    >    > for event (2,5000061664).  node 4 only on event 5000061663, node 5 only
+    >    >    > on event 5000061663
+    >    >    >
+    >    >    > /tmp/ams-tool/ams-slony1-fastfailover-1-FR_80.67.75.105.slk:56: waiting
+    >    >    > for event (2,5000061664).  node 4 only on event 5000061663, node 5 only
+    >    >    > on event 5000061663
+    >    >    >
+    >    >    > /tmp/ams-tool/ams-slony1-fastfailover-1-FR_80.67.75.105.slk:56: waiting
+    >    >    > for event (2,5000061664).  node 4 only on event 5000061663, node 5 only
+    >    >    > on event 5000061663
+    >    >    >
+    >    >    > ---- node 4 log archive ----
+    >    >    >
+    >    >    > bos-mpt5c:odin-9353 ttignor$ egrep 'disableNode: no_id=2|storePath:
+    >    >    > pa_server=2 pa_client=4|restart notification' prod4/node4-pathconfig.out
+    >    >    >
+    >    >    > 2017-06-15 15:14:00 UTC [5688] INFO   localListenThread: got restart
+    >    >    > notification
+    >    >    >
+    >    >    > 2017-06-15 15:14:10 UTC [8431] CONFIG storePath: pa_server=2 pa_client=4
+    >    >    > pa_conninfo="dbname=ams
+    >    >    >
+    >    >    > 2017-06-15 15:53:00 UTC [8431] INFO   localListenThread: got restart
+    >    >    > notification
+    >    >    >
+    >    >    > 2017-06-15 15:53:10 UTC [23701] CONFIG storePath: pa_server=2
+    >    >    > pa_client=4 pa_conninfo="dbname=ams
+    >    >    >
+    >    >    > 2017-06-16 17:29:13 UTC [10253] CONFIG storePath: pa_server=2
+    >    >    > pa_client=4 pa_conninfo="dbname=ams
+    >    >    >
+    >    >    > 2017-06-16 20:43:42 UTC [2707] CONFIG storePath: pa_server=2 pa_client=4
+    >    >    > pa_conninfo="dbname=ams
+    >    >    >
+    >    >    > 2017-06-19 15:11:45 UTC [2707] CONFIG disableNode: no_id=2
+    >    >    >
+    >    >    > 2017-06-19 15:11:45 UTC [2707] INFO   localListenThread: got restart
+    >    >    > notification
+    >    >    >
+    >    >    > 2017-06-20 18:40:15 UTC [31224] INFO   localListenThread: got restart
+    >    >    > notification
+    >    >    >
+    >    >    > 2017-06-21 14:31:42 UTC [6253] INFO   localListenThread: got restart
+    >    >    > notification
+    >    >    >
+    >    >    > 2017-06-21 14:35:26 UTC [32367] INFO   localListenThread: got restart
+    >    >    > notification
+    >    >    >
+    >    >    > 2017-06-26 18:21:25 UTC [9278] INFO   localListenThread: got restart
+    >    >    > notification
+    >    >    >
+    >    >    > 2017-06-26 18:33:04 UTC [28839] INFO   localListenThread: got restart
+    >    >    > notification
+    >    >    >
+    >    >    > 2017-06-26 18:33:30 UTC [1785] INFO   localListenThread: got restart
+    >    >    > notification
+    >    >    >
+    >    >    > bos-mpt5c:odin-9353 ttignor$
+    >    >    >
+    >    >    > ---- node 5 log archive ----
+    >    >    >
+    >    >    > bos-mpt5c:odin-9353 ttignor$ egrep 'disableNode: no_id=2|storePath:
+    >    >    > pa_server=2 pa_client=5|restart notification' prod5/node5-pathconfig.out
+    >    >    >
+    >    >    > 2017-06-15 15:13:56 UTC [20700] INFO   localListenThread: got restart
+    >    >    > notification
+    >    >    >
+    >    >    > 2017-06-15 15:14:06 UTC [20374] CONFIG storePath: pa_server=2
+    >    >    > pa_client=5 pa_conninfo="dbname=ams
+    >    >    >
+    >    >    > 2017-06-15 15:53:01 UTC [20374] INFO   localListenThread: got restart
+    >    >    > notification
+    >    >    >
+    >    >    > 2017-06-15 15:53:11 UTC [2859] CONFIG storePath: pa_server=2 pa_client=5
+    >    >    > pa_conninfo="dbname=ams
+    >    >    >
+    >    >    > 2017-06-16 17:28:19 UTC [2859] INFO   localListenThread: got restart
+    >    >    > notification
+    >    >    >
+    >    >    > 2017-06-16 17:28:29 UTC [10753] CONFIG storePath: pa_server=2
+    >    >    > pa_client=5 pa_conninfo="dbname=ams
+    >    >    >
+    >    >    > 2017-06-19 15:11:40 UTC [10753] CONFIG disableNode: no_id=2
+    >    >    >
+    >    >    > 2017-06-19 15:11:40 UTC [10753] INFO   localListenThread: got restart
+    >    >    > notification
+    >    >    >
+    >    >    > 2017-06-20 18:40:11 UTC [450] INFO   localListenThread: got restart
+    >    >    > notification
+    >    >    >
+    >    >    > 2017-06-21 14:31:41 UTC [22300] INFO   localListenThread: got restart
+    >    >    > notification
+    >    >    >
+    >    >    > 2017-06-21 14:35:28 UTC [26777] INFO   localListenThread: got restart
+    >    >    > notification
+    >    >    >
+    >    >    > 2017-06-26 18:21:27 UTC [28366] INFO   localListenThread: got restart
+    >    >    > notification
+    >    >    >
+    >    >    > 2017-06-26 18:33:04 UTC [29345] INFO   localListenThread: got restart
+    >    >    > notification
+    >    >    >
+    >    >    > 2017-06-26 18:33:27 UTC [1299] INFO   localListenThread: got restart
+    >    >    > notification
+    >    >    >
+    >    >    > bos-mpt5c:odin-9353 ttignor$
+    >    >    >
+    >    >    >              Tom ?
+    >    >    >
+    >    >    >
+    >    >    >
+    >    >    > _______________________________________________
+    >    >    > Slony1-general mailing list
+    >    >    > Slony1-general at lists.slony.info
+    >    >    > http://lists.slony.info/mailman/listinfo/slony1-general
+    >    >    >
+    >    >
+    >    >
+    >    >
+    >    >
+    >
+    >
+    >
+    
+
+
+From ttignor at akamai.com  Fri Jul 21 07:00:30 2017
+From: ttignor at akamai.com (Tignor, Tom)
+Date: Fri, 21 Jul 2017 14:00:30 +0000
+Subject: [Slony1-general] more missing paths, and <event_pending>
+Message-ID: <556B8719-FE2D-41B8-8FCF-28918E48989D@akamai.com>
+
+
+                Hello again, Slony-I community,
+                After our last missing path issue, we?ve taken a new interest in keeping all our path/conninfo data up to date. We have a cluster running with 7 nodes. Each has conninfo to all the others, so we expect N=7; N*(N-1) = 42 paths. We?re having persistent problems with our paths for node 4. Node 4 itself has fully accurate path data. However, all the other nodes have missing or inaccurate data for node-4-client conninfo. Specifically: node 1 shows:
+
+                         1 |         4 | <event pending>            |           10
+
+                For the other five nodes, the node-4-client conninfo is just missing. In other words, there are no pa_server=X, pa_client=4 rows in sl_path for these nodes. Again, the node 4 DB itself shows all the paths we expect.
+                Does anyone have thoughts on how this is caused and how it could be fixed? Repeated ?store path? operations all complete without errors but do not change state. Service restarts haven?t worked either.
+                Thanks in advance,
+
+                Tom    ?
+
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.slony.info/pipermail/slony1-general/attachments/20170721/c5d51fa5/attachment.html 
+
+From steve at ssinger.info  Fri Jul 21 18:53:34 2017
+From: steve at ssinger.info (Steve Singer)
+Date: Fri, 21 Jul 2017 21:53:34 -0400 (EDT)
+Subject: [Slony1-general] more missing paths, and <event_pending>
+In-Reply-To: <556B8719-FE2D-41B8-8FCF-28918E48989D@akamai.com>
+References: <556B8719-FE2D-41B8-8FCF-28918E48989D@akamai.com>
+Message-ID: <alpine.DEB.2.11.1707212147480.23552@opti.atlantida>
+
+On Fri, 21 Jul 2017, Tignor, Tom wrote:
+
+> 
+> ?
+> 
+> ??????????????? Hello again, Slony-I community,
+> 
+> ??????????????? After our last missing path issue, we?ve taken a new interest in keeping all our path/conninfo
+> data up to date. We have a cluster running with 7 nodes. Each has conninfo to all the others, so we expect N=7;
+> N*(N-1) = 42 paths. We?re having persistent problems with our paths for node 4. Node 4 itself has fully accurate
+> path data. However, all the other nodes have missing or inaccurate data for node-4-client conninfo. Specifically:
+> node 1 shows:
+> 
+> ?
+> 
+> ??????????????? ?? ? ? ? 1 | ? ? ? ? 4 | <event pending>? ? ? ? ? ? | ? ? ? ? ? 10
+> 
+> ?
+> 
+> ??????????????? For the other five nodes, the node-4-client conninfo is just missing. In other words, there are no
+> pa_server=X, pa_client=4 rows in sl_path for these nodes. Again, the node 4 DB itself shows all the paths we
+> expect.
+> 
+> ??????????????? Does anyone have thoughts on how this is caused and how it could be fixed? Repeated ?store path?
+> operations all complete without errors but do not change state. Service restarts haven?t worked either.
+
+When you issue a store path command with line client=4 server=X
+
+slonik connects to db4 and
+A) updates sl_path
+B) creates an event in sl_event of ev_type=STORE_PATH with ev_origin=4
+
+This event then needs to propogate to the other nodes in the network.
+
+When this event propogates to the other nodes then the remoteWorkerThread_4 
+in each of the other nodes will process this STORE_PATH entry, and you 
+should see a
+CONFIG storePath: pa_server=X pa_client=4
+
+message in each of the other slons.
+
+If this happens you should see the actual path in sl_path.  Since your not I 
+assume that this isn't happening.
+
+Where on the chain of events are things breaking down?
+
+Do you have other paths from other nodes with  client=[X,Y,Z] server=4
+
+
+Steve
+
+
+
+> 
+> ??????????????? Thanks in advance,
+> 
+> ?
+> 
+> ??????????????? Tom??? ?
+> 
+> ?
+> 
+> ?
+> 
+> 
+>
+
+From ttignor at akamai.com  Sat Jul 22 07:39:08 2017
+From: ttignor at akamai.com (Tignor, Tom)
+Date: Sat, 22 Jul 2017 14:39:08 +0000
+Subject: [Slony1-general] more missing paths, and <event_pending>
+In-Reply-To: <alpine.DEB.2.11.1707212147480.23552@opti.atlantida>
+References: <556B8719-FE2D-41B8-8FCF-28918E48989D@akamai.com>
+	<alpine.DEB.2.11.1707212147480.23552@opti.atlantida>
+Message-ID: <AC0B3FF4-1B65-4471-88C6-B4F53BD730D5@akamai.com>
+
+
+	Hi Steve,
+	Thanks for the store path desc. That?s what I surmised generally. I should note: when problems arise with subscribers, we have a utility to drop and re-store the node, and then re-store paths to all other nodes.
+	To answer your questions: node 4 has all expected state, 7*6=42 connections, i.e.
+
+	Sl_path server = 1, client = 3
+	Sl_path server = 1, client = 4
+	Sl_path server = 1, client = 6
+	Sl_path server = 1, client = 7
+	Sl_path server = 1, client = 8
+	Sl_path server = 1, client = 9
+	Sl_path server = 3, client = 1
+	Sl_path server = 3, client = 4
+	Sl_path server = 3, client = 6
+	Sl_path server = 3, client = 7
+	Sl_path server = 3, client = 8
+	Sl_path server = 3, client = 9
+	?
+
+
+	All the other nodes have 37 connections. The following are missing in each DB:
+
+	Sl_path server = 3, client = 4
+	Sl_path server = 6, client = 4
+	Sl_path server = 7, client = 4
+	Sl_path server = 8, client = 4
+	Sl_path server = 9, client = 4
+
+	Moreover, the Sl_path server = 1, client = 4 path shows the conninfo as <event pending>.
+	Just a guess: is there possibly some sl_event table entry which, if deleted, will allow the node-4-client store path ops to get processed?
+
+	Tom    (
+
+
+On 7/21/17, 9:53 PM, "Steve Singer" <steve at ssinger.info> wrote:
+
+    On Fri, 21 Jul 2017, Tignor, Tom wrote:
+    
+    > 
+    >  
+    > 
+    >                 Hello again, Slony-I community,
+    > 
+    >                 After our last missing path issue, we?ve taken a new interest in keeping all our path/conninfo
+    > data up to date. We have a cluster running with 7 nodes. Each has conninfo to all the others, so we expect N=7;
+    > N*(N-1) = 42 paths. We?re having persistent problems with our paths for node 4. Node 4 itself has fully accurate
+    > path data. However, all the other nodes have missing or inaccurate data for node-4-client conninfo. Specifically:
+    > node 1 shows:
+    > 
+    >  
+    > 
+    >                          1 |         4 | <event pending>            |           10
+    > 
+    >  
+    > 
+    >                 For the other five nodes, the node-4-client conninfo is just missing. In other words, there are no
+    > pa_server=X, pa_client=4 rows in sl_path for these nodes. Again, the node 4 DB itself shows all the paths we
+    > expect.
+    > 
+    >                 Does anyone have thoughts on how this is caused and how it could be fixed? Repeated ?store path?
+    > operations all complete without errors but do not change state. Service restarts haven?t worked either.
+    
+    When you issue a store path command with line client=4 server=X
+    
+    slonik connects to db4 and
+    A) updates sl_path
+    B) creates an event in sl_event of ev_type=STORE_PATH with ev_origin=4
+    
+    This event then needs to propogate to the other nodes in the network.
+    
+    When this event propogates to the other nodes then the remoteWorkerThread_4 
+    in each of the other nodes will process this STORE_PATH entry, and you 
+    should see a
+    CONFIG storePath: pa_server=X pa_client=4
+    
+    message in each of the other slons.
+    
+    If this happens you should see the actual path in sl_path.  Since your not I 
+    assume that this isn't happening.
+    
+    Where on the chain of events are things breaking down?
+    
+    Do you have other paths from other nodes with  client=[X,Y,Z] server=4
+    
+    
+    Steve
+    
+    
+    
+    > 
+    >                 Thanks in advance,
+    > 
+    >  
+    > 
+    >                 Tom    ?
+    > 
+    >  
+    > 
+    >  
+    > 
+    > 
+    >
+    
+
+
+From steve at ssinger.info  Sat Jul 22 10:19:54 2017
+From: steve at ssinger.info (Steve Singer)
+Date: Sat, 22 Jul 2017 13:19:54 -0400 (EDT)
+Subject: [Slony1-general] more missing paths, and <event_pending>
+In-Reply-To: <AC0B3FF4-1B65-4471-88C6-B4F53BD730D5@akamai.com>
+References: <556B8719-FE2D-41B8-8FCF-28918E48989D@akamai.com>
+	<alpine.DEB.2.11.1707212147480.23552@opti.atlantida>
+	<AC0B3FF4-1B65-4471-88C6-B4F53BD730D5@akamai.com>
+Message-ID: <alpine.DEB.2.11.1707221318440.23552@opti.atlantida>
+
+On Sat, 22 Jul 2017, Tignor, Tom wrote:
+
+>
+> 	Hi Steve,
+> 	Thanks for the store path desc. That?s what I surmised generally. I should note: when problems arise with subscribers, we have a utility to drop and re-store the node, and then re-store paths to all other nodes.
+> 	To answer your questions: node 4 has all expected state, 7*6=42 connections, i.e.
+>
+> 	Sl_path server = 1, client = 3
+> 	Sl_path server = 1, client = 4
+> 	Sl_path server = 1, client = 6
+> 	Sl_path server = 1, client = 7
+> 	Sl_path server = 1, client = 8
+> 	Sl_path server = 1, client = 9
+> 	Sl_path server = 3, client = 1
+> 	Sl_path server = 3, client = 4
+> 	Sl_path server = 3, client = 6
+> 	Sl_path server = 3, client = 7
+> 	Sl_path server = 3, client = 8
+> 	Sl_path server = 3, client = 9
+> 	?
+>
+>
+> 	All the other nodes have 37 connections. The following are missing in each DB:
+>
+> 	Sl_path server = 3, client = 4
+> 	Sl_path server = 6, client = 4
+> 	Sl_path server = 7, client = 4
+> 	Sl_path server = 8, client = 4
+> 	Sl_path server = 9, client = 4
+
+I don't see any sl_path entires with
+
+server=4 client=[3,6,7,8,9]
+What if you re-issue the store path command with
+
+server=4,client = everything
+
+
+
+
+>
+> 	Moreover, the Sl_path server = 1, client = 4 path shows the conninfo as <event pending>.
+> 	Just a guess: is there possibly some sl_event table entry which, if deleted, will allow the node-4-client store path ops to get processed?
+>
+> 	Tom    (
+>
+>
+> On 7/21/17, 9:53 PM, "Steve Singer" <steve at ssinger.info> wrote:
+>
+>    On Fri, 21 Jul 2017, Tignor, Tom wrote:
+>
+>    >
+>    >
+>    >
+>    >                 Hello again, Slony-I community,
+>    >
+>    >                 After our last missing path issue, we?ve taken a new interest in keeping all our path/conninfo
+>    > data up to date. We have a cluster running with 7 nodes. Each has conninfo to all the others, so we expect N=7;
+>    > N*(N-1) = 42 paths. We?re having persistent problems with our paths for node 4. Node 4 itself has fully accurate
+>    > path data. However, all the other nodes have missing or inaccurate data for node-4-client conninfo. Specifically:
+>    > node 1 shows:
+>    >
+>    >
+>    >
+>    >                          1 |         4 | <event pending>            |           10
+>    >
+>    >
+>    >
+>    >                 For the other five nodes, the node-4-client conninfo is just missing. In other words, there are no
+>    > pa_server=X, pa_client=4 rows in sl_path for these nodes. Again, the node 4 DB itself shows all the paths we
+>    > expect.
+>    >
+>    >                 Does anyone have thoughts on how this is caused and how it could be fixed? Repeated ?store path?
+>    > operations all complete without errors but do not change state. Service restarts haven?t worked either.
+>
+>    When you issue a store path command with line client=4 server=X
+>
+>    slonik connects to db4 and
+>    A) updates sl_path
+>    B) creates an event in sl_event of ev_type=STORE_PATH with ev_origin=4
+>
+>    This event then needs to propogate to the other nodes in the network.
+>
+>    When this event propogates to the other nodes then the remoteWorkerThread_4
+>    in each of the other nodes will process this STORE_PATH entry, and you
+>    should see a
+>    CONFIG storePath: pa_server=X pa_client=4
+>
+>    message in each of the other slons.
+>
+>    If this happens you should see the actual path in sl_path.  Since your not I
+>    assume that this isn't happening.
+>
+>    Where on the chain of events are things breaking down?
+>
+>    Do you have other paths from other nodes with  client=[X,Y,Z] server=4
+>
+>
+>    Steve
+>
+>
+>
+>    >
+>    >                 Thanks in advance,
+>    >
+>    >
+>    >
+>    >                 Tom    ?
+>    >
+>    >
+>    >
+>    >
+>    >
+>    >
+>    >
+>
+>
+>
+
+From ttignor at akamai.com  Mon Jul 24 07:47:22 2017
+From: ttignor at akamai.com (Tignor, Tom)
+Date: Mon, 24 Jul 2017 14:47:22 +0000
+Subject: [Slony1-general] more missing paths, and <event_pending>
+In-Reply-To: <AC0B3FF4-1B65-4471-88C6-B4F53BD730D5@akamai.com>
+References: <556B8719-FE2D-41B8-8FCF-28918E48989D@akamai.com>
+	<alpine.DEB.2.11.1707212147480.23552@opti.atlantida>
+	<AC0B3FF4-1B65-4471-88C6-B4F53BD730D5@akamai.com>
+Message-ID: <5C554072-4AD4-47F3-8838-A87BD9292CDD@akamai.com>
+
+
+	Hi again,
+	I?ve made some progress here on my own. Checking the various node DBs not hearing my node 4, I found they had sl_event and sl_confirm entries for sequence# 5000071346, and that from 5 days ago now. The node 4 DB itself had its sl_event_seq sequence at 5000040947. It seems clear the bad state in the other nodes was leftover from before my last node 4 restore op. My solution was to advance the node 4 sequence to  5000071347. As soon as I did, I saw new node 4 SEQ events accumulating in other node sl_event tables. After that, store path ops worked fine.
+	Seems like this could be useful to others. Is there a bug fix or doc update to derive from this? Let me know if I should write something up more formally or open a ticket.
+
+
+ams=# select * from _ams_cluster.sl_event where ev_origin = 4; 
+ ev_origin |  ev_seqno  |         ev_timestamp          |    ev_snapshot     | ev_type | ev_data1 | ev_data2 | ev_data3 | ev_data4 | ev_data5 | ev_data6 | ev_data7 | ev_data8 
+-----------+------------+-------------------------------+--------------------+---------+----------+----------+----------+----------+----------+----------+----------+----------
+         4 | 5000071346 | 2017-07-19 20:27:26.418196+00 | 15346449:15346449: | SYNC    |          |          |          |          |          |          |          | 
+(1 row)
+
+ams=# 
+
+ams=# select * from _ams_cluster.sl_confirm where con_origin = 4; 
+ con_origin | con_received | con_seqno  |         con_timestamp         
+------------+--------------+------------+-------------------------------
+          4 |            6 | 5000071346 | 2017-07-19 20:35:33.504667+00
+          4 |            3 | 5000071346 | 2017-07-19 20:29:09.763466+00
+          4 |            9 | 5000071346 | 2017-07-19 20:29:22.496843+00
+          4 |            8 | 5000071346 | 2017-07-19 20:27:27.9303+00
+          4 |            1 | 5000071346 | 2017-07-19 20:27:26.705526+00
+          4 |            7 | 5000071346 | 2017-07-20 18:04:01.978874+00
+(6 rows)
+
+ams=# 
+
+
+	Tom    (
+
+
+On 7/22/17, 10:39 AM, "Tignor, Tom" <ttignor at akamai.com> wrote:
+
+    
+    	Hi Steve,
+    	Thanks for the store path desc. That?s what I surmised generally. I should note: when problems arise with subscribers, we have a utility to drop and re-store the node, and then re-store paths to all other nodes.
+    	To answer your questions: node 4 has all expected state, 7*6=42 connections, i.e.
+    
+    	Sl_path server = 1, client = 3
+    	Sl_path server = 1, client = 4
+    	Sl_path server = 1, client = 6
+    	Sl_path server = 1, client = 7
+    	Sl_path server = 1, client = 8
+    	Sl_path server = 1, client = 9
+    	Sl_path server = 3, client = 1
+    	Sl_path server = 3, client = 4
+    	Sl_path server = 3, client = 6
+    	Sl_path server = 3, client = 7
+    	Sl_path server = 3, client = 8
+    	Sl_path server = 3, client = 9
+    	?
+    
+    
+    	All the other nodes have 37 connections. The following are missing in each DB:
+    
+    	Sl_path server = 3, client = 4
+    	Sl_path server = 6, client = 4
+    	Sl_path server = 7, client = 4
+    	Sl_path server = 8, client = 4
+    	Sl_path server = 9, client = 4
+    
+    	Moreover, the Sl_path server = 1, client = 4 path shows the conninfo as <event pending>.
+    	Just a guess: is there possibly some sl_event table entry which, if deleted, will allow the node-4-client store path ops to get processed?
+    
+    	Tom    (
+    
+    
+    On 7/21/17, 9:53 PM, "Steve Singer" <steve at ssinger.info> wrote:
+    
+        On Fri, 21 Jul 2017, Tignor, Tom wrote:
+        
+        > 
+        >  
+        > 
+        >                 Hello again, Slony-I community,
+        > 
+        >                 After our last missing path issue, we?ve taken a new interest in keeping all our path/conninfo
+        > data up to date. We have a cluster running with 7 nodes. Each has conninfo to all the others, so we expect N=7;
+        > N*(N-1) = 42 paths. We?re having persistent problems with our paths for node 4. Node 4 itself has fully accurate
+        > path data. However, all the other nodes have missing or inaccurate data for node-4-client conninfo. Specifically:
+        > node 1 shows:
+        > 
+        >  
+        > 
+        >                          1 |         4 | <event pending>            |           10
+        > 
+        >  
+        > 
+        >                 For the other five nodes, the node-4-client conninfo is just missing. In other words, there are no
+        > pa_server=X, pa_client=4 rows in sl_path for these nodes. Again, the node 4 DB itself shows all the paths we
+        > expect.
+        > 
+        >                 Does anyone have thoughts on how this is caused and how it could be fixed? Repeated ?store path?
+        > operations all complete without errors but do not change state. Service restarts haven?t worked either.
+        
+        When you issue a store path command with line client=4 server=X
+        
+        slonik connects to db4 and
+        A) updates sl_path
+        B) creates an event in sl_event of ev_type=STORE_PATH with ev_origin=4
+        
+        This event then needs to propogate to the other nodes in the network.
+        
+        When this event propogates to the other nodes then the remoteWorkerThread_4 
+        in each of the other nodes will process this STORE_PATH entry, and you 
+        should see a
+        CONFIG storePath: pa_server=X pa_client=4
+        
+        message in each of the other slons.
+        
+        If this happens you should see the actual path in sl_path.  Since your not I 
+        assume that this isn't happening.
+        
+        Where on the chain of events are things breaking down?
+        
+        Do you have other paths from other nodes with  client=[X,Y,Z] server=4
+        
+        
+        Steve
+        
+        
+        
+        > 
+        >                 Thanks in advance,
+        > 
+        >  
+        > 
+        >                 Tom    ?
+        > 
+        >  
+        > 
+        >  
+        > 
+        > 
+        >
+        
+    
+    
+
+
+From steve at ssinger.info  Sun Jul 30 19:15:07 2017
+From: steve at ssinger.info (Steve Singer)
+Date: Sun, 30 Jul 2017 22:15:07 -0400 (EDT)
+Subject: [Slony1-general] Slony 2.2.6 release plans
+Message-ID: <alpine.DEB.2.11.1707302209010.12702@opti.atlantida>
+
+
+I am thinking of releasing slony 2.2.6 later this week or early next week.
+Changes are checked into git on the REL_2_2_STABLE branch.
+
+Our version detection code doesn't work with the PG10+ version numbering. I 
+wasn't planning on backporting these changes to 2.1 or earlier but someone 
+could if they really wanted to.
+
+
+The following are the changes I am planning on including in 2.2.6
+
+   - slonik_build_env can now accept multiple -schema options on the command 
+line
+    - Support for PG10. This involved changes to PG version detection
+    - Disallow createEvent and data changes in the same transaction.
+      This also fixes some issues when the logApply trigger invokes the
+      data change trigger by inserting into a table with a trigger that
+      in turns inserts into another replicated table.
+    - Fix some failover issues when doing a multi-node failover
+      with a cascaded node.
+    - Bug 341 - suppress log trigger/deny when running in 'local' mode
+
+
+
+If I don't hear any objections, or requests for more time to test I work 
+through the release process when I have a chance, likely Monday.
+
+Steve
+
+
+From ttignor at akamai.com  Mon Jul 31 04:29:06 2017
+From: ttignor at akamai.com (Tignor, Tom)
+Date: Mon, 31 Jul 2017 11:29:06 +0000
+Subject: [Slony1-general] Slony 2.2.6 release plans
+In-Reply-To: <alpine.DEB.2.11.1707302209010.12702@opti.atlantida>
+References: <alpine.DEB.2.11.1707302209010.12702@opti.atlantida>
+Message-ID: <5C59D8BD-06AC-4B56-9BD5-2AF4362A5006@akamai.com>
+
+
+	Hi Steve,
+	A question on one item:
+
+        - Fix some failover issues when doing a multi-node failover
+          with a cascaded node.
+
+	In cascaded node failover, is it necessary to sync with every receiver node for a failed over set? Or is it sufficient to sync only with nodes directly subscribing to the failed over node? Hoping for the latter!
+	Thanks,
+	
+	Tom    (
+
+
+On 7/30/17, 10:15 PM, "Steve Singer" <steve at ssinger.info> wrote:
+
+    
+    I am thinking of releasing slony 2.2.6 later this week or early next week.
+    Changes are checked into git on the REL_2_2_STABLE branch.
+    
+    Our version detection code doesn't work with the PG10+ version numbering. I 
+    wasn't planning on backporting these changes to 2.1 or earlier but someone 
+    could if they really wanted to.
+    
+    
+    The following are the changes I am planning on including in 2.2.6
+    
+       - slonik_build_env can now accept multiple -schema options on the command 
+    line
+        - Support for PG10. This involved changes to PG version detection
+        - Disallow createEvent and data changes in the same transaction.
+          This also fixes some issues when the logApply trigger invokes the
+          data change trigger by inserting into a table with a trigger that
+          in turns inserts into another replicated table.
+        - Fix some failover issues when doing a multi-node failover
+          with a cascaded node.
+        - Bug 341 - suppress log trigger/deny when running in 'local' mode
+    
+    
+    
+    If I don't hear any objections, or requests for more time to test I work 
+    through the release process when I have a chance, likely Monday.
+    
+    Steve
+    
+    _______________________________________________
+    Slony1-general mailing list
+    Slony1-general at lists.slony.info
+    http://lists.slony.info/mailman/listinfo/slony1-general
+    
+
+
